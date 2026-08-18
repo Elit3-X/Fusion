@@ -319,6 +319,13 @@
   --swatch-sample-4: var(--midnight-swatch-sample-4);
 }
 
+.theme-swatch-velvet {
+  --swatch-sample-1: var(--velvet-swatch-sample-1);
+  --swatch-sample-2: var(--velvet-swatch-sample-2);
+  --swatch-sample-3: var(--velvet-swatch-sample-3);
+  --swatch-sample-4: var(--velvet-swatch-sample-4);
+}
+
 .theme-swatch-aurora {
   --swatch-sample-1: var(--aurora-swatch-sample-1);
   --swatch-sample-2: var(--aurora-swatch-sample-2);
@@ -1193,6 +1200,13 @@
   --swatch-sample-2: var(--midnight-swatch-sample-2);
   --swatch-sample-3: var(--midnight-swatch-sample-3);
   --swatch-sample-4: var(--midnight-swatch-sample-4);
+}
+
+[data-theme="light"] .theme-swatch-velvet {
+  --swatch-sample-1: var(--velvet-swatch-sample-1);
+  --swatch-sample-2: var(--velvet-swatch-sample-2);
+  --swatch-sample-3: var(--velvet-swatch-sample-3);
+  --swatch-sample-4: var(--velvet-swatch-sample-4);
 }
 
 [data-theme="light"] .theme-swatch-aurora {
