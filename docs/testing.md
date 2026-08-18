@@ -658,6 +658,8 @@ pnpm test:velocity
 
 Each week, copy the `Post to #leads` block from `docs/test-velocity-baseline.md`. If a measured command fails because the local environment is not ready, keep the failure recorded in the report instead of fabricating a time, then fix or rerun separately as appropriate. Do not wire `pnpm test:velocity`, `test:full`, or any slow-suite expansion into PR checks; the merge gate stays the thin Lint, Typecheck, Build, and Gate path.
 
+The baseline document is generated; never hand-edit it. Attach a durable measurement verdict with `pnpm test:velocity -- --note "<text>" [--note-target <capturedAt|ISO-cycle>]`. Notes are persisted on their history entries and the report renders all annotated cycles newest first with no history window cap, so an old investigation remains visible after later weekly appends. `--note-target` must match exactly one entry; use its `capturedAt` timestamp when an ISO week would be ambiguous.
+
 ## Targeted commands
 
 ```bash
