@@ -5954,6 +5954,10 @@ export default interface Resources {
         "perAgentSettingsOverrideProjectDefaultsEachCategory": "Project defaults apply to permanent agents, ephemeral task workers, and fallback executor workers unless a per-agent override is set. Exact tool rules compose with the legacy ephemeral create-task toggle. Default: unset — every action category defaults to allow until a category is explicitly restricted."
       },
       "appearance": {
+        "chatMessageLayout": "Conversation layout",
+        "chatMessageLayoutBubbles": "Bubbles",
+        "chatMessageLayoutFullWidth": "Full width",
+        "chatMessageLayoutHelp": "Choose Bubbles or Full width for normal Chat, Quick Chat, dock Chat, task Activity, and Planner Chat. Project-scoped; default: Bubbles.",
         "hideAISessionNotificationBanners": "Hide AI session notification banners",
         "language": "Language",
         "languageAuto": "Auto",

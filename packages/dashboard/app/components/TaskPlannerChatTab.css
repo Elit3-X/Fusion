@@ -8,6 +8,20 @@
 }
 
 /*
+FNXC:ChatMessageLayout 2026-08-18-20:27:
+Planner Chat reuses StandardChatSurface message markup, so its root modifier is the only task-specific hook needed to remove the shared horizontal bubble split while preserving the planner transcript, controls, and empty/loading states.
+*/
+.task-planner-chat--full-width .chat-message,
+.task-planner-chat--full-width .chat-message--user,
+.task-planner-chat--full-width .chat-message--assistant,
+.task-planner-chat--full-width .chat-message--streaming,
+.task-planner-chat--full-width .chat-message--failure {
+  width: 100%;
+  max-width: 100%;
+  align-self: stretch;
+}
+
+/*
 FNXC:TaskDetailPlannerChat 2026-07-02-00:28:
 Planner Chat should not render a redundant in-panel title/header. The transcript starts at the top of the chat area, the expand button floats over the view, and the planning model/provider icon appears only as a small empty-state affordance.
 */
@@ -310,5 +324,13 @@ height rather than relying on the global button minimum.
 
   .task-planner-chat .chat-question-response {
     margin-inline: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .task-planner-chat--full-width .chat-message {
+    width: 100%;
+    max-width: 100%;
+    align-self: stretch;
   }
 }

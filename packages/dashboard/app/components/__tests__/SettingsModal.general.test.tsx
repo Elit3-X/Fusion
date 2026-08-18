@@ -221,6 +221,48 @@ vi.mock("../FileBrowser", () => ({
 }));
 
 describe("SettingsModal", () => {
+  it("renders and persists the project-scoped conversation layout without a global write", async () => {
+    const onChatMessageLayoutChange = vi.fn();
+    mockFetchSettingsByScope.mockResolvedValueOnce({
+      global: defaultSettings,
+      project: {
+        ...defaultSettings,
+        allowAbsoluteFileBrowserPaths: false,
+        directMergeCommitStrategy: "auto",
+        maxAutoMergeRetries: 3,
+        executorToolFailureRetryCount: 2,
+        executorToolFailureRetryBackoffMs: 2000,
+        executorToolFailureThreshold: 1,
+        executorModelEscalationEnabled: false,
+        executorEscalationProvider: undefined,
+        executorEscalationModelId: undefined,
+        executorEscalationNodeId: undefined,
+        chatMessageLayout: "bubbles",
+        gitlabAuthTokenType: "personal",
+        mergeAdvanceAutoSync: "stash-and-ff",
+        pushRemote: undefined,
+        showCostBadgeOnCards: false,
+        taskDetailChatFirst: false,
+        worktreeInitCommand: undefined,
+        worktreesDir: undefined,
+        worktrunk: { enabled: false, binaryPath: undefined, onFailure: "fail" },
+      },
+    } as never);
+    renderModal({ initialSection: "appearance", onChatMessageLayoutChange });
+    await waitForSettingsModalReady();
+
+    const selector = screen.getByLabelText("Conversation layout") as HTMLSelectElement;
+    expect(selector.value).toBe("bubbles");
+    vi.useFakeTimers();
+    fireEvent.change(selector, { target: { value: "full-width" } });
+    expect(onChatMessageLayoutChange).toHaveBeenCalledWith("full-width");
+    await flushSettingsAutoSave();
+    vi.useRealTimers();
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ chatMessageLayout: "full-width" }, undefined);
+    expect(mockUpdateGlobalSettings).not.toHaveBeenCalled();
+  });
+
   it("renders recommendation mailbox notices enabled by default and persists disabling it", async () => {
     renderModal({ initialSection: "general" });
     await waitForSettingsModalReady();

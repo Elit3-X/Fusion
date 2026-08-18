@@ -46,6 +46,50 @@ describe("useAppSettings", () => {
     mockUpdateSettings.mockResolvedValue({} as never);
   });
 
+  it.each([
+    ["full-width", "full-width"],
+    [undefined, "bubbles"],
+    ["legacy-value", "bubbles"],
+  ] as const)("normalizes persisted chat message layout %s to %s", async (storedLayout, expectedLayout) => {
+    mockFetchSettings.mockResolvedValueOnce({ chatMessageLayout: storedLayout } as never);
+    const { result } = renderHook(() => useAppSettings("proj_123"));
+
+    await waitFor(() => expect(result.current.settingsLoaded).toBe(true));
+    expect(result.current.chatMessageLayout).toBe(expectedLayout);
+  });
+
+  it("resets chat message layout to bubbles while a new project hydrates", async () => {
+    mockFetchSettings
+      .mockResolvedValueOnce({ chatMessageLayout: "full-width" } as never)
+      .mockResolvedValueOnce({ chatMessageLayout: undefined } as never);
+    const { result, rerender } = renderHook(({ projectId }) => useAppSettings(projectId), { initialProps: { projectId: "project-a" } });
+
+    await waitFor(() => expect(result.current.chatMessageLayout).toBe("full-width"));
+    rerender({ projectId: "project-b" });
+    expect(result.current.chatMessageLayout).toBe("bubbles");
+    await waitFor(() => expect(result.current.settingsLoaded).toBe(true));
+    expect(result.current.chatMessageLayout).toBe("bubbles");
+  });
+
+  it("does not apply a previous project's late layout response", async () => {
+    let resolvePreviousProjectSettings!: (value: never) => void;
+    mockFetchSettings
+      .mockImplementationOnce(() => new Promise((resolve) => { resolvePreviousProjectSettings = resolve as (value: never) => void; }))
+      .mockResolvedValueOnce({ chatMessageLayout: "bubbles" } as never);
+
+    const { result, rerender } = renderHook(({ projectId }) => useAppSettings(projectId), { initialProps: { projectId: "project-a" } });
+    rerender({ projectId: "project-b" });
+
+    await waitFor(() => expect(result.current.settingsLoaded).toBe(true));
+    expect(result.current.chatMessageLayout).toBe("bubbles");
+
+    await act(async () => {
+      resolvePreviousProjectSettings({ chatMessageLayout: "full-width" } as never);
+    });
+
+    expect(result.current.chatMessageLayout).toBe("bubbles");
+  });
+
   it("defaults omitted task popup scoping to enabled during hydration", async () => {
     const { result } = renderHook(() => useAppSettings("proj_123"));
 

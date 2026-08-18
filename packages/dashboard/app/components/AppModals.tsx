@@ -5,6 +5,7 @@ import type { UseProjectActionsResult } from "../hooks/useProjectActions";
 import { mergeTaskSnapshot } from "../hooks/useTasks";
 import type { ModalManager } from "../hooks/useModalManager";
 import type { UseTaskHandlersResult } from "../hooks/useTaskHandlers";
+import type { ChatMessageLayout } from "../hooks/useAppSettings";
 import type { Toast, ToastType } from "../hooks/useToast";
 import { ModalErrorBoundary } from "./ErrorBoundary";
 import { TaskDetailModal } from "./TaskDetailModal";
@@ -85,6 +86,7 @@ interface AppModalsProps {
     prAuthAvailable: boolean;
     autoMerge: boolean;
     taskDetailChatFirst: boolean;
+    chatMessageLayout: ChatMessageLayout;
     themeMode: ThemeMode;
     colorTheme: ColorTheme;
     dashboardFontScalePct: number;
@@ -95,6 +97,7 @@ interface AppModalsProps {
     setDashboardFontScalePct: (scalePct: number) => void;
     setShadcnCustomColors: (colors: Record<string, string>) => void;
     setQuickChatButtonModeImmediate: (mode: "floating" | "footer" | "off") => void;
+    setChatMessageLayoutImmediate: (layout: ChatMessageLayout) => void;
     setMobileNavPrimaryItemsImmediate: (items: string[]) => void;
   };
   /** Optional override for the settings modal close handler. When provided, this is called instead of modalManager.closeSettings. */
@@ -381,6 +384,8 @@ export function AppModals({
               onDashboardFontScaleChange={settings.setDashboardFontScalePct}
               onShadcnCustomColorsChange={settings.setShadcnCustomColors}
               onQuickChatButtonModeChange={settings.setQuickChatButtonModeImmediate}
+              chatMessageLayout={settings.chatMessageLayout}
+              onChatMessageLayoutChange={settings.setChatMessageLayoutImmediate}
               onMobileNavPrimaryItemsChange={settings.setMobileNavPrimaryItemsImmediate}
               onReopenOnboarding={onReopenOnboarding}
               onOpenApprovals={onOpenApprovals}

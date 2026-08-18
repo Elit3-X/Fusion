@@ -5,6 +5,7 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TaskPlannerChatTab } from "../TaskPlannerChatTab";
+import { ChatMessageLayoutProvider } from "../../context/ChatMessageLayoutContext";
 
 const taskPlannerChatCss = readFileSync(resolve(__dirname, "../TaskPlannerChatTab.css"), "utf8");
 const originalScrollTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop");
@@ -649,6 +650,37 @@ describe("TaskPlannerChatTab", () => {
     expect(screen.getByText("Planner answer")).toBeInTheDocument();
     expect(screen.queryByTestId("task-planner-chat-empty")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Summarize recent activity/ })).not.toBeInTheDocument();
+  });
+
+  it("applies full-width layout to persisted and streaming Planner Chat messages", async () => {
+    mockFetchChatMessages.mockResolvedValue({
+      messages: [
+        { id: "layout-planner-user", sessionId: "chat-planner", role: "user", content: "Planner question", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" },
+        { id: "layout-planner-assistant", sessionId: "chat-planner", role: "assistant", content: "Planner answer", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:02:00.000Z" },
+      ],
+    });
+
+    render(
+      <ChatMessageLayoutProvider value="full-width">
+        <TaskPlannerChatTab
+          task={makeTask("FN-7310")}
+          active
+          planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+          addToast={vi.fn()}
+        />
+      </ChatMessageLayoutProvider>,
+    );
+
+    expect(await screen.findByTestId("task-planner-chat-panel")).toHaveClass("task-planner-chat--full-width");
+    expect(screen.getByTestId("chat-message-layout-planner-user")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-message-layout-planner-assistant")).toBeInTheDocument();
+    expect(taskPlannerChatCss).toContain(".task-planner-chat--full-width .chat-message");
+    expect(taskPlannerChatCss).toContain("max-width: 100%");
+  });
+
+  it("keeps Planner Chat bubbles when no full-width context is provided", async () => {
+    renderPlannerChat();
+    expect(await screen.findByTestId("task-planner-chat-panel")).not.toHaveClass("task-planner-chat--full-width");
   });
 
   it("keeps an unsnapped planner transcript in place during streamed growth", async () => {

@@ -63,6 +63,7 @@ import {
 } from "./StandardChatSurface";
 import { buildChatReportHandoff, type ChatReportHandoff } from "./chatReportHandoff";
 import { CHAT_COMMANDS, matchChatCommand, filterChatCommands, getSlashTriggerMatch, type ChatCommand } from "./chat-commands";
+import { useChatMessageLayout } from "../context/ChatMessageLayoutContext";
 
 /**
  * Optional task-bound context that enables the "/" command registry (e.g.
@@ -563,6 +564,7 @@ interface RoomContext {
 
 export function ChatView({ projectId, addToast, floating = false, compactLayout = false, onPopOut, onMaximize, onMinimize, onClose, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
   const { t } = useTranslation("app");
+  const chatMessageLayout = useChatMessageLayout();
   useEffect(() => {
     recordResumeEvent({
       view: "ChatView",
@@ -3395,7 +3397,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     FNXC:Chat 2026-06-22-12:55:
     Chat uses the shared ViewHeader so its page chrome matches the other main-content views. The height-sensitive two-pane chat layout remains isolated in .chat-view__body beneath that header, preserving sidebar resize, thread scrolling, and mobile keyboard compensation while moving the desktop New Chat action into the canonical header actions cluster.
     */
-    <div ref={chatViewRef} className={`chat-view${floating ? " chat-view--floating" : ""}${isChatMobile ? " chat-view--narrow" : ""}${showMobileDirectThreadHeaderControls ? " chat-view--mobile-direct-thread" : ""}`}>
+    <div ref={chatViewRef} className={`chat-view${floating ? " chat-view--floating" : ""}${isChatMobile ? " chat-view--narrow" : ""}${showMobileDirectThreadHeaderControls ? " chat-view--mobile-direct-thread" : ""}${chatMessageLayout === "full-width" ? " chat-view--full-width" : ""}`}>
       <ViewHeader
         icon={MessageSquare}
         title={t("chat.title", "Chat")}

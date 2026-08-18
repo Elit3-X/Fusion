@@ -692,6 +692,10 @@ The full **New Task** dialog includes a compact **GitHub issue or PR** picker ne
 
 Chat view provides project-scoped conversations with agents. The default conversation list contains only active sessions; use **Archived conversations** to view archived sessions, restore one to the active list, or explicitly delete it. Archive is the default removal action, while delete remains a separate destructive action.
 
+### Conversation layout
+
+Use **Settings → Appearance → Conversation layout** to choose the project-scoped message presentation for every dashboard chat surface. **Bubbles** is the default and keeps the bounded, left/right-aligned message bubbles; **Full width** lets each message use the available transcript width. The choice applies immediately to normal Chat, Quick Chat, and dock/overflow Chat hosts, as well as task-detail **Activity** and **Planner Chat**. Missing or invalid values safely use **Bubbles**.
+
 ## Mailbox archive
 
 Mailbox Inbox, Outbox, and agent lists exclude archived correspondence and unread badges ignore it. Select **Archived** to review archived messages and restore them; Archive is the default removal action and Delete remains available as an explicit destructive action.

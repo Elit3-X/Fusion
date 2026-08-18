@@ -3,7 +3,9 @@ import type { ThemeMode, ColorTheme } from "@fusion/core";
 import { ThemeSelector } from "../../ThemeSelector";
 import { LanguageSelector } from "../../LanguageSelector";
 import { SettingsToggleRow } from "../SettingsToggleRow";
+import { SettingsSelectRow } from "../SettingsSelectRow";
 import type { SectionBaseProps } from "./context";
+import { normalizeChatMessageLayout, type ChatMessageLayout } from "../../../hooks/useAppSettings";
 export interface AppearanceSectionProps extends SectionBaseProps {
     themeMode: ThemeMode;
     colorTheme: ColorTheme;
@@ -14,6 +16,8 @@ export interface AppearanceSectionProps extends SectionBaseProps {
     onColorThemeChange?: (theme: ColorTheme) => void;
     onDashboardFontScaleChange?: (scalePct: number) => void;
     onShadcnCustomColorsChange?: (colors: Record<string, string>) => void;
+    chatMessageLayout?: ChatMessageLayout;
+    onChatMessageLayoutChange?: (layout: ChatMessageLayout) => void;
     sessionBannersHidden: boolean;
     setSessionBannersHidden: (hidden: boolean) => void;
 }
@@ -25,7 +29,7 @@ Rows render through the shared settings primitives rather than hand-rolled `form
 FNXC:SettingsScope 2026-07-15-17:35:
 Scope badges are per-row because this section genuinely mixes authority levels: theme, color, and font scale are global (DEFAULT_GLOBAL_SETTINGS), while every task-presentation toggle below is project-scoped (DEFAULT_PROJECT_SETTINGS). The nav labels the whole section "global", which is true only of the theme controls, so the badges are what tell an operator which of these travels between projects.
 */
-export function AppearanceSection({ form, setForm, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors = {}, resolvedThemeMode, onThemeModeChange, onColorThemeChange, onDashboardFontScaleChange, onShadcnCustomColorsChange, sessionBannersHidden, setSessionBannersHidden, }: AppearanceSectionProps) {
+export function AppearanceSection({ form, setForm, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors = {}, resolvedThemeMode, onThemeModeChange, onColorThemeChange, onDashboardFontScaleChange, onShadcnCustomColorsChange, chatMessageLayout = "bubbles", onChatMessageLayoutChange, sessionBannersHidden, setSessionBannersHidden, }: AppearanceSectionProps) {
     const { t } = useTranslation("app");
     return (<>
       <h4 className="settings-section-heading">{t("settings.appearance.title", "Appearance")}</h4>
@@ -43,6 +47,24 @@ export function AppearanceSection({ form, setForm, themeMode, colorTheme, dashbo
             onShadcnCustomColorsChange?.(colors);
         }}/>
       <LanguageSelector />
+      <SettingsSelectRow
+        descriptor={{
+          key: "chatMessageLayout",
+          label: t("settings.appearance.chatMessageLayout", "Conversation layout"),
+          help: t("settings.appearance.chatMessageLayoutHelp", "Choose Bubbles or Full width for normal Chat, Quick Chat, dock Chat, task Activity, and Planner Chat. Project-scoped; default: Bubbles."),
+          scope: "project",
+          options: [
+            { value: "bubbles", label: t("settings.appearance.chatMessageLayoutBubbles", "Bubbles") },
+            { value: "full-width", label: t("settings.appearance.chatMessageLayoutFullWidth", "Full width") },
+          ],
+        }}
+        value={normalizeChatMessageLayout(form.chatMessageLayout ?? chatMessageLayout)}
+        onChange={(value) => {
+          const nextLayout = normalizeChatMessageLayout(value);
+          setForm((f) => ({ ...f, chatMessageLayout: nextLayout }));
+          onChatMessageLayoutChange?.(nextLayout);
+        }}
+      />
       <SettingsToggleRow
         descriptor={{
           key: "openTasksInRightSidebar",

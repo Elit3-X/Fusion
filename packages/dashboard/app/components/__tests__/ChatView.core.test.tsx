@@ -14,6 +14,7 @@ import type { DiscoveredSkill } from "@fusion/dashboard";
 import type { UseChatReturn, ChatSessionInfo } from "../../hooks/useChat";
 import { loadAllAppCss } from "../../test/cssFixture";
 import { FileBrowserProvider } from "../../context/FileBrowserContext";
+import { ChatMessageLayoutProvider } from "../../context/ChatMessageLayoutContext";
 import { SWR_CACHE_KEYS, writeCache } from "../../utils/swrCache";
 import {
   renderWithAct,
@@ -1212,6 +1213,39 @@ describe("ChatView", () => {
       "chat-message--assistant",
       "chat-message--streaming",
     );
+  });
+
+  it("applies full-width layout to populated and streaming ChatView messages while bubbles stay default", async () => {
+    setupMockChat({
+      activeSession: activeSessionFixture,
+      messages: [
+        { id: "layout-user", sessionId: "session-001", role: "user", content: "Question", createdAt: "2026-04-08T00:00:00.000Z" },
+        { id: "layout-assistant", sessionId: "session-001", role: "assistant", content: "Answer", createdAt: "2026-04-08T00:00:01.000Z" },
+      ],
+      isStreaming: true,
+      streamingText: "Live answer",
+    });
+
+    await renderWithAct(
+      <ChatMessageLayoutProvider value="full-width">
+        <ChatView projectId="proj-123" addToast={vi.fn()} />
+      </ChatMessageLayoutProvider>,
+    );
+
+    expect(screen.getByTestId("chat-message-layout-user")).toHaveClass("chat-message--user");
+    expect(screen.getByTestId("chat-message-layout-assistant")).toHaveClass("chat-message--assistant");
+    expect(document.querySelector(".chat-view")).toHaveClass("chat-view--full-width");
+    expect(document.querySelector(".chat-message--streaming")).toHaveClass("chat-message--streaming");
+
+    const css = loadAllAppCss();
+    expect(css).toContain(".chat-view--full-width .chat-message");
+    expect(css).toContain("max-width: 100%");
+  });
+
+  it("keeps the default bubbles modifier absent", async () => {
+    setupMockChat({ activeSession: activeSessionFixture, messages: [] });
+    await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+    expect(document.querySelector(".chat-view")).not.toHaveClass("chat-view--full-width");
   });
 
   it("shows streaming copy action for provider chats", async () => {

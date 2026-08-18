@@ -23,6 +23,7 @@ import { clampChatInputHeight, resolveChatInputOverflowY } from "../utils/chatIn
 import { formatAgentLogTimingLabels, markdownComponents } from "./AgentLogViewer";
 import { ToolCallDetails } from "./ToolCallDetails";
 import { parseRuntimeModelMarker } from "./effective-model-resolution";
+import { useChatMessageLayout } from "../context/ChatMessageLayoutContext";
 import "./TaskChatTab.css";
 
 interface TaskChatTabProps {
@@ -663,6 +664,7 @@ function TaskChatUserMessage({ message }: { message: UserChatMessage }) {
 
 export function TaskChatTab({ task, columnFlags, projectId, active, addToast, onTaskUpdated, expanded = false, onToggleExpanded, effectiveModels }: TaskChatTabProps) {
   const { t } = useTranslation("app");
+  const chatMessageLayout = useChatMessageLayout();
   const { entries, loading, loadMore, hasMore, loadingMore } = useAgentLogs(task.id, active, projectId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -1014,7 +1016,7 @@ export function TaskChatTab({ task, columnFlags, projectId, active, addToast, on
   }, [canSend]);
 
   return (
-    <div className="task-chat-tab" data-testid="task-chat-tab">
+    <div className={`task-chat-tab${chatMessageLayout === "full-width" ? " task-chat-tab--full-width" : ""}`} data-testid="task-chat-tab">
       {onToggleExpanded ? (
         <button
           type="button"

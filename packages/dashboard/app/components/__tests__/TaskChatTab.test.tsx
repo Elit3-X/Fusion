@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentLogEntry, Task } from "@fusion/core";
 import { TaskChatTab } from "../TaskChatTab";
+import { ChatMessageLayoutProvider } from "../../context/ChatMessageLayoutContext";
 import { isCliSessionLive, type CliSessionSummaryRecord } from "../TaskDetailModal";
 import { useAgentLogs } from "../../hooks/useAgentLogs";
 import { addSteeringComment, refineTask } from "../../api";
@@ -2974,6 +2975,36 @@ describe("TaskChatTab", () => {
     expect(narrowHostCss).not.toContain(TOO_SMALL_TASK_TOOL_FONT_SIZE);
     expect(listSplitGroupRule).toContain("grid-template-columns: 1fr");
     expect(mobileGroupRule).toContain("grid-template-columns: 1fr");
+  });
+
+  it("applies full-width layout to Activity agent and user blocks while preserving the default modifier", () => {
+    mockLogs([
+      makeEntry({ agent: "executor", text: "streamed agent output", type: "text" }),
+    ]);
+    const task = makeTask({
+      steeringComments: [makeSteeringComment({ id: "layout-user", text: "user steering" })],
+    });
+
+    render(
+      <ChatMessageLayoutProvider value="full-width">
+        <TaskChatTab task={task} active addToast={vi.fn()} />
+      </ChatMessageLayoutProvider>,
+    );
+
+    expect(screen.getByTestId("task-chat-tab")).toHaveClass("task-chat-tab--full-width");
+    expect(screen.getByTestId("task-chat-entry-user")).toBeInTheDocument();
+    expect(screen.getByTestId("task-chat-entry-text")).toBeInTheDocument();
+
+    const css = readFileSync(resolve(__dirname, "../TaskChatTab.css"), "utf8");
+    expect(css).toContain(".task-chat-tab--full-width .task-chat-group");
+    expect(css).toContain(".task-chat-tab--full-width .task-chat-entry,");
+    expect(css).toContain("max-width: 100%");
+  });
+
+  it("keeps Activity bubbles when no full-width context is provided", () => {
+    mockLogs([makeEntry({ agent: "executor", text: "default output" })]);
+    render(<TaskChatTab task={makeTask()} active addToast={vi.fn()} />);
+    expect(screen.getByTestId("task-chat-tab")).not.toHaveClass("task-chat-tab--full-width");
   });
 
   it("stacks agent headers only inside the List View split-detail chat host", () => {

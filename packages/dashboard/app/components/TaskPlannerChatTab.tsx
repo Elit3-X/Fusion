@@ -14,6 +14,7 @@ import { ChatQuestionResponse } from "./ChatQuestionResponse";
 import { ProviderIcon } from "./ProviderIcon";
 import { StandardChatActionButton, StandardChatMessageItem, StandardStreamingMessage, formatModelTag } from "./StandardChatSurface";
 import { CHAT_COMMANDS, filterChatCommands, getSlashTriggerMatch, matchChatCommand, type ChatCommand } from "./chat-commands";
+import { useChatMessageLayout } from "../context/ChatMessageLayoutContext";
 import "./TaskPlannerChatTab.css";
 
 interface TaskPlannerChatTabProps {
@@ -311,6 +312,7 @@ function buildPlannerQuestionRenderStates(messages: readonly ChatMessage[]): Map
 
 export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expanded = false, onExpandedChange, planningModel, addToast, onTaskUpdated }: TaskPlannerChatTabProps) {
   const { t } = useTranslation("app");
+  const chatMessageLayout = useChatMessageLayout();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -1017,7 +1019,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   The planner Chat tab owns an in-view expand/collapse button so mobile users can reclaim vertical room while keeping close/back/task identity controls reachable. This state is independent from Activity Live expansion because Activity still represents operational steering/history, not planner-model conversation.
   */
   return (
-    <section className="task-planner-chat" aria-label={t("taskDetail.plannerChat.label", "Planner chat")} data-testid="task-planner-chat-panel">
+    <section className={`task-planner-chat${chatMessageLayout === "full-width" ? " task-planner-chat--full-width" : ""}`} aria-label={t("taskDetail.plannerChat.label", "Planner chat")} data-testid="task-planner-chat-panel">
       {onExpandedChange && (
         <button
           type="button"

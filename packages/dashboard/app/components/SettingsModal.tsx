@@ -23,6 +23,7 @@ import {
   type DashboardShortcutAction,
 } from "../utils/keyboardShortcuts";
 import type { DashboardKeyboardShortcutMap } from "../utils/keyboardShortcuts";
+import { normalizeChatMessageLayout, type ChatMessageLayout } from "../hooks/useAppSettings";
 import { SettingsHelpTip } from "./settings/SettingsHelpTip";
 import type { SectionSaveHandler } from "./settings/sections/context";
 import { AppearanceSection } from "./settings/sections/AppearanceSection";
@@ -661,6 +662,9 @@ interface SettingsModalProps {
   onShadcnCustomColorsChange?: (colors: Record<string, string>) => void;
   /** Mirrors pending Quick Chat launcher changes into the app shell immediately. */
   onQuickChatButtonModeChange?: (mode: "floating" | "footer" | "off") => void;
+  /** Mirrors the pending project conversation layout into mounted chat surfaces immediately. */
+  chatMessageLayout?: ChatMessageLayout;
+  onChatMessageLayoutChange?: (layout: ChatMessageLayout) => void;
   /** Mirrors pending mobile quick-action changes into the app shell immediately. */
   onMobileNavPrimaryItemsChange?: (items: string[]) => void;
   /** Optional callback when user wants to reopen the onboarding guide */
@@ -926,6 +930,8 @@ export function SettingsModal({
   onDashboardFontScaleChange,
   onShadcnCustomColorsChange,
   onQuickChatButtonModeChange,
+  chatMessageLayout = "bubbles",
+  onChatMessageLayoutChange,
   onMobileNavPrimaryItemsChange,
   onReopenOnboarding,
   onOpenApprovals,
@@ -1009,6 +1015,7 @@ export function SettingsModal({
     taskPopupsBoardListOnly: true,
     showCostBadgeOnCards: false,
     taskDetailChatFirst: false,
+    chatMessageLayout: "bubbles",
     executorAllowSiblingBranchRename: false,
     worktreeNaming: "random",
     worktreeCopyFiles: [],
@@ -1662,6 +1669,11 @@ export function SettingsModal({
           The Settings form normalizes missing taskDetailChatFirst to false so new and upgraded projects show the Activity-first default until an operator explicitly opts into Chat-first.
           */
           taskDetailChatFirst: s.taskDetailChatFirst === true,
+          /*
+          FNXC:ChatMessageLayout 2026-08-18-20:27:
+          Normalize legacy or malformed project values before they enter the form so the selector always has exactly its two valid choices and defaults to Bubbles.
+          */
+          chatMessageLayout: normalizeChatMessageLayout(s.chatMessageLayout),
           /*
           FNXC:GithubImportTracking 2026-07-01-00:00:
           Missing githubLinkImportedIssuesToTracking must render as unchecked and save as project-scoped false only after operator interaction; this keeps upgraded projects on legacy import behavior by default.
@@ -4200,6 +4212,8 @@ export function SettingsModal({
             onColorThemeChange={onColorThemeChange}
             onDashboardFontScaleChange={onDashboardFontScaleChange}
             onShadcnCustomColorsChange={onShadcnCustomColorsChange}
+            chatMessageLayout={chatMessageLayout}
+            onChatMessageLayoutChange={onChatMessageLayoutChange}
             sessionBannersHidden={sessionBannersHidden}
             setSessionBannersHidden={setSessionBannersHidden}
           />

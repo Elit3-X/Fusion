@@ -7,7 +7,16 @@ import { setAutoReloadEnabled } from "../versionCheck";
 import { DEFAULT_DASHBOARD_KEYBOARD_SHORTCUTS, resolveDashboardKeyboardShortcuts, type DashboardKeyboardShortcutMap } from "../utils/keyboardShortcuts";
 
 export type QuickChatButtonMode = "floating" | "footer" | "off";
+export type ChatMessageLayout = "bubbles" | "full-width";
 export type PlanApprovalMode = NonNullable<ProjectSettings["planApprovalMode"]>;
+
+/**
+ * FNXC:ChatMessageLayout 2026-08-18-20:27:
+ * Settings can come from older project files or external writers, so the app shell accepts only the two persisted layout values and fails closed to the historical bubble presentation.
+ */
+export function normalizeChatMessageLayout(value: unknown): ChatMessageLayout {
+  return value === "full-width" ? "full-width" : "bubbles";
+}
 
 /**
  * Settings state and actions consumed by the dashboard App shell.
@@ -34,6 +43,7 @@ export interface UseAppSettingsResult {
   showCostBadgeOnCards: boolean;
   modelPricingOverrides?: ModelPricingOverrides;
   taskDetailChatFirst: boolean;
+  chatMessageLayout: ChatMessageLayout;
   quickChatButtonMode: QuickChatButtonMode;
   mobileNavPrimaryItems: string[];
   quickChatCloseOnOutsideClick: boolean;
@@ -57,6 +67,7 @@ export interface UseAppSettingsResult {
   toggleEnginePause: () => Promise<void>;
   toggleShowQuickChatFAB: () => Promise<void>;
   setQuickChatButtonModeImmediate: (mode: QuickChatButtonMode) => void;
+  setChatMessageLayoutImmediate: (layout: ChatMessageLayout) => void;
   setMobileNavPrimaryItemsImmediate: (items: string[]) => void;
   toggleAutoReloadOnVersionChange: () => Promise<void>;
   /** Re-fetches settings from the backend to pick up changes made externally (e.g., by SettingsModal). */
@@ -95,6 +106,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
   const [showCostBadgeOnCards, setShowCostBadgeOnCards] = useState(false);
   const [modelPricingOverrides, setModelPricingOverrides] = useState<ModelPricingOverrides | undefined>(undefined);
   const [taskDetailChatFirst, setTaskDetailChatFirst] = useState(false);
+  const [chatMessageLayout, setChatMessageLayout] = useState<ChatMessageLayout>("bubbles");
   const [quickChatButtonMode, setQuickChatButtonMode] = useState<QuickChatButtonMode>("off");
   const [mobileNavPrimaryItems, setMobileNavPrimaryItems] = useState<string[]>(() => resolveMobileNavPrimaryItems().primaryItems);
   const [quickChatCloseOnOutsideClick, setQuickChatCloseOnOutsideClick] = useState(true);
@@ -114,6 +126,9 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
   const [autoReloadOnVersionChange, setAutoReloadOnVersionChangeState] = useState(true);
   const autoMergeRef = useRef(autoMerge);
   const planApprovalModeRef = useRef<PlanApprovalMode>(planApprovalMode);
+  const settingsProjectIdRef = useRef(projectId);
+  // FNXC:ChatMessageLayout 2026-08-18-21:02: Ignore a prior project's late settings response so its project-scoped conversation layout cannot overwrite the active project's bubbles/full-width choice.
+  settingsProjectIdRef.current = projectId;
 
   /**
    * Fetches config and settings from the backend and updates local state.
@@ -124,6 +139,8 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
       fetchConfig(projectId),
       fetchSettings(projectId),
     ]);
+
+    if (settingsProjectIdRef.current !== projectId) return;
 
     if (configResult.status === "fulfilled") {
       setMaxConcurrent(configResult.value.maxConcurrent);
@@ -189,6 +206,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
       App-level task-detail hosts need the project setting so Activity-first is the missing/false default and Chat-first is restored only by explicit opt-in.
       */
       setTaskDetailChatFirst(settings.taskDetailChatFirst === true);
+      setChatMessageLayout(normalizeChatMessageLayout(settings.chatMessageLayout));
       setExperimentalFeatures(settings.experimentalFeatures ?? {});
       const features = settings.experimentalFeatures ?? {};
       /*
@@ -219,6 +237,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
     setShowCostBadgeOnCards(false);
     setModelPricingOverrides(undefined);
     setTaskDetailChatFirst(false);
+    setChatMessageLayout("bubbles");
     setQuickChatCloseOnOutsideClick(true);
     setDashboardKeyboardShortcuts(DEFAULT_DASHBOARD_KEYBOARD_SHORTCUTS);
     setDismissModalsOnOutsideClick(false);
@@ -317,6 +336,14 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
     setShowQuickChatFAB(mode === "floating");
   }, []);
 
+  const setChatMessageLayoutImmediate = useCallback((layout: ChatMessageLayout) => {
+    /*
+    FNXC:ChatMessageLayout 2026-08-18-20:27:
+    The Appearance draft must update already-mounted ChatView and task-chat surfaces immediately; SettingsModal remains the sole persistence owner.
+    */
+    setChatMessageLayout(normalizeChatMessageLayout(layout));
+  }, []);
+
   /*
   FNXC:Navigation 2026-07-17-00:00:
   The settings draft previews mobile quick-action order and membership in the app shell before Save;
@@ -361,6 +388,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
     showCostBadgeOnCards,
     modelPricingOverrides,
     taskDetailChatFirst,
+    chatMessageLayout,
     quickChatButtonMode,
     mobileNavPrimaryItems,
     quickChatCloseOnOutsideClick,
@@ -384,6 +412,7 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
     toggleEnginePause,
     toggleShowQuickChatFAB,
     setQuickChatButtonModeImmediate,
+    setChatMessageLayoutImmediate,
     setMobileNavPrimaryItemsImmediate,
     toggleAutoReloadOnVersionChange,
     refresh,

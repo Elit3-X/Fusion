@@ -71,6 +71,7 @@ import { FileBrowserProvider } from "./context/FileBrowserContext";
 import { ShellProvider } from "./context/ShellContext";
 import { RetryWarningProvider } from "./context/RetryWarningContext";
 import { CostBadgeProvider } from "./context/CostBadgeContext";
+import { ChatMessageLayoutProvider } from "./context/ChatMessageLayoutContext";
 import { ShellHostProvider, useShellHostContext } from "./context/ShellHostContext";
 import { useShellConnection } from "./hooks/useShellConnection";
 import { useStashOrphanCount } from "./hooks/useStashOrphanCount";
@@ -859,6 +860,7 @@ function AppInner() {
     showCostBadgeOnCards,
     modelPricingOverrides,
     taskDetailChatFirst,
+    chatMessageLayout,
     quickChatButtonMode,
     mobileNavPrimaryItems,
     quickChatCloseOnOutsideClick,
@@ -875,6 +877,7 @@ function AppInner() {
     devServerEnabled,
     goalsEnabled,
     setQuickChatButtonModeImmediate,
+    setChatMessageLayoutImmediate,
     setMobileNavPrimaryItemsImmediate,
     toggleAutoMerge,
     togglePlanAutoApprove,
@@ -1860,6 +1863,7 @@ function AppInner() {
   };
   return (
     <ConfirmDialogProvider skipConfirmations={skipConfirmationDialogs}>
+      <ChatMessageLayoutProvider value={chatMessageLayout}>
       <ModalDismissPreferenceProvider enabled={dismissModalsOnOutsideClick}>
         <QuickAddSubmitOnEnterProvider enabled={quickAddSubmitOnEnter}>
       <NavigationHistoryProvider value={{ pushNav, replaceCurrent, removeNav }}>
@@ -2259,7 +2263,7 @@ function AppInner() {
         onSubtaskBreakdown={subtaskBreakdownEnabled ? openSubtaskBreakdownWithNav : undefined}
         taskOperations={{ moveTask, deleteTask, mergeTask, archiveTask, revertTask, retryTask, pauseTask, unpauseTask, bypassReview, resetTask, duplicateTask }}
         deepLink={{ handleDetailClose }}
-        settings={{ prAuthAvailable, autoMerge, taskDetailChatFirst, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors, resolvedThemeMode, setThemeMode, setColorTheme, setDashboardFontScalePct, setShadcnCustomColors, setQuickChatButtonModeImmediate, setMobileNavPrimaryItemsImmediate }}
+        settings={{ prAuthAvailable, autoMerge, taskDetailChatFirst, chatMessageLayout, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors, resolvedThemeMode, setThemeMode, setColorTheme, setDashboardFontScalePct, setShadcnCustomColors, setQuickChatButtonModeImmediate, setChatMessageLayoutImmediate, setMobileNavPrimaryItemsImmediate }}
         onSettingsClose={handleSettingsCloseWithNav}
         onReopenOnboarding={reopenOnboardingWithNav}
         onOpenApprovals={(_approvalId) => handleTaskViewChange("mailbox")}
@@ -2290,6 +2294,7 @@ function AppInner() {
       </NavigationHistoryProvider>
         </QuickAddSubmitOnEnterProvider>
       </ModalDismissPreferenceProvider>
+      </ChatMessageLayoutProvider>
     </ConfirmDialogProvider>
   );
 }

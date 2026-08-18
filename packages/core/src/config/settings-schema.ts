@@ -536,6 +536,11 @@ export const DEFAULT_PROJECT_SETTINGS = {
   */
   showCostBadgeOnCards: false,
   /*
+  FNXC:ChatMessageLayout 2026-08-18-20:27:
+  The project preference applies one reversible layout choice to every standard and task chat surface. Explicitly seed the historical bubbles presentation so upgraded projects preserve their existing UI.
+  */
+  chatMessageLayout: "bubbles",
+  /*
   FNXC:TaskDetailActivityFirst 2026-06-30-23:59:
   Project task-detail defaults are Activity-first unless this opt-in is true. Keeping the default false preserves explicit deep-link ids while making omitted non-done task opens land on Activity → Live.
   */

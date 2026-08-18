@@ -1431,6 +1431,11 @@ export interface ProjectSettings {
    */
   showCostBadgeOnCards?: boolean;
   /**
+   * FNXC:ChatMessageLayout 2026-08-18-20:27:
+   * One project-scoped choice controls message presentation in normal Chat and task Activity/Planner Chat. Missing or invalid persisted values resolve to the historical bubble layout.
+   */
+  chatMessageLayout?: "bubbles" | "full-width";
+  /**
    * FNXC:TaskDetailActivityFirst 2026-06-30-23:59:
    * Default-off keeps task details Activity-first so omitted non-done opens land on the legacy `chat` Activity → Live surface. Operators can set true to restore Chat-first ordering/default while explicit Activity/Chat/Logs deep links remain stable.
    */
