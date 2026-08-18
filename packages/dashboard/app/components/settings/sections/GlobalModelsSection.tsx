@@ -51,8 +51,14 @@ export function GlobalModelsSection({ form, setForm, availableModels, modelsLoad
         : "";
     return (<>
 
-      {/* --- Default Model --- */}
-      <h4 className="settings-section-heading">{t("settings.globalModels.defaultModel", "Default Model")}</h4>
+      {/*
+      FNXC:SettingsModels 2026-08-18-06:41:
+      Global and project model-override surfaces share one heading vocabulary so operators recognize the same configuration structure in both scopes. Keep the default, fallback, thinking, and role lanes contiguous; sync and pricing controls remain separate.
+      */}
+      <div className="settings-field-label-row">
+        <h4 className="settings-section-heading">{t("settings.globalModels.modelOverrides", "Model Overrides")}</h4>
+        <SettingsHelpTip settingKey="global-model-overrides">{t("settings.globalModels.globalBaselineModelsForEachAIRoleProject", " Global baseline models for each AI role. Project settings can override these per-project. ")}</SettingsHelpTip>
+      </div>
       {modelsLoading ? (<div className="settings-empty-state"><LoadingSpinner label={t("settings.models.loadingModels", "Loading available models…")} /></div>) : availableModels.length === 0 ? (<div className="settings-empty-state settings-muted">
           {t("settings.models.noModels", "No models available. Configure authentication first.")}
         </div>) : (<>
@@ -138,8 +144,6 @@ export function GlobalModelsSection({ form, setForm, availableModels, modelsLoad
         })()}
 
       {availableModels.length > 0 && (<>
-          <h4 className="settings-section-heading settings-section-heading--spaced">{t("settings.globalModels.modelLanes", "Model Lanes")}</h4>
-          <p className="settings-description">{t("settings.globalModels.globalBaselineModelsForEachAIRoleProject", " Global baseline models for each AI role. Project settings can override these per-project. ")}</p>
           {globalModelLanes.map((lane) => {
                 const provider = form[lane.globalProviderKey as keyof Settings] as string | undefined;
                 const model = form[lane.globalModelKey as keyof Settings] as string | undefined;
@@ -176,8 +180,6 @@ export function GlobalModelsSection({ form, setForm, availableModels, modelsLoad
               </div>);
             })}
         </>)}
-
-      <ModelPricingSection form={form} setForm={setForm} addToast={addToast} projectId={projectId}/>
 
       {/* --- Startup Model Sync --- */}
       <h4 className="settings-section-heading settings-section-heading--spaced">{t("settings.globalModels.startupModelSync", "Startup Model Sync")}</h4>
@@ -417,6 +419,8 @@ export function GlobalModelsSection({ form, setForm, availableModels, modelsLoad
         }))}
         />
       </details>
+
+      <ModelPricingSection form={form} setForm={setForm} addToast={addToast} projectId={projectId}/>
     </>);
 }
 export default GlobalModelsSection;

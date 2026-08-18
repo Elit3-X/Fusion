@@ -298,9 +298,10 @@ Some knobs that used to live in this Settings reference as project settings are 
 govern that execution belong to the workflow.
 
 **Where to set them.** The common model lanes for every workflow in a project are
-available directly in **Settings → Project Models → Project workflow model lanes**:
-Plan/Triage, Executor, Reviewer, and their fallback lanes declared
-by the default workflow. Primary Plan/Triage, Executor, Reviewer, and declared fallback rows show an inline Thinking Level control when the workflow declares the companion `*ThinkingLevel` setting; unset means inherit. Those dropdown controls use the shared model picker and are auto-saved by the Settings modal after an edit, which writes
+available directly in **Settings → Models · Project → Model Overrides → Workflow lanes**,
+immediately after **Project lanes**: Plan/Triage, Executor, Reviewer, and their fallback lanes declared
+by the default workflow. The project Summarization lane and its fallback remain under
+**AI Title and Git Commit Message Summarization** with the enable toggles that govern them. Primary Plan/Triage, Executor, Reviewer, and declared fallback rows show an inline Thinking Level control when the workflow declares the companion `*ThinkingLevel` setting; unset means inherit. Those dropdown controls use the shared model picker and are auto-saved by the Settings modal after an edit, which writes
 workflow setting values on the active project's default workflow. Those stored
 values are the project model baseline inherited by every selected workflow. The
 baseline wins over global and per-workflow values; task-specific selections win
@@ -1135,7 +1136,7 @@ Short-lived token bounds are enforced server-side:
 
 ## Model Selection Hierarchy
 
-Fusion resolves task models as task-specific selection -> project workflow-model baseline -> global lane -> selected-workflow value -> project/global default model. The project baseline is stored as setting values on the project's active default workflow and can be edited from Settings -> Project Models -> Project workflow model lanes (auto-saved by the Settings modal). Lower-priority per-workflow values remain editable from Workflow editor -> Settings -> Values for declared workflow lanes and fallbacks. General-scope fallback selection remains the global Fallback Model picker in Settings -> General Models.
+Fusion resolves task models as task-specific selection -> project workflow-model baseline -> global lane -> selected-workflow value -> project/global default model. The project baseline is stored as setting values on the project's active default workflow and can be edited from Settings -> Models · Project -> Model Overrides -> Workflow lanes (auto-saved by the Settings modal, directly after Project lanes). The project Summarization lane and its fallback intentionally remain under AI Title and Git Commit Message Summarization with their enable toggles. Lower-priority per-workflow values remain editable from Workflow editor -> Settings -> Values for declared workflow lanes and fallbacks. General-scope fallback selection remains the global Fallback Model picker in Settings -> General Models.
 
 Direct-chat defaults are project-scoped and independent of task workflow lanes. Configure them in **Settings -> Project Models -> Chat**. `chatDefaultKind: "agent"` resolves only when `chatDefaultAgentId` is set; `chatDefaultKind: "model"` resolves only when both `chatDefaultModelProvider` and `chatDefaultModelId` are set, with optional `chatDefaultThinkingLevel`. If `chatNewSessionMode` is `"always-default"` and that target resolves, every New Chat entry point creates the session directly. If the target is incomplete, or the mode is unset/`"prompt"`, Fusion opens the New Chat dialog instead and preselects the resolved default when one exists. Chat Rooms additionally support a per-room `thinkingLevel` default that applies to every room responder; clearing it inherits the resolved project/global default.
 

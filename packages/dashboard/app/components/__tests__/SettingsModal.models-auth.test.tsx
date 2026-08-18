@@ -551,7 +551,7 @@ describe("SettingsModal", () => {
       const onOpenWorkflowSettings = vi.fn();
       await setupWorkflowModelLaneTest({ renderProps: { onOpenWorkflowSettings } });
 
-      const workflowHeading = screen.getByRole("heading", { name: "Project workflow model lanes" });
+      const workflowHeading = screen.getByRole("heading", { name: "Workflow lanes" });
       const advancedButton = screen.getByRole("button", { name: "Advanced workflow policy" });
       const actionRow = advancedButton.closest(".settings-model-lane-actions");
       const presetsHeading = screen.getByRole("heading", { name: "Model Presets" });

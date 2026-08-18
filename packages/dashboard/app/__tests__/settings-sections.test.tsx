@@ -833,6 +833,16 @@ describe("ProjectModelsSection", () => {
       "validator",
       "validator-fallback",
     ]);
+
+    const projectLanes = screen.getByTestId("project-models-project-lanes");
+    const workflowLanes = screen.getByTestId("project-models-workflow-lanes");
+    const chat = screen.getByTestId("project-models-chat-kind");
+    const summarizationSection = screen.getByTestId("project-models-ai-summarization");
+    expect(projectLanes.nextElementSibling).toBe(workflowLanes);
+    expect(projectLanes).toContainElement(screen.getByTestId("project-models-summarization-pointer"));
+    expect(workflowLanes).toContainElement(screen.getByTestId("workflow-model-lane-planning"));
+    expect(workflowLanes.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(workflowLanes.compareDocumentPosition(summarizationSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("wires workflow fallback lane thinking render, persist, and reset", async () => {
