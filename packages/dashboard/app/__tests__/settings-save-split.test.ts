@@ -524,6 +524,10 @@ describe("splitSettingsSave", () => {
     });
 
     expect(projectPatch).toEqual({});
+    expect(globalPatch.remoteAccess?.tokenStrategy).toEqual({
+      shortLived: expect.any(Object),
+    });
+    expect(JSON.stringify(globalPatch.remoteAccess)).not.toContain("persistent");
     expect(globalPatch).toEqual({
       remoteAccess: expect.objectContaining({
         activeProvider: "tailscale",

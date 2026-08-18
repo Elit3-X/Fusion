@@ -2201,9 +2201,15 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
   app.get("/remote-login", async (req, res) => {
     const remoteToken = typeof req.query.rt === "string" ? req.query.rt : undefined;
 
-    let settings: Awaited<ReturnType<typeof store.getSettings>>;
+    let settings: Awaited<ReturnType<ReturnType<typeof store.getGlobalSettingsStore>["getSettings"]>>;
     try {
-      settings = await store.getSettings();
+      /*
+      FNXC:RemoteAccessAuth 2026-08-18-06:49:
+      Remote links are public handoffs, but their tokens must be resolved from
+      canonical global settings rather than a project-merged snapshot. A token
+      minted by any remote surface must work while daemon authentication is on.
+      */
+      settings = await store.getGlobalSettingsStore().getSettings();
     } catch {
       res.status(401).json({ error: "Unauthorized", code: "remote_token_invalid" });
       return;

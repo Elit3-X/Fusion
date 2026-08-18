@@ -500,6 +500,12 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
         },
       },
     });
+    /*
+    FNXC:RemoteAccessAuth 2026-08-18-06:49:
+    A token minted from any remote surface must authenticate at /remote-login
+    immediately, including when its server-level store was cached before mint.
+    */
+    invalidateAllGlobalSettingsCaches();
 
     return token;
   }
@@ -877,6 +883,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
       };
 
       await scopedStore.updateGlobalSettings({ remoteAccess: nextRemoteAccess });
+      invalidateAllGlobalSettingsCaches();
       res.json({ settings: toRemoteSettingsPayload(nextRemoteAccess) });
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
@@ -955,6 +962,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
           activeProvider: provider,
         },
       });
+      invalidateAllGlobalSettingsCaches();
       res.json({ activeProvider: provider });
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
@@ -1098,6 +1106,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
           },
         },
       });
+      invalidateAllGlobalSettingsCaches();
       res.json({ token, maskedToken: maskRemoteToken(token) });
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
