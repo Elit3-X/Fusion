@@ -72,6 +72,8 @@ import * as useChatRoomsModule from "../../hooks/useChatRooms";
 const mockFetchChatSessions = vi.mocked(apiModule.fetchChatSessions);
 const mockFetchChatSession = vi.mocked(apiModule.fetchChatSession);
 const mockFetchChatMessages = vi.mocked(apiModule.fetchChatMessages);
+const mockStreamChatResponse = vi.mocked(apiModule.streamChatResponse);
+const mockCancelChatResponse = vi.mocked(apiModule.cancelChatResponse);
 const mockAttachChatStream = vi.mocked(apiModule.attachChatStream);
 const mockGetScopedItem = vi.mocked(projectStorageModule.getScopedItem);
 const mockSubscribeSse = vi.mocked(sseBusModule.subscribeSse);
@@ -152,6 +154,8 @@ describe("FN-6599 ChatView streaming prior thread", () => {
     mockGetScopedItem.mockReturnValue(undefined);
     mockSubscribeSse.mockReturnValue(() => {});
     mockFetchChatSession.mockResolvedValue({ session: makeSession({ id: "session-001", agentId: "agent-001" }) });
+    mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+    mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: false });
     mockAttachChatStream.mockReturnValue({ close: vi.fn(), isConnected: () => true });
   });
 
@@ -249,6 +253,56 @@ describe("FN-6599 ChatView streaming prior thread", () => {
       );
     });
     expect(mockAttachChatStream).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["desktop", 1280],
+    ["mobile", 390],
+  ])("FN-016 keeps a direct partial reply after rendered Stop on %s", async (_label, width) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    window.dispatchEvent(new Event("resize"));
+    const session = makeSession({ id: "session-stop", agentId: "agent-001" });
+    const interrupted = makeMessage({
+      id: "assistant-interrupted",
+      sessionId: session.id,
+      role: "assistant",
+      content: "Distinct direct stopped prefix",
+      metadata: { interrupted: true },
+      createdAt: "2026-08-18T21:55:00.000Z",
+    });
+    mockGetScopedItem.mockImplementation((key) => key === "kb-chat-active-session" ? session.id : undefined);
+    mockFetchChatSessions.mockResolvedValue({ sessions: [session] });
+    mockFetchChatSession.mockResolvedValue({ session });
+    mockFetchChatMessages
+      .mockResolvedValueOnce({ messages: [] })
+      .mockResolvedValue({ messages: [
+        makeMessage({ id: "user-stop", sessionId: session.id, role: "user", content: "Keep this" }),
+        interrupted,
+      ] });
+    mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: true, message: interrupted });
+    let streamHandlers: any;
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      streamHandlers = handlers;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+
+    const rendered = render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+    const input = await screen.findByTestId("chat-input");
+    fireEvent.change(input, { target: { value: "Keep this" } });
+    fireEvent.click(await screen.findByTestId("chat-send-btn"));
+    await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(1));
+    act(() => streamHandlers?.onText?.("Distinct direct stopped prefix"));
+    await waitFor(() => expect(screen.getByText("Distinct direct stopped prefix")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("chat-stop-btn"));
+    await waitFor(() => expect(mockCancelChatResponse).toHaveBeenCalledWith(session.id, "proj-123"));
+    await waitFor(() => expect(screen.getAllByText("Distinct direct stopped prefix")).toHaveLength(1));
+    expect(screen.getByTestId("chat-send-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-stop-btn")).not.toBeInTheDocument();
+
+    rendered.unmount();
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+    expect(await screen.findByText("Distinct direct stopped prefix")).toBeInTheDocument();
   });
 
   it.each([

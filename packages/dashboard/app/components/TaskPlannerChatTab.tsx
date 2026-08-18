@@ -8,7 +8,7 @@ import type { ToastType } from "../hooks/useToast";
 import { useComposerDictation } from "../hooks/useComposerDictation";
 import { MicButton } from "./MicButton";
 import type { ChatMessageInfo, ToolCallInfo } from "../hooks/chatTypes";
-import { attachChatStream, editChatMessage, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
+import { attachChatStream, cancelChatResponse, editChatMessage, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
 import { parseQuestionToolCall, type ParsedQuestionToolCall } from "../utils/parseQuestionToolCall";
 import { ChatQuestionResponse } from "./ChatQuestionResponse";
 import { ProviderIcon } from "./ProviderIcon";
@@ -328,6 +328,14 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<{ close: () => void } | null>(null);
+  const streamSnapshotRef = useRef<{
+    requestId: number;
+    sessionId: string;
+    text: string;
+    thinking: string;
+    toolCalls: ToolCallInfo[];
+  } | null>(null);
+  const cancellationInProgressRef = useRef<Promise<void> | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [isTranscriptAtBottom, setIsTranscriptAtBottom] = useState(true);
   const isTranscriptAtBottomRef = useRef(true);
@@ -428,6 +436,16 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     let accumulated = inFlightSnapshot?.streamingText ?? "";
     let accumulatedThinking = inFlightSnapshot?.streamingThinking ?? "";
     const streamingToolCalls = cloneToolCalls(inFlightSnapshot?.toolCalls);
+    const updateStreamSnapshot = (): void => {
+      streamSnapshotRef.current = {
+        requestId,
+        sessionId: resolvedSessionId,
+        text: accumulated,
+        thinking: accumulatedThinking,
+        toolCalls: cloneToolCalls(streamingToolCalls),
+      };
+    };
+    updateStreamSnapshot();
 
     /*
      * FNXC:TaskDetailPlannerChat 2026-07-15-00:00:
@@ -453,16 +471,19 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       onText: (delta: string) => {
         if (!isCurrentStreamRequest()) return;
         accumulated += delta;
+        updateStreamSnapshot();
         applyStreamingSnapshot(resolvedSessionId, accumulated, accumulatedThinking, streamingToolCalls);
       },
       onThinking: (delta: string) => {
         if (!isCurrentStreamRequest()) return;
         accumulatedThinking += delta;
+        updateStreamSnapshot();
         applyStreamingSnapshot(resolvedSessionId, accumulated, accumulatedThinking, streamingToolCalls);
       },
       onToolStart: ({ toolName, args }: { toolName: string; args?: Record<string, unknown> }) => {
         if (!isCurrentStreamRequest()) return;
         streamingToolCalls.push({ toolName, args, isError: false, status: "running" });
+        updateStreamSnapshot();
         applyStreamingSnapshot(resolvedSessionId, accumulated, accumulatedThinking, streamingToolCalls);
       },
       onToolEnd: ({ toolName, isError, result }: { toolName: string; isError: boolean; result?: unknown }) => {
@@ -481,6 +502,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         if (steeringText) {
           void refreshTaskAfterSteering();
         }
+        updateStreamSnapshot();
         applyStreamingSnapshot(resolvedSessionId, accumulated, accumulatedThinking, streamingToolCalls);
       },
       onDone: (data: { messageId: string; message?: ChatMessage }) => {
@@ -488,6 +510,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         composerStateRef.current = "idle";
         setComposerState("idle");
         setStreamingThinking("");
+        streamSnapshotRef.current = null;
         streamRef.current = null;
         if (data.message) {
           setMessages((current) => {
@@ -505,6 +528,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         composerStateRef.current = "idle";
         setComposerState("idle");
         setStreamingThinking("");
+        streamSnapshotRef.current = null;
         streamRef.current = null;
         setMessages((current) => {
           const withoutStreaming = current.filter((candidate) => candidate.id !== "streaming-assistant");
@@ -846,14 +870,75 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   }, []);
 
   const stopPlannerStreaming = useCallback(() => {
+    if (cancellationInProgressRef.current) return;
+    const snapshot = streamSnapshotRef.current;
+    if (!snapshot) return;
+
     streamRequestRef.current += 1;
     streamRef.current?.close();
     streamRef.current = null;
     composerStateRef.current = "idle";
     setComposerState("idle");
     setStreamingThinking("");
-    setMessages((current) => current.filter((message) => message.id !== "streaming-assistant"));
-  }, []);
+
+    const interruptedLocalId = `interrupted-${snapshot.requestId}`;
+    const hasInterruptedOutput = Boolean(snapshot.text || snapshot.thinking || snapshot.toolCalls.length > 0);
+    if (hasInterruptedOutput) {
+      // FNXC:ChatCancellation 2026-08-18-21:55:
+      // Planner Stop keeps its displayed prefix as a normal transcript bubble until the
+      // scoped cancellation response confirms the durable interrupted assistant message.
+      setMessages((current) => [
+        ...current.filter((message) => message.id !== "streaming-assistant" && message.id !== interruptedLocalId),
+        {
+          id: interruptedLocalId,
+          sessionId: snapshot.sessionId,
+          role: "assistant",
+          content: snapshot.text,
+          thinkingOutput: snapshot.thinking || null,
+          metadata: snapshot.toolCalls.length > 0 ? { toolCalls: snapshot.toolCalls, interrupted: true } : { interrupted: true },
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } else {
+      setMessages((current) => current.filter((message) => message.id !== "streaming-assistant"));
+    }
+
+    const cancellation = Promise.resolve(cancelChatResponse(snapshot.sessionId, projectId))
+      .then(async (result) => {
+        const cancellationResult = result ?? { success: true, interrupted: false };
+        if (!cancellationResult.success) {
+          throw new Error("Planner chat cancellation did not complete");
+        }
+
+        let refreshed: ChatMessage[] | null = null;
+        try {
+          refreshed = (await fetchChatMessages(snapshot.sessionId, { order: "asc" }, projectId)).messages;
+        } catch {
+          // Keep the local interrupted bubble if the history read is temporarily unavailable.
+        }
+        const persisted = cancellationResult.message ? [cancellationResult.message] : [];
+        if (refreshed || persisted.length > 0) {
+          const reconciled = [
+            ...(refreshed ?? []),
+            ...persisted.filter((message) => !(refreshed ?? []).some((candidate) => candidate.id === message.id)),
+          ];
+          setMessages((current) => mergePlannerTranscriptWithOptimistic(
+            current.filter((message) => message.id !== interruptedLocalId),
+            reconciled,
+          ));
+        }
+      })
+      .catch((cancelError) => {
+        addToastRef.current(getErrorMessage(cancelError) || t("taskDetail.plannerChat.cancelFailed", "Failed to save the interrupted planner response"), "error");
+      })
+      .finally(() => {
+        streamSnapshotRef.current = null;
+        if (cancellationInProgressRef.current === cancellation) {
+          cancellationInProgressRef.current = null;
+        }
+      });
+    cancellationInProgressRef.current = cancellation;
+  }, [projectId, t]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (showCommandMenu && event.key === "ArrowDown") {

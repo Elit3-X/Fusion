@@ -433,12 +433,17 @@ export function clearChatRoomMessages(
  * Do not add streamChatRoomResponse until FN-3810 introduces AI invocation/streaming.
  */
 
-/** Cancel an in-flight chat generation. */
+/**
+ * Cancel an in-flight chat generation and await its durable interrupted-message result.
+ * FNXC:ChatCancellation 2026-08-18-21:55:
+ * Stop callers need the persisted assistant prefix before they reconcile the thread or
+ * release a queued follow-up; the server response is the cancellation barrier.
+ */
 export function cancelChatResponse(
   sessionId: string,
   projectId?: string,
-): Promise<{ success: boolean }> {
-  return api<{ success: boolean }>(
+): Promise<{ success: boolean; interrupted: boolean; message?: ChatMessage }> {
+  return api<{ success: boolean; interrupted: boolean; message?: ChatMessage }>(
     withProjectId(`/chat/sessions/${encodeURIComponent(sessionId)}/cancel`, projectId),
     {
       method: "POST",
@@ -547,7 +552,7 @@ export interface ChatStreamHandlers {
   onToolStart?: (data: { toolName: string; args?: Record<string, unknown> }) => void;
   onToolEnd?: (data: { toolName: string; isError: boolean; result?: unknown }) => void;
   onFallback?: (data: { primaryModel: string; fallbackModel: string; triggerPoint: "session-creation" | "prompt-time" }) => void;
-  onDone?: (data: { messageId: string; message?: ChatMessage }) => void;
+  onDone?: (data: { messageId: string; message?: ChatMessage; interrupted?: boolean }) => void;
   onError?: (data: string | ChatFailureInfo, meta?: ChatStreamErrorMeta) => void;
   onConnectionStateChange?: (state: StreamConnectionState) => void;
 }

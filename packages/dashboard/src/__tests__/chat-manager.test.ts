@@ -3349,13 +3349,13 @@ describe("ChatManager.sendMessage", () => {
     }
   });
 
-  it("cancelGeneration returns false when no active generation exists", () => {
+  it("cancelGeneration returns false when no active generation exists", async () => {
     const chatManager = createChatManager();
 
-    expect(chatManager.cancelGeneration("chat-001")).toBe(false);
+    await expect(chatManager.cancelGeneration("chat-001")).resolves.toEqual({ success: false, interrupted: false });
   });
 
-  it("cancelGeneration returns true and aborts an active generation", () => {
+  it("cancelGeneration returns true and aborts an active generation", async () => {
     const chatManager = createChatManager();
     const abortController = new AbortController();
     const dispose = vi.fn();
@@ -3363,20 +3363,15 @@ describe("ChatManager.sendMessage", () => {
     (chatManager as any).activeGenerations.set("chat-001", {
       abortController,
       agentResult: { session: { dispose } },
+      generationId: 1,
+      cancellationRequested: false,
     });
 
-    const events: Array<{ type: string; data: unknown }> = [];
-    const unsubscribe = chatStreamManager.subscribe("chat-001", (event) => {
-      events.push(event);
-    });
+    const result = await chatManager.cancelGeneration("chat-001");
 
-    const result = chatManager.cancelGeneration("chat-001");
-    unsubscribe();
-
-    expect(result).toBe(true);
+    expect(result).toEqual({ success: true, interrupted: false });
     expect(abortController.signal.aborted).toBe(true);
     expect(dispose).toHaveBeenCalledTimes(1);
-    expect(events).toContainEqual({ type: "error", data: "Generation cancelled" });
   });
 
   it("cancelled generation does not persist assistant message", async () => {
@@ -3405,11 +3400,66 @@ describe("ChatManager.sendMessage", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(chatManager.cancelGeneration("chat-001")).toBe(true);
+    await expect(chatManager.cancelGeneration("chat-001")).resolves.toEqual({ success: true, interrupted: false });
     await sendPromise;
 
     const assistantCalls = mockChatStore.addMessage.mock.calls.filter((call) => call[1].role === "assistant");
     expect(assistantCalls).toHaveLength(0);
+  });
+
+  it("persists one interrupted assistant message before clearing the checkpoint", async () => {
+    let rejectPrompt: ((reason?: unknown) => void) | undefined;
+    const addMessageCalls: Array<{ role: string; content: string }> = [];
+    mockChatStore.addMessage.mockImplementation(async (_sessionId: string, input: { role: string; content: string; thinkingOutput?: string; metadata?: Record<string, unknown> }) => {
+      addMessageCalls.push({ role: input.role, content: input.content });
+      return {
+        id: input.role === "user" ? "user-1" : "assistant-interrupted-1",
+        sessionId: "chat-001",
+        role: input.role,
+        content: input.content,
+        thinkingOutput: input.thinkingOutput ?? null,
+        metadata: input.metadata ?? null,
+        createdAt: "2026-08-18T21:55:00.000Z",
+      };
+    });
+    __setCreateFnAgent(async (options: any) => ({
+      session: {
+        prompt: vi.fn().mockImplementation(() => {
+          options.onThinking("thinking prefix");
+          options.onText("Distinct interrupted prefix");
+          options.onToolStart("bash", { command: "echo partial" });
+          return new Promise<void>((_resolve, reject) => {
+            rejectPrompt = reject;
+          });
+        }),
+        dispose: vi.fn().mockImplementation(() => rejectPrompt?.(new Error("Disposed"))),
+        state: { messages: [] },
+      },
+    }));
+
+    const events: Array<{ type: string; data: unknown }> = [];
+    const unsubscribe = chatStreamManager.subscribe("chat-001", (event) => events.push(event));
+    const chatManager = createChatManager();
+    const sendPromise = chatManager.sendMessage("chat-001", "Hello");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const cancellation = await chatManager.cancelGeneration("chat-001");
+    await sendPromise;
+    unsubscribe();
+
+    expect(cancellation).toEqual(expect.objectContaining({ success: true, interrupted: true }));
+    expect(addMessageCalls.filter((call) => call.role === "assistant")).toEqual([
+      { role: "assistant", content: "Distinct interrupted prefix" },
+    ]);
+    expect(mockChatStore.setInFlightGeneration.mock.invocationCallOrder.at(-1)).toBeGreaterThan(
+      mockChatStore.addMessage.mock.invocationCallOrder.at(-1)!,
+    );
+    expect(mockChatStore.setInFlightGeneration).toHaveBeenLastCalledWith("chat-001", null);
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+    expect(events.find((event) => event.type === "done")?.data).toEqual(expect.objectContaining({
+      interrupted: true,
+      messageId: "assistant-interrupted-1",
+    }));
   });
 
   it("cancelled generation broadcasts error event with cancellation message", async () => {
@@ -3440,11 +3490,11 @@ describe("ChatManager.sendMessage", () => {
     const sendPromise = chatManager.sendMessage("chat-001", "Hello");
 
     await new Promise((resolve) => setTimeout(resolve, 0));
-    chatManager.cancelGeneration("chat-001");
+    await chatManager.cancelGeneration("chat-001");
     await sendPromise;
     unsubscribe();
 
-    expect(events.some((event) => event.type === "error" && event.data === "Generation cancelled")).toBe(true);
+    expect(events.some((event) => event.type === "done" && (event.data as { interrupted?: boolean }).interrupted === true)).toBe(true);
   });
 
   it("cleans active generation state even when dispose fails", async () => {

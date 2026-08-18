@@ -12,7 +12,7 @@ const originalScrollTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.
 const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
 const originalClientHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
 
-const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockStreamChatResponse, mockAttachChatStream, mockEditChatMessage, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
+const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockStreamChatResponse, mockAttachChatStream, mockCancelChatResponse, mockEditChatMessage, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
   const translations = new Map<string, string>();
   return {
     mockEnsureTaskPlannerChatSession: vi.fn(),
@@ -22,6 +22,7 @@ const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockF
     mockFetchTaskDetail: vi.fn(),
     mockStreamChatResponse: vi.fn(),
     mockAttachChatStream: vi.fn(),
+    mockCancelChatResponse: vi.fn(),
     mockEditChatMessage: vi.fn(),
     mockAddSteeringComment: vi.fn(),
     mockTranslations: translations,
@@ -46,6 +47,7 @@ vi.mock("../../api", async (importOriginal) => {
     fetchTaskDetail: mockFetchTaskDetail,
     streamChatResponse: mockStreamChatResponse,
     attachChatStream: mockAttachChatStream,
+    cancelChatResponse: mockCancelChatResponse,
     editChatMessage: mockEditChatMessage,
     addSteeringComment: mockAddSteeringComment,
   };
@@ -180,6 +182,7 @@ describe("TaskPlannerChatTab", () => {
     mockFetchTaskDetail.mockResolvedValue(makeTask("FN-7310"));
     mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
     mockAttachChatStream.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+    mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: false });
     mockEditChatMessage.mockResolvedValue({ retained: [] });
     mockAddSteeringComment.mockResolvedValue(makeTask("FN-7310"));
   });
@@ -218,6 +221,54 @@ describe("TaskPlannerChatTab", () => {
     expect(screen.getByRole("button", { name: /Identify the next best action/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Review the plan or definition/ })).toBeInTheDocument();
     expect(screen.getAllByTestId(/task-planner-chat-starter-/)).toHaveLength(4);
+  });
+
+  it.each([
+    ["desktop", "mouse"],
+    ["mobile", "touch"],
+  ])("FN-016 keeps a planner partial reply after Stop on %s", async (_label, pointerType) => {
+    let streamHandlers: any;
+    const interrupted = {
+      id: "planner-interrupted",
+      sessionId: "chat-planner",
+      role: "assistant" as const,
+      content: "Distinct planner stopped prefix",
+      thinkingOutput: null,
+      metadata: { interrupted: true },
+      createdAt: "2026-08-18T21:55:00.000Z",
+    };
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      streamHandlers = handlers;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+
+    const plannerRender = renderPlannerChat();
+    await screen.findByTestId("task-planner-chat-empty");
+    mockFetchChatMessages.mockResolvedValue({ messages: [interrupted] });
+    mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: true, message: interrupted });
+
+    await userEvent.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+    await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(1));
+    act(() => streamHandlers?.onText("Distinct planner stopped prefix"));
+    await screen.findByText("Distinct planner stopped prefix");
+
+    const stopButton = screen.getByTestId("chat-stop-btn");
+    if (pointerType === "touch") {
+      fireEvent.pointerDown(stopButton, { pointerType: "touch" });
+    } else {
+      fireEvent.click(stopButton);
+    }
+    await waitFor(() => expect(mockCancelChatResponse).toHaveBeenCalledWith("chat-planner", undefined));
+    await waitFor(() => expect(screen.getAllByText("Distinct planner stopped prefix")).toHaveLength(1));
+    expect(screen.getByTestId("chat-send-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-stop-btn")).not.toBeInTheDocument();
+
+    act(() => streamHandlers?.onText(" stale late callback"));
+    expect(screen.queryByText("stale late callback")).not.toBeInTheDocument();
+
+    plannerRender.unmount();
+    renderPlannerChat();
+    expect(await screen.findByText("Distinct planner stopped prefix")).toBeInTheDocument();
   });
 
   it("does not create a planner session when no existing history is found on tab activation", async () => {

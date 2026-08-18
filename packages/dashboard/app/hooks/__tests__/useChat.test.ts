@@ -2469,6 +2469,51 @@ describe("useChat", () => {
     });
   });
 
+  it("keeps and reconciles a visible interrupted prefix after Stop", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    const persistedAssistant = makeMessage({
+      id: "assistant-interrupted",
+      sessionId: "session-001",
+      role: "assistant",
+      content: "Distinct direct prefix",
+      metadata: { interrupted: true },
+      createdAt: "2026-08-18T21:55:00.000Z",
+    });
+    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
+    mockFetchChatMessages
+      .mockResolvedValueOnce({ messages: [] })
+      .mockResolvedValue({ messages: [
+        makeMessage({ id: "user-1", sessionId: "session-001", role: "user", content: "Hello" }),
+        persistedAssistant,
+      ] });
+    mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: true, message: persistedAssistant });
+
+    let streamHandlers: StreamAppendHandlers | undefined;
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      streamHandlers = handlers as StreamAppendHandlers;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+
+    const { result } = renderHook(() => useChat("proj-123"));
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    act(() => result.current.selectSession("session-001"));
+    await waitFor(() => expect(result.current.activeSession?.id).toBe("session-001"));
+
+    act(() => result.current.sendMessage("Hello"));
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+    act(() => streamHandlers?.onText("Distinct direct prefix"));
+    await waitFor(() => expect(result.current.streamingText).toBe("Distinct direct prefix"));
+
+    act(() => result.current.stopStreaming());
+    await waitFor(() => expect(mockCancelChatResponse).toHaveBeenCalledWith("session-001", "proj-123"));
+    await waitFor(() => {
+      const assistants = result.current.messages.filter((message) => message.role === "assistant" && message.content === "Distinct direct prefix");
+      expect(assistants).toHaveLength(1);
+      expect(result.current.isStreaming).toBe(false);
+    });
+    expect(result.current.messages.some((message) => message.failureInfo)).toBe(false);
+  });
+
   it("stopStreaming with no pendingMessages cancels stream without sending anything", async () => {
     const session = makeSession({ id: "session-001", agentId: "agent-001" });
     mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
@@ -2942,6 +2987,45 @@ describe("useChat", () => {
         expect(mockStreamChatResponse.mock.calls[0]?.[1]).toBe("Queued follow-up");
         expect(result.current.pendingMessages).toEqual([]);
       });
+    });
+  });
+
+  it("waits for durable stop reconciliation before starting a queued follow-up", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    const cancellation = createDeferredPromise<{ success: boolean; interrupted: boolean }>();
+    const reconciliation = createDeferredPromise<{ messages: ChatMessage[] }>();
+    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
+    mockFetchChatMessages.mockImplementation(async (_sessionId, options) => (
+      options?.order === "asc" ? reconciliation.promise : { messages: [] }
+    ));
+    mockCancelChatResponse.mockReturnValue(cancellation.promise);
+    mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+
+    const { result } = renderHook(() => useChat("proj-123"));
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    act(() => result.current.selectSession("session-001"));
+    await waitFor(() => expect(result.current.activeSession?.id).toBe("session-001"));
+    act(() => result.current.sendMessage("First"));
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+    act(() => {
+      result.current.sendMessage("Queued follow-up");
+      result.current.stopStreaming();
+    });
+
+    expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      cancellation.resolve({ success: true, interrupted: false });
+      await Promise.resolve();
+    });
+    expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      reconciliation.resolve({ messages: [] });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(2);
+      expect(mockStreamChatResponse.mock.calls[1]?.[1]).toBe("Queued follow-up");
     });
   });
 

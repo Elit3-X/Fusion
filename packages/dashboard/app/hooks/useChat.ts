@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { SetStateAction } from "react";
 import {
   fetchChatSessions,
   fetchChatSession,
@@ -485,6 +486,10 @@ export function useChat(
   const streamRef = useRef<{ close: () => void } | null>(null);
   const lastAttachedGenerationRef = useRef<{ sessionId: string; replayFromEventId: number | null } | null>(null);
   const cancelledByUserRef = useRef(false);
+  const cancellationInProgressRef = useRef<Promise<void> | null>(null);
+  const streamingTextRef = useRef("");
+  const streamingThinkingRef = useRef("");
+  const streamingToolCallsRef = useRef<ToolCallInfo[]>([]);
   const pendingMessagesRef = useRef<string[]>([]);
   const attachIfGeneratingRef = useRef<(
     sessionId: string,
@@ -509,6 +514,31 @@ export function useChat(
   activeSessionRef.current = activeSession;
   messagesRef.current = messages;
   isStreamingRef.current = isStreaming;
+  streamingTextRef.current = streamingText;
+  streamingThinkingRef.current = streamingThinking;
+  streamingToolCallsRef.current = streamingToolCalls;
+
+  const updateStreamingText = useCallback((next: SetStateAction<string>) => {
+    setStreamingText((previous) => {
+      const resolved = typeof next === "function" ? next(previous) : next;
+      streamingTextRef.current = resolved;
+      return resolved;
+    });
+  }, []);
+  const updateStreamingThinking = useCallback((next: SetStateAction<string>) => {
+    setStreamingThinking((previous) => {
+      const resolved = typeof next === "function" ? next(previous) : next;
+      streamingThinkingRef.current = resolved;
+      return resolved;
+    });
+  }, []);
+  const updateStreamingToolCalls = useCallback((next: SetStateAction<ToolCallInfo[]>) => {
+    setStreamingToolCalls((previous) => {
+      const resolved = typeof next === "function" ? next(previous) : next;
+      streamingToolCallsRef.current = resolved;
+      return resolved;
+    });
+  }, []);
 
   useEffect(() => {
     pendingMessagesRef.current = pendingMessages;
@@ -731,6 +761,9 @@ export function useChat(
     cancelStreamingFlushesRef.current = null;
     pendingMessagesRef.current = [];
     setPendingMessages([]);
+    streamingTextRef.current = "";
+    streamingThinkingRef.current = "";
+    streamingToolCallsRef.current = [];
     setStreamingText("");
     setStreamingThinking("");
     setStreamingToolCalls([]);
@@ -868,9 +901,9 @@ export function useChat(
       initialText: inFlightGeneration?.streamingText,
       initialThinking: inFlightGeneration?.streamingThinking,
       initialToolCalls: inFlightGeneration?.toolCalls,
-      setStreamingText,
-      setStreamingThinking,
-      setStreamingToolCalls,
+      setStreamingText: updateStreamingText,
+      setStreamingThinking: updateStreamingThinking,
+      setStreamingToolCalls: updateStreamingToolCalls,
       cancelStreamingFlushesRef,
       addToast: options?.silent ? undefined : addToast,
       onFallbackSession: (data, fallbackSessionId) => {
@@ -925,7 +958,7 @@ export function useChat(
     });
     streamRef.current = stream;
     return true;
-  }, [addToast, flushPendingMessage, flushPendingMessageAfterAttachedError, hydrateMessagesFromCache, loadMessages, projectId]);
+  }, [addToast, flushPendingMessage, flushPendingMessageAfterAttachedError, hydrateMessagesFromCache, loadMessages, projectId, updateStreamingText, updateStreamingThinking, updateStreamingToolCalls]);
   attachIfGeneratingRef.current = attachIfGenerating;
 
   // Select a session
@@ -1389,7 +1422,8 @@ export function useChat(
   }, [activeSession, hasMoreMessages, loadMessages]);
 
   const stopStreaming = useCallback(() => {
-    if (!activeSession) return;
+    const session = activeSessionRef.current;
+    if (!session || cancellationInProgressRef.current) return;
 
     cancelledByUserRef.current = true;
     cancelStreamingFlushesRef.current?.();
@@ -1398,17 +1432,86 @@ export function useChat(
     streamRef.current = null;
     lastAttachedGenerationRef.current = null;
 
-    void cancelChatResponse(activeSession.id, projectId).catch(() => {
-      // Best-effort cancellation; ignore backend errors.
-    });
+    const sessionSelectionVersion = activeSessionSelectionRef.current;
+    const stoppedText = streamingTextRef.current;
+    const stoppedThinking = streamingThinkingRef.current;
+    const stoppedToolCalls = streamingToolCallsRef.current;
+    const interruptedLocalId = `interrupted-${Date.now()}`;
+    const hasInterruptedOutput = Boolean(stoppedText || stoppedThinking || stoppedToolCalls.length > 0);
+    if (hasInterruptedOutput) {
+      // FNXC:ChatCancellation 2026-08-18-21:55:
+      // Keep the displayed prefix in the transcript while the awaited cancel request
+      // reconciles its durable PostgreSQL message; a failed request must not erase it.
+      setMessages((previous) => appendChatMessageChronologically(previous, {
+        id: interruptedLocalId,
+        sessionId: session.id,
+        role: "assistant",
+        content: stoppedText,
+        thinkingOutput: stoppedThinking || null,
+        toolCalls: stoppedToolCalls.length > 0 ? stoppedToolCalls : undefined,
+        createdAt: new Date().toISOString(),
+      }));
+    }
 
     setIsStreaming(false);
     isStreamingRef.current = false;
+    streamingTextRef.current = "";
+    streamingThinkingRef.current = "";
+    streamingToolCallsRef.current = [];
     setStreamingText("");
     setStreamingThinking("");
     setStreamingToolCalls([]);
-    flushPendingMessage();
-  }, [activeSession, projectId, flushPendingMessage]);
+
+    const cancellation = cancelChatResponse(session.id, projectId)
+      .then(async (result) => {
+        const cancellationResult = result ?? { success: true, interrupted: false };
+        if (!cancellationResult.success) {
+          throw new Error("Chat cancellation did not complete");
+        }
+
+        let refreshedMessages: ChatMessageInfo[] | null = null;
+        try {
+          const data = await fetchChatMessages(session.id, { limit: 50, order: "asc" }, projectId);
+          refreshedMessages = data.messages.map(mapChatMessageToInfo);
+        } catch {
+          // The local interrupted row remains recoverable when reconciliation cannot read history.
+        }
+        if (activeSessionRef.current?.id !== session.id || activeSessionSelectionRef.current !== sessionSelectionVersion) {
+          return;
+        }
+
+        const persistedInterruptedMessage = cancellationResult.message
+          ? mapChatMessageToInfo(cancellationResult.message)
+          : undefined;
+        if (refreshedMessages || persistedInterruptedMessage) {
+          const reconciled = [
+            ...(refreshedMessages ?? []),
+            ...(persistedInterruptedMessage && !(refreshedMessages ?? []).some((message) => message.id === persistedInterruptedMessage.id)
+              ? [persistedInterruptedMessage]
+              : []),
+          ];
+          setMessages((current) => {
+            let next = current.filter((message) => message.id !== interruptedLocalId && message.id !== "streaming-assistant");
+            for (const persisted of reconciled) {
+              next = reconcileOptimisticSentMessage(next, persisted);
+            }
+            return sortChatMessagesChronologically(next);
+          });
+        }
+        flushPendingMessage();
+      })
+      .catch(() => {
+        if (activeSessionRef.current?.id === session.id && activeSessionSelectionRef.current === sessionSelectionVersion) {
+          addToast?.("Failed to save the interrupted response; it remains visible for recovery.", "error");
+        }
+      })
+      .finally(() => {
+        if (cancellationInProgressRef.current === cancellation) {
+          cancellationInProgressRef.current = null;
+        }
+      });
+    cancellationInProgressRef.current = cancellation;
+  }, [activeSession, addToast, flushPendingMessage, projectId]);
 
   /**
    * Send a user message to the active chat session.
@@ -1514,9 +1617,9 @@ export function useChat(
       const { handlers } = createChatStreamHandlers({
         sessionId: activeSession.id,
         tempUserMessageId: tempId,
-        setStreamingText,
-        setStreamingThinking,
-        setStreamingToolCalls,
+        setStreamingText: updateStreamingText,
+        setStreamingThinking: updateStreamingThinking,
+        setStreamingToolCalls: updateStreamingToolCalls,
         cancelStreamingFlushesRef,
         addToast,
         onFallbackSession: (data, sessionId) => {
@@ -1657,7 +1760,7 @@ export function useChat(
         onAccepted: () => callbacks?.onAccepted?.(),
       }, attachments, projectId);
     },
-    [activeSession, projectId, refreshSessions, addToast, attachIfGenerating, reconnectSessionSilently, flushPendingMessage],
+    [activeSession, projectId, refreshSessions, addToast, attachIfGenerating, reconnectSessionSilently, flushPendingMessage, updateStreamingText, updateStreamingThinking, updateStreamingToolCalls],
   );
 
   sendMessageRef.current = sendMessage;

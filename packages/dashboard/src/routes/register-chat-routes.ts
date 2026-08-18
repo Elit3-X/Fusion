@@ -1124,8 +1124,11 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     try {
       const chatManager = await resolveScopedChatManager(req.query.projectId as string | undefined);
       const sessionId = String(req.params.id);
-      const success = chatManager.cancelGeneration(sessionId);
-      res.json({ success });
+      // FNXC:ChatCancellation 2026-08-18-21:52:
+      // Await cancellation so clients only reconcile or dequeue follow-up sends after
+      // the interrupted assistant prefix and checkpoint cleanup are durable.
+      const result = await chatManager.cancelGeneration(sessionId);
+      res.json(result);
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
