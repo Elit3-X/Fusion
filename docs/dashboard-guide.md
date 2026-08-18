@@ -294,6 +294,8 @@ Board view is the kanban surface for day-to-day operation.
 Features:
 
 - Drag-and-drop between lifecycle columns
+<!-- FNXC:BoardNavigation 2026-08-18-18:18: Desktop operators can traverse the live workflow columns by dragging a safe Board surface horizontally; card drag-and-drop, card/control clicks, and mobile touch paging remain separate interactions. -->
+- On desktop, click-drag an empty or otherwise safe Board surface to pan horizontally: drag right to reveal earlier columns and drag left to reveal later columns. Task cards and their controls remain reserved for native drag-and-drop, clicks, and context menus; phones continue to use native touch scrolling and column snapping.
 - Search/filter tasks (including working-branch and base-branch dropdown filters with explicit **No working branch** / **No base branch** options)
 - Working-branch and base-branch filter selections are persisted per project and restored across refresh/navigation
 - Column visibility controls

@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { promoteTask, type ModelInfo, type BoardWorkflowsPayload, type BoardWorkflowColumn, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { useBlockerFanout, type BlockerFanoutColumnFlags } from "../hooks/useBlockerFanout";
 import { useColumnScrollSnap } from "../hooks/useColumnScrollSnap";
+import { useBoardMousePan } from "../hooks/useBoardMousePan";
 import { MOBILE_MEDIA_QUERY, useViewportMode } from "../hooks/useViewportMode";
 import { recordResumeEvent } from "../utils/resumeInstrumentation";
 import { getBoardCanDropTaskRejection } from "./boardCanDropTask";
@@ -199,6 +200,14 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
     setBoardElement((current) => current === element ? current : element);
   }, []);
   useColumnScrollSnap(boardElement, { mobileOnly: true });
+  /*
+  FNXC:BoardNavigation 2026-08-18-18:18:
+  Both live workflow Board variants share this callback-ref lifecycle so desktop mouse panning is
+  reachable on selected and All-workflows views without binding the loading skeleton or changing
+  the existing mobile-only column snap hook.
+  */
+  const { isPanning: isBoardMousePanning, ...boardMousePanHandlers } = useBoardMousePan(boardElement);
+  const boardMousePanClassName = `board board-workflow-columns${isBoardMousePanning ? " is-mouse-panning" : ""}`;
   const [headerWorkflowSlot, setHeaderWorkflowSlot] = useState<HTMLElement | null>(() => {
     if (typeof document === "undefined") return null;
     return document.getElementById("header-workflow-slot");
@@ -955,7 +964,12 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
       return (
         <div className="board-workflow-view">
           {renderedWorkflowToolbar}
-          <main className="board board-workflow-columns" id="board" ref={setBoardRef}>
+          <main
+            className={boardMousePanClassName}
+            id="board"
+            ref={setBoardRef}
+            {...boardMousePanHandlers}
+          >
             {aggregateRenderedBoardColumns.map((columnDef) => {
               const isCreateColumn = aggregateQuickCreateTarget?.columnId === columnDef.id;
               const isDoneLikeColumn = columnDef.flags.complete === true && columnDef.flags.archived !== true;
@@ -1043,9 +1057,10 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
       <div className="board-workflow-view">
         {renderedWorkflowToolbar}
         <main
-          className="board board-workflow-columns"
+          className={boardMousePanClassName}
           id="board"
           ref={setBoardRef}
+          {...boardMousePanHandlers}
           onDragStart={(e) => {
             const id = (e.target as HTMLElement)?.closest?.("[data-id]")?.getAttribute("data-id");
             if (id) draggingTaskIdRef.current = id;

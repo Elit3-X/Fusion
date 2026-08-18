@@ -118,7 +118,7 @@ vi.mock("../Column", () => ({
           </button>
         ) : null}
         {tasks.map((task) => (
-          <article key={task.id} data-testid={`board-task-card-${task.id}`}>
+          <article key={task.id} data-id={task.id} draggable data-testid={`board-task-card-${task.id}`}>
             {task.title ?? task.description ?? task.id}
           </article>
         ))}
@@ -239,6 +239,17 @@ function createBoardProps(overrides = {}) {
 
 function renderBoard(props = {}) {
   return render(<Board {...createBoardProps(props)} />);
+}
+
+function makeBoardHorizontallyScrollable(board: HTMLElement, scrollLeft = 100) {
+  Object.defineProperty(board, "clientWidth", { configurable: true, value: 200 });
+  Object.defineProperty(board, "scrollWidth", { configurable: true, value: 600 });
+  board.scrollLeft = scrollLeft;
+}
+
+function dragBoardSurface(board: HTMLElement, pointerId = 1, pointerType = "mouse") {
+  fireEvent.pointerDown(board, { button: 0, clientX: 100, clientY: 50, pointerId, pointerType });
+  fireEvent.pointerMove(board, { clientX: 140, clientY: 50, pointerId, pointerType });
 }
 
 function installMobileBoardStabilizationHarness() {
@@ -1986,6 +1997,71 @@ describe("Board", () => {
         "column-done",
         "column-archived",
       ]);
+    });
+
+    it("pans both selected and All-workflows boards through their live main surfaces", async () => {
+      enableFlag(
+        { "FN-1": "builtin:coding", "FN-2": "wf-custom" },
+        [DEFAULT_WORKFLOW, CUSTOM_WORKFLOW],
+      );
+      renderBoard({ tasks: [mkTask({ id: "FN-1" }), mkTask({ id: "FN-2", column: "intake" })] });
+
+      const selectedBoard = screen.getByRole("main") as HTMLElement;
+      makeBoardHorizontallyScrollable(selectedBoard);
+      dragBoardSurface(selectedBoard);
+      expect(selectedBoard.scrollLeft).toBe(60);
+      expect(selectedBoard).toHaveClass("is-mouse-panning");
+      fireEvent.pointerUp(selectedBoard, { pointerId: 1, pointerType: "mouse" });
+      expect(selectedBoard).not.toHaveClass("is-mouse-panning");
+
+      await selectWorkflow(ALL_WORKFLOWS_BOARD_VIEW_ID);
+      const aggregateBoard = screen.getByRole("main") as HTMLElement;
+      makeBoardHorizontallyScrollable(aggregateBoard);
+      dragBoardSurface(aggregateBoard, 2);
+      expect(aggregateBoard.scrollLeft).toBe(60);
+      fireEvent.pointerUp(aggregateBoard, { pointerId: 2, pointerType: "mouse" });
+    });
+
+    it("keeps touch and task-card interactions outside desktop board panning", async () => {
+      const onQuickCreate = vi.fn().mockResolvedValue({});
+      enableFlag({ "FN-1": "builtin:coding" });
+      renderBoard({ tasks: [mkTask({ id: "FN-1" })], onQuickCreate });
+
+      const board = screen.getByRole("main") as HTMLElement;
+      makeBoardHorizontallyScrollable(board);
+      fireEvent.pointerDown(board, { button: 0, clientX: 100, clientY: 50, pointerId: 1, pointerType: "touch" });
+      fireEvent.pointerMove(board, { clientX: 40, clientY: 50, pointerId: 1, pointerType: "touch" });
+      fireEvent.pointerUp(board, { pointerId: 1, pointerType: "touch" });
+      expect(board.scrollLeft).toBe(100);
+      expect(board).not.toHaveClass("is-mouse-panning");
+
+      const card = screen.getByTestId("board-task-card-FN-1");
+      expect(card).toHaveAttribute("draggable", "true");
+      fireEvent.pointerDown(card, { button: 0, clientX: 100, clientY: 50, pointerId: 2, pointerType: "mouse" });
+      fireEvent.pointerMove(card, { clientX: 40, clientY: 50, pointerId: 2, pointerType: "mouse" });
+      fireEvent.pointerUp(card, { pointerId: 2, pointerType: "mouse" });
+      expect(board.scrollLeft).toBe(100);
+
+      const quickCreate = screen.getByTestId("mock-quick-create-triage");
+      fireEvent.pointerDown(quickCreate, { button: 0, clientX: 100, clientY: 50, pointerId: 3, pointerType: "mouse" });
+      fireEvent.pointerMove(quickCreate, { clientX: 40, clientY: 50, pointerId: 3, pointerType: "mouse" });
+      fireEvent.pointerUp(quickCreate, { pointerId: 3, pointerType: "mouse" });
+      fireEvent.click(quickCreate);
+      expect(onQuickCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not swallow a no-threshold board click", () => {
+      const onQuickCreate = vi.fn().mockResolvedValue({});
+      enableFlag({});
+      renderBoard({ onQuickCreate });
+      const board = screen.getByRole("main") as HTMLElement;
+      makeBoardHorizontallyScrollable(board);
+      fireEvent.pointerDown(board, { button: 0, clientX: 100, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerMove(board, { clientX: 102, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerUp(board, { pointerId: 1, pointerType: "mouse" });
+      fireEvent.click(screen.getByTestId("mock-quick-create-triage"));
+      expect(onQuickCreate).toHaveBeenCalledTimes(1);
+      expect(board).not.toHaveClass("is-mouse-panning");
     });
 
     it("preserves all-workflows board scroll during mobile visualViewport refresh stabilization", async () => {
