@@ -20,10 +20,12 @@ export default interface Resources {
       "done": "Done",
       "edit": "Edit",
       "no": "No",
+      "open": "Open",
       "openSettings": "Open Settings",
       "pull": "Pull",
       "refresh": "Refresh",
       "refreshInsights": "Refresh insights",
+      "remove": "Remove",
       "retry": "Retry",
       "run": "Run",
       "save": "Save",
@@ -443,6 +445,7 @@ export default interface Resources {
       "deleted": "Agent deleted",
       "deletionNotAvailable": "Deletion is not available while the agent is running.",
       "deletionPermanent": "This will permanently delete the agent and all associated data.",
+      "detailLabel": "Agent detail",
       "detailLoadingLabel": "Agent detail loading",
       "details": "Details",
       "dialogAriaLabel": "Create new agent",
@@ -623,6 +626,7 @@ export default interface Resources {
       "kTokens_other": "{{count}}k tokens",
       "last24h": "Last 24h",
       "last7d": "Last 7 days",
+      "lastCompletedStep": "Last completed Step {{index}}: {{name}}",
       "lastHeartbeat": "Last heartbeat",
       "lastHeartbeatAt": "Last: {{time}}",
       "latestRunLabel": "Latest run",
@@ -1351,6 +1355,7 @@ export default interface Resources {
       "resizeSidebar": "Resize chat sidebar",
       "responseCopied": "Response copied",
       "responseFailed": "Response failed",
+      "restore": "Restore",
       "roomMemberCount_one": "{{count}} member",
       "roomMemberCount_other": "{{count}} members",
       "roomsGroupLabel": "Rooms",
@@ -1854,6 +1859,7 @@ export default interface Resources {
         "tools": "Tools",
         "workflows": "Workflows"
       },
+      "taskVerification": "Task verification",
       "team": {
         "agent": "Agent",
         "completedByAgent": "Tasks done by agent",
@@ -1911,6 +1917,7 @@ export default interface Resources {
         "summaryTitle": "Summary",
         "toolCalls": "Tool calls"
       },
+      "verificationRequests": "Latest executor-owned verification requests",
       "workflows": {
         "completedByWorkflow": "Tasks done by workflow",
         "cost": "Cost",
@@ -1994,16 +2001,36 @@ export default interface Resources {
       "unsavedChanges": "Unsaved changes",
       "yes": "Yes"
     },
+    "composeChat": {
+      "ariaLabel": "Compose chat narrative helper",
+      "draft": "Draft",
+      "draftNarrative": "Draft narrative",
+      "emptyDraft": "Ask the assistant to draft the narrative around your attached structures.",
+      "useDraft": "Use draft"
+    },
     "composer": {
+      "addSection": "Add section",
+      "ariaLabel": "Message composer; drop a structure to attach it",
+      "attachStructure": "Attach structure",
       "loadingAgents": "Loading agents…",
       "messageId": "Message {{id}}",
       "messageLabel": "Message:",
       "messagePlaceholder": "Type your message…",
+      "mode": "Message mode",
       "newMessageTitle": "New Message",
       "noAgentsAvailable": "No agents available",
+      "noStructures": "No structures available",
+      "quickMessage": "Quick message",
+      "removeSection": "Remove section",
+      "removeStructure": "Remove {{label}}",
       "replyTitle": "Reply",
       "replyingToLabel": "Replying to:",
+      "report": "Report",
+      "reportTitle": "Report title",
+      "sectionBody": "Section body",
+      "sectionHeading": "Section heading",
       "selectAgent": "Select agent…",
+      "selectStructure": "Select structure…",
       "sendingButton": "Sending…",
       "toLabel": "To:",
       "wakeAgentCheckbox": "Wake agent immediately",
@@ -2539,6 +2566,21 @@ export default interface Resources {
       "taskHeader": "Tasks",
       "taskMatches": "Task matches"
     },
+    "fixture": {
+      "floatingTaskDetail": "Floating task detail",
+      "floatingTaskDetailBody": "Floating task detail body",
+      "genericFloatingWindow": "Generic floating window",
+      "genericFloatingWindowBody": "Generic floating window body",
+      "genericWindowHeader": "Generic window header",
+      "headerAction": "Header action",
+      "headerlessTaskDetail": "Headerless task detail",
+      "taskDetail": "Task detail",
+      "taskDetailBody": "Task detail body"
+    },
+    "floatingWindow": {
+      "close": "Close floating window",
+      "resize": "Resize floating window"
+    },
     "git": {
       "add": "Add",
       "addComment": "Add comment",
@@ -2945,6 +2987,10 @@ export default interface Resources {
       "worktreesTotal_one": "{{count}} total",
       "worktreesTotal_other": "{{count}} total"
     },
+    "githubImport": {
+      "github": "GitHub",
+      "gitlab": "GitLab"
+    },
     "githubStarPrompt": {
       "body": "If Fusion has saved you time, a GitHub star goes a long way. It helps other developers discover the project and keeps the team motivated to ship improvements.",
       "dismissLabel": "Dismiss GitHub star prompt",
@@ -3139,6 +3185,19 @@ export default interface Resources {
       "yoloHelp": "Required for non-interactive sessions that trigger shell-style tools.",
       "yoloLabel": "Auto-approve dangerous tool calls ({{flag}})"
     },
+    "ideation": {
+      "addCandidate": "Add candidate",
+      "converge": "Converge",
+      "convergedToMission": "Converged to Mission",
+      "description": "Capture alternatives, then converge one into the Mission hierarchy.",
+      "divergentCandidate": "Divergent candidate",
+      "noSessions": "No sessions yet.",
+      "persisted": "Persisted ideation",
+      "selectOrStart": "Select or start a session.",
+      "sessionTitle": "Session title",
+      "start": "Start session",
+      "title": "Ideation"
+    },
     "inline": {
       "agent": "Agent",
       "breakDownSubtasks": "Break down into AI-generated subtasks",
@@ -3292,6 +3351,38 @@ export default interface Resources {
     "issues": {
       "noIssuesFound": "No issues found"
     },
+    "knowledgeGraph": {
+      "allFnxcAreas": "All FNXC areas",
+      "allOwners": "All owners",
+      "allSymbolKinds": "All symbol kinds",
+      "bothDirections": "Both directions",
+      "depth": "Depth {{depth}}",
+      "distance": "distance {{distance}}",
+      "edgeKinds": "Edge kinds",
+      "findPath": "Find path",
+      "incoming": "Incoming",
+      "limitResults": "{{limit}} results",
+      "neighbors": "Neighbors",
+      "next": "Next",
+      "noNeighbors": "No neighbors found.",
+      "noPath": "No path exists between these nodes.",
+      "nodeKinds": "Node kinds",
+      "none": "None",
+      "outgoing": "Outgoing",
+      "ownerDerived": "derived",
+      "ownerFile": "file",
+      "pathLimitReached": "No path found within {{maxHops}} hops; {{limit}} was reached.",
+      "previous": "Previous",
+      "provenance": "Provenance",
+      "raiseHopLimit": "Raise hop limit",
+      "refreshNeighbors": "Refresh neighbors",
+      "searching": "Searching…",
+      "selectNodeHint": "Select a node to inspect its edges.",
+      "shortestPath": "Shortest path",
+      "showingOf": "showing {{shown}} of {{total}}",
+      "useSelectedFrom": "Use selected as from",
+      "useSelectedTo": "Use selected as to"
+    },
     "lane": {
       "collapse": "Collapse {{name}} lane",
       "expand": "Expand {{name}} lane"
@@ -3412,6 +3503,7 @@ export default interface Resources {
       "agents": "Agents",
       "agentsTab": "Agents",
       "ago": "ago",
+      "all": "All",
       "allAgents": "All agents",
       "allAgentsOption": "All agents",
       "approvalApprove": "Approve",
@@ -3419,8 +3511,15 @@ export default interface Resources {
       "approvalDeny": "Deny",
       "approvalRequested": "Requested",
       "approvalRequester": "Requester",
+      "approvalStatus": "Approval {{status}}",
       "approvalTask": "Task",
+      "approvalUnavailable": "This approval request is no longer available.",
       "approvals": "Approvals",
+      "approve": "Approve",
+      "archive": "Archive",
+      "archived": "Archived",
+      "artifact": "artifact",
+      "audioArtifactAria": "Audio artifact: {{label}}",
       "back": "Back",
       "backButton": "← Back",
       "closeAriaLabel": "Close",
@@ -3431,14 +3530,19 @@ export default interface Resources {
       "composeTitle": "Compose message",
       "conversation": "Conversation",
       "conversationLabel": "Conversation",
+      "createTask": "Create task",
+      "createTaskError": "Could not create task. Try again.",
+      "creatingTask": "Creating task…",
       "delete": "Delete",
       "deleteButton": "Delete",
       "deleteFailed": "Failed to delete message",
+      "deny": "Deny",
       "from": "From",
       "fromLabel": "From:",
       "fromPrefix": "From: {{participant}}",
       "history": "History",
       "inbox": "Inbox",
+      "inboxFilter": "Inbox filter",
       "inboxTab": "Inbox",
       "justNow": "Just now",
       "labelAgent": "Agent: {{id}}",
@@ -3446,6 +3550,7 @@ export default interface Resources {
       "labelSystem": "System",
       "labelUser": "User: {{id}}",
       "labelYou": "You",
+      "loadingApproval": "Loading approval…",
       "markAllRead": "Mark all read",
       "markAllReadButton": "Mark all read",
       "markAllReadTitle": "Mark all as read",
@@ -3457,6 +3562,7 @@ export default interface Resources {
       "noAgentMessages": "No agent-to-agent messages",
       "noAgents": "No agents found",
       "noAgentsFound": "No agents found",
+      "noArchivedMessages": "No archived messages",
       "noHistoricalApprovals": "No historical approvals",
       "noInbox": "No messages in your inbox",
       "noMessagesInbox": "No messages in your inbox",
@@ -3465,18 +3571,28 @@ export default interface Resources {
       "noReceivedMessages": "No received messages for this agent",
       "noSentMessages": "No sent messages",
       "noSentMessagesAgent": "No sent messages for this agent",
+      "openArtifact": "Open artifact",
+      "openArtifactAria": "Open artifact: {{label}}",
+      "optionalComment": "Optional comment",
       "outbox": "Outbox",
       "outboxTab": "Outbox",
       "pending": "Pending",
+      "recommendationsUnavailable": "Recommendations are no longer available.",
       "refreshTitle": "Refresh",
       "reply": "Reply",
       "replyButton": "Reply",
       "replyLoadFailed": "Failed to load replied message. Click to retry.",
       "replyingTo": "Replying to",
       "replyingToMessage": "Replying to message",
+      "reportsApprovals": "Reports & approvals",
       "resizeMessageListPane": "Resize message list pane",
+      "restore": "Restore",
+      "retryCreatingTask": "Retry creating task",
       "selectMessageToRead": "Select a message to read",
       "system": "System",
+      "taskCreatedView": "Task {{id}} created — View task",
+      "taskProposalDismissed": "Task proposal dismissed",
+      "taskRecommendations": "Task recommendations",
       "timeDaysAgo_one": "{{count}}d ago",
       "timeDaysAgo_other": "{{count}}d ago",
       "timeHoursAgo_one": "{{count}}h ago",
@@ -3494,6 +3610,10 @@ export default interface Resources {
       "typeSystem": "System",
       "typeUserToAgent": "You → Agent",
       "user": "User",
+      "videoArtifactAria": "Video artifact: {{label}}",
+      "viewTask": "View task {{id}}",
+      "viewTaskAria": "View task: {{id}}",
+      "viewTaskLabel": "View task",
       "you": "You"
     },
     "memory": {
@@ -3664,6 +3784,9 @@ export default interface Resources {
       "smartPull": "Smart Pull",
       "status": "Status",
       "title": "Merge Details"
+    },
+    "mermaid": {
+      "diagram": "Mermaid diagram"
     },
     "mesh": {
       "ariaLabel": "Node mesh topology visualization",
@@ -4115,6 +4238,13 @@ export default interface Resources {
         "configuration": "Model Configuration"
       },
       "useDefault": "Use default"
+    },
+    "nativeStructure": {
+      "loadFailed": "Could not load this {{kind}}.",
+      "loading": "Loading {{kind}}",
+      "openAria": "Open {{kind}}: {{title}}",
+      "previewUnavailable": "Preview unavailable",
+      "unavailable": "This structure is unavailable."
     },
     "nav": {
       "activityLog": "Activity Log",
@@ -5081,6 +5211,18 @@ export default interface Resources {
       "title": "Projects",
       "totalLabel": "Total"
     },
+    "providerLogin": {
+      "approveInBrowser": "Approve the sign-in in your browser",
+      "authorizationReceived": "Authorization received.",
+      "cancel": "Cancel login",
+      "connected": "Connected.",
+      "exchangingCode": "Exchanging the authorization code…",
+      "finishInBrowser": "A tab should have opened. Finish signing in there — this dialog stays put.",
+      "handAuthorizationBack": "Hand the authorization back to Fusion",
+      "openSignInAgain": "Open the sign-in page again",
+      "pasteRedirectUrl": "Usually automatic. If your browser lands on an error page, paste that page's full URL below.",
+      "signingInTo": "Signing in to {{provider}}"
+    },
     "providers": {
       "actions": {
         "addModel": "+ Add model",
@@ -5245,6 +5387,17 @@ export default interface Resources {
       "window": "Window: {{start}} → {{end}}"
     },
     "report": {
+      "activityTrace": "Activity trace to send",
+      "capturingScreenshot": "Capturing and storing locally…",
+      "close": "Close report",
+      "confirmDataPoint": "Confirm and add data point",
+      "confirmScreenshotRetention": "I confirm Fusion may retain this screenshot locally for this report.",
+      "duplicateReview": "Review data point for a similar open issue",
+      "file": "File report",
+      "final": "Final report",
+      "menu": "Report",
+      "returnToPrompt": "Return to prompt",
+      "review": "Review your report",
       "roadmapDuplicate": {
         "title": "Already on the roadmap — add your data point?"
       },
@@ -5252,10 +5405,16 @@ export default interface Resources {
         "message": "This report matches a feature that is already planned.",
         "title": "Already on the roadmap"
       },
+      "storeScreenshot": "Store a screenshot locally",
+      "structured": "Structured report",
+      "structuredDataPoint": "Structured data point",
+      "suggestedHelp": "Suggested help",
+      "summary": "Report summary",
       "targetDiscussion": "GitHub Discussion",
       "targetInherit": "Use configured action target",
       "targetIssue": "GitHub Issue",
-      "targetLabel": "Filing target"
+      "targetLabel": "Filing target",
+      "viewGitHub": "View on GitHub"
     },
     "research": {
       "actionFailed": "Action failed",
@@ -5320,13 +5479,20 @@ export default interface Resources {
       "viewLabel": "Research view"
     },
     "rightDock": {
+      "archivedCopy": "Archived tasks stay out of this compact sidebar. Active tasks will appear here when work is available.",
       "closeExpandedView": "Close expanded right dock view",
       "collapse": "Collapse right dock",
+      "doneHiddenCopy": "Completed tasks are hidden until you choose Show Done. Archived tasks stay out of this compact sidebar.",
+      "emptyCopy": "Tasks you create or import will appear here for quick right-sidebar review.",
       "expand": "Expand right dock",
       "expandView": "Expand {{label}}",
+      "hideDone": "Hide Done",
       "label": "Right dock",
+      "noActiveTasks": "No active tasks",
+      "noTasksYet": "No tasks yet",
       "resize": "Resize right dock",
       "resizeExpandedView": "Resize expanded right dock window",
+      "showDone": "Show Done",
       "viewExpanded": "{{label}} expanded",
       "views": "Right dock views"
     },
@@ -6280,7 +6446,11 @@ export default interface Resources {
         "globalDescription": "Configure MCP servers shared by all projects. Project settings may override or disable these servers by name.",
         "globalTitle": "Global MCP servers",
         "projectDescription": "Configure project-specific MCP servers, overrides, and disabled inherited servers.",
-        "projectTitle": "Project MCP servers"
+        "projectTitle": "Project MCP servers",
+        "transport": "Transport",
+        "transportHttp": "HTTP",
+        "transportSse": "SSE",
+        "transportStdio": "stdio"
       },
       "memory": {
         "03": "0 3 * * *",
@@ -6324,6 +6494,8 @@ export default interface Resources {
         "qmdIsNotInstalledSearchWillUseLocal": " qmd is not installed. Search will use local files. Install indexed retrieval: ",
         "result": " result",
         "runsTheSameQmdBackedMemorySearchPath": "Runs the same qmd-backed memory_search path agents use.",
+        "saveBeforeCompacting": "Save or discard edits before compacting this file.",
+        "saveBeforeSwitching": "Save or discard the current edits before switching files.",
         "saveMemory": "Save Memory",
         "scheduleCron": "Schedule (cron)",
         "searchMemoryWithQmd": "Search memory with qmd",
@@ -7722,6 +7894,8 @@ export default interface Resources {
       "loadingEarlierMessages": "Loading earlier messages…",
       "message": "Message",
       "messageActiveAgentSession": "Message active agent session",
+      "missingOutput": "Missing output",
+      "missingOutputTimestamp": "Missing output timestamp",
       "moreTools_one": ", +{{count}} more",
       "moreTools_other": ", +{{count}} more",
       "result": "Result",
@@ -7733,6 +7907,8 @@ export default interface Resources {
         "reviewer": "Reviewer"
       },
       "sending": "Sending",
+      "statusUpdate": "Status update",
+      "statusUpdateTimestamp": "Status update timestamp",
       "thinking": "Thinking",
       "toolCall": "Tool call",
       "toolCallCount_one": "{{count}} tool call",
@@ -7983,7 +8159,8 @@ export default interface Resources {
       "header": {
         "back": "Back",
         "backToList": "Back to task list",
-        "editTask": "Edit task"
+        "editTask": "Edit task",
+        "popOut": "Pop out"
       },
       "inputTokens": "Input",
       "lastUsed": "Last used",
@@ -8179,6 +8356,10 @@ export default interface Resources {
         "btn": "Retry",
         "retried": "Retried {{id}}"
       },
+      "reverted": {
+        "deleteAria": "Delete reverted task"
+      },
+      "revise": "Revise",
       "runtimeLinks": "Runtime links",
       "runtimeStatus": "Runtime status",
       "selfHealCounters": "Self-heal counters",
@@ -8213,6 +8394,18 @@ export default interface Resources {
         "revisionRequested": "AI revision requested. Task moved to planning.",
         "saving": "Saving…",
         "updated": "Spec updated"
+      },
+      "specLock": {
+        "accepted": "Accepted {{acceptedAt}} · plan hash {{planHash}} · approval {{approval}}",
+        "alignment": "Spec alignment",
+        "alignmentLabel": "Spec lock alignment",
+        "captured": "Captured {{capturedAt}} · source revision {{sourceRevision}} · source hash {{sourceHash}}",
+        "currentPlan": "Current plan",
+        "findings": "Findings",
+        "latestLock": "Latest lock",
+        "lockState": "Lock state",
+        "relockChanged": "Re-lock changed: {{sections}}",
+        "retainedHistory": "Retained history: {{locks}}; {{plans}}; {{reports}} reports"
       },
       "stall": {
         "noLogEntry": "No log entry yet",
@@ -8506,6 +8699,14 @@ export default interface Resources {
       "superseded": "Superseded",
       "upToDate": "Up to date",
       "updateFailed": "Failed to update {{taskId}}: {{error}}"
+    },
+    "taskVerification": {
+      "failed": "Failed",
+      "heading": "Verification · {{profile}}",
+      "passed": "Passed",
+      "queued": "Queued for the task executor",
+      "requestRejected": "Request rejected",
+      "running": "Running in the task worktree"
     },
     "tasks": {
       "addTaskPlaceholder": "Add a task...",
@@ -8895,6 +9096,28 @@ export default interface Resources {
       "viewModeLabel": "Usage view mode",
       "viewModeRemaining": "Remaining",
       "viewModeUsed": "Used"
+    },
+    "whatsapp": {
+      "allowedSenders": "Set {{label}}; an empty list blocks all inbound messages.",
+      "choosePairingMethod": "Choose {{qr}} to scan in WhatsApp Linked Devices, or {{code}} to enter a phone number and request a pairing code.",
+      "connectedAs": "Connected as {{jid}}",
+      "connectedSuccess": "WhatsApp is paired and ready to receive messages from allowed senders.",
+      "description": "Pair and monitor this project's WhatsApp connection here.",
+      "installPlugin": "Install and enable this plugin, then keep this settings panel open.",
+      "instructionsLabel": "WhatsApp pairing instructions",
+      "loggingOut": "Logging out...",
+      "logoutRepair": "Logout and re-pair",
+      "pairing": "WhatsApp pairing",
+      "pairingConfiguration": "Pairing and configuration",
+      "phoneNumber": "Phone number (E.164 digits without +)",
+      "qrCode": "WhatsApp pairing QR code",
+      "refreshStatus": "Refresh status",
+      "repairInstructions": "Use Logout and re-pair to start over. If QR is still pending, wait briefly or refresh status for a new code.",
+      "requestPairingCode": "Request pairing code",
+      "requestingCode": "Requesting code...",
+      "status": "Status:",
+      "waitConnected": "Wait for the status above to become {{status}}.",
+      "waitingQr": "Waiting for a fresh QR code. Keep this panel open and refresh if needed."
     },
     "workflow": {
       "advisoryExplanation": "Advisory workflow steps flagged non-blocking improvements:",

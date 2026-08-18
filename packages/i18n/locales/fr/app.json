@@ -30,7 +30,9 @@
     "showMore": "Afficher plus",
     "update": "Mettre à jour",
     "yes": "Oui",
-    "clear": ""
+    "clear": "",
+    "open": "",
+    "remove": ""
   },
   "activityFeed": {
     "emptyHint": "",
@@ -1145,7 +1147,9 @@
     "disableHeartbeatsSummary": "{{count}} battements désactivés ; {{skipped}} ignorés",
     "enableHeartbeatsCountHint": "Activer {{count}} battements désactivés",
     "disableHeartbeatsCountHint": "Désactiver {{count}} battements activés",
-    "bulkFailures": "{{count}} échecs"
+    "bulkFailures": "{{count}} échecs",
+    "detailLabel": "",
+    "lastCompletedStep": ""
   },
   "app": {
     "backendError": {
@@ -1389,7 +1393,8 @@
     "currentAgentTarget": "Current agent: {{name}}",
     "currentModelTarget": "Current model: {{model}}",
     "currentDefaultTarget": "Using the default chat target",
-    "newNotAllowedForTaskChat": ""
+    "newNotAllowedForTaskChat": "",
+    "restore": ""
   },
   "chatRooms": {
     "error": {
@@ -1928,7 +1933,9 @@
         "workflow:gate-failed": "Workflow gate failed",
         "approval:requested": "Approval requested"
       }
-    }
+    },
+    "taskVerification": "",
+    "verificationRequests": ""
   },
   "comments": {
     "addButton": "Ajouter un commentaire",
@@ -2006,7 +2013,20 @@
     "toLabel": "À :",
     "wakeAgentCheckbox": "Réveiller l'agent immédiatement",
     "wakeAlwaysImmediate": "(l'agent est déjà en mode de réponse immédiate)",
-    "wakeOneOff": "(remplacement ponctuel pour ce message uniquement)"
+    "wakeOneOff": "(remplacement ponctuel pour ce message uniquement)",
+    "addSection": "",
+    "ariaLabel": "",
+    "attachStructure": "",
+    "mode": "",
+    "noStructures": "",
+    "quickMessage": "",
+    "removeSection": "",
+    "removeStructure": "",
+    "report": "",
+    "reportTitle": "",
+    "sectionBody": "",
+    "sectionHeading": "",
+    "selectStructure": ""
   },
   "confirm": {
     "cancel": "Annuler",
@@ -3482,7 +3502,36 @@
     "typeSystem": "Système",
     "typeUserToAgent": "Vous → Agent",
     "user": "Utilisateur",
-    "you": "Vous"
+    "you": "Vous",
+    "all": "",
+    "approvalStatus": "",
+    "approvalUnavailable": "",
+    "approve": "",
+    "archive": "",
+    "archived": "",
+    "artifact": "",
+    "audioArtifactAria": "",
+    "createTask": "",
+    "createTaskError": "",
+    "creatingTask": "",
+    "deny": "",
+    "inboxFilter": "",
+    "loadingApproval": "",
+    "noArchivedMessages": "",
+    "openArtifact": "",
+    "openArtifactAria": "",
+    "optionalComment": "",
+    "recommendationsUnavailable": "",
+    "reportsApprovals": "",
+    "restore": "",
+    "retryCreatingTask": "",
+    "taskCreatedView": "",
+    "taskProposalDismissed": "",
+    "taskRecommendations": "",
+    "videoArtifactAria": "",
+    "viewTask": "",
+    "viewTaskAria": "",
+    "viewTaskLabel": ""
   },
   "memory": {
     "auditChecksTitle": "Vérifications d'audit",
@@ -5303,7 +5352,14 @@
     "resize": "",
     "viewExpanded": "",
     "views": "",
-    "resizeExpandedView": ""
+    "resizeExpandedView": "",
+    "archivedCopy": "",
+    "doneHiddenCopy": "",
+    "emptyCopy": "",
+    "hideDone": "",
+    "noActiveTasks": "",
+    "noTasksYet": "",
+    "showDone": ""
   },
   "routine": {
     "andMore_one": "",
@@ -6176,7 +6232,8 @@
       "openRouterRoutingOnlyHint": "",
       "openRouterAllowFallbacksHint": "",
       "openRouterRoutingSortHint": "",
-      "requireParametersHint": ""
+      "requireParametersHint": "",
+      "modelOverrides": ""
     },
     "header": {
       "discord": "Discord",
@@ -6273,7 +6330,9 @@
       "turnsDailyNotesIntoDREAMSMdAndPromotes": "",
       "qmdInstalled": "",
       "qmdInstallFailed": "",
-      "qmdInstallUnavailable": ""
+      "qmdInstallUnavailable": "",
+      "saveBeforeCompacting": "",
+      "saveBeforeSwitching": ""
     },
     "merge": {
       "abort": "",
@@ -6621,7 +6680,11 @@
       "executorEscalationModel": "",
       "executorEscalationModelHelp": "",
       "selectExecutorEscalationModel": "",
-      "noExecutorEscalationModel": ""
+      "noExecutorEscalationModel": "",
+      "modelOverrides": "",
+      "projectLanesSubheading": "",
+      "workflowLanesSubheading": "",
+      "summarizationPointer": ""
     },
     "remote": {
       "acceptRoutes": "",
@@ -6936,7 +6999,11 @@
       "projectTitle": "Project MCP servers",
       "globalDescription": "Configure MCP servers shared by all projects. Project settings may override or disable these servers by name.",
       "projectDescription": "Configure project-specific MCP servers, overrides, and disabled inherited servers.",
-      "enabledHint": ""
+      "enabledHint": "",
+      "transport": "",
+      "transportHttp": "",
+      "transportSse": "",
+      "transportStdio": ""
     },
     "search": {
       "allSections": "",
@@ -7870,7 +7937,8 @@
     "header": {
       "back": "Retour",
       "backToList": "Retour à la liste des tâches",
-      "editTask": "Modifier la tâche"
+      "editTask": "Modifier la tâche",
+      "popOut": ""
     },
     "inputTokens": "Entrée",
     "lastUsed": "Dernière utilisation",
@@ -8231,6 +8299,22 @@
       "retry": "",
       "create": "",
       "error": ""
+    },
+    "reverted": {
+      "deleteAria": ""
+    },
+    "revise": "",
+    "specLock": {
+      "accepted": "",
+      "alignment": "",
+      "alignmentLabel": "",
+      "captured": "",
+      "currentPlan": "",
+      "findings": "",
+      "latestLock": "",
+      "lockState": "",
+      "relockChanged": "",
+      "retainedHistory": ""
     }
   },
   "taskDocuments": {
@@ -9369,7 +9453,11 @@
     "toolNames": "",
     "toolResult": "",
     "you": "",
-    "youMessage": ""
+    "youMessage": "",
+    "missingOutput": "",
+    "missingOutputTimestamp": "",
+    "statusUpdate": "",
+    "statusUpdateTimestamp": ""
   },
   "engineBanner": {
     "body": "The engine for this project is not running, so task automation and live updates may be paused. Start it now to reconnect the dashboard.",
@@ -9392,6 +9480,146 @@
     "targetLabel": "Cible de dépôt",
     "targetInherit": "Utiliser la cible configurée pour l’action",
     "targetIssue": "Issue GitHub",
-    "targetDiscussion": "Discussion GitHub"
+    "targetDiscussion": "Discussion GitHub",
+    "activityTrace": "",
+    "capturingScreenshot": "",
+    "close": "",
+    "confirmDataPoint": "",
+    "confirmScreenshotRetention": "",
+    "duplicateReview": "",
+    "file": "",
+    "final": "",
+    "menu": "",
+    "returnToPrompt": "",
+    "review": "",
+    "storeScreenshot": "",
+    "structured": "",
+    "structuredDataPoint": "",
+    "suggestedHelp": "",
+    "summary": "",
+    "viewGitHub": ""
+  },
+  "composeChat": {
+    "ariaLabel": "",
+    "draft": "",
+    "draftNarrative": "",
+    "emptyDraft": "",
+    "useDraft": ""
+  },
+  "fixture": {
+    "floatingTaskDetail": "",
+    "floatingTaskDetailBody": "",
+    "genericFloatingWindow": "",
+    "genericFloatingWindowBody": "",
+    "genericWindowHeader": "",
+    "headerAction": "",
+    "headerlessTaskDetail": "",
+    "taskDetail": "",
+    "taskDetailBody": ""
+  },
+  "floatingWindow": {
+    "close": "",
+    "resize": ""
+  },
+  "githubImport": {
+    "github": "",
+    "gitlab": ""
+  },
+  "ideation": {
+    "addCandidate": "",
+    "converge": "",
+    "convergedToMission": "",
+    "description": "",
+    "divergentCandidate": "",
+    "noSessions": "",
+    "persisted": "",
+    "selectOrStart": "",
+    "sessionTitle": "",
+    "start": "",
+    "title": ""
+  },
+  "knowledgeGraph": {
+    "allFnxcAreas": "",
+    "allOwners": "",
+    "allSymbolKinds": "",
+    "bothDirections": "",
+    "depth": "",
+    "distance": "",
+    "edgeKinds": "",
+    "findPath": "",
+    "incoming": "",
+    "limitResults": "",
+    "neighbors": "",
+    "next": "",
+    "noNeighbors": "",
+    "noPath": "",
+    "nodeKinds": "",
+    "none": "",
+    "outgoing": "",
+    "ownerDerived": "",
+    "ownerFile": "",
+    "pathLimitReached": "",
+    "previous": "",
+    "provenance": "",
+    "raiseHopLimit": "",
+    "refreshNeighbors": "",
+    "searching": "",
+    "selectNodeHint": "",
+    "shortestPath": "",
+    "showingOf": "",
+    "useSelectedFrom": "",
+    "useSelectedTo": ""
+  },
+  "mermaid": {
+    "diagram": ""
+  },
+  "nativeStructure": {
+    "loadFailed": "",
+    "loading": "",
+    "openAria": "",
+    "previewUnavailable": "",
+    "unavailable": ""
+  },
+  "providerLogin": {
+    "approveInBrowser": "",
+    "authorizationReceived": "",
+    "cancel": "",
+    "connected": "",
+    "exchangingCode": "",
+    "finishInBrowser": "",
+    "handAuthorizationBack": "",
+    "openSignInAgain": "",
+    "pasteRedirectUrl": "",
+    "signingInTo": ""
+  },
+  "taskVerification": {
+    "failed": "",
+    "heading": "",
+    "passed": "",
+    "queued": "",
+    "requestRejected": "",
+    "running": ""
+  },
+  "whatsapp": {
+    "allowedSenders": "",
+    "choosePairingMethod": "",
+    "connectedAs": "",
+    "connectedSuccess": "",
+    "description": "",
+    "installPlugin": "",
+    "instructionsLabel": "",
+    "loggingOut": "",
+    "logoutRepair": "",
+    "pairing": "",
+    "pairingConfiguration": "",
+    "phoneNumber": "",
+    "qrCode": "",
+    "refreshStatus": "",
+    "repairInstructions": "",
+    "requestPairingCode": "",
+    "requestingCode": "",
+    "status": "",
+    "waitConnected": "",
+    "waitingQr": ""
   }
 }

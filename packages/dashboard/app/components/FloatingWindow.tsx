@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { isFullScreenSheetViewport, isShortViewport, isTabletTouchViewport, useViewportMode } from "../hooks/useViewportMode";
 import { currentFloatingZ, currentTaskDetailFloatingZ, nextFloatingZ, nextTaskDetailFloatingZ } from "./floatingWindowStack";
 import { isInsidePortalSafeSurface } from "../utils/portalSurfaces";
@@ -211,6 +212,7 @@ export function FloatingWindow({
   ariaLabel,
   ariaLabelledBy,
 }: FloatingWindowProps) {
+  const { t } = useTranslation("app");
   const resolvedMinSize: FloatingWindowSize = minSize ?? { width: DEFAULT_MIN_WIDTH, height: DEFAULT_MIN_HEIGHT };
   const viewportMode = useViewportMode();
   /*
@@ -661,7 +663,7 @@ export function FloatingWindow({
             data-testid={`floating-window-resize-${direction}`}
             {...(hasTabletTouchGeometry ? { "data-resize-hit-target": "true" } : {})}
             role="separator"
-            aria-label="Resize floating window"
+            aria-label={t("floatingWindow.resize", "Resize floating window")}
             onPointerDown={(event) => handleResizePointerDown(event, direction)}
           />
         ))}
@@ -677,7 +679,7 @@ export function FloatingWindow({
               type="button"
               className="floating-window__close"
               onClick={onClose}
-              aria-label="Close floating window"
+              aria-label={t("floatingWindow.close", "Close floating window")}
               data-testid={`floating-window-close-${windowKey}`}
             >
               <X size={18} />

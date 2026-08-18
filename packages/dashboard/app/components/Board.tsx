@@ -5,6 +5,8 @@ import "./Lane.css";
 import "./Board.css";
 import type { ToastType } from "../hooks/useToast";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { createPortal } from "react-dom";
 import { promoteTask, type ModelInfo, type BoardWorkflowsPayload, type BoardWorkflowColumn, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { useBlockerFanout, type BlockerFanoutColumnFlags } from "../hooks/useBlockerFanout";
@@ -146,9 +148,9 @@ export { ALL_WORKFLOWS_BOARD_VIEW_ID } from "../utils/boardWorkflowSelection";
 type AggregateBoardColumn = BoardWorkflowColumn & { sourceWorkflowIds: string[] };
 type AggregateQuickCreateTarget = { columnId: string; workflowId: string };
 
-function BoardWorkflowSkeleton({ empty = false }: { empty?: boolean }) {
+function BoardWorkflowSkeleton({ empty = false, t }: { empty?: boolean; t: TFunction<"app"> }) {
   return (
-    <main className="board board-workflows-skeleton" id="board" aria-busy={!empty} aria-label={empty ? "No workflow lanes available" : "Loading workflow lanes"} data-testid={empty ? "board-workflows-empty" : "board-workflows-skeleton"}>
+    <main className="board board-workflows-skeleton" id="board" aria-busy={!empty} aria-label={empty ? t("board.noWorkflowLanes", "No workflow lanes available") : t("board.loadingWorkflowLanes", "Loading workflow lanes")} data-testid={empty ? "board-workflows-empty" : "board-workflows-skeleton"}>
       {[0, 1, 2].map((index) => (
         <section className="board-workflows-skeleton__column card" key={index} aria-hidden="true">
           <div className="board-workflows-skeleton__header" />
@@ -177,6 +179,7 @@ function columnDefOffersArchiveAllDone(columnDef: { flags: { complete?: boolean;
 }
 
 export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onRevertTask, onReviseTask, onDeleteTask, onArchiveAllDone, onLoadArchivedTasks, onLoadMoreArchivedTasks, archivedHasMore, archivedLoadingMore, searchQuery = "", availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, onOpenMission, staleHighFanoutBlockerAgeThresholdMs, lastFetchTimeMs, prAuthAvailable, onOpenWorkflowEditor, onCreateWorkflow, workflowControlsInHeader = false }: BoardProps) {
+  const { t } = useTranslation("app");
   const [archivedCollapsed, setArchivedCollapsed] = useState(true);
   /*
   FNXC:DoneColumnSorting 2026-06-29-16:57:
@@ -926,7 +929,7 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
   before this deletion — the legacy board below was NOT the fetch-failure fallback.
   */
   if (boardWorkflows === null || boardWorkflows.workflows.length === 0) {
-    return <BoardWorkflowSkeleton empty={boardWorkflows !== null} />;
+    return <BoardWorkflowSkeleton empty={boardWorkflows !== null} t={t} />;
   }
 
   if (workflowMode && selectedWorkflow) {
@@ -1032,8 +1035,8 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
               );
             })}
             {aggregateRevertedTasks.length > 0 && (
-              <section className="reverted-tasks-section" aria-label="Reverted Tasks" data-testid="board-reverted-tasks">
-                <h2>Reverted Tasks</h2>
+              <section className="reverted-tasks-section" aria-label={t("tasks.revertedTasks", "Reverted Tasks")} data-testid="board-reverted-tasks">
+                <h2>{t("tasks.revertedTasks", "Reverted Tasks")}</h2>
                 {aggregateRevertedTasks.map((task) => (
                   <TaskCard
                     key={`reverted-${task.id}`}
@@ -1133,8 +1136,8 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
             );
           })}
           {partitionRevertedTasks(selectedWorkflowTasks).reverted.length > 0 && (
-            <section className="reverted-tasks-section" aria-label="Reverted Tasks" data-testid="board-reverted-tasks">
-              <h2>Reverted Tasks</h2>
+            <section className="reverted-tasks-section" aria-label={t("tasks.revertedTasks", "Reverted Tasks")} data-testid="board-reverted-tasks">
+              <h2>{t("tasks.revertedTasks", "Reverted Tasks")}</h2>
               {partitionRevertedTasks(selectedWorkflowTasks).reverted.map((task) => <TaskCard key={`reverted-${task.id}`} task={task} taskColumnFlags={blockerFanoutColumnFlagsByTaskId.get(task.id)} onOpenDetail={onOpenDetail} onDeleteTask={onDeleteTask} onReviseTask={onReviseTask} addToast={addToast} disableDrag />)}
             </section>
           )}
@@ -1217,5 +1220,5 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
   Rendering the skeleton rather than throwing keeps a hypothetical unreachable
   state a blank frame instead of a crashed board.
   */
-  return <BoardWorkflowSkeleton empty={false} />;
+  return <BoardWorkflowSkeleton empty={false} t={t} />;
 }

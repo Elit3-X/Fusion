@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { ArtifactType } from "@fusion/core";
 import { artifactMediaUrlWithToken } from "../api";
 
@@ -41,9 +42,10 @@ export const MailboxArtifactAttachment = memo(function MailboxArtifactAttachment
   onOpenTask,
   hideTaskLink = false,
 }: MailboxArtifactAttachmentProps) {
+  const { t } = useTranslation("app");
   const id = readString(artifactId);
   const type = readArtifactType(artifactType);
-  const label = readString(title) ?? "artifact";
+  const label = readString(title) ?? t("mailbox.artifact", "artifact");
   const mediaMimeType = readString(mimeType);
   const task = readString(taskId);
   const [imageFailed, setImageFailed] = useState(false);
@@ -57,20 +59,20 @@ export const MailboxArtifactAttachment = memo(function MailboxArtifactAttachment
       href={mediaUrl}
       target="_blank"
       rel="noreferrer"
-      aria-label={`Open artifact: ${label}`}
+      aria-label={t("mailbox.openArtifactAria", "Open artifact: {{label}}", { label })}
     >
-      Open artifact
+      {t("mailbox.openArtifact", "Open artifact")}
     </a>
   );
   const taskLink = task && onOpenTask && !hideTaskLink ? (
     <button
       type="button"
       className="mailbox-artifact-attachment__link btn"
-      aria-label={`View task: ${task}`}
+      aria-label={t("mailbox.viewTaskAria", "View task: {{id}}", { id: task })}
       data-testid="mailbox-artifact-view-task"
       onClick={() => onOpenTask(task)}
     >
-      View task
+      {t("mailbox.viewTaskLabel", "View task")}
     </button>
   ) : null;
 
@@ -91,7 +93,7 @@ export const MailboxArtifactAttachment = memo(function MailboxArtifactAttachment
         className="mailbox-artifact-attachment__media"
         src={mediaUrl}
         controls
-        aria-label={`Video artifact: ${label}`}
+        aria-label={t("mailbox.videoArtifactAria", "Video artifact: {{label}}", { label })}
       />
     );
   } else if (type === "audio") {
@@ -100,7 +102,7 @@ export const MailboxArtifactAttachment = memo(function MailboxArtifactAttachment
         className="mailbox-artifact-attachment__audio"
         src={mediaUrl}
         controls
-        aria-label={`Audio artifact: ${label}`}
+        aria-label={t("mailbox.audioArtifactAria", "Audio artifact: {{label}}", { label })}
       />
     );
   }

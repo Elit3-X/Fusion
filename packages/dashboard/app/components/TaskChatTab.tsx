@@ -419,6 +419,7 @@ and a dashed-edge variant of the existing `.task-chat-entry` block (tokens only,
 component), and `role="status"` so assistive tech announces it as a state message, not prose.
 */
 function TaskChatLogGapNotice({ entry }: { entry: AgentLogEntry }) {
+  const { t } = useTranslation("app");
   return (
     <article
       className="task-chat-entry task-chat-entry--gap"
@@ -428,8 +429,8 @@ function TaskChatLogGapNotice({ entry }: { entry: AgentLogEntry }) {
       <div className="task-chat-entry-label-row">
         <span className="status-dot status-dot--error" aria-hidden="true" />
         <AlertTriangle size={14} aria-hidden="true" />
-        <span className="task-chat-entry-kicker">Missing output</span>
-        <TaskChatTimestamp timestamp={entry.timestamp} label="Missing output timestamp" />
+        <span className="task-chat-entry-kicker">{t("taskChat.missingOutput", "Missing output")}</span>
+        <TaskChatTimestamp timestamp={entry.timestamp} label={t("taskChat.missingOutputTimestamp", "Missing output timestamp")} />
       </div>
       <div className="task-chat-entry-text">{entry.text}</div>
     </article>
@@ -437,6 +438,7 @@ function TaskChatLogGapNotice({ entry }: { entry: AgentLogEntry }) {
 }
 
 function TaskChatText({ entries }: { entries: AgentLogEntry[] }) {
+  const { t } = useTranslation("app");
   const firstEntry = entries[0];
   if (!firstEntry) return null;
   if (isLogGapMarker(firstEntry)) return <TaskChatLogGapNotice entry={firstEntry} />;
@@ -449,8 +451,8 @@ function TaskChatText({ entries }: { entries: AgentLogEntry[] }) {
       {firstEntry.type === "status" && (
         <div className="task-chat-entry-label-row">
           <span className="status-dot status-dot--pending" aria-hidden="true" />
-          <span className="task-chat-entry-kicker">Status update</span>
-          <TaskChatTimestamp timestamp={getLatestEntryTimestamp(entries)} label="Status update timestamp" />
+          <span className="task-chat-entry-kicker">{t("taskChat.statusUpdate", "Status update")}</span>
+          <TaskChatTimestamp timestamp={getLatestEntryTimestamp(entries)} label={t("taskChat.statusUpdateTimestamp", "Status update timestamp")} />
         </div>
       )}
       {firstEntry.type !== "status" && <TaskChatTimestampMeta timestamp={getLatestEntryTimestamp(entries)} label="Text block timestamp" />}

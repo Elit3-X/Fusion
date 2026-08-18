@@ -30,7 +30,9 @@
     "showMore": "顯示更多",
     "update": "更新",
     "yes": "是",
-    "clear": ""
+    "clear": "",
+    "open": "",
+    "remove": ""
   },
   "activityFeed": {
     "emptyHint": "",
@@ -1145,7 +1147,9 @@
     "disableHeartbeatsSummary": "",
     "enableHeartbeatsCountHint": "",
     "disableHeartbeatsCountHint": "",
-    "bulkFailures": ""
+    "bulkFailures": "",
+    "detailLabel": "",
+    "lastCompletedStep": ""
   },
   "app": {
     "backendError": {
@@ -1389,7 +1393,8 @@
     "currentAgentTarget": "Current agent: {{name}}",
     "currentModelTarget": "Current model: {{model}}",
     "currentDefaultTarget": "Using the default chat target",
-    "newNotAllowedForTaskChat": ""
+    "newNotAllowedForTaskChat": "",
+    "restore": ""
   },
   "chatRooms": {
     "error": {
@@ -1928,7 +1933,9 @@
         "workflow:gate-failed": "Workflow gate failed",
         "approval:requested": "Approval requested"
       }
-    }
+    },
+    "taskVerification": "",
+    "verificationRequests": ""
   },
   "comments": {
     "addButton": "新增評論",
@@ -2006,7 +2013,20 @@
     "toLabel": "收件人:",
     "wakeAgentCheckbox": "立即喚醒代理",
     "wakeAlwaysImmediate": "(代理已設定為立即回應模式)",
-    "wakeOneOff": "(僅此訊息的一次性覆蓋)"
+    "wakeOneOff": "(僅此訊息的一次性覆蓋)",
+    "addSection": "",
+    "ariaLabel": "",
+    "attachStructure": "",
+    "mode": "",
+    "noStructures": "",
+    "quickMessage": "",
+    "removeSection": "",
+    "removeStructure": "",
+    "report": "",
+    "reportTitle": "",
+    "sectionBody": "",
+    "sectionHeading": "",
+    "selectStructure": ""
   },
   "confirm": {
     "cancel": "取消",
@@ -3482,7 +3502,36 @@
     "typeSystem": "系統",
     "typeUserToAgent": "你 → 代理",
     "user": "使用者",
-    "you": "你"
+    "you": "你",
+    "all": "",
+    "approvalStatus": "",
+    "approvalUnavailable": "",
+    "approve": "",
+    "archive": "",
+    "archived": "",
+    "artifact": "",
+    "audioArtifactAria": "",
+    "createTask": "",
+    "createTaskError": "",
+    "creatingTask": "",
+    "deny": "",
+    "inboxFilter": "",
+    "loadingApproval": "",
+    "noArchivedMessages": "",
+    "openArtifact": "",
+    "openArtifactAria": "",
+    "optionalComment": "",
+    "recommendationsUnavailable": "",
+    "reportsApprovals": "",
+    "restore": "",
+    "retryCreatingTask": "",
+    "taskCreatedView": "",
+    "taskProposalDismissed": "",
+    "taskRecommendations": "",
+    "videoArtifactAria": "",
+    "viewTask": "",
+    "viewTaskAria": "",
+    "viewTaskLabel": ""
   },
   "memory": {
     "auditChecksTitle": "稽核檢查",
@@ -5303,7 +5352,14 @@
     "resize": "",
     "viewExpanded": "",
     "views": "",
-    "resizeExpandedView": ""
+    "resizeExpandedView": "",
+    "archivedCopy": "",
+    "doneHiddenCopy": "",
+    "emptyCopy": "",
+    "hideDone": "",
+    "noActiveTasks": "",
+    "noTasksYet": "",
+    "showDone": ""
   },
   "routine": {
     "andMore_one": "",
@@ -6176,7 +6232,8 @@
       "openRouterRoutingOnlyHint": "",
       "openRouterAllowFallbacksHint": "",
       "openRouterRoutingSortHint": "",
-      "requireParametersHint": ""
+      "requireParametersHint": "",
+      "modelOverrides": ""
     },
     "header": {
       "discord": "Discord",
@@ -6273,7 +6330,9 @@
       "turnsDailyNotesIntoDREAMSMdAndPromotes": "",
       "qmdInstalled": "",
       "qmdInstallFailed": "",
-      "qmdInstallUnavailable": ""
+      "qmdInstallUnavailable": "",
+      "saveBeforeCompacting": "",
+      "saveBeforeSwitching": ""
     },
     "merge": {
       "abort": "",
@@ -6621,7 +6680,11 @@
       "executorEscalationModel": "",
       "executorEscalationModelHelp": "",
       "selectExecutorEscalationModel": "",
-      "noExecutorEscalationModel": ""
+      "noExecutorEscalationModel": "",
+      "modelOverrides": "",
+      "projectLanesSubheading": "",
+      "workflowLanesSubheading": "",
+      "summarizationPointer": ""
     },
     "remote": {
       "acceptRoutes": "",
@@ -6936,7 +6999,11 @@
       "projectTitle": "Project MCP servers",
       "globalDescription": "Configure MCP servers shared by all projects. Project settings may override or disable these servers by name.",
       "projectDescription": "Configure project-specific MCP servers, overrides, and disabled inherited servers.",
-      "enabledHint": ""
+      "enabledHint": "",
+      "transport": "",
+      "transportHttp": "",
+      "transportSse": "",
+      "transportStdio": ""
     },
     "search": {
       "allSections": "",
@@ -7870,7 +7937,8 @@
     "header": {
       "back": "返回",
       "backToList": "返回任務清單",
-      "editTask": "編輯任務"
+      "editTask": "編輯任務",
+      "popOut": ""
     },
     "inputTokens": "輸入",
     "lastUsed": "最後使用",
@@ -8231,6 +8299,22 @@
       "retry": "",
       "create": "",
       "error": ""
+    },
+    "reverted": {
+      "deleteAria": ""
+    },
+    "revise": "",
+    "specLock": {
+      "accepted": "",
+      "alignment": "",
+      "alignmentLabel": "",
+      "captured": "",
+      "currentPlan": "",
+      "findings": "",
+      "latestLock": "",
+      "lockState": "",
+      "relockChanged": "",
+      "retainedHistory": ""
     }
   },
   "taskDocuments": {
@@ -9369,7 +9453,11 @@
     "toolNames": "",
     "toolResult": "",
     "you": "",
-    "youMessage": ""
+    "youMessage": "",
+    "missingOutput": "",
+    "missingOutputTimestamp": "",
+    "statusUpdate": "",
+    "statusUpdateTimestamp": ""
   },
   "engineBanner": {
     "body": "The engine for this project is not running, so task automation and live updates may be paused. Start it now to reconnect the dashboard.",
@@ -9392,6 +9480,146 @@
     "targetLabel": "提交目標",
     "targetInherit": "使用設定的操作目標",
     "targetIssue": "GitHub 議題",
-    "targetDiscussion": "GitHub 討論"
+    "targetDiscussion": "GitHub 討論",
+    "activityTrace": "",
+    "capturingScreenshot": "",
+    "close": "",
+    "confirmDataPoint": "",
+    "confirmScreenshotRetention": "",
+    "duplicateReview": "",
+    "file": "",
+    "final": "",
+    "menu": "",
+    "returnToPrompt": "",
+    "review": "",
+    "storeScreenshot": "",
+    "structured": "",
+    "structuredDataPoint": "",
+    "suggestedHelp": "",
+    "summary": "",
+    "viewGitHub": ""
+  },
+  "composeChat": {
+    "ariaLabel": "",
+    "draft": "",
+    "draftNarrative": "",
+    "emptyDraft": "",
+    "useDraft": ""
+  },
+  "fixture": {
+    "floatingTaskDetail": "",
+    "floatingTaskDetailBody": "",
+    "genericFloatingWindow": "",
+    "genericFloatingWindowBody": "",
+    "genericWindowHeader": "",
+    "headerAction": "",
+    "headerlessTaskDetail": "",
+    "taskDetail": "",
+    "taskDetailBody": ""
+  },
+  "floatingWindow": {
+    "close": "",
+    "resize": ""
+  },
+  "githubImport": {
+    "github": "",
+    "gitlab": ""
+  },
+  "ideation": {
+    "addCandidate": "",
+    "converge": "",
+    "convergedToMission": "",
+    "description": "",
+    "divergentCandidate": "",
+    "noSessions": "",
+    "persisted": "",
+    "selectOrStart": "",
+    "sessionTitle": "",
+    "start": "",
+    "title": ""
+  },
+  "knowledgeGraph": {
+    "allFnxcAreas": "",
+    "allOwners": "",
+    "allSymbolKinds": "",
+    "bothDirections": "",
+    "depth": "",
+    "distance": "",
+    "edgeKinds": "",
+    "findPath": "",
+    "incoming": "",
+    "limitResults": "",
+    "neighbors": "",
+    "next": "",
+    "noNeighbors": "",
+    "noPath": "",
+    "nodeKinds": "",
+    "none": "",
+    "outgoing": "",
+    "ownerDerived": "",
+    "ownerFile": "",
+    "pathLimitReached": "",
+    "previous": "",
+    "provenance": "",
+    "raiseHopLimit": "",
+    "refreshNeighbors": "",
+    "searching": "",
+    "selectNodeHint": "",
+    "shortestPath": "",
+    "showingOf": "",
+    "useSelectedFrom": "",
+    "useSelectedTo": ""
+  },
+  "mermaid": {
+    "diagram": ""
+  },
+  "nativeStructure": {
+    "loadFailed": "",
+    "loading": "",
+    "openAria": "",
+    "previewUnavailable": "",
+    "unavailable": ""
+  },
+  "providerLogin": {
+    "approveInBrowser": "",
+    "authorizationReceived": "",
+    "cancel": "",
+    "connected": "",
+    "exchangingCode": "",
+    "finishInBrowser": "",
+    "handAuthorizationBack": "",
+    "openSignInAgain": "",
+    "pasteRedirectUrl": "",
+    "signingInTo": ""
+  },
+  "taskVerification": {
+    "failed": "",
+    "heading": "",
+    "passed": "",
+    "queued": "",
+    "requestRejected": "",
+    "running": ""
+  },
+  "whatsapp": {
+    "allowedSenders": "",
+    "choosePairingMethod": "",
+    "connectedAs": "",
+    "connectedSuccess": "",
+    "description": "",
+    "installPlugin": "",
+    "instructionsLabel": "",
+    "loggingOut": "",
+    "logoutRepair": "",
+    "pairing": "",
+    "pairingConfiguration": "",
+    "phoneNumber": "",
+    "qrCode": "",
+    "refreshStatus": "",
+    "repairInstructions": "",
+    "requestPairingCode": "",
+    "requestingCode": "",
+    "status": "",
+    "waitConnected": "",
+    "waitingQr": ""
   }
 }

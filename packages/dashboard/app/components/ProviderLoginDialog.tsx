@@ -1,4 +1,5 @@
 import { useLayoutEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { OAuthManualCodeForm } from "./OAuthManualCodeForm";
@@ -67,6 +68,7 @@ export function ProviderLoginDialog({
   onCancel,
   "data-testid": testId,
 }: ProviderLoginDialogProps) {
+  const { t } = useTranslation("app");
   /*
   FNXC:ProviderAuth 2026-08-18-04:20:
   Claim the top of the shared floating stack ONCE on open, the same way ConfirmDialog does. The first
@@ -106,10 +108,10 @@ export function ProviderLoginDialog({
       onMouseDown={(event) => event.stopPropagation()}
       onFocus={(event) => event.stopPropagation()}
     >
-      <div className="modal provider-login-dialog" role="dialog" aria-modal="true" aria-label={`Signing in to ${providerName}`}>
+      <div className="modal provider-login-dialog" role="dialog" aria-modal="true" aria-label={t("providerLogin.signingInTo", "Signing in to {{provider}}", { provider: providerName })}>
         <div className="modal-header">
-          <h3>Signing in to {providerName}</h3>
-          <button className="modal-close" onClick={onCancel} aria-label="Cancel login" title="Cancel login">
+          <h3>{t("providerLogin.signingInTo", "Signing in to {{provider}}", { provider: providerName })}</h3>
+          <button className="modal-close" onClick={onCancel} aria-label={t("providerLogin.cancel", "Cancel login")} title={t("providerLogin.cancel", "Cancel login")}>
             <X size={18} />
           </button>
         </div>
@@ -121,15 +123,15 @@ export function ProviderLoginDialog({
                 {phase === "waiting" ? <Loader2 size={16} className="provider-login-dialog__spinner" /> : <CheckCircle2 size={16} />}
               </span>
               <span className="provider-login-dialog__step-body">
-                <strong>Approve the sign-in in your browser</strong>
+                <strong>{t("providerLogin.approveInBrowser", "Approve the sign-in in your browser")}</strong>
                 <small>
                   {phase === "waiting"
-                    ? "A tab should have opened. Finish signing in there — this dialog stays put."
-                    : "Authorization received."}
+                    ? t("providerLogin.finishInBrowser", "A tab should have opened. Finish signing in there — this dialog stays put.")
+                    : t("providerLogin.authorizationReceived", "Authorization received.")}
                 </small>
                 {authUrl && phase === "waiting" && (
                   <button className="btn btn-sm provider-login-dialog__reopen" onClick={onOpenAuthUrl}>
-                    <ExternalLink size={14} /> Open the sign-in page again
+                    <ExternalLink size={14} /> {t("providerLogin.openSignInAgain", "Open the sign-in page again")}
                   </button>
                 )}
               </span>
@@ -140,13 +142,13 @@ export function ProviderLoginDialog({
                 {phase === "submitting" ? <Loader2 size={16} className="provider-login-dialog__spinner" /> : <CheckCircle2 size={16} />}
               </span>
               <span className="provider-login-dialog__step-body">
-                <strong>Hand the authorization back to Fusion</strong>
+                <strong>{t("providerLogin.handAuthorizationBack", "Hand the authorization back to Fusion")}</strong>
                 <small>
                   {phase === "submitting"
-                    ? "Exchanging the authorization code…"
+                    ? t("providerLogin.exchangingCode", "Exchanging the authorization code…")
                     : phase === "succeeded"
-                      ? "Connected."
-                      : "Usually automatic. If your browser lands on an error page, paste that page's full URL below."}
+                      ? t("providerLogin.connected", "Connected.")
+                      : t("providerLogin.pasteRedirectUrl", "Usually automatic. If your browser lands on an error page, paste that page's full URL below.")}
                 </small>
               </span>
             </li>

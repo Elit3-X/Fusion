@@ -30,7 +30,9 @@
     "showLess": "Show less",
     "showMore": "Show more",
     "update": "Update",
-    "yes": "Yes"
+    "yes": "Yes",
+    "open": "Open",
+    "remove": "Remove"
   },
   "engineBanner": {
     "body": "The engine for this project is not running, so task automation and live updates may be paused. Start it now to reconnect the dashboard.",
@@ -1155,7 +1157,9 @@
     "disableHeartbeatsSummary": "Disabled {{count}} heartbeats; skipped {{skipped}}",
     "enableHeartbeatsCountHint": "Enable {{count}} disabled project heartbeats",
     "disableHeartbeatsCountHint": "Disable {{count}} enabled project heartbeats",
-    "bulkFailures": "failed {{count}}"
+    "bulkFailures": "failed {{count}}",
+    "detailLabel": "Agent detail",
+    "lastCompletedStep": "Last completed Step {{index}}: {{name}}"
   },
   "app": {
     "backendError": {
@@ -1399,7 +1403,8 @@
     "noModelsAvailable": "No models available",
     "currentAgentTarget": "Current agent: {{name}}",
     "currentModelTarget": "Current model: {{model}}",
-    "currentDefaultTarget": "Using the default chat target"
+    "currentDefaultTarget": "Using the default chat target",
+    "restore": "Restore"
   },
   "chatRooms": {
     "error": {
@@ -1938,7 +1943,9 @@
         "workflow:gate-failed": "Workflow gate failed",
         "approval:requested": "Approval requested"
       }
-    }
+    },
+    "taskVerification": "Task verification",
+    "verificationRequests": "Latest executor-owned verification requests"
   },
   "comments": {
     "addButton": "Add Comment",
@@ -2016,7 +2023,20 @@
     "toLabel": "To:",
     "wakeAgentCheckbox": "Wake agent immediately",
     "wakeAlwaysImmediate": "(agent is already set to immediate response mode)",
-    "wakeOneOff": "(one-off override for this message only)"
+    "wakeOneOff": "(one-off override for this message only)",
+    "addSection": "Add section",
+    "ariaLabel": "Message composer; drop a structure to attach it",
+    "attachStructure": "Attach structure",
+    "mode": "Message mode",
+    "noStructures": "No structures available",
+    "quickMessage": "Quick message",
+    "removeSection": "Remove section",
+    "removeStructure": "Remove {{label}}",
+    "report": "Report",
+    "reportTitle": "Report title",
+    "sectionBody": "Section body",
+    "sectionHeading": "Section heading",
+    "selectStructure": "Select structure…"
   },
   "confirm": {
     "cancel": "Cancel",
@@ -3492,7 +3512,36 @@
     "typeSystem": "System",
     "typeUserToAgent": "You → Agent",
     "user": "User",
-    "you": "You"
+    "you": "You",
+    "all": "All",
+    "approvalStatus": "Approval {{status}}",
+    "approvalUnavailable": "This approval request is no longer available.",
+    "approve": "Approve",
+    "archive": "Archive",
+    "archived": "Archived",
+    "artifact": "artifact",
+    "audioArtifactAria": "Audio artifact: {{label}}",
+    "createTask": "Create task",
+    "createTaskError": "Could not create task. Try again.",
+    "creatingTask": "Creating task…",
+    "deny": "Deny",
+    "inboxFilter": "Inbox filter",
+    "loadingApproval": "Loading approval…",
+    "noArchivedMessages": "No archived messages",
+    "openArtifact": "Open artifact",
+    "openArtifactAria": "Open artifact: {{label}}",
+    "optionalComment": "Optional comment",
+    "recommendationsUnavailable": "Recommendations are no longer available.",
+    "reportsApprovals": "Reports & approvals",
+    "restore": "Restore",
+    "retryCreatingTask": "Retry creating task",
+    "taskCreatedView": "Task {{id}} created — View task",
+    "taskProposalDismissed": "Task proposal dismissed",
+    "taskRecommendations": "Task recommendations",
+    "videoArtifactAria": "Video artifact: {{label}}",
+    "viewTask": "View task {{id}}",
+    "viewTaskAria": "View task: {{id}}",
+    "viewTaskLabel": "View task"
   },
   "memory": {
     "auditChecksTitle": "Audit Checks",
@@ -5313,7 +5362,14 @@
     "resize": "Resize right dock",
     "viewExpanded": "{{label}} expanded",
     "views": "Right dock views",
-    "resizeExpandedView": "Resize expanded right dock window"
+    "resizeExpandedView": "Resize expanded right dock window",
+    "archivedCopy": "Archived tasks stay out of this compact sidebar. Active tasks will appear here when work is available.",
+    "doneHiddenCopy": "Completed tasks are hidden until you choose Show Done. Archived tasks stay out of this compact sidebar.",
+    "emptyCopy": "Tasks you create or import will appear here for quick right-sidebar review.",
+    "hideDone": "Hide Done",
+    "noActiveTasks": "No active tasks",
+    "noTasksYet": "No tasks yet",
+    "showDone": "Show Done"
   },
   "routine": {
     "andMore_one": "…and {{count}} more",
@@ -6297,7 +6353,9 @@
       "turnsDailyNotesIntoDREAMSMdAndPromotes": "Turns daily notes into DREAMS.md and promotes reusable lessons into MEMORY.md. Default: disabled.",
       "qmdInstalled": "qmd installed successfully",
       "qmdInstallFailed": "Failed to install qmd",
-      "qmdInstallUnavailable": "qmd install finished, but qmd is still unavailable"
+      "qmdInstallUnavailable": "qmd install finished, but qmd is still unavailable",
+      "saveBeforeCompacting": "Save or discard edits before compacting this file.",
+      "saveBeforeSwitching": "Save or discard the current edits before switching files."
     },
     "merge": {
       "abort": "Abort",
@@ -6960,7 +7018,11 @@
       "projectTitle": "Project MCP servers",
       "globalDescription": "Configure MCP servers shared by all projects. Project settings may override or disable these servers by name.",
       "projectDescription": "Configure project-specific MCP servers, overrides, and disabled inherited servers.",
-      "enabledHint": "Default: disabled, with no servers configured."
+      "enabledHint": "Default: disabled, with no servers configured.",
+      "transport": "Transport",
+      "transportHttp": "HTTP",
+      "transportSse": "SSE",
+      "transportStdio": "stdio"
     },
     "prompts": {
       "surfaceExplanation": "Use this section for agent role system prompt templates, role assignments, and global PromptKey segment overrides. Per-workflow step prompts for prompt and gate nodes are edited in the Workflow Editor. No default — unset (built-in role prompts apply until overridden)."
@@ -7909,7 +7971,8 @@
     "header": {
       "back": "Back",
       "backToList": "Back to task list",
-      "editTask": "Edit task"
+      "editTask": "Edit task",
+      "popOut": "Pop out"
     },
     "inputTokens": "Input",
     "lastUsed": "Last used",
@@ -8241,6 +8304,22 @@
       "retry": "Retry creating task",
       "create": "Create task",
       "error": "Could not create task. Try again."
+    },
+    "reverted": {
+      "deleteAria": "Delete reverted task"
+    },
+    "revise": "Revise",
+    "specLock": {
+      "accepted": "Accepted {{acceptedAt}} · plan hash {{planHash}} · approval {{approval}}",
+      "alignment": "Spec alignment",
+      "alignmentLabel": "Spec lock alignment",
+      "captured": "Captured {{capturedAt}} · source revision {{sourceRevision}} · source hash {{sourceHash}}",
+      "currentPlan": "Current plan",
+      "findings": "Findings",
+      "latestLock": "Latest lock",
+      "lockState": "Lock state",
+      "relockChanged": "Re-lock changed: {{sections}}",
+      "retainedHistory": "Retained history: {{locks}}; {{plans}}; {{reports}} reports"
     }
   },
   "taskDocuments": {
@@ -9379,7 +9458,11 @@
     "toolNames": "Tool names",
     "toolResult": "Tool result",
     "you": "You",
-    "youMessage": "You message"
+    "youMessage": "You message",
+    "missingOutput": "Missing output",
+    "missingOutputTimestamp": "Missing output timestamp",
+    "statusUpdate": "Status update",
+    "statusUpdateTimestamp": "Status update timestamp"
   },
   "report": {
     "roadmapMatch": {
@@ -9392,6 +9475,146 @@
     "targetLabel": "Filing target",
     "targetInherit": "Use configured action target",
     "targetIssue": "GitHub Issue",
-    "targetDiscussion": "GitHub Discussion"
+    "targetDiscussion": "GitHub Discussion",
+    "activityTrace": "Activity trace to send",
+    "capturingScreenshot": "Capturing and storing locally…",
+    "close": "Close report",
+    "confirmDataPoint": "Confirm and add data point",
+    "confirmScreenshotRetention": "I confirm Fusion may retain this screenshot locally for this report.",
+    "duplicateReview": "Review data point for a similar open issue",
+    "file": "File report",
+    "final": "Final report",
+    "menu": "Report",
+    "returnToPrompt": "Return to prompt",
+    "review": "Review your report",
+    "storeScreenshot": "Store a screenshot locally",
+    "structured": "Structured report",
+    "structuredDataPoint": "Structured data point",
+    "suggestedHelp": "Suggested help",
+    "summary": "Report summary",
+    "viewGitHub": "View on GitHub"
+  },
+  "composeChat": {
+    "ariaLabel": "Compose chat narrative helper",
+    "draft": "Draft",
+    "draftNarrative": "Draft narrative",
+    "emptyDraft": "Ask the assistant to draft the narrative around your attached structures.",
+    "useDraft": "Use draft"
+  },
+  "fixture": {
+    "floatingTaskDetail": "Floating task detail",
+    "floatingTaskDetailBody": "Floating task detail body",
+    "genericFloatingWindow": "Generic floating window",
+    "genericFloatingWindowBody": "Generic floating window body",
+    "genericWindowHeader": "Generic window header",
+    "headerAction": "Header action",
+    "headerlessTaskDetail": "Headerless task detail",
+    "taskDetail": "Task detail",
+    "taskDetailBody": "Task detail body"
+  },
+  "floatingWindow": {
+    "close": "Close floating window",
+    "resize": "Resize floating window"
+  },
+  "githubImport": {
+    "github": "GitHub",
+    "gitlab": "GitLab"
+  },
+  "ideation": {
+    "addCandidate": "Add candidate",
+    "converge": "Converge",
+    "convergedToMission": "Converged to Mission",
+    "description": "Capture alternatives, then converge one into the Mission hierarchy.",
+    "divergentCandidate": "Divergent candidate",
+    "noSessions": "No sessions yet.",
+    "persisted": "Persisted ideation",
+    "selectOrStart": "Select or start a session.",
+    "sessionTitle": "Session title",
+    "start": "Start session",
+    "title": "Ideation"
+  },
+  "knowledgeGraph": {
+    "allFnxcAreas": "All FNXC areas",
+    "allOwners": "All owners",
+    "allSymbolKinds": "All symbol kinds",
+    "bothDirections": "Both directions",
+    "depth": "Depth {{depth}}",
+    "distance": "distance {{distance}}",
+    "edgeKinds": "Edge kinds",
+    "findPath": "Find path",
+    "incoming": "Incoming",
+    "limitResults": "{{limit}} results",
+    "neighbors": "Neighbors",
+    "next": "Next",
+    "noNeighbors": "No neighbors found.",
+    "noPath": "No path exists between these nodes.",
+    "nodeKinds": "Node kinds",
+    "none": "None",
+    "outgoing": "Outgoing",
+    "ownerDerived": "derived",
+    "ownerFile": "file",
+    "pathLimitReached": "No path found within {{maxHops}} hops; {{limit}} was reached.",
+    "previous": "Previous",
+    "provenance": "Provenance",
+    "raiseHopLimit": "Raise hop limit",
+    "refreshNeighbors": "Refresh neighbors",
+    "searching": "Searching…",
+    "selectNodeHint": "Select a node to inspect its edges.",
+    "shortestPath": "Shortest path",
+    "showingOf": "showing {{shown}} of {{total}}",
+    "useSelectedFrom": "Use selected as from",
+    "useSelectedTo": "Use selected as to"
+  },
+  "mermaid": {
+    "diagram": "Mermaid diagram"
+  },
+  "nativeStructure": {
+    "loadFailed": "Could not load this {{kind}}.",
+    "loading": "Loading {{kind}}",
+    "openAria": "Open {{kind}}: {{title}}",
+    "previewUnavailable": "Preview unavailable",
+    "unavailable": "This structure is unavailable."
+  },
+  "providerLogin": {
+    "approveInBrowser": "Approve the sign-in in your browser",
+    "authorizationReceived": "Authorization received.",
+    "cancel": "Cancel login",
+    "connected": "Connected.",
+    "exchangingCode": "Exchanging the authorization code…",
+    "finishInBrowser": "A tab should have opened. Finish signing in there — this dialog stays put.",
+    "handAuthorizationBack": "Hand the authorization back to Fusion",
+    "openSignInAgain": "Open the sign-in page again",
+    "pasteRedirectUrl": "Usually automatic. If your browser lands on an error page, paste that page's full URL below.",
+    "signingInTo": "Signing in to {{provider}}"
+  },
+  "taskVerification": {
+    "failed": "Failed",
+    "heading": "Verification · {{profile}}",
+    "passed": "Passed",
+    "queued": "Queued for the task executor",
+    "requestRejected": "Request rejected",
+    "running": "Running in the task worktree"
+  },
+  "whatsapp": {
+    "allowedSenders": "Set {{label}}; an empty list blocks all inbound messages.",
+    "choosePairingMethod": "Choose {{qr}} to scan in WhatsApp Linked Devices, or {{code}} to enter a phone number and request a pairing code.",
+    "connectedAs": "Connected as {{jid}}",
+    "connectedSuccess": "WhatsApp is paired and ready to receive messages from allowed senders.",
+    "description": "Pair and monitor this project's WhatsApp connection here.",
+    "installPlugin": "Install and enable this plugin, then keep this settings panel open.",
+    "instructionsLabel": "WhatsApp pairing instructions",
+    "loggingOut": "Logging out...",
+    "logoutRepair": "Logout and re-pair",
+    "pairing": "WhatsApp pairing",
+    "pairingConfiguration": "Pairing and configuration",
+    "phoneNumber": "Phone number (E.164 digits without +)",
+    "qrCode": "WhatsApp pairing QR code",
+    "refreshStatus": "Refresh status",
+    "repairInstructions": "Use Logout and re-pair to start over. If QR is still pending, wait briefly or refresh status for a new code.",
+    "requestPairingCode": "Request pairing code",
+    "requestingCode": "Requesting code...",
+    "status": "Status:",
+    "waitConnected": "Wait for the status above to become {{status}}.",
+    "waitingQr": "Waiting for a fresh QR code. Keep this panel open and refresh if needed."
   }
 }

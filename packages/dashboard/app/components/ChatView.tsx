@@ -3607,7 +3607,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                           {t("chat.matchedInMessage", "Matched: \"{{preview}}\"", { preview: session.matchedMessagePreview })}
                         </div>
                       ) : null}
-                      {showArchivedSessions ? <button type="button" className="btn btn-sm btn-secondary" data-testid={`chat-archived-restore-${session.id}`} onClick={(event) => { event.stopPropagation(); void handleRestoreArchived(session.id); }}>Restore</button> : null}
+                      {showArchivedSessions ? <button type="button" className="btn btn-sm btn-secondary" data-testid={`chat-archived-restore-${session.id}`} onClick={(event) => { event.stopPropagation(); void handleRestoreArchived(session.id); }}>{t("chat.restore", "Restore")}</button> : null}
                       <div className="chat-session-meta">
                         <span className="chat-session-meta-model">
                           {sessionResolvedModel?.provider ? <ProviderIcon provider={sessionResolvedModel.provider} size="sm" /> : null}

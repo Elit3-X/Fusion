@@ -1337,7 +1337,7 @@ export function AgentDetailView({ agentId, projectId, onClose, addToast, onChild
   );
 
   if (inline) {
-    return <div className="agent-detail-inline-shell" role="region" aria-label="Agent detail">{detailContent}</div>;
+    return <div className="agent-detail-inline-shell" role="region" aria-label={t("agents.detailLabel", "Agent detail")}>{detailContent}</div>;
   }
 
   return (

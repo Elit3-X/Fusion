@@ -3075,7 +3075,7 @@ export function ListView({
               />
             </div>
         {partitionRevertedTasks(tasks).reverted.length > 0 && (
-          <section className="list-reverted-tasks" aria-label="Reverted Tasks" data-testid="list-reverted-tasks">
+          <section className="list-reverted-tasks" aria-label={t("tasks.revertedTasks", "Reverted Tasks")} data-testid="list-reverted-tasks">
             <h2>{t("tasks.revertedTasks", "Reverted Tasks")}</h2>
             {partitionRevertedTasks(tasks).reverted.map((task) => (
               <div key={`reverted-${task.id}`} className="list-card">

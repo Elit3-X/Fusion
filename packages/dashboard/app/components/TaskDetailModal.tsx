@@ -461,7 +461,7 @@ export type TaskDetailContentProps = Omit<TaskDetailModalProps, "onClose"> & {
   onBackToBoard?: () => void;
   /*
   FNXC:FloatingWindow 2026-06-22-20:45:
-  onPopOut, when supplied, renders a Maximize2 "Pop out" button in the gray header. List/Board wire it to push this task into App's floating task-detail window array, opening the same embedded TaskDetailContent inside a movable, resizable, non-blocking FloatingWindow. It is independent of embedded/onBackToBoard so List split-pane and the board full-panel can both expose it.
+  onPopOut, when supplied, renders the header's Maximize2 pop-out button. List/Board wire it to push this task into App's floating task-detail window array, opening the same embedded TaskDetailContent inside a movable, resizable, non-blocking FloatingWindow. It is independent of embedded/onBackToBoard so List split-pane and the board full-panel can both expose it.
   */
   onPopOut?: (task: Task) => void;
   /*
@@ -4767,7 +4767,7 @@ export function TaskDetailContent({
                 className="modal-edit-btn"
                 onClick={() => onPopOut(task)}
                 title={t("taskDetail.header.popOut", "Pop out")}
-                aria-label="Pop out"
+                aria-label={t("taskDetail.header.popOut", "Pop out")}
                 data-testid="task-detail-pop-out"
               >
                 <Maximize2 size={14} />
@@ -7002,35 +7002,35 @@ export function TaskDetailContent({
           })()}
           {/* FNXC:SpecLockTaskDetail 2026-08-15-12:54: Spec alignment is low-frequency lock/hash provenance, so it renders LAST in the Definition (Plan) tab — operators opening Plan must see plan content first, not the alignment report. Keep this block at the tail of the Definition fragment. */}
           {specLock && (
-            <section className="detail-section spec-lock-report" data-testid="spec-lock-report" aria-label="Spec lock alignment">
+            <section className="detail-section spec-lock-report" data-testid="spec-lock-report" aria-label={t("taskDetail.specLock.alignmentLabel", "Spec lock alignment")}>
               <div className="detail-source-header">
                 <div className="detail-source-summary">
-                  <span className="detail-source-label">Spec alignment</span>
+                  <span className="detail-source-label">{t("taskDetail.specLock.alignment", "Spec alignment")}</span>
                   <span className="badge">{specLock.report?.alignment ?? "unavailable"}</span>
                 </div>
               </div>
               <dl className="detail-source-grid">
-                <div><dt>Latest lock</dt><dd>v{specLock.latestLock?.version ?? "—"}</dd></div>
-                <div><dt>Current plan</dt><dd>v{specLock.currentPlan?.version ?? "—"}</dd></div>
-                <div><dt>Lock state</dt><dd>{specLock.activeLock ? "active" : "inactive"}</dd></div>
-                <div><dt>Findings</dt><dd>{specLock.report?.findings.length ?? 0}</dd></div>
+                <div><dt>{t("taskDetail.specLock.latestLock", "Latest lock")}</dt><dd>v{specLock.latestLock?.version ?? "—"}</dd></div>
+                <div><dt>{t("taskDetail.specLock.currentPlan", "Current plan")}</dt><dd>v{specLock.currentPlan?.version ?? "—"}</dd></div>
+                <div><dt>{t("taskDetail.specLock.lockState", "Lock state")}</dt><dd>{specLock.activeLock ? "active" : "inactive"}</dd></div>
+                <div><dt>{t("taskDetail.specLock.findings", "Findings")}</dt><dd>{specLock.report?.findings.length ?? 0}</dd></div>
               </dl>
               {specLock.latestLock && (
                 <p className="spec-lock-provenance">
-                  Accepted {specLock.latestLock.acceptedAt} · plan hash {specLock.latestLock.currentPlanHash} · approval {specLock.latestLock.approvalFingerprint}
+                  {t("taskDetail.specLock.accepted", "Accepted {{acceptedAt}} · plan hash {{planHash}} · approval {{approval}}", { acceptedAt: specLock.latestLock.acceptedAt, planHash: specLock.latestLock.currentPlanHash, approval: specLock.latestLock.approvalFingerprint })}
                 </p>
               )}
               {specLock.currentPlan && (
                 <p className="spec-lock-provenance">
-                  Captured {specLock.currentPlan.capturedAt} · source revision {specLock.currentPlan.sourceRevision} · source hash {specLock.currentPlan.sourceHash}
+                  {t("taskDetail.specLock.captured", "Captured {{capturedAt}} · source revision {{sourceRevision}} · source hash {{sourceHash}}", { capturedAt: specLock.currentPlan.capturedAt, sourceRevision: specLock.currentPlan.sourceRevision, sourceHash: specLock.currentPlan.sourceHash })}
                 </p>
               )}
               {specLock.latestLock?.diff?.changedSections.length ? (
-                <p className="spec-lock-provenance">Re-lock changed: {specLock.latestLock.diff.changedSections.join(", ")}</p>
+                <p className="spec-lock-provenance">{t("taskDetail.specLock.relockChanged", "Re-lock changed: {{sections}}", { sections: specLock.latestLock.diff.changedSections.join(", ") })}</p>
               ) : null}
               {(specLock.history?.locks.length ?? 0) > 1 || (specLock.history?.currentPlans.length ?? 0) > 1 || (specLock.history?.reports.length ?? 0) > 1 ? (
                 <p className="spec-lock-provenance">
-                  Retained history: {specLock.history.locks.map((lock) => `lock v${lock.version}`).join(", ") || "no locks"}; {specLock.history.currentPlans.map((plan) => `plan v${plan.version}`).join(", ") || "no plan evidence"}; {specLock.history.reports.length} reports
+                  {t("taskDetail.specLock.retainedHistory", "Retained history: {{locks}}; {{plans}}; {{reports}} reports", { locks: specLock.history.locks.map((lock) => `lock v${lock.version}`).join(", ") || "no locks", plans: specLock.history.currentPlans.map((plan) => `plan v${plan.version}`).join(", ") || "no plan evidence", reports: specLock.history.reports.length })}
                 </p>
               ) : null}
               {specLock.report?.findings.length ? (
@@ -7200,8 +7200,8 @@ export function TaskDetailContent({
               */}
               {isTaskReverted(task.sourceMetadata) && (
                 <>
-                  <button className="btn btn-sm btn-danger" onClick={handleDelete} aria-label="Delete reverted task">Delete</button>
-                  {onReviseTask && <button className="btn btn-sm" onClick={() => { onReviseTask(task); requestClose?.(); }}>Revise</button>}
+                  <button className="btn btn-sm btn-danger" onClick={handleDelete} aria-label={t("taskDetail.reverted.deleteAria", "Delete reverted task")}>{t("taskDetail.delete.btn", "Delete")}</button>
+                  {onReviseTask && <button className="btn btn-sm" onClick={() => { onReviseTask(task); requestClose?.(); }}>{t("taskDetail.revise", "Revise")}</button>}
                 </>
               )}
 
