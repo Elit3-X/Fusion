@@ -103,8 +103,9 @@ describe("mobile board magnetic column snap wiring (FN-8235)", () => {
 
     expect(boardSource).toContain('import { useColumnScrollSnap } from "../hooks/useColumnScrollSnap";');
     expect(boardSource).toContain("useColumnScrollSnap(boardElement, { mobileOnly: true });");
+    expect(boardSource).toContain('const boardMousePanClassName = `board board-workflow-columns');
     expect(boardSource.match(/ref=\{setBoardRef\}/g)).toHaveLength(2);
-    expect(boardSource.match(/className="board board-workflow-columns"/g)).toHaveLength(2);
+    expect(boardSource.match(/className=\{boardMousePanClassName\}/g)).toHaveLength(2);
     // The legacy `<main className="board">` render is gone; assert it stays gone.
     expect(boardSource).not.toContain('<main className="board" id="board" ref={setBoardRef}>');
   });
