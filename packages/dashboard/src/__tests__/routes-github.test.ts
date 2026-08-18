@@ -3269,6 +3269,96 @@ describe("GET /tasks/:id/diff", () => {
       expect(Array.isArray(res.body.files)).toBe(true);
       expect(res.body.stats).toHaveProperty("filesChanged");
     });
+
+    it("scopes both done diff endpoints to an attributed commit after a remote rebase", async () => {
+      const root = mkdtempSync(join(tmpdir(), "kb-dashboard-rebase-attribution-"));
+      try {
+        execFileSync("git", ["init", "--initial-branch=main", root], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.email", "kb-tests@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.name", "KB Tests"], { stdio: "pipe" });
+        writeFileSync(join(root, "base.ts"), "export const base = true;\n");
+        execFileSync("git", ["-C", root, "add", "base.ts"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "base"], { stdio: "pipe" });
+        const rebaseBaseSha = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf-8", stdio: "pipe" }).trim();
+
+        writeFileSync(join(root, "foreign.ts"), "export const remote = true;\n");
+        execFileSync("git", ["-C", root, "add", "foreign.ts"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "remote work"], { stdio: "pipe" });
+        writeFileSync(join(root, "task.ts"), "export const task = true;\n");
+        execFileSync("git", ["-C", root, "add", "task.ts"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "fix(FN-014): task execution change"], { stdio: "pipe" });
+        const commitSha = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf-8", stdio: "pipe" }).trim();
+
+        const localStore = createMockStore({ getRootDir: vi.fn().mockReturnValue(root) });
+        (localStore.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...FAKE_TASK_DETAIL,
+          id: "FN-014",
+          column: "done",
+          modifiedFiles: ["task.ts"],
+          mergeDetails: { commitSha, rebaseBaseSha, filesChanged: 2 },
+        });
+        const app = express();
+        app.use(express.json());
+        app.use("/api", createApiRoutes(localStore));
+
+        const diffResponse = await GET(app, "/api/tasks/FN-014/diff");
+        expect(diffResponse.status).toBe(200);
+        expect(diffResponse.body.files.map((file: { path: string }) => file.path)).toEqual(["task.ts"]);
+        expect(diffResponse.body.files[0].patch).toContain("task = true");
+        expect(diffResponse.body.files.map((file: { path: string }) => file.path)).not.toContain("foreign.ts");
+        expect(diffResponse.body.stats.filesChanged).toBe(1);
+
+        const fileDiffsResponse = await GET(app, "/api/tasks/FN-014/file-diffs");
+        expect(fileDiffsResponse.status).toBe(200);
+        expect(fileDiffsResponse.body.map((file: { path: string }) => file.path)).toEqual(["task.ts"]);
+        expect(fileDiffsResponse.body[0].diff).toContain("task = true");
+        expect(fileDiffsResponse.body.map((file: { path: string }) => file.path)).not.toContain("foreign.ts");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("returns no files for a foreign-only rebase when execution evidence is empty", async () => {
+      const root = mkdtempSync(join(tmpdir(), "kb-dashboard-rebase-unproven-"));
+      try {
+        execFileSync("git", ["init", "--initial-branch=main", root], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.email", "kb-tests@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.name", "KB Tests"], { stdio: "pipe" });
+        writeFileSync(join(root, "base.ts"), "export const base = true;\n");
+        execFileSync("git", ["-C", root, "add", "base.ts"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "base"], { stdio: "pipe" });
+        const rebaseBaseSha = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf-8", stdio: "pipe" }).trim();
+        writeFileSync(join(root, "foreign.ts"), "export const remote = true;\n");
+        execFileSync("git", ["-C", root, "add", "foreign.ts"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "remote work"], { stdio: "pipe" });
+        writeFileSync(join(root, "unproven.ts"), "export const task = true;\n");
+        execFileSync("git", ["-C", root, "add", "unproven.ts"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "local task work"], { stdio: "pipe" });
+        const commitSha = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf-8", stdio: "pipe" }).trim();
+
+        const localStore = createMockStore({ getRootDir: vi.fn().mockReturnValue(root) });
+        (localStore.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...FAKE_TASK_DETAIL,
+          id: "FN-014",
+          column: "done",
+          modifiedFiles: [],
+          mergeDetails: { commitSha, rebaseBaseSha, filesChanged: 2 },
+        });
+        const app = express();
+        app.use(express.json());
+        app.use("/api", createApiRoutes(localStore));
+
+        const diffResponse = await GET(app, "/api/tasks/FN-014/diff");
+        expect(diffResponse.status).toBe(200);
+        expect(diffResponse.body).toEqual({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
+
+        const fileDiffsResponse = await GET(app, "/api/tasks/FN-014/file-diffs");
+        expect(fileDiffsResponse.status).toBe(200);
+        expect(fileDiffsResponse.body).toEqual([]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 
   it("resolves missing done-task commitSha from run-audit commit events", async () => {
