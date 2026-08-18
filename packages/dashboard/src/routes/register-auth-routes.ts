@@ -640,6 +640,7 @@ export const registerAuthRoutes: ApiRouteRegistrar = (ctx) => {
    * Includes both OAuth-backed and API-key-backed providers.
    * Response: {
    *   providers: [{ id, name, authenticated, type, keyHint? }],
+   *   customProvidersConfigured: boolean,
    *   ghCli: { available: boolean, authenticated: boolean },
    *   gitCli: { available: boolean, version?: string, installUrl: string }
    * }
@@ -648,6 +649,20 @@ export const registerAuthRoutes: ApiRouteRegistrar = (ctx) => {
     try {
       const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
       const storage = getAuthStorage();
+      let customProvidersConfigured = false;
+      if (store) {
+        try {
+          const globalSettings = await store.getGlobalSettingsStore().getSettings();
+          /*
+          FNXC:ProviderOnboarding 2026-08-18-23:05:
+          Persisted custom-provider entries are an AI setup signal without exposing their credentials or adding them to the built-in provider-card catalog. Treat every array entry as configured, including duplicate or corrupt rows, so readiness reflects operator intent.
+          */
+          customProvidersConfigured = Array.isArray(globalSettings.customProviders)
+            && globalSettings.customProviders.length > 0;
+        } catch {
+          // Settings failures remain fail-closed for the readiness signal.
+        }
+      }
       /*
       FNXC:ProviderAuth 2026-08-01-19:10:
       FN-8713: Express normally supplies `req.query`, but direct route consumers can omit it. Treat an absent query as empty while retaining instance validation; a well-formed dangling instance stays unauthenticated below and must never fall back to the provider default.
@@ -953,7 +968,7 @@ export const registerAuthRoutes: ApiRouteRegistrar = (ctx) => {
             }),
         };
       });
-      res.json({ providers: instanceProviders, ghCli, gitCli });
+      res.json({ providers: instanceProviders, customProvidersConfigured, ghCli, gitCli });
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;

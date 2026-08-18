@@ -525,6 +525,12 @@ FNXC:WorkflowEditor 2026-06-29-21:10: Optional-group template entry/exit ownersh
 
 Custom Providers live in **Settings → Authentication → Custom Providers**, inside the **Advanced: Custom Providers** disclosure. Use this section to add user-defined model providers that speak an OpenAI-compatible API, the OpenAI Responses API, an Anthropic-compatible API, or Google Generative AI. After a provider is saved with models, those models become selectable in model dropdowns, including **Settings → Models · Project → Model Overrides** project and workflow lanes.
 
+A saved custom-provider configuration counts as AI setup for startup onboarding and the readiness warning, even when no built-in provider is authenticated. This readiness signal contains only whether persisted entries exist; custom providers are not duplicated as built-in authentication cards. An empty or missing custom-provider list does not suppress the normal missing-provider setup prompt.
+
+### Refresh built-in provider models
+
+The Authentication section also includes one **Refresh Models** action for built-in providers. It is available in both the modal and embedded Settings presentations, including narrow layouts, and performs a deliberate bounded refresh rather than background polling. When the refresh completes, Fusion updates the shared model cache so already-open model pickers show the new built-in catalog without a restart. A timeout, failure, or deferred refresh keeps the last available catalog visible and reports that truthful outcome so the operator can try again. This is separate from the saved custom-provider row-level **Refresh Models** action below, which queries that provider's endpoint.
+
 Settings → Global Models also includes **Model pricing overrides** for Command Center estimates. The section shows a compact pricing snapshot/override-count summary; use **View pricing table** to add or edit rows with lowercased `provider:model` keys (or bare `:model` fallback keys), USD-per-1M token prices for input/output/cache read/cache write, and optional source text. **Fetch LiteLLM pricing** remains available from the collapsed summary and performs an explicit one-click refresh from LiteLLM's published model pricing JSON, replaces the override table only after a successful parse, and records the fetched timestamp/source; failed fetches keep the existing overrides.
 
 Supported **API type** values match the dropdown in the form:

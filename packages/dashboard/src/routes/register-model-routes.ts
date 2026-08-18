@@ -9,7 +9,10 @@ import { getGrokPickerModels, GROK_PICKER_PROVIDER_ID } from "../grok-model-cach
 import { getClaudePickerModels, CLAUDE_PICKER_PROVIDER_ID } from "../claude-model-cache.js";
 import { getOmpPickerModels, OMP_PICKER_PROVIDER_ID } from "../omp-model-cache.js";
 import { getHermesPickerModels, HERMES_PICKER_PROVIDER_ID } from "../hermes-model-cache.js";
-import { refreshModelRegistryForRequest } from "../model-registry-refresh-cache.js";
+import {
+  invalidateModelRegistryRefreshCache,
+  refreshModelRegistryForRequest,
+} from "../model-registry-refresh-cache.js";
 import type { AuthStorageLike } from "../routes.js";
 import type { ApiRouteRegistrar } from "./types.js";
 
@@ -227,6 +230,23 @@ function getProviderInstances(
 
 export const registerModelRoutes: ApiRouteRegistrar = (ctx) => {
   const { router, options, store, runtimeLogger } = ctx;
+
+  /*
+  FNXC:BuiltInModelRefresh 2026-08-18-23:05:
+  The Authentication action is an explicit operator refresh for the shared built-in catalog. Invalidate only this registry generation, then reuse the existing bounded single-flight seam so a hung or stale refresh retains its last good rows and cannot overlap provider reloads.
+  */
+  router.post("/models/refresh", async (_req, res) => {
+    if (!options?.modelRegistry) {
+      res.json({ outcome: "failed", error: "Model registry unavailable" });
+      return;
+    }
+
+    invalidateModelRegistryRefreshCache(options.modelRegistry);
+    const outcome = await refreshModelRegistryForRequest(options.modelRegistry);
+    res.json(outcome === "failed"
+      ? { outcome, error: "Model catalog refresh failed; showing the last available models." }
+      : { outcome });
+  });
 
   router.get("/models", async (_req, res) => {
     // Get favoriteProviders/favoriteModels and default model from global settings.

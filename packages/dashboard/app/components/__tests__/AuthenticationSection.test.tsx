@@ -240,6 +240,13 @@ describe("AuthenticationSection", () => {
     expect(header?.nextElementSibling).toBe(alert);
   });
 
+  it("renders the built-in catalog action without removing the custom provider section", () => {
+    renderAuthSection([{ id: "openai", name: "OpenAI", authenticated: false, type: "api_key" }]);
+
+    expect(screen.getByRole("button", { name: "Refresh Models" })).toBeInTheDocument();
+    expect(screen.getByTestId("custom-providers-section")).toBeInTheDocument();
+  });
+
   it("wraps the provider loginError banner inside the card on a narrow Settings width", () => {
     const css = loadComponentCss("settings/sections/AuthenticationSection.css");
     expect(css).toMatch(/\.auth-provider-login-error\s*\{[^}]*display:\s*block/);
@@ -247,6 +254,9 @@ describe("AuthenticationSection", () => {
     expect(css).toMatch(/\.auth-provider-login-error\s*\{[^}]*overflow-wrap:\s*anywhere/);
     expect(css).toMatch(/\.auth-provider-login-error\s*\{[^}]*word-break:\s*break-word/);
     expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*\.auth-provider-login-error\s*\{[\s\S]*margin-inline:\s*var\(--space-sm\)/);
+    expect(css).toMatch(/\.auth-model-refresh\s*\{[\s\S]*display:\s*flex/);
+    expect(css).toMatch(/\.auth-model-refresh-feedback--error\s*\{[^}]*color:\s*var\(--color-error\)/);
+    expect(css).toMatch(/@media[^{]*\(max-width:\s*768px\)[^{]*\{[\s\S]*\.auth-model-refresh\s*>\s*\.btn\s*\{[\s\S]*flex:\s*1 1 100%/);
   });
 
   it("keeps Anthropic OAuth logout separate from a stored API key clear action", () => {
