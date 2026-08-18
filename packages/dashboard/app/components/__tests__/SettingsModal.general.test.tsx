@@ -625,6 +625,27 @@ describe("SettingsModal", () => {
     expect(screen.getByRole("checkbox", { name: "Advanced settings" })).toBeChecked();
   });
 
+  it("keeps Remote Access reachable in Basic-mode desktop navigation, search, and initial routing", async () => {
+    viewportMode = "desktop";
+    localStorage.removeItem("fusion:settings:show-advanced");
+    renderModal({ initialSection: "remote" });
+    await waitForSettingsModalReady();
+
+    expect(screen.getByRole("checkbox", { name: "Advanced settings" })).not.toBeChecked();
+    expect(localStorage.getItem("fusion:settings:show-advanced")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Remote Access$/ })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Remote Access" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Node Sync$/ })).not.toBeInTheDocument();
+
+    await settingsModalUser.click(screen.getByRole("button", { name: /^Remote Access$/ }));
+    expect(screen.getByRole("heading", { name: "Remote Access" })).toBeInTheDocument();
+
+    await settingsModalUser.type(screen.getByTestId("settings-search-input"), "cloudflared");
+    expect(screen.getAllByRole("button", { name: /^Remote Access$/ })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Node Sync$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Remote Access" })).toBeInTheDocument();
+  });
+
   it("honors an explicit initialSection override", async () => {
     renderModal({ initialSection: "authentication" });
     await waitForSettingsModalReady();

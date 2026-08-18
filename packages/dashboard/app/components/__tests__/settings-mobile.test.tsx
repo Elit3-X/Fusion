@@ -507,6 +507,24 @@ describe("SettingsModal mobile adaptations", () => {
     expect(document.querySelector(".cli-binary-panel")).toBeTruthy();
   });
 
+  it("keeps Remote Access in the Basic-mode Infrastructure picker without an empty group", async () => {
+    localStorage.removeItem("fusion:settings:show-advanced");
+    mockSettingsViewport(true);
+    const user = userEvent.setup();
+    const { getByLabelText, getByRole } = render(<SettingsModal onClose={vi.fn()} addToast={vi.fn()} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    expect(getByRole("checkbox", { name: "Advanced settings" })).not.toBeChecked();
+    const picker = getByLabelText("Settings Section") as HTMLSelectElement;
+    const remoteOptions = Array.from(picker.options).filter((option) => option.value === "remote");
+    expect(remoteOptions).toHaveLength(1);
+    expect(remoteOptions[0]?.parentElement).toHaveAttribute("label", "Infrastructure");
+    expect(picker.querySelector('optgroup[label="Infrastructure"] option')).not.toBeNull();
+
+    await user.selectOptions(picker, "remote");
+    expect(getByRole("heading", { name: "Remote Access" })).toBeInTheDocument();
+  });
+
   it("excludes research sections from mobile picker when researchView is disabled", async () => {
     mockSettingsViewport(true);
     const user = userEvent.setup();
