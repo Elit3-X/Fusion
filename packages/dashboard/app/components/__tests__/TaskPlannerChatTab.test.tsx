@@ -2033,4 +2033,220 @@ describe("TaskPlannerChatTab", () => {
       expect(screen.queryByRole("listbox", { name: /skill suggestions/i })).not.toBeInTheDocument();
     });
   });
+
+  describe("queued planner messages", () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it("queues follow-ups during a live reply and releases exactly one FIFO entry per completion", async () => {
+      const user = userEvent.setup();
+      const streamHandlers: any[] = [];
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        streamHandlers.push(handlers);
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      renderPlannerChat();
+      await screen.findByTestId("task-planner-chat-empty");
+      await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+      await waitFor(() => expect(streamHandlers).toHaveLength(1));
+
+      const input = screen.getByLabelText("Message planner chat");
+      for (const message of ["Follow-up A", "Follow-up B", "Follow-up B"]) {
+        await user.type(input, message);
+        await user.keyboard("{Enter}");
+      }
+
+      await waitFor(() => expect(screen.getAllByTestId(/task-planner-chat-pending-message-/)).toHaveLength(3));
+      expect(JSON.parse(localStorage.getItem("fusion:chat-pending:chat-planner") ?? "null")).toEqual(["Follow-up A", "Follow-up B", "Follow-up B"]);
+
+      act(() => streamHandlers[0].onDone({
+        messageId: "assistant-1",
+        message: { id: "assistant-1", sessionId: "chat-planner", role: "assistant", content: "First answer", thinkingOutput: null, metadata: null, createdAt: "2026-08-18T22:00:00.000Z" },
+      }));
+      await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(2));
+      expect(mockStreamChatResponse.mock.calls[1][1]).toBe("Follow-up A");
+      expect(JSON.parse(localStorage.getItem("fusion:chat-pending:chat-planner") ?? "null")).toEqual(["Follow-up B", "Follow-up B"]);
+
+      act(() => streamHandlers[1].onDone({
+        messageId: "assistant-2",
+        message: { id: "assistant-2", sessionId: "chat-planner", role: "assistant", content: "Second answer", thinkingOutput: null, metadata: null, createdAt: "2026-08-18T22:01:00.000Z" },
+      }));
+      await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(3));
+      expect(mockStreamChatResponse.mock.calls[2][1]).toBe("Follow-up B");
+      expect(JSON.parse(localStorage.getItem("fusion:chat-pending:chat-planner") ?? "null")).toEqual(["Follow-up B"]);
+
+      act(() => streamHandlers[2].onDone({
+        messageId: "assistant-3",
+        message: { id: "assistant-3", sessionId: "chat-planner", role: "assistant", content: "Third answer", thinkingOutput: null, metadata: null, createdAt: "2026-08-18T22:02:00.000Z" },
+      }));
+      await waitFor(() => expect(localStorage.getItem("fusion:chat-pending:chat-planner")).toBeNull());
+      expect(screen.queryByTestId("task-planner-chat-pending-list")).not.toBeInTheDocument();
+    });
+
+    it("hydrates a session queue without dispatching until an attached generation completes, then fences a task switch", async () => {
+      const attachedHandlers: any[] = [];
+      localStorage.setItem("fusion:chat-pending:chat-planner", JSON.stringify(["Restored follow-up"]));
+      mockFetchTaskPlannerChatSession.mockResolvedValueOnce({ session: makePlannerSession({ inFlightGeneration: { generationId: "generation-1", streamingText: "Partial", streamingThinking: "", toolCalls: [] }, isGenerating: true }) });
+      mockFetchChatSession.mockResolvedValueOnce({ session: makePlannerSession({ inFlightGeneration: { generationId: "generation-1", streamingText: "Partial", streamingThinking: "", toolCalls: [] }, isGenerating: true }) });
+      mockAttachChatStream.mockImplementation((_sessionId, handlers) => {
+        attachedHandlers.push(handlers);
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      const { rerender } = renderPlannerChat();
+      expect(await screen.findByText("Restored follow-up")).toBeInTheDocument();
+      expect(mockStreamChatResponse).not.toHaveBeenCalled();
+      expect(attachedHandlers).toHaveLength(1);
+
+      mockFetchTaskPlannerChatSession.mockResolvedValueOnce({ session: makePlannerSession({ id: "chat-other" }) });
+      mockFetchChatSession.mockResolvedValueOnce({ session: makePlannerSession({ id: "chat-other" }) });
+      mockFetchChatMessages.mockResolvedValue({ messages: [] });
+      rerender(
+        <TaskPlannerChatTab
+          task={makeTask("FN-7311")}
+          active
+          planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+          addToast={vi.fn()}
+        />,
+      );
+      await screen.findByTestId("task-planner-chat-empty");
+      act(() => attachedHandlers[0].onDone({ messageId: "stale-attached" }));
+      expect(mockStreamChatResponse).not.toHaveBeenCalled();
+      expect(screen.queryByText("Restored follow-up")).not.toBeInTheDocument();
+    });
+
+    it("normalizes malformed persisted entries and never sends a blank request", async () => {
+      localStorage.setItem("fusion:chat-pending:chat-planner", JSON.stringify(["  ", 42, "  Valid restored text  "]));
+      renderPlannerChat();
+      await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(1));
+      expect(mockStreamChatResponse.mock.calls[0][1]).toBe("Valid restored text");
+      expect(mockStreamChatResponse.mock.calls[0][1]).not.toBe(" ");
+    });
+
+    it("edits, reorders, deletes, and force-sends the selected duplicate occurrence", async () => {
+      const user = userEvent.setup();
+      const streamHandlers: any[] = [];
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        streamHandlers.push(handlers);
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      renderPlannerChat();
+      await screen.findByTestId("task-planner-chat-empty");
+      await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+      const input = screen.getByLabelText("Message planner chat");
+      for (const message of ["First", "Duplicate", "Duplicate"]) {
+        await user.type(input, message);
+        await user.keyboard("{Enter}");
+      }
+      await waitFor(() => expect(screen.getAllByTestId(/task-planner-chat-pending-message-\d$/)).toHaveLength(3));
+
+      await user.click(screen.getByTestId("task-planner-chat-pending-edit-1"));
+      const editInput = screen.getByTestId("task-planner-chat-pending-message-1").querySelector("input");
+      expect(editInput).not.toBeNull();
+      await user.clear(editInput!);
+      await user.type(editInput!, "Edited duplicate");
+      await user.click(screen.getByTestId("task-planner-chat-pending-save-1"));
+      expect(JSON.parse(localStorage.getItem("fusion:chat-pending:chat-planner") ?? "null")).toEqual(["First", "Edited duplicate", "Duplicate"]);
+
+      expect(screen.getByTestId("task-planner-chat-pending-up-0")).toBeDisabled();
+      expect(screen.getByTestId("task-planner-chat-pending-down-2")).toBeDisabled();
+      await user.click(screen.getByTestId("task-planner-chat-pending-up-2"));
+      expect(JSON.parse(localStorage.getItem("fusion:chat-pending:chat-planner") ?? "null")).toEqual(["First", "Duplicate", "Edited duplicate"]);
+
+      await user.click(screen.getByTestId("task-planner-chat-pending-delete-1"));
+      expect(JSON.parse(localStorage.getItem("fusion:chat-pending:chat-planner") ?? "null")).toEqual(["First", "Edited duplicate"]);
+      expect(screen.getByTestId("task-planner-chat-pending-force-1")).toHaveAccessibleName(/Force send queued message 2/);
+      void streamHandlers;
+    });
+
+    it("waits for durable cancellation and history reconciliation before force dispatching a non-front entry", async () => {
+      const user = userEvent.setup();
+      const streamHandlers: any[] = [];
+      const cancelDeferred = createDeferred<{ success: boolean; interrupted: boolean }>();
+      const historyDeferred = createDeferred<{ messages: any[] }>();
+      const firstStream = { close: vi.fn(), isConnected: () => true };
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        streamHandlers.push(handlers);
+        return streamHandlers.length === 1 ? firstStream : { close: vi.fn(), isConnected: () => true };
+      });
+      mockCancelChatResponse.mockReturnValueOnce(cancelDeferred.promise);
+      mockFetchChatMessages
+        .mockImplementationOnce(async () => ({ messages: [] }))
+        .mockImplementationOnce(() => historyDeferred.promise);
+
+      renderPlannerChat();
+      await screen.findByTestId("task-planner-chat-empty");
+      await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+      const input = screen.getByLabelText("Message planner chat");
+      for (const message of ["Keep this first", "Force this second"]) {
+        await user.type(input, message);
+        await user.keyboard("{Enter}");
+      }
+      await waitFor(() => expect(streamHandlers).toHaveLength(1));
+
+      await user.click(screen.getByTestId("task-planner-chat-pending-force-1"));
+      expect(firstStream.close).toHaveBeenCalledTimes(1);
+      expect(mockCancelChatResponse).toHaveBeenCalledWith("chat-planner", undefined);
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("task-planner-chat-pending-force-1")).toBeDisabled();
+
+      act(() => streamHandlers[0].onText(" stale callback"));
+      expect(screen.queryByText("stale callback")).not.toBeInTheDocument();
+      cancelDeferred.resolve({ success: true, interrupted: true });
+      await waitFor(() => expect(mockFetchChatMessages).toHaveBeenCalledTimes(2));
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+      historyDeferred.resolve({ messages: [] });
+      await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(2));
+      expect(mockStreamChatResponse.mock.calls[1][1]).toBe("Force this second");
+      expect(JSON.parse(localStorage.getItem("fusion:chat-pending:chat-planner") ?? "null")).toEqual(["Keep this first"]);
+    });
+
+    it("releases the queued FIFO front only after ordinary Stop reconciliation", async () => {
+      const user = userEvent.setup();
+      const streamHandlers: any[] = [];
+      const cancelDeferred = createDeferred<{ success: boolean; interrupted: boolean }>();
+      mockCancelChatResponse.mockReturnValueOnce(cancelDeferred.promise);
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        streamHandlers.push(handlers);
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      renderPlannerChat();
+      await screen.findByTestId("task-planner-chat-empty");
+      await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+      const input = screen.getByLabelText("Message planner chat");
+      await user.type(input, "Queued after stop");
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(streamHandlers).toHaveLength(1));
+
+      await user.click(screen.getByTestId("chat-stop-btn"));
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+      cancelDeferred.resolve({ success: true, interrupted: true });
+      await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(2));
+      expect(mockStreamChatResponse.mock.calls[1][1]).toBe("Queued after stop");
+    });
+
+    it("retains the selected entry when cancellation fails", async () => {
+      const user = userEvent.setup();
+      const cancelDeferred = createDeferred<{ success: boolean; interrupted: boolean }>();
+      mockCancelChatResponse.mockReturnValueOnce(cancelDeferred.promise);
+      mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+
+      renderPlannerChat();
+      await screen.findByTestId("task-planner-chat-empty");
+      await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+      const input = screen.getByLabelText("Message planner chat");
+      await user.type(input, "Retain me");
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(screen.getByTestId("task-planner-chat-pending-force-0")).toBeInTheDocument());
+      await user.click(screen.getByTestId("task-planner-chat-pending-force-0"));
+      cancelDeferred.resolve({ success: false, interrupted: false });
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Failed to save the interrupted planner response"));
+      expect(screen.getByText("Retain me")).toBeInTheDocument();
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -8764,6 +8764,19 @@
       "create": "Criar tarefa",
       "error": "Não foi possível criar a tarefa. Tente novamente."
     },
+    "plannerChat": {
+      "pendingLabel": "Mensagens pendentes do planejador",
+      "pendingHeading": "Mensagens pendentes",
+      "editPending": "Editar mensagem na fila",
+      "savePendingEdit": "Salvar mensagem na fila",
+      "cancelPendingEdit": "Cancelar edição da mensagem na fila",
+      "movePendingEarlier": "Mover mensagem na fila para antes",
+      "movePendingLater": "Mover mensagem na fila para depois",
+      "deletePending": "Excluir mensagem na fila",
+      "forcePending": "Forçar envio da mensagem na fila",
+      "forcePendingShort": "Forçar envio",
+      "pendingEditEmpty": "Mensagens na fila não podem ficar vazias"
+    },
     "reverted": {
       "deleteAria": ""
     },

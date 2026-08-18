@@ -8320,6 +8320,19 @@
       "create": "Create task",
       "error": "Could not create task. Try again."
     },
+    "plannerChat": {
+      "pendingLabel": "Pending planner messages",
+      "pendingHeading": "Pending messages",
+      "editPending": "Edit queued message",
+      "savePendingEdit": "Save queued message",
+      "cancelPendingEdit": "Cancel queued message edit",
+      "movePendingEarlier": "Move queued message earlier",
+      "movePendingLater": "Move queued message later",
+      "deletePending": "Delete queued message",
+      "forcePending": "Force send queued message",
+      "forcePendingShort": "Force send",
+      "pendingEditEmpty": "Queued messages cannot be empty"
+    },
     "reverted": {
       "deleteAria": "Delete reverted task"
     },

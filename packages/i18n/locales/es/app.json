@@ -8315,6 +8315,19 @@
       "create": "",
       "error": ""
     },
+    "plannerChat": {
+      "pendingLabel": "Mensajes del planificador pendientes",
+      "pendingHeading": "Mensajes pendientes",
+      "editPending": "Editar mensaje en cola",
+      "savePendingEdit": "Guardar mensaje en cola",
+      "cancelPendingEdit": "Cancelar edición del mensaje en cola",
+      "movePendingEarlier": "Mover mensaje en cola antes",
+      "movePendingLater": "Mover mensaje en cola después",
+      "deletePending": "Eliminar mensaje en cola",
+      "forcePending": "Forzar envío del mensaje en cola",
+      "forcePendingShort": "Forzar envío",
+      "pendingEditEmpty": "Los mensajes en cola no pueden estar vacíos"
+    },
     "reverted": {
       "deleteAria": ""
     },

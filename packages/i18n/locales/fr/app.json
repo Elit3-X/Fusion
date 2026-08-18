@@ -8315,6 +8315,19 @@
       "create": "",
       "error": ""
     },
+    "plannerChat": {
+      "pendingLabel": "Messages du planificateur en attente",
+      "pendingHeading": "Messages en attente",
+      "editPending": "Modifier le message en attente",
+      "savePendingEdit": "Enregistrer le message en attente",
+      "cancelPendingEdit": "Annuler la modification du message en attente",
+      "movePendingEarlier": "Avancer le message en attente",
+      "movePendingLater": "Reculer le message en attente",
+      "deletePending": "Supprimer le message en attente",
+      "forcePending": "Forcer l’envoi du message en attente",
+      "forcePendingShort": "Forcer l’envoi",
+      "pendingEditEmpty": "Les messages en attente ne peuvent pas être vides"
+    },
     "reverted": {
       "deleteAria": ""
     },

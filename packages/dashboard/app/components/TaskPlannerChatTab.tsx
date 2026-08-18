@@ -2,10 +2,11 @@ import type { ChatInFlightGenerationState, ChatMessage, ResolvedModelSelection, 
 import { isWipColumnRole } from "../utils/columnRoles";
 import { getErrorMessage } from "@fusion/core";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Loader2, Maximize2, Minimize2, Pencil, Send, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ToastType } from "../hooks/useToast";
 import { useComposerDictation } from "../hooks/useComposerDictation";
+import { getPersistedPendingChatMessages, setPersistedPendingChatMessages } from "../hooks/chatPendingMessageStorage";
 import { MicButton } from "./MicButton";
 import type { ChatMessageInfo, ToolCallInfo } from "../hooks/chatTypes";
 import { attachChatStream, cancelChatResponse, editChatMessage, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
@@ -32,6 +33,12 @@ interface TaskPlannerChatTabProps {
 
 type ComposerState = "idle" | "sending";
 
+type PendingQueueReservation = {
+  sessionId: string;
+  text: string;
+  index: number;
+};
+
 type PlannerQuestionRenderState = {
   parsed: ParsedQuestionToolCall;
   answered: boolean;
@@ -53,6 +60,10 @@ const BOTTOM_FOLLOW_THRESHOLD = 48;
 
 function isTranscriptNearBottom(container: HTMLElement): boolean {
   return container.scrollHeight - (container.scrollTop + container.clientHeight) <= BOTTOM_FOLLOW_THRESHOLD;
+}
+
+function normalizePendingMessages(messages: readonly string[]): string[] {
+  return messages.map((message) => message.trim()).filter(Boolean);
 }
 
 const TASK_PLANNER_CHAT_STARTER_PROMPTS: StarterPromptDefinition[] = [
@@ -316,6 +327,10 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [pendingMessages, setPendingMessages] = useState<string[]>([]);
+  const [editingPendingIndex, setEditingPendingIndex] = useState<number | null>(null);
+  const [editingPendingText, setEditingPendingText] = useState("");
+  const [queueActionPending, setQueueActionPending] = useState(false);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const dictation = useComposerDictation({ textareaRef: composerTextareaRef, value: draft, onChange: setDraft, projectId });
   const [showCommandMenu, setShowCommandMenu] = useState(false);
@@ -328,6 +343,9 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<{ close: () => void } | null>(null);
+  const pendingMessagesRef = useRef<string[]>([]);
+  const sessionIdRef = useRef<string | null>(null);
+  const queueDispatchRef = useRef<((sessionId: string, selectedIndex?: number) => void) | null>(null);
   const streamSnapshotRef = useRef<{
     requestId: number;
     sessionId: string;
@@ -362,6 +380,21 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       : {};
   }, [planningModelId, planningModelProvider]);
   const plannerChatScopeKey = `${task.id}\u0000${projectId ?? ""}\u0000${planningModelProvider ?? ""}\u0000${planningModelId ?? ""}`;
+
+  const replacePendingMessages = useCallback((nextMessages: readonly string[], resolvedSessionId = sessionIdRef.current) => {
+    const normalizedMessages = normalizePendingMessages(nextMessages);
+    pendingMessagesRef.current = normalizedMessages;
+    setPendingMessages(normalizedMessages);
+    setPersistedPendingChatMessages(resolvedSessionId, normalizedMessages);
+  }, []);
+
+  const restorePendingQueueReservation = useCallback((reservation: PendingQueueReservation) => {
+    if (sessionIdRef.current !== reservation.sessionId) return;
+    const current = pendingMessagesRef.current;
+    const insertionIndex = Math.min(Math.max(reservation.index, 0), current.length);
+    const next = [...current.slice(0, insertionIndex), reservation.text, ...current.slice(insertionIndex)];
+    replacePendingMessages(next, reservation.sessionId);
+  }, [replacePendingMessages]);
 
   /*
    * FNXC:TaskPlannerChatSlashCommands 2026-07-08-00:00:
@@ -429,8 +462,9 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     inFlightGeneration?: ChatInFlightGenerationState | null;
     requestId: number;
     attach: boolean;
+    queueReservation?: PendingQueueReservation;
   }) => {
-    const { resolvedSessionId, content = "", inFlightGeneration, requestId, attach } = options;
+    const { resolvedSessionId, content = "", inFlightGeneration, requestId, attach, queueReservation } = options;
     const isCurrentStreamRequest = () => streamRequestRef.current === requestId;
     const inFlightSnapshot = attach ? inFlightGeneration : null;
     let accumulated = inFlightSnapshot?.streamingText ?? "";
@@ -520,6 +554,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         } else {
           void refreshMessagesForSession(resolvedSessionId, isCurrentStreamRequest, { mergeOptimistic: Boolean(content) });
         }
+        queueDispatchRef.current?.(resolvedSessionId);
       },
       onError: (streamError: string | ChatFailureInfo, meta?: ChatStreamErrorMeta) => {
         if (!isCurrentStreamRequest()) return;
@@ -537,8 +572,12 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
           }
           return withoutStreaming;
         });
-        if (meta?.requestAccepted === false) return;
+        if (meta?.requestAccepted === false) {
+          if (queueReservation) restorePendingQueueReservation(queueReservation);
+          return;
+        }
         void refreshMessagesForSession(resolvedSessionId, isCurrentStreamRequest, { mergeOptimistic: Boolean(content) });
+        queueDispatchRef.current?.(resolvedSessionId);
       },
     };
 
@@ -559,7 +598,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
           projectId,
           { taskId: task.id },
         );
-  }, [applyStreamingSnapshot, projectId, refreshMessagesForSession, refreshTaskAfterSteering, task.id, t]);
+  }, [applyStreamingSnapshot, projectId, refreshMessagesForSession, refreshTaskAfterSteering, restorePendingQueueReservation, task.id, t]);
 
   const loadSession = useCallback(async () => {
     const requestId = loadRequestRef.current + 1;
@@ -571,12 +610,16 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       const { session: lookupSession } = await fetchTaskPlannerChatSession(task.id, modelPayload, projectId);
       if (loadRequestRef.current !== requestId) return;
       if (!lookupSession) {
+        sessionIdRef.current = null;
         setSessionId(null);
+        replacePendingMessages([], null);
         setMessages([]);
         setHistoryLoaded(true);
         return;
       }
+      sessionIdRef.current = lookupSession.id;
       setSessionId(lookupSession.id);
+      replacePendingMessages(getPersistedPendingChatMessages(lookupSession.id), lookupSession.id);
       const [{ messages: loadedMessages }, refreshedSessionResult] = await Promise.all([
         fetchChatMessages(lookupSession.id, { order: "asc" }, projectId),
         fetchChatSession(lookupSession.id, projectId).catch(() => ({ session: lookupSession })),
@@ -594,6 +637,8 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
           requestId: streamRequestId,
           attach: true,
         });
+      } else {
+        queueDispatchRef.current?.(lookupSession.id);
       }
     } catch (err) {
       if (loadRequestRef.current !== requestId) return;
@@ -605,15 +650,20 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         setLoading(false);
       }
     }
-  }, [modelPayload, projectId, startPlannerStream, task.id, t]);
+  }, [modelPayload, projectId, replacePendingMessages, startPlannerStream, task.id, t]);
 
   useEffect(() => {
     loadRequestRef.current += 1;
     streamRequestRef.current += 1;
     streamRef.current?.close();
     streamRef.current = null;
+    sessionIdRef.current = null;
     setSessionId(null);
-    setMessages([]);
+    pendingMessagesRef.current = [];
+    setPendingMessages([]);
+    setEditingPendingIndex(null);
+    setEditingPendingText("");
+    setQueueActionPending(false);
     setDraft("");
     composerStateRef.current = "idle";
     setStreamingThinking("");
@@ -690,9 +740,56 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     previousMessageCountRef.current = messages.length;
   }, [active, anchorTranscriptToBottom, composerState, isTranscriptAtBottom, messages, setTranscriptAtBottom]);
 
+  const enqueuePendingMessage = useCallback((messageContent: string) => {
+    const content = messageContent.trim();
+    if (!content) return;
+    const resolvedSessionId = sessionIdRef.current;
+    replacePendingMessages([...pendingMessagesRef.current, content], resolvedSessionId);
+    setDraft("");
+    setError(null);
+  }, [replacePendingMessages]);
+
+  const dispatchQueuedMessage = useCallback((resolvedSessionId: string, selectedIndex = 0) => {
+    if (sessionIdRef.current !== resolvedSessionId || composerStateRef.current === "sending" || cancellationInProgressRef.current) return;
+    const current = pendingMessagesRef.current;
+    const content = current[selectedIndex]?.trim();
+    if (!content) return;
+
+    const reservation: PendingQueueReservation = { sessionId: resolvedSessionId, text: content, index: selectedIndex };
+    replacePendingMessages(current.filter((_, index) => index !== selectedIndex), resolvedSessionId);
+    const streamRequestId = streamRequestRef.current + 1;
+    streamRequestRef.current = streamRequestId;
+    composerStateRef.current = "sending";
+    setComposerState("sending");
+    setError(null);
+    setMessages((currentMessages) => [...currentMessages, makeOptimisticUserMessage(resolvedSessionId, content)]);
+    try {
+      startPlannerStream({
+        resolvedSessionId,
+        content,
+        requestId: streamRequestId,
+        attach: false,
+        queueReservation: reservation,
+      });
+    } catch (err) {
+      restorePendingQueueReservation(reservation);
+      composerStateRef.current = "idle";
+      setComposerState("idle");
+      const message = getErrorMessage(err) || t("taskDetail.plannerChat.sendFailed", "Planner chat failed to respond");
+      setError(message);
+      addToastRef.current(message, "error");
+    }
+  }, [restorePendingQueueReservation, replacePendingMessages, startPlannerStream, t]);
+
+  queueDispatchRef.current = dispatchQueuedMessage;
+
   const sendMessageContent = useCallback(async (messageContent: string) => {
     const content = messageContent.trim();
-    if (!content || composerStateRef.current === "sending") return;
+    if (!content) return;
+    if (composerStateRef.current === "sending" || cancellationInProgressRef.current) {
+      enqueuePendingMessage(content);
+      return;
+    }
     composerStateRef.current = "sending";
 
     const streamRequestId = streamRequestRef.current + 1;
@@ -704,12 +801,17 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     setError(null);
 
     try {
-      const { session } = sessionId
-        ? { session: { id: sessionId } }
+      const { session } = sessionIdRef.current
+        ? { session: { id: sessionIdRef.current } }
         : await ensureTaskPlannerChatSession(task.id, modelPayload, projectId);
       if (!isCurrentStreamRequest()) return;
       const resolvedSessionId = session.id;
+      sessionIdRef.current = resolvedSessionId;
       setSessionId(resolvedSessionId);
+      // FNXC:TaskPlannerChatQueue 2026-08-18-23:13:
+      // Planner queue entries are browser-local and keyed by the resolved session. Persist any
+      // follow-up typed before session creation completes only after that session becomes known.
+      replacePendingMessages(pendingMessagesRef.current, resolvedSessionId);
       setMessages((current) => [...current, makeOptimisticUserMessage(resolvedSessionId, content)]);
       if (!isCurrentStreamRequest()) return;
       startPlannerStream({
@@ -727,7 +829,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       setComposerState("idle");
       setStreamingThinking("");
     }
-  }, [addToast, modelPayload, projectId, sessionId, startPlannerStream, task.id, t]);
+  }, [addToast, enqueuePendingMessage, modelPayload, projectId, replacePendingMessages, startPlannerStream, task.id, t]);
 
   const refreshTaskAfterEdit = useCallback(async (hadDiscardedSideEffect: boolean) => {
     try {
@@ -869,11 +971,9 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     }
   }, []);
 
-  const stopPlannerStreaming = useCallback(() => {
+  const cancelPlannerGeneration = useCallback((snapshot: NonNullable<typeof streamSnapshotRef.current>, selectedIndex?: number) => {
     if (cancellationInProgressRef.current) return;
-    const snapshot = streamSnapshotRef.current;
-    if (!snapshot) return;
-
+    setQueueActionPending(true);
     streamRequestRef.current += 1;
     streamRef.current?.close();
     streamRef.current = null;
@@ -907,38 +1007,115 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       .then(async (result) => {
         const cancellationResult = result ?? { success: true, interrupted: false };
         if (!cancellationResult.success) {
-          throw new Error("Planner chat cancellation did not complete");
+          throw new Error(t("taskDetail.plannerChat.cancelFailed", "Failed to save the interrupted planner response"));
         }
 
-        let refreshed: ChatMessage[] | null = null;
-        try {
-          refreshed = (await fetchChatMessages(snapshot.sessionId, { order: "asc" }, projectId)).messages;
-        } catch {
-          // Keep the local interrupted bubble if the history read is temporarily unavailable.
-        }
+        // Reconciliation is part of the cancellation barrier: queued text is not released
+        // until the durable interrupted assistant row can be read back from chat history.
+        const refreshed = (await fetchChatMessages(snapshot.sessionId, { order: "asc" }, projectId)).messages;
+        if (sessionIdRef.current !== snapshot.sessionId) return;
         const persisted = cancellationResult.message ? [cancellationResult.message] : [];
-        if (refreshed || persisted.length > 0) {
-          const reconciled = [
-            ...(refreshed ?? []),
-            ...persisted.filter((message) => !(refreshed ?? []).some((candidate) => candidate.id === message.id)),
-          ];
-          setMessages((current) => mergePlannerTranscriptWithOptimistic(
-            current.filter((message) => message.id !== interruptedLocalId),
-            reconciled,
-          ));
+        const reconciled = [
+          ...refreshed,
+          ...persisted.filter((message) => !refreshed.some((candidate) => candidate.id === message.id)),
+        ];
+        setMessages((current) => mergePlannerTranscriptWithOptimistic(
+          current.filter((message) => message.id !== interruptedLocalId),
+          reconciled,
+        ));
+
+        if (cancellationInProgressRef.current === cancellation) {
+          cancellationInProgressRef.current = null;
         }
+        queueDispatchRef.current?.(snapshot.sessionId, selectedIndex);
       })
       .catch((cancelError) => {
-        addToastRef.current(getErrorMessage(cancelError) || t("taskDetail.plannerChat.cancelFailed", "Failed to save the interrupted planner response"), "error");
+        if (sessionIdRef.current === snapshot.sessionId) {
+          const message = getErrorMessage(cancelError) || t("taskDetail.plannerChat.cancelFailed", "Failed to save the interrupted planner response");
+          setError(message);
+          addToastRef.current(message, "error");
+        }
       })
       .finally(() => {
         streamSnapshotRef.current = null;
         if (cancellationInProgressRef.current === cancellation) {
           cancellationInProgressRef.current = null;
         }
+        setQueueActionPending(false);
       });
     cancellationInProgressRef.current = cancellation;
   }, [projectId, t]);
+
+  const stopPlannerStreaming = useCallback(() => {
+    const snapshot = streamSnapshotRef.current;
+    if (!snapshot) return;
+    cancelPlannerGeneration(snapshot);
+  }, [cancelPlannerGeneration]);
+
+  const beginPendingEdit = useCallback((index: number) => {
+    if (queueActionPending || !pendingMessagesRef.current[index]) return;
+    setEditingPendingIndex(index);
+    setEditingPendingText(pendingMessagesRef.current[index] ?? "");
+  }, [queueActionPending]);
+
+  const savePendingEdit = useCallback((index: number) => {
+    const content = editingPendingText.trim();
+    if (!content) {
+      const message = t("taskDetail.plannerChat.pendingEditEmpty", "Queued messages cannot be empty");
+      setError(message);
+      addToastRef.current(message, "warning");
+      return;
+    }
+    const current = pendingMessagesRef.current;
+    if (index < 0 || index >= current.length) return;
+    const next = current.map((pendingMessage, pendingIndex) => pendingIndex === index ? content : pendingMessage);
+    replacePendingMessages(next, sessionIdRef.current);
+    setEditingPendingIndex(null);
+    setEditingPendingText("");
+    setError(null);
+  }, [editingPendingText, replacePendingMessages, t]);
+
+  const cancelPendingEdit = useCallback(() => {
+    setEditingPendingIndex(null);
+    setEditingPendingText("");
+  }, []);
+
+  const movePendingMessage = useCallback((index: number, direction: -1 | 1) => {
+    if (queueActionPending) return;
+    const targetIndex = index + direction;
+    const current = pendingMessagesRef.current;
+    if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return;
+    const next = [...current];
+    [next[index], next[targetIndex]] = [next[targetIndex]!, next[index]!];
+    replacePendingMessages(next, sessionIdRef.current);
+    if (editingPendingIndex === index) setEditingPendingIndex(targetIndex);
+    else if (editingPendingIndex === targetIndex) setEditingPendingIndex(index);
+  }, [editingPendingIndex, queueActionPending, replacePendingMessages]);
+
+  const deletePendingMessage = useCallback((index: number) => {
+    if (queueActionPending) return;
+    const current = pendingMessagesRef.current;
+    if (index < 0 || index >= current.length) return;
+    replacePendingMessages(current.filter((_, pendingIndex) => pendingIndex !== index), sessionIdRef.current);
+    if (editingPendingIndex === index) {
+      setEditingPendingIndex(null);
+      setEditingPendingText("");
+    } else if (editingPendingIndex !== null && editingPendingIndex > index) {
+      setEditingPendingIndex(editingPendingIndex - 1);
+    }
+  }, [editingPendingIndex, queueActionPending, replacePendingMessages]);
+
+  const forceSendPendingMessage = useCallback((index: number) => {
+    if (queueActionPending) return;
+    const resolvedSessionId = sessionIdRef.current;
+    if (!resolvedSessionId || !pendingMessagesRef.current[index]) return;
+    const snapshot = streamSnapshotRef.current;
+    if (snapshot) {
+      cancelPlannerGeneration(snapshot, index);
+      return;
+    }
+    queueDispatchRef.current?.(resolvedSessionId, index);
+  }, [cancelPlannerGeneration, queueActionPending]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (showCommandMenu && event.key === "ArrowDown") {
@@ -977,7 +1154,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     void sendMessage();
   }, [showCommandMenu, filteredCommands, highlightedCommandIndex, handleCommandMenuSelect, sendMessage]);
 
-  const canSend = draft.trim().length > 0 && composerState !== "sending";
+  const canSend = draft.trim().length > 0 && composerState !== "sending" && !queueActionPending;
   const showEmptyState = historyLoaded && !loading && !error && messages.length === 0;
   const questionRenderStates = useMemo(() => buildPlannerQuestionRenderStates(messages), [messages]);
   const starterPrompts = useMemo(() => {
@@ -1230,6 +1407,62 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         )}
       </div>
 
+      {pendingMessages.length > 0 && (
+        <section className="task-planner-chat-pending" data-testid="task-planner-chat-pending-list" aria-label={t("taskDetail.plannerChat.pendingLabel", "Pending planner messages")}>
+          <div className="task-planner-chat-pending-divider" aria-hidden="true" />
+          <h6 className="task-planner-chat-pending-heading">{t("taskDetail.plannerChat.pendingHeading", "Pending messages")}</h6>
+          <ol className="task-planner-chat-pending-items">
+            {pendingMessages.map((pendingMessage, index) => {
+              const isEditing = editingPendingIndex === index;
+              return (
+                <li className="task-planner-chat-pending-item" data-testid={`task-planner-chat-pending-message-${index}`} key={`${index}-${pendingMessage}`}>
+                  {isEditing ? (
+                    <input
+                      className="input task-planner-chat-pending-edit-input"
+                      aria-label={`${t("taskDetail.plannerChat.editPending", "Edit queued message")} ${index + 1}`}
+                      value={editingPendingText}
+                      onChange={(event) => setEditingPendingText(event.target.value)}
+                      disabled={queueActionPending}
+                    />
+                  ) : (
+                    <span className="task-planner-chat-pending-text">{pendingMessage}</span>
+                  )}
+                  <div className="task-planner-chat-pending-actions">
+                    {isEditing ? (
+                      <>
+                        <button type="button" className="btn btn-icon btn-sm" onClick={() => savePendingEdit(index)} disabled={queueActionPending} aria-label={t("taskDetail.plannerChat.savePendingEdit", "Save queued message")} data-testid={`task-planner-chat-pending-save-${index}`}>
+                          <Check aria-hidden="true" />
+                        </button>
+                        <button type="button" className="btn btn-icon btn-sm" onClick={cancelPendingEdit} disabled={queueActionPending} aria-label={t("taskDetail.plannerChat.cancelPendingEdit", "Cancel queued message edit")} data-testid={`task-planner-chat-pending-cancel-${index}`}>
+                          <X aria-hidden="true" />
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="btn btn-icon btn-sm" onClick={() => beginPendingEdit(index)} disabled={queueActionPending} aria-label={`${t("taskDetail.plannerChat.editPending", "Edit queued message")} ${index + 1}`} data-testid={`task-planner-chat-pending-edit-${index}`}>
+                        <Pencil aria-hidden="true" />
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-icon btn-sm" onClick={() => movePendingMessage(index, -1)} disabled={queueActionPending || index === 0} aria-label={`${t("taskDetail.plannerChat.movePendingEarlier", "Move queued message earlier")} ${index + 1}`} data-testid={`task-planner-chat-pending-up-${index}`}>
+                      <ArrowUp aria-hidden="true" />
+                    </button>
+                    <button type="button" className="btn btn-icon btn-sm" onClick={() => movePendingMessage(index, 1)} disabled={queueActionPending || index === pendingMessages.length - 1} aria-label={`${t("taskDetail.plannerChat.movePendingLater", "Move queued message later")} ${index + 1}`} data-testid={`task-planner-chat-pending-down-${index}`}>
+                      <ArrowDown aria-hidden="true" />
+                    </button>
+                    <button type="button" className="btn btn-icon btn-sm" onClick={() => deletePendingMessage(index)} disabled={queueActionPending} aria-label={`${t("taskDetail.plannerChat.deletePending", "Delete queued message")} ${index + 1}`} data-testid={`task-planner-chat-pending-delete-${index}`}>
+                      <Trash2 aria-hidden="true" />
+                    </button>
+                    <button type="button" className="btn btn-sm task-planner-chat-pending-force" onClick={() => forceSendPendingMessage(index)} disabled={queueActionPending} aria-label={`${t("taskDetail.plannerChat.forcePending", "Force send queued message")} ${index + 1}`} data-testid={`task-planner-chat-pending-force-${index}`}>
+                      <Send aria-hidden="true" />
+                      <span>{t("taskDetail.plannerChat.forcePendingShort", "Force send")}</span>
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      )}
+
       {showCommandMenu && (
         <div
           className="chat-skill-menu task-planner-chat-command-menu"
@@ -1272,10 +1505,10 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
           value={draft}
           onChange={handleDraftChange}
           onKeyDown={handleKeyDown}
-          disabled={composerState === "sending"}
+          disabled={queueActionPending}
           rows={1}
         />
-        <MicButton {...dictation.micProps} disabled={composerState === "sending"} />
+        <MicButton {...dictation.micProps} disabled={queueActionPending} />
         <StandardChatActionButton
           isStreaming={composerState === "sending"}
           canSend={canSend}

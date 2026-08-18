@@ -8274,6 +8274,19 @@ export default interface Resources {
         "replanCapHeadline": "Approval needed: Plan Review did not converge",
         "replanning": "Replanning {{id}}…"
       },
+      "plannerChat": {
+        "cancelPendingEdit": "Cancel queued message edit",
+        "deletePending": "Delete queued message",
+        "editPending": "Edit queued message",
+        "forcePending": "Force send queued message",
+        "forcePendingShort": "Force send",
+        "movePendingEarlier": "Move queued message earlier",
+        "movePendingLater": "Move queued message later",
+        "pendingEditEmpty": "Queued messages cannot be empty",
+        "pendingHeading": "Pending messages",
+        "pendingLabel": "Pending planner messages",
+        "savePendingEdit": "Save queued message"
+      },
       "pr": {
         "awaitingChecks": "Awaiting PR checks",
         "checkPrStatus": "Check PR Status",

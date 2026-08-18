@@ -8315,6 +8315,19 @@
       "create": "",
       "error": ""
     },
+    "plannerChat": {
+      "pendingLabel": "待发送的规划器消息",
+      "pendingHeading": "待发送消息",
+      "editPending": "编辑待发送消息",
+      "savePendingEdit": "保存待发送消息",
+      "cancelPendingEdit": "取消编辑待发送消息",
+      "movePendingEarlier": "将待发送消息上移",
+      "movePendingLater": "将待发送消息下移",
+      "deletePending": "删除待发送消息",
+      "forcePending": "强制发送待发送消息",
+      "forcePendingShort": "强制发送",
+      "pendingEditEmpty": "待发送消息不能为空"
+    },
     "reverted": {
       "deleteAria": ""
     },

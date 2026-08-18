@@ -8315,6 +8315,19 @@
       "create": "",
       "error": ""
     },
+    "plannerChat": {
+      "pendingLabel": "待傳送的規劃器訊息",
+      "pendingHeading": "待傳送訊息",
+      "editPending": "編輯待傳送訊息",
+      "savePendingEdit": "儲存待傳送訊息",
+      "cancelPendingEdit": "取消編輯待傳送訊息",
+      "movePendingEarlier": "將待傳送訊息上移",
+      "movePendingLater": "將待傳送訊息下移",
+      "deletePending": "刪除待傳送訊息",
+      "forcePending": "強制傳送待傳送訊息",
+      "forcePendingShort": "強制傳送",
+      "pendingEditEmpty": "待傳送訊息不能為空白"
+    },
     "reverted": {
       "deleteAria": ""
     },
