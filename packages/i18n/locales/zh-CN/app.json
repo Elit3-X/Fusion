@@ -1532,7 +1532,12 @@
     "stopAllTitle": "停止所有任务",
     "stopPartialFailure": "已停止 {{total}} 个任务中的 {{paused}} 个；{{failed}} 个失败",
     "stoppedTasks_one": "",
-    "stoppedTasks_other": ""
+    "stoppedTasks_other": "",
+    "sortControlLabel": "",
+    "sortArrivalDesc": "",
+    "sortArrivalDescHint": "",
+    "sortTaskIdDesc": "",
+    "sortTaskIdDescHint": ""
   },
   "commandCenter": {
     "activity": {

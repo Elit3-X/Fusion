@@ -21,6 +21,7 @@ import {buildDeleteCallerAuditFields, buildDeleteClosureAuditFields, type TaskDe
 import {notifyOperatorOfNonOperatorDelete} from "../task-delete-notice.js";
 import "../builtin-traits.js";
 import {normalizeTaskPriority} from "../tasks/task-priority.js";
+import type {TaskColumnSortMode} from "../tasks/task-priority.js";
 import {clearTerminalFailureAutoRecoveryBudget} from "../tasks/terminal-failure-auto-recovery.js";
 import {generateTaskLineageId} from "../tasks/task-lineage.js";
 import {sanitizeFileScopeInPromptContent} from "../task-store/file-scope.js";
@@ -574,20 +575,24 @@ export async function archiveTaskBackendImpl(store: TaskStore, id: string, optio
  * (active + archived) by `createdAt ASC`, which is correct for the merged
  * consumers but wrong for the Archived column (must be newest-first) and
  * unbounded. This reads ONLY archive cold storage via a bounded LIMIT/OFFSET
- * page ordered `archivedAt DESC` — do not re-sort by createdAt and do not use
- * as a substitute for the merged path. Backend mode reads `archive.archived_tasks`
- * via async Drizzle; the sqlite path mirrors upstream's `archiveDb.listPage()`.
+ * page ordered by the requested mode — do not re-sort by createdAt and do not use as a
+ * substitute for the merged path. Backend mode reads `archive.archived_tasks` via async Drizzle.
  */
 export async function listArchivedTasksImpl(store: TaskStore, options?: {
   limit?: number;
   offset?: number;
   slim?: boolean;
+  /** Canonical public option name for Archive ordering. */
+  sort?: TaskColumnSortMode;
+  /** Compatibility alias for callers that used the internal mode name. */
+  sortMode?: TaskColumnSortMode;
 }): Promise<{ tasks: Task[]; total: number; hasMore: boolean }> {
     const rawLimit = options?.limit ?? 100;
     const limit = Math.min(500, Math.max(1, Math.trunc(rawLimit) || 100));
     const rawOffset = options?.offset ?? 0;
     const offset = Math.max(0, Math.trunc(rawOffset) || 0);
     const slim = options?.slim ?? true;
+    const sortMode = options?.sort ?? options?.sortMode ?? "completion-date-desc";
 
         const layer = store.asyncLayer!;
     // FNXC:MultiProjectIsolation 2026-07-12 (PR #2007 review): the archived
@@ -595,7 +600,7 @@ export async function listArchivedTasksImpl(store: TaskStore, options?: {
     // cold-storage table would otherwise surface every project's archived
     // tasks in every project's dashboard.
     const total = await getArchivedRowCount(layer.db, layer.projectId);
-    const entries = await listArchivedTaskEntriesPage(layer.db, limit, offset, layer.projectId);
+    const entries = await listArchivedTaskEntriesPage(layer.db, limit, offset, layer.projectId, sortMode);
     const tasks = entries.map((entry) => store.archiveEntryToTask(entry, slim));
     return { tasks, total, hasMore: offset + tasks.length < total };
 }

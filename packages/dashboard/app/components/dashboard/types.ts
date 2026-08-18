@@ -15,6 +15,7 @@ import type {
   GithubIssueAction,
   MergeResult,
   Task,
+  TaskColumnSortMode,
   TaskCreateInput,
   TaskDetail,
   ThemeMode,
@@ -222,6 +223,10 @@ export interface MainContentProps {
   loadArchivedTasks: () => Promise<void>;
   /** FNXC:ArchivePagination 2026-07-08-00:00: FN-7659 — fetch the next 100-item page of archived tasks (newest-first). */
   loadMoreArchivedTasks: () => Promise<void>;
+  /** Board action callback that commits Archive order only after its first replacement page succeeds. */
+  changeArchivedSortMode: (mode: TaskColumnSortMode) => Promise<void>;
+  /** Committed server-backed Archive order. */
+  archivedSortMode: TaskColumnSortMode;
   /** Whether another page of archived tasks is available beyond what is currently loaded. */
   archivedHasMore: boolean;
   /** True while a "Show more" archived page fetch is in flight. */

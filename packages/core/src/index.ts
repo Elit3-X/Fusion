@@ -1794,6 +1794,8 @@ export {
 export type {
   TaskPrioritySortable,
   TaskColumnSortable,
+  TaskColumnSortMode,
+  ColumnSortMode,
   DoneColumnSortMode,
   DisplayColumnSortOptions,
   BuildUnblockWeightMapOptions,

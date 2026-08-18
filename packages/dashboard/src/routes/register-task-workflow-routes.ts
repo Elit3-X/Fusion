@@ -32,6 +32,7 @@ import type {
   ArtifactType,
   PrInfo,
   WorkflowIr,
+  TaskColumnSortMode,
 } from "@fusion/core";
 import {
   COLUMNS,
@@ -1559,17 +1560,24 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
 
   /**
    * FNXC:ArchivePagination 2026-07-08-00:00:
-   * Dedicated paged read for the Archived board column: newest-first
-   * (`archivedAt DESC`) in chunks of 100 by default via SQL LIMIT/OFFSET,
-   * so a large archive is never loaded into memory in one pass. This is a
-   * sibling to GET /tasks (which stays byte-identical for its existing
-   * merged-listing consumers) rather than a replacement for it.
+   * Dedicated paged read for the Archived board column: newest-first by default
+   * (`archivedAt DESC`) or numeric task-id order, always selected in SQL before
+   * LIMIT/OFFSET so a large archive is never loaded into memory in one pass.
+   * The narrow query contract is validated here before the project-scoped store call.
    */
   router.get("/tasks/archived", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
       const limit = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : undefined;
       const offset = typeof req.query.offset === "string" ? Number.parseInt(req.query.offset, 10) : undefined;
+      const rawSort = req.query.sort;
+      if (rawSort !== undefined && (Array.isArray(rawSort) || typeof rawSort !== "string")) {
+        throw badRequest("sort must be one of: completion-date-desc, task-id-desc");
+      }
+      const sortMode: TaskColumnSortMode = rawSort === undefined ? "completion-date-desc" : rawSort as TaskColumnSortMode;
+      if (sortMode !== "completion-date-desc" && sortMode !== "task-id-desc") {
+        throw badRequest("sort must be one of: completion-date-desc, task-id-desc");
+      }
 
       if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
         throw badRequest("limit must be a positive integer");
@@ -1578,7 +1586,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         throw badRequest("offset must be a non-negative integer");
       }
 
-      const { tasks, total, hasMore } = await scopedStore.listArchivedTasks({ limit, offset, slim: true });
+      const { tasks, total, hasMore } = await scopedStore.listArchivedTasks({ limit, offset, slim: true, sort: sortMode });
 
       res.json({ tasks, total, hasMore });
     } catch (err: unknown) {

@@ -1481,6 +1481,11 @@
   "column": {
     "actionsAriaLabel": "{{columnLabel}} column actions",
     "actionsTitle": "Column actions",
+    "sortControlLabel": "Sort tasks in this column",
+    "sortArrivalDesc": "Arrival in this column — Completion date (newest first)",
+    "sortArrivalDescHint": "Show the newest arrivals in this column first",
+    "sortTaskIdDesc": "Task ID (newest first; highest task number first)",
+    "sortTaskIdDescHint": "Show the highest task IDs first",
     "archiveAllDoneAriaLabel": "Archive all done tasks",
     "archiveAllDoneTitle": "Archive all done tasks",
     "archiveAllMessage_one": "Archive all {{count}} done tasks?",

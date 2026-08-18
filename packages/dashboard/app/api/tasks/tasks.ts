@@ -16,6 +16,7 @@ import type {
   DriftReport,
   SpecLock,
   TaskRecommendationListItem,
+  TaskColumnSortMode,
 } from "@fusion/core";
 import { withTokenHeader } from "../../auth";
 import { api, ApiRequestError, buildApiUrl, proxyApi } from "../client/client.js";
@@ -61,10 +62,12 @@ export function fetchArchivedTasks(
   projectId?: string,
   limit?: number,
   offset?: number,
+  sortMode: TaskColumnSortMode = "completion-date-desc",
 ): Promise<{ tasks: Task[]; total: number; hasMore: boolean }> {
   const search = new URLSearchParams();
   if (limit !== undefined) search.set("limit", String(limit));
   if (offset !== undefined) search.set("offset", String(offset));
+  search.set("sort", sortMode);
   const suffix = search.size > 0 ? `?${search.toString()}` : "";
   return api<{ tasks: Task[]; total: number; hasMore: boolean }>(withProjectId(`/tasks/archived${suffix}`, projectId));
 }

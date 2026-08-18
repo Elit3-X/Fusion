@@ -1532,7 +1532,12 @@
     "stopAllTitle": "모든 작업 중지",
     "stopPartialFailure": "{{total}}개 중 {{paused}}개 중지됨; {{failed}}개 실패",
     "stoppedTasks_one": "",
-    "stoppedTasks_other": ""
+    "stoppedTasks_other": "",
+    "sortControlLabel": "",
+    "sortArrivalDesc": "",
+    "sortArrivalDescHint": "",
+    "sortTaskIdDesc": "",
+    "sortTaskIdDescHint": ""
   },
   "commandCenter": {
     "activity": {

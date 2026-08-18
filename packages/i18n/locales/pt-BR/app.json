@@ -1542,7 +1542,12 @@
     "stopAllTitle": "Parar todas as tarefas",
     "stopPartialFailure": "Paradas {{paused}} de {{total}} tarefas; {{failed}} falharam",
     "stoppedTasks_one": "{{count}} tarefa{{plural}} parada",
-    "stoppedTasks_other": "{{count}} tarefa{{plural}} paradas"
+    "stoppedTasks_other": "{{count}} tarefa{{plural}} paradas",
+    "sortControlLabel": "",
+    "sortArrivalDesc": "",
+    "sortArrivalDescHint": "",
+    "sortTaskIdDesc": "",
+    "sortTaskIdDescHint": ""
   },
   "commandCenter": {
     "activity": {

@@ -1532,7 +1532,12 @@
     "stopAllTitle": "Arrêter toutes les tâches",
     "stopPartialFailure": "{{paused}} tâche(s) sur {{total}} arrêtée(s) ; {{failed}} échouée(s)",
     "stoppedTasks_one": "",
-    "stoppedTasks_other": ""
+    "stoppedTasks_other": "",
+    "sortControlLabel": "",
+    "sortArrivalDesc": "",
+    "sortArrivalDescHint": "",
+    "sortTaskIdDesc": "",
+    "sortTaskIdDescHint": ""
   },
   "commandCenter": {
     "activity": {

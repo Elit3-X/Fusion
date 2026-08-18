@@ -2,7 +2,7 @@ import { memo, useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useFlashOnIncrease } from "../hooks/useFlashOnIncrease";
 import { useConfirm } from "../hooks/useConfirm";
-import { COLUMN_LABELS, COLUMN_DESCRIPTIONS, getErrorMessage, type DoneColumnSortMode, type Task, type TaskDetail, type Column as ColumnType, type ColumnId, type TaskCreateInput, type GithubIssueAction, type MergeResult } from "@fusion/core";
+import { COLUMN_LABELS, COLUMN_DESCRIPTIONS, getErrorMessage, type TaskColumnSortMode, type DoneColumnSortMode, type Task, type TaskDetail, type Column as ColumnType, type ColumnId, type TaskCreateInput, type GithubIssueAction, type MergeResult } from "@fusion/core";
 import { enrichRunningAgentTaskShapeFromFlags, isRunningAgentTask } from "../../../core/src/agents/live-agent-count";
 import { isNearDuplicateCanonicalInactive } from "../../../core/src/duplicates/near-duplicate-canonical";
 import { TaskCard } from "./TaskCard";
@@ -153,9 +153,12 @@ interface ColumnProps {
     githubIssueAction?: GithubIssueAction;
   }) => Promise<Task>;
   onArchiveAllDone?: () => Promise<Task[]>;
-  /** Current Done-column display order, supplied only for the board's Done surface. */
+  /** Current display order for this Board lane. */
+  sortMode?: TaskColumnSortMode;
+  /** Updates this lane's Board-local display order. */
+  onSortModeChange?: (mode: TaskColumnSortMode) => void;
+  /** Compatibility aliases retained for existing Done-column integrations. */
   doneSortMode?: DoneColumnSortMode;
-  /** Updates the board-local Done-column display order. */
   onDoneSortModeChange?: (mode: DoneColumnSortMode) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -239,7 +242,7 @@ interface ColumnProps {
   getDraggingTaskId?: () => string | null;
 }
 
-function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onRevertTask, onDeleteTask, onArchiveAllDone, doneSortMode, onDoneSortModeChange, collapsed, onToggleCollapse, archivedHasMore, archivedLoadingMore, onLoadMoreArchived, allTasks, availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, onOpenMission, lastFetchTimeMs, taskCardFieldDefs, taskWorkflowBadges, blockerFanoutMap, prAuthAvailable, holdTaskIds, workflowMode, workflowId, workflowOptions, defaultWorkflowId, columnDisplayName, columnDescription, columnFlags, workflowContextMenuColumns, taskContextMenuColumnsByTaskId, onPromote, canDropTask, getDraggingTaskId }: ColumnProps) {
+function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onRevertTask, onDeleteTask, onArchiveAllDone, sortMode, onSortModeChange, doneSortMode, onDoneSortModeChange, collapsed, onToggleCollapse, archivedHasMore, archivedLoadingMore, onLoadMoreArchived, allTasks, availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, onOpenMission, lastFetchTimeMs, taskCardFieldDefs, taskWorkflowBadges, blockerFanoutMap, prAuthAvailable, holdTaskIds, workflowMode, workflowId, workflowOptions, defaultWorkflowId, columnDisplayName, columnDescription, columnFlags, workflowContextMenuColumns, taskContextMenuColumnsByTaskId, onPromote, canDropTask, getDraggingTaskId }: ColumnProps) {
   const { t } = useTranslation("app");
   // Anchor the board.rejection.* catalog keys for the i18next extractor (it
   // scopes `t` to the useTranslation binding, so the shared translateRejection
@@ -841,8 +844,16 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktree
   */
   /* Complete AND not archived: the archived lane is also "complete-ish" but must not carry the
      Done-sort control, and that exclusion survives the move to the shared helper. */
+  /*
+  FNXC:TaskColumnSorting 2026-08-18-21:24:
+  Every visible Board lane uses the same existing actions menu and keeps its own local mode.
+  The physical Archived lane is the sole server-backed exception: Board passes its committed
+  hook mode and callback here, while the hook fences replacement pages before committing.
+  */
+  const effectiveSortMode = sortMode ?? doneSortMode;
+  const effectiveSortModeChange = onSortModeChange ?? onDoneSortModeChange;
+  const showSortControl = effectiveSortMode !== undefined && !!effectiveSortModeChange;
   const isDoneSortColumn = isCompleteColumnRole(columnFlags, column) && !isArchivedColumnRole(columnFlags, column);
-  const showDoneSortControl = isDoneSortColumn && doneSortMode !== undefined && !!onDoneSortModeChange;
   const showDoneArchiveAction = isDoneSortColumn && !!onArchiveAllDone;
   /*
   FNXC:PlanApproval 2026-07-01-08:44:
@@ -852,18 +863,17 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktree
   This shortcut belongs ONLY to the intake/planning column, never to hold (Todo-like) columns — the built-in Coding workflow's Todo column carries the hold trait and was wrongly surfacing this toggle. Board.tsx is the single source of truth gating which columns receive `onTogglePlanAutoApprove`; Column.tsx just renders whatever prop it is given, so the fix lives in Board.tsx's intake-only gate, not here.
   */
   const hasPlanAutoApproveAction = !!onTogglePlanAutoApprove;
-  const hasDoneMenuActions = showDoneSortControl || showDoneArchiveAction;
-  const hasColumnMenu = hasColumnBulkActions || hasDoneMenuActions || hasPlanAutoApproveAction;
-  const doneSortControlLabel = t("column.doneSortControlLabel", "Sort Done tasks");
-  const doneSortOptions: Array<{ mode: DoneColumnSortMode; label: string }> = [
-    { mode: "completion-date-desc", label: t("column.doneSortCompletionDateDesc", "Completion date (newest first)") },
-    { mode: "task-id-desc", label: t("column.doneSortTaskIdDesc", "Task ID (newest first)") },
+  const hasColumnMenu = hasColumnBulkActions || showSortControl || showDoneArchiveAction || hasPlanAutoApproveAction;
+  const sortControlLabel = t("column.sortControlLabel", "Sort tasks in this column");
+  const sortOptions: Array<{ mode: TaskColumnSortMode; label: string }> = [
+    { mode: "completion-date-desc", label: t("column.sortArrivalDesc", "Arrival in this column — Completion date (newest first)") },
+    { mode: "task-id-desc", label: t("column.sortTaskIdDesc", "Task ID (newest first) — highest task number first") },
   ];
 
-  const handleDoneSortModeSelect = useCallback((mode: DoneColumnSortMode) => {
-    onDoneSortModeChange?.(mode);
+  const handleSortModeSelect = useCallback((mode: TaskColumnSortMode) => {
+    effectiveSortModeChange?.(mode);
     setIsMenuOpen(false);
-  }, [onDoneSortModeChange]);
+  }, [effectiveSortModeChange]);
 
   const handlePlanAutoApproveToggle = useCallback(() => {
     onTogglePlanAutoApprove?.();
@@ -979,25 +989,25 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktree
                     </span>
                   </label>
                 )}
-                {showDoneSortControl && (
-                  <div className="column-menu-group" role="group" aria-label={doneSortControlLabel}>
-                    {doneSortOptions.map((option) => (
+                {showSortControl && (
+                  <div className="column-menu-group" role="group" aria-label={sortControlLabel}>
+                    {sortOptions.map((option) => (
                       <button
                         key={option.mode}
                         type="button"
                         role="menuitemradio"
-                        aria-checked={doneSortMode === option.mode}
+                        aria-checked={effectiveSortMode === option.mode}
                         className="column-menu-item column-menu-item-radio"
-                        onClick={() => handleDoneSortModeSelect(option.mode)}
+                        onClick={() => handleSortModeSelect(option.mode)}
                       >
                         <span className="column-menu-item-row">
-                          <span className="column-menu-item-check" aria-hidden="true">{doneSortMode === option.mode ? "✓" : ""}</span>
+                          <span className="column-menu-item-check" aria-hidden="true">{effectiveSortMode === option.mode ? "✓" : ""}</span>
                           <span>{option.label}</span>
                         </span>
                         <span className="column-menu-item-hint">
                           {option.mode === "completion-date-desc"
-                            ? t("column.doneSortCompletionDateDescHint", "Show recently completed tasks first")
-                            : t("column.doneSortTaskIdDescHint", "Show highest task IDs first")}
+                            ? t("column.sortArrivalDescHint", "Show the newest arrivals in this column first")
+                            : t("column.sortTaskIdDescHint", "Show the highest task IDs first")}
                         </span>
                       </button>
                     ))}

@@ -152,6 +152,8 @@ export function MainContent({
   archiveAllDone,
   loadArchivedTasks,
   loadMoreArchivedTasks,
+  changeArchivedSortMode,
+  archivedSortMode,
   archivedHasMore,
   archivedLoadingMore,
   searchQuery,
@@ -895,6 +897,8 @@ export function MainContent({
             onArchiveAllDone={archiveAllDone}
             onLoadArchivedTasks={loadArchivedTasks}
             onLoadMoreArchivedTasks={loadMoreArchivedTasks}
+            archivedSortMode={archivedSortMode}
+            onArchivedSortModeChange={changeArchivedSortMode}
             archivedHasMore={archivedHasMore}
             archivedLoadingMore={archivedLoadingMore}
             searchQuery={searchQuery}
@@ -1014,6 +1018,8 @@ export function MainContent({
           onArchiveAllDone={archiveAllDone}
           onLoadArchivedTasks={loadArchivedTasks}
           onLoadMoreArchivedTasks={loadMoreArchivedTasks}
+          archivedSortMode={archivedSortMode}
+          onArchivedSortModeChange={changeArchivedSortMode}
           archivedHasMore={archivedHasMore}
           archivedLoadingMore={archivedLoadingMore}
           searchQuery={searchQuery}

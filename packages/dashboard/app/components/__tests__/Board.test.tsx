@@ -782,13 +782,32 @@ describe("Board", () => {
         expect(screen.getByTestId("column-done")).toHaveAttribute("data-has-done-sort-handler", "yes");
         expect(readIds("done")).toEqual(["FN-001", "FN-002", "FN-004", "FN-003"]);
         expect(readIds("todo")).toEqual(["FN-010", "FN-050"]);
-        expect(screen.getByTestId("column-todo")).toHaveAttribute("data-has-done-sort-handler", "no");
+        expect(screen.getByTestId("column-todo")).toHaveAttribute("data-has-done-sort-handler", "yes");
 
-        fireEvent.click(screen.getByRole("button", { name: "sort-done-by-id" }));
+        fireEvent.click(within(screen.getByTestId("column-done")).getByRole("button", { name: "sort-done-by-id" }));
 
         expect(screen.getByTestId("column-done")).toHaveAttribute("data-done-sort-mode", "task-id-desc");
         expect(readIds("done")).toEqual(["FN-004", "FN-003", "FN-002", "FN-001"]);
         expect(readIds("todo")).toEqual(["FN-010", "FN-050"]);
+      });
+
+      it("keeps independent sort modes for each Board lane", () => {
+        const tasks: Task[] = [
+          createTask({ id: "FN-10", description: "Older todo", column: "todo", columnMovedAt: "2024-01-01T09:00:00.000Z" }),
+          createTask({ id: "FN-2", description: "Newer todo", column: "todo", columnMovedAt: "2024-01-01T11:00:00.000Z" }),
+          createTask({ id: "FN-20", description: "Older done", column: "done", columnMovedAt: "2024-01-01T09:00:00.000Z" }),
+          createTask({ id: "FN-3", description: "Newer done", column: "done", columnMovedAt: "2024-01-01T11:00:00.000Z" }),
+        ];
+        renderBoard({ tasks });
+        const readIds = (column: string) => (JSON.parse(screen.getByTestId(`column-${column}`).getAttribute("data-tasks") || "[]") as Task[]).map((task) => task.id);
+
+        expect(readIds("todo")).toEqual(["FN-2", "FN-10"]);
+        expect(readIds("done")).toEqual(["FN-3", "FN-20"]);
+        fireEvent.click(within(screen.getByTestId("column-todo")).getByRole("button", { name: "sort-todo-by-id" }));
+        expect(readIds("todo")).toEqual(["FN-10", "FN-2"]);
+        expect(readIds("done")).toEqual(["FN-3", "FN-20"]);
+        fireEvent.click(within(screen.getByTestId("column-done")).getByRole("button", { name: "sort-done-by-id" }));
+        expect(readIds("done")).toEqual(["FN-20", "FN-3"]);
       });
 
       it("passes Done sort state to an empty legacy Done column", () => {
@@ -799,7 +818,7 @@ describe("Board", () => {
         expect(screen.getByTestId("column-done")).toHaveAttribute("data-has-done-sort-handler", "yes");
       });
 
-      it("orders todo by priority before age", () => {
+      it("orders todo by arrival timestamp before task ID", () => {
         const tasks: Task[] = [
           createTask({
             id: "FN-003",
@@ -835,10 +854,10 @@ describe("Board", () => {
 
         const todoTasks = JSON.parse(screen.getByTestId("column-todo").getAttribute("data-tasks") || "[]") as Task[];
         expect(todoTasks).toHaveLength(4);
-        expect(todoTasks.map((t: Task) => t.id)).toEqual(["FN-001", "FN-002", "FN-004", "FN-003"]);
+        expect(todoTasks.map((t: Task) => t.id)).toEqual(["FN-001", "FN-002", "FN-003", "FN-004"]);
       });
 
-      it("orders same-priority todo tasks by oldest createdAt first", () => {
+      it("orders same-column arrivals newest first", () => {
         const tasks: Task[] = [
           createTask({ id: "FN-020", description: "Newest", column: "todo", priority: "high", createdAt: "2024-01-01T12:00:00.000Z" }),
           createTask({ id: "FN-021", description: "Oldest", column: "todo", priority: "high", createdAt: "2024-01-01T09:00:00.000Z" }),
@@ -848,7 +867,7 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const todoTasks = JSON.parse(screen.getByTestId("column-todo").getAttribute("data-tasks") || "[]") as Task[];
-        expect(todoTasks.map((t: Task) => t.id)).toEqual(["FN-021", "FN-022", "FN-020"]);
+        expect(todoTasks.map((t: Task) => t.id)).toEqual(["FN-020", "FN-021", "FN-022"]);
       });
 
       it("uses task ID as deterministic tie-breaker when todo createdAt matches", () => {
@@ -864,7 +883,7 @@ describe("Board", () => {
         expect(todoTasks.map((t: Task) => t.id)).toEqual(["FN-010", "FN-030", "FN-050"]);
       });
 
-      it("keeps non-todo columns on priority then task ID ordering", () => {
+      it("uses arrival order in non-todo columns", () => {
         const tasks: Task[] = [
           createTask({ id: "FN-050", description: "Fifty", column: "in-progress", priority: "normal", createdAt: "2024-01-01T12:00:00.000Z" }),
           createTask({ id: "FN-010", description: "Ten", column: "in-progress", priority: "normal", createdAt: "2024-01-01T09:00:00.000Z" }),
@@ -896,9 +915,8 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const todoTasks = JSON.parse(screen.getByTestId("column-todo").getAttribute("data-tasks") || "[]") as Task[];
-        // FN-060 (missing), FN-059 (legacy invalid), and FN-061 (explicit normal) normalize to normal,
-        // so they sort by numeric ID ascending after urgent tasks.
-        expect(todoTasks.map((t: Task) => t.id)).toEqual(["FN-062", "FN-059", "FN-060", "FN-061"]);
+        // Explicit lane sorting ignores priority and uses the shared arrival/ID comparator.
+        expect(todoTasks.map((t: Task) => t.id)).toEqual(["FN-059", "FN-060", "FN-061", "FN-062"]);
       });
 
       it("uses localeCompare fallback for non-numeric task IDs", () => {
@@ -916,7 +934,7 @@ describe("Board", () => {
     });
 
     describe("column default ordering merging pinning", () => {
-      it("pins merging tasks to top of in-review even when newer non-merging tasks exist", () => {
+      it("uses arrival order for merging and non-merging in-review tasks", () => {
         const tasks: Task[] = [
           createTask({
             id: "FN-010",
@@ -935,10 +953,10 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const inReviewTasks = JSON.parse(screen.getByTestId("column-in-review").getAttribute("data-tasks") || "[]") as Task[];
-        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-010", "FN-011"]);
+        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-011", "FN-010"]);
       });
 
-      it("pins merging-pr tasks to top of in-review even when newer non-merging tasks exist", () => {
+      it("uses arrival order for merging-pr and review-ready tasks", () => {
         const tasks: Task[] = [
           createTask({
             id: "FN-020",
@@ -957,10 +975,10 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const inReviewTasks = JSON.parse(screen.getByTestId("column-in-review").getAttribute("data-tasks") || "[]") as Task[];
-        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-020", "FN-021"]);
+        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-021", "FN-020"]);
       });
 
-      it("pins merging-fix tasks to top of in-review even when newer non-merging tasks exist", () => {
+      it("uses arrival order for merging-fix and review-ready tasks", () => {
         const tasks: Task[] = [
           createTask({
             id: "FN-060",
@@ -979,10 +997,10 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const inReviewTasks = JSON.parse(screen.getByTestId("column-in-review").getAttribute("data-tasks") || "[]") as Task[];
-        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-060", "FN-061"]);
+        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-061", "FN-060"]);
       });
 
-      it("sorts multiple merging tasks by priority then task ID within the pinned group", () => {
+      it("sorts same-arrival tasks by numeric task ID", () => {
         const tasks: Task[] = [
           createTask({
             id: "FN-030",
@@ -1007,12 +1025,11 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const inReviewTasks = JSON.parse(screen.getByTestId("column-in-review").getAttribute("data-tasks") || "[]") as Task[];
-        // Pinned group (merging): FN-031 urgent, FN-030 high — sorted by priority desc
-        // Non-pinned group: FN-032 urgent
-        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-031", "FN-030", "FN-032"]);
+        // All rows use the explicit arrival mode; equal timestamps use numeric task ID.
+        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-030", "FN-031", "FN-032"]);
       });
 
-      it("sorts non-in-review columns by priority then task ID regardless of status", () => {
+      it("sorts non-in-review columns by arrival regardless of status", () => {
         const tasks: Task[] = [
           createTask({
             id: "FN-040",
@@ -1037,12 +1054,11 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const todoTasks = JSON.parse(screen.getByTestId("column-todo").getAttribute("data-tasks") || "[]") as Task[];
-        // No merge-pinning outside in-review, so pure priority-then-ID sort
-        // FN-041 urgent, then FN-040 and FN-042 both high (sorted by ID asc)
-        expect(todoTasks.map((task) => task.id)).toEqual(["FN-041", "FN-040", "FN-042"]);
+        // Explicit arrival mode is shared across statuses and roles.
+        expect(todoTasks.map((task) => task.id)).toEqual(["FN-040", "FN-041", "FN-042"]);
       });
 
-      it("sorts tasks without status by priority then task ID in in-review", () => {
+      it("sorts tasks without status by arrival in in-review", () => {
         const statuslessTask = createTask({
           id: "FN-050",
           column: "in-review",
@@ -1063,8 +1079,8 @@ describe("Board", () => {
         renderBoard({ tasks });
 
         const inReviewTasks = JSON.parse(screen.getByTestId("column-in-review").getAttribute("data-tasks") || "[]") as Task[];
-        // Neither is merging, so sort by priority: FN-051 urgent > FN-050 normal
-        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-051", "FN-050"]);
+        // Missing arrival timestamps fall back to createdAt, then numeric ID.
+        expect(inReviewTasks.map((task) => task.id)).toEqual(["FN-050", "FN-051"]);
       });
     });
 
@@ -2128,9 +2144,9 @@ describe("Board", () => {
       await waitFor(() => expect(screen.getByTestId("column-done")).toHaveAttribute("data-done-sort-mode", "completion-date-desc"));
       expect(readIds("done")).toEqual(["FN-001", "FN-002", "FN-004", "FN-003"]);
       expect(readIds("todo")).toEqual(["FN-010", "FN-050"]);
-      expect(screen.getByTestId("column-todo")).toHaveAttribute("data-has-done-sort-handler", "no");
+      expect(screen.getByTestId("column-todo")).toHaveAttribute("data-has-done-sort-handler", "yes");
 
-      fireEvent.click(screen.getByRole("button", { name: "sort-done-by-id" }));
+      fireEvent.click(within(screen.getByTestId("column-done")).getByRole("button", { name: "sort-done-by-id" }));
 
       expect(screen.getByTestId("column-done")).toHaveAttribute("data-done-sort-mode", "task-id-desc");
       expect(readIds("done")).toEqual(["FN-004", "FN-003", "FN-002", "FN-001"]);

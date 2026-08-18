@@ -1592,7 +1592,7 @@ sorter here so Board, Lane, and ListView share core policy without importing a N
 The sorter and its transitive role/merge/priority helpers are browser-safe.
 */
 export { sortTasksForDisplayColumn } from "./tasks/task-priority.js";
-export type { DoneColumnSortMode, DisplayColumnSortOptions } from "./tasks/task-priority.js";
+export type { TaskColumnSortMode, ColumnSortMode, DoneColumnSortMode, DisplayColumnSortOptions } from "./tasks/task-priority.js";
 
 /*
 FNXC:MissionValidationRepair 2026-08-11-00:10:

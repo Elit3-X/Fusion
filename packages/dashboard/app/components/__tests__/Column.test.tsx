@@ -1260,7 +1260,7 @@ describe("Column Done action menu", () => {
     expect(mockConfirm).not.toHaveBeenCalled();
   });
 
-  it("hides Done menu items and leaves no standalone wrappers on non-Done columns", async () => {
+  it("shows the generic sort menu on non-complete columns without standalone wrappers", async () => {
     const user = userEvent.setup();
     const { container } = render(
       <Column
@@ -1275,12 +1275,12 @@ describe("Column Done action menu", () => {
 
     expect(screen.queryByRole("combobox", { name: "Sort Done tasks" })).toBeNull();
     expect(container.querySelector(".done-sort-control")).toBeNull();
-    expect(container.querySelector("[aria-label='Sort Done tasks']")).toBeNull();
+    expect(container.querySelector("[aria-label='Sort tasks in this column']")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Todo column actions" }));
 
-    expect(screen.queryByRole("menuitemradio", { name: /Completion date \(newest first\)/ })).toBeNull();
-    expect(screen.queryByRole("menuitemradio", { name: /Task ID \(newest first\)/ })).toBeNull();
+    expect(screen.getByRole("menuitemradio", { name: /Arrival in this column/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: /Task ID \(newest first\)/ })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /Archive all done tasks/i })).toBeNull();
   });
 

@@ -3350,7 +3350,7 @@ Issue #2149 requires read-only type filtering to occur in the file-store before 
    * Paged newest-first read for the Archived board column (FN-7659). See
    * listArchivedTasksImpl for the ordering/bounding contract.
    */
-  async listArchivedTasks(options?: { limit?: number; offset?: number; slim?: boolean }): Promise<{ tasks: Task[]; total: number; hasMore: boolean }> {
+  async listArchivedTasks(options?: { limit?: number; offset?: number; slim?: boolean; sort?: import("./tasks/task-priority.js").TaskColumnSortMode; sortMode?: import("./tasks/task-priority.js").TaskColumnSortMode }): Promise<{ tasks: Task[]; total: number; hasMore: boolean }> {
     return listArchivedTasksImpl(this, options);
   }
 

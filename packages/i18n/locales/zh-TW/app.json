@@ -1532,7 +1532,12 @@
     "stopAllTitle": "停止所有工作",
     "stopPartialFailure": "已停止 {{total}} 個工作中的 {{paused}} 個；{{failed}} 個失敗",
     "stoppedTasks_one": "",
-    "stoppedTasks_other": ""
+    "stoppedTasks_other": "",
+    "sortControlLabel": "",
+    "sortArrivalDesc": "",
+    "sortArrivalDescHint": "",
+    "sortTaskIdDesc": "",
+    "sortTaskIdDescHint": ""
   },
   "commandCenter": {
     "activity": {

@@ -1532,7 +1532,12 @@
     "stopAllTitle": "Detener todas las tareas",
     "stopPartialFailure": "Se detuvieron {{paused}} de {{total}} tareas; {{failed}} fallaron",
     "stoppedTasks_one": "",
-    "stoppedTasks_other": ""
+    "stoppedTasks_other": "",
+    "sortControlLabel": "",
+    "sortArrivalDesc": "",
+    "sortArrivalDescHint": "",
+    "sortTaskIdDesc": "",
+    "sortTaskIdDescHint": ""
   },
   "commandCenter": {
     "activity": {
