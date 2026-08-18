@@ -6363,7 +6363,9 @@
       "installationFailed": "Falha na instalação",
       "acceptRoutesHint": "Padrão: desativado.",
       "shortLivedEnabledHint": "Padrão: desativado.",
-      "shortLivedTtlMsHint": "Padrão: 900000 (15 minutos)."
+      "shortLivedTtlMsHint": "Padrão: 900000 (15 minutos).",
+      "cloudflareTunnelURL": "",
+      "tunnelURL": ""
     },
     "worktrees": {
       "allowSilentSiblingBranchRenameDuringExecutorConflicts": " Permitir renomeação silenciosa de branch irmã durante conflitos do executor ",

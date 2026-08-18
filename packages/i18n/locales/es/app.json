@@ -6687,7 +6687,9 @@
       "installationFailed": "",
       "acceptRoutesHint": "",
       "shortLivedEnabledHint": "",
-      "shortLivedTtlMsHint": ""
+      "shortLivedTtlMsHint": "",
+      "cloudflareTunnelURL": "",
+      "tunnelURL": ""
     },
     "researchGlobal": {
       "advancedExternalSearchProviders": "",
