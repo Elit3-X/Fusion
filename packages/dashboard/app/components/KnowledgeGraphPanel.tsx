@@ -42,7 +42,8 @@ export function KnowledgeGraphPanel({ projectId, addToast }: { projectId?: strin
   const selected = graph.selectedId;
   const limits = graph.status.pathLimits;
   const foundPath = graph.pathResult?.outcome === "found" ? graph.pathResult.path : null;
-  const foundHops = graph.pathResult?.outcome === "found" ? graph.pathResult.hops : null;
+  /* FNXC:KnowledgeGraphDashboard 2026-08-18-22:31: The typed i18n interpolation treats absent hop counts as optional; keep successful zero-hop paths numeric while normalizing non-found results to undefined. */
+  const foundHops = graph.pathResult?.outcome === "found" ? graph.pathResult.hops : undefined;
 
   return <section className="knowledge-graph-panel" data-testid="knowledge-graph-panel">
     <header className="knowledge-graph-status card"><div><strong>{graph.status.nodeCount} {t("memory.graphNodes", "nodes")} · {graph.status.edgeCount} {t("memory.graphEdges", "edges")}</strong><span>{graph.status.graphDir}</span></div><dl><div><dt>{t("knowledgeGraph.nodeKinds", "Node kinds")}</dt><dd>{Object.entries(graph.status.nodeKindCounts ?? {}).map(([kind, count]) => `${kind}: ${count}`).join(" · ") || "—"}</dd></div><div><dt>{t("knowledgeGraph.edgeKinds", "Edge kinds")}</dt><dd>{Object.entries(graph.status.edgeKindCounts ?? {}).map(([kind, count]) => `${kind}: ${count}`).join(" · ") || "—"}</dd></div><div><dt>{t("knowledgeGraph.provenance", "Provenance")}</dt><dd>{Object.entries(graph.status.provenanceCounts ?? {}).map(([kind, count]) => `${kind}: ${count}`).join(" · ") || "—"}</dd></div></dl><label className="knowledge-graph-toggle"><input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} /> {t("memory.graphForce", "Force rebuild")}</label><button type="button" className="btn" disabled={graph.rebuilding} onClick={() => void graph.rebuild(force)}>{graph.rebuilding ? t("memory.graphRebuilding", "Rebuilding…") : t("memory.graphRebuild", "Rebuild")}</button></header>
