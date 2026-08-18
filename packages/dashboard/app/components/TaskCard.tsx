@@ -2881,31 +2881,18 @@ function TaskCardComponent({
       The retired in-review Move dropdown offered Done (no merge) and Triage in addition to the shared menu model's Todo/In Progress defaults. Fold those targets into this TaskCard-only menu so card consolidation retains every move capability without changing ListView or TaskDetail menus.
       */
       /*
-      FNXC:WorkflowResolvedColumns 2026-07-30-02:10 (CORRECTION of the note this replaced):
-      The previous version of this comment claimed `triage` was a column U11/#2515 had DELETED, making
-      this a live stale-target bug. THAT WAS WRONG, and it shipped. `triage` is a real, present column:
-
-        builtin-coding-workflow-ir.ts:49  { id: "triage", name: "Planning", traits: [{ trait: "intake" }] }
-
-      `triage` (intake) and `todo` (hold) are still SEPARATE columns on the default board, and `triage`
-      also exists in builtin-pr and builtin-lead-generation. I was carrying a merged-planning-column
-      shape from other work in this program and asserted it against the tree without checking the IR.
-      The move target is valid; there is no stale-target bug here.
-
-      WHAT IS ACTUALLY TRUE OF THIS SITE, and why it stays a literal. `column` below is the loop variable
-      over this function's OWN hardcoded `["done", "triage"]` array. The comparison asks "which entry of
-      my own list am I on" in order to pick a label — not "what role does this card's column play".
-      Resolving a trait for a string this code just wrote itself would be meaningless.
-
-      The ARRAY is the part worth revisiting, because it names move targets by id rather than by role,
-      so a workflow that renames those lanes gets targets it cannot show. That is a behaviour question
-      about which targets a review card should offer — and removing or changing a visible menu entry is
-      the UI-affordance change AGENTS requires a Surface Enumeration for (the workflow-row chevron took
-      FN-6115 -> FN-6118 -> FN-6123 for skipping it). Out of scope for a vocabulary conversion, but a
-      real question, unlike the one the old comment invented.
+      FNXC:BoardCardActions 2026-08-18-06:18 (FN-005):
+      Supplemental in-review targets are named by legacy id so card menus retain
+      Done (no merge) and legacy workflow parity. The default workflow no longer
+      declares `triage`; its `todo` column is labelled Planning. Without filtering,
+      COLUMN_LABELS.triage also reads as Planning and duplicates the declared todo
+      target. Only offer a supplemental target when loaded workflow metadata declares
+      a visible column; retain both legacy targets while metadata is unavailable.
       */
       if (isReviewColumn) {
         for (const column of ["done", "triage"] as const) {
+          const workflowColumn = taskMoveColumns?.find((candidate) => candidate.id === column);
+          if (taskMoveColumns && (!workflowColumn || workflowColumn.flags?.hiddenFromBoard)) continue;
           if (moveTransitions.some((transition) => transition.column === column)) continue;
           moveTransitions.push({
             column,
@@ -2927,7 +2914,7 @@ function TaskCardComponent({
       }
     }
     return actions.filter((action) => action.tone === "note" || action.disabled === true || Boolean(action.onSelect));
-  }, [handleTaskActionArchive, handleTaskActionMove, handleTaskActionRevert, handleTaskActionUnarchive, isRevertable, onArchiveTask, onDeleteTask, onDuplicateTask, onMergeTask, onMoveTask, onPlanningMode, onOpenRefine, onPauseTask, onResetTask, onRetryTask, onRevertTask, onUnarchiveTask, onUnpauseTask, onUpdateTask, t, task.column, taskActionColumnLabel, taskActionMenuModel.actions, taskActionMenuModel.moveTransitions, taskActionMenuModel.reviewAction]);
+  }, [handleTaskActionArchive, handleTaskActionMove, handleTaskActionRevert, handleTaskActionUnarchive, isRevertable, onArchiveTask, onDeleteTask, onDuplicateTask, onMergeTask, onMoveTask, onPlanningMode, onOpenRefine, onPauseTask, onResetTask, onRetryTask, onRevertTask, onUnarchiveTask, onUnpauseTask, onUpdateTask, t, task.column, taskActionColumnLabel, taskActionMenuModel.actions, taskActionMenuModel.moveTransitions, taskActionMenuModel.reviewAction, taskMoveColumns]);
   const hasContextMenuActions = contextMenuActions.length > 0;
 
   const closeContextMenu = useCallback(() => {

@@ -4826,6 +4826,101 @@ describe("TaskCard", () => {
     expect(onMoveTask).toHaveBeenCalledWith("FN-001", "done", undefined);
   });
 
+  it("offers only declared default-workflow targets from the in-review three-dot menu", async () => {
+    const onMoveTask = vi.fn();
+    const taskMoveColumns = [
+      { id: "todo" as const, label: "Planning", flags: { hold: true, intake: true } },
+      { id: "in-progress" as const, label: "In progress", flags: { countsTowardWip: true } },
+      { id: "in-review" as const, label: "In review", flags: { mergeBlocker: true, humanReview: true }, moveTargets: ["done", "in-progress", "todo"] },
+      { id: "done" as const, label: "Done", flags: { complete: true } },
+      { id: "archived" as const, label: "Archived", flags: { archived: true } },
+    ];
+    render(
+      <TaskCard
+        task={makeTask({ column: "in-review" })}
+        onOpenDetail={noop}
+        addToast={noop}
+        onMoveTask={onMoveTask}
+        taskMoveColumns={taskMoveColumns}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+
+    const planningMoves = screen.getAllByRole("menuitem", { name: "Move to Planning" });
+    expect(planningMoves).toHaveLength(1);
+    expect(screen.queryByRole("menuitem", { name: "Move to Triage" })).toBeNull();
+
+    fireEvent.click(planningMoves[0]);
+    expect(onMoveTask).toHaveBeenCalledWith("FN-001", "todo", undefined);
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    fireEvent.contextMenu(document.querySelector(".card")!, { clientX: 24, clientY: 28 });
+    await waitFor(() => expect(screen.getAllByRole("menuitem", { name: "Move to Planning" })).toHaveLength(1));
+    expect(screen.getByRole("menuitem", { name: "Move to Done" })).toBeTruthy();
+  });
+
+  it("keeps the declared legacy triage target and hides hidden supplemental targets", () => {
+    const onMoveTask = vi.fn();
+    const legacyMoveColumns = [
+      { id: "triage" as const, label: "Planning", flags: { intake: true } },
+      { id: "todo" as const, label: "Todo", flags: { hold: true } },
+      { id: "in-progress" as const, label: "In progress", flags: { countsTowardWip: true } },
+      { id: "in-review" as const, label: "In review", flags: { mergeBlocker: true }, moveTargets: ["todo", "in-progress"] },
+      { id: "done" as const, label: "Done", flags: { complete: true } },
+    ];
+    const { rerender } = render(
+      <TaskCard
+        task={makeTask({ column: "in-review" })}
+        onOpenDetail={noop}
+        addToast={noop}
+        onMoveTask={onMoveTask}
+        taskMoveColumns={legacyMoveColumns}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    const planningMoves = screen.getAllByRole("menuitem", { name: "Move to Planning" });
+    expect(planningMoves).toHaveLength(1);
+    fireEvent.click(planningMoves[0]);
+    expect(onMoveTask).toHaveBeenCalledWith("FN-001", "triage", undefined);
+
+    rerender(
+      <TaskCard
+        task={makeTask({ column: "in-review" })}
+        onOpenDetail={noop}
+        addToast={noop}
+        onMoveTask={onMoveTask}
+        taskMoveColumns={legacyMoveColumns.map((column) => column.id === "done" ? { ...column, flags: { ...column.flags, hiddenFromBoard: true } } : column)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    expect(screen.queryByRole("menuitem", { name: "Done (no merge)" })).toBeNull();
+    expect(screen.getAllByRole("menuitem", { name: "Move to Planning" })).toHaveLength(1);
+  });
+
+  it("leaves non-review menu transitions unchanged when workflow metadata is present", () => {
+    const taskMoveColumns = [
+      { id: "todo" as const, label: "Planning", flags: { hold: true } },
+      { id: "in-progress" as const, label: "In progress", flags: { countsTowardWip: true }, moveTargets: ["todo", "done"] },
+      { id: "done" as const, label: "Done", flags: { complete: true } },
+    ];
+    render(
+      <TaskCard
+        task={makeTask({ column: "in-progress" })}
+        onOpenDetail={noop}
+        addToast={noop}
+        onMoveTask={vi.fn()}
+        taskMoveColumns={taskMoveColumns}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    expect(screen.getByRole("menuitem", { name: "Move to Planning" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Move to Done" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Done (no merge)" })).toBeNull();
+  });
+
   it("uses the three-dot menu for every in-progress move target without a Send back shell", () => {
     const { container } = render(
       <TaskCard
