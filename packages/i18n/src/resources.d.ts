@@ -6193,6 +6193,7 @@ export default interface Resources {
         "leaveEmptyToOmitThisHeaderDefaultFusion": "Leave empty to omit this header. No default — unset (Fusion falls back to the title \"Fusion\" when unset).",
         "leaveEmptyToOmitThisHeaderDefaultHttps": "Leave empty to omit this header. No default — unset (Fusion falls back to https://runfusion.ai when unset).",
         "modelLanes": "Model Lanes",
+        "modelOverrides": "Model Overrides",
         "noFallback": "No fallback",
         "openRouterAdvanced": "OpenRouter advanced",
         "openRouterAllowFallbacks": "OpenRouter allow fallbacks",
@@ -6646,6 +6647,7 @@ export default interface Resources {
         "loadingAvailableModels": "Loading available models…",
         "loadingWorkflowModelLanes": "Loading workflow model lanes…",
         "modelLanes": "Model Lanes",
+        "modelOverrides": "Model Overrides",
         "modelPresets": "Model Presets",
         "name": "Name",
         "noCap": "No cap",
@@ -6660,6 +6662,7 @@ export default interface Resources {
         "prDescriptionPromptInstructionsHelp": "Guides the AI-generated Create PR summary, changes, and testing sections. Leave blank to use the default PR metadata prompt. No default — unset.",
         "prTitlePromptInstructionsHelp": "Guides the AI-generated Create PR title. Leave blank to use the default PR metadata prompt. No default — unset.",
         "presetEditor": "Preset editor",
+        "projectLanesSubheading": "Project lanes",
         "reset": " Reset ",
         "resetToDefaultNoCap": "Reset to default (no cap)",
         "resetToInheritFromGlobal": "Reset to inherit from global",
@@ -6668,6 +6671,7 @@ export default interface Resources {
         "selectChatDefaultAgent": "Select a chat default agent",
         "selectChatDefaultModel": "Select a chat default model",
         "selectExecutorEscalationModel": "Select an escalation model",
+        "summarizationPointer": "Summarization models are configured under AI Title and Git Commit Message Summarization below.",
         "taskDefinitionInInputLanguage": "Write task definitions in the operator's input language",
         "taskDefinitionInInputLanguageHelp": "When enabled, generated task-definition prose uses supported detectable input languages (Spanish, French, Korean, or Chinese as zh-CN). Headings, markers, and code stay English. Unsupported or undetectable input stays English. Default: disabled.",
         "theseProjectOverridesApplyToTheActiveDefault": " These project overrides apply to the active default workflow. ",
@@ -6675,7 +6679,8 @@ export default interface Resources {
         "useDefault": "Use default",
         "useWorkflowDefault": "Use workflow default",
         "whenEnabledMergeCommitMessagesIncludeAnAI": " When enabled, merge commit messages include an AI-generated subject plus body summary (narrative + bullets + diff-stat) instead of just listing step commit subjects. Uses the title summarization model. Default: enabled. ",
-        "whenEnabledTasksCreatedWithoutATitleBut": " When enabled, tasks created without a title but with descriptions over 200 characters will automatically get an AI-generated title (max 60 characters). The same model is also used to generate fallback merge commit message bodies when the branch's commit log is empty (e.g. squash merges with no unique commits), and GitHub tracking issue titles when a tracked task has no title yet. Default: disabled. "
+        "whenEnabledTasksCreatedWithoutATitleBut": " When enabled, tasks created without a title but with descriptions over 200 characters will automatically get an AI-generated title (max 60 characters). The same model is also used to generate fallback merge commit message bodies when the branch's commit log is empty (e.g. squash merges with no unique commits), and GitHub tracking issue titles when a tracked task has no title yet. Default: disabled. ",
+        "workflowLanesSubheading": "Workflow lanes"
       },
       "prompts": {
         "surfaceExplanation": "Use this section for agent role system prompt templates, role assignments, and global PromptKey segment overrides. Per-workflow step prompts for prompt and gate nodes are edited in the Workflow Editor. No default — unset (built-in role prompts apply until overridden)."
@@ -7987,6 +7992,10 @@ export default interface Resources {
         "activity": "Activity",
         "activityHeading": "Activity",
         "agentLog": "Agent Log",
+        "copy": "Copy logs",
+        "copyDisplayed": "Copy displayed activity logs",
+        "copyFailure": "Failed to copy displayed activity",
+        "copySuccess": "Displayed activity copied to clipboard",
         "loadingActivity": "Loading activity…",
         "noActivity": "(no activity)",
         "truncated_one": "Showing the most recent {{count}} activity entries.",

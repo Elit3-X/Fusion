@@ -174,6 +174,7 @@ vi.mock("lucide-react", () => ({
   Paperclip: (props: any) => React.createElement("svg", { "data-testid": "paperclip-icon", ...props }),
   Eye: (props: any) => React.createElement("svg", { "data-testid": "eye-icon", ...props }),
   EyeOff: (props: any) => React.createElement("svg", { "data-testid": "eye-off-icon", ...props }),
+  Copy: (props: any) => React.createElement("svg", { "data-testid": "copy-icon", ...props }),
   // FNXC:Test 2026-07-05-11:20: FN-7579 added "ask-user"/"exit-gate" workflow node types to
   // WorkflowNodeTypes.tsx (HelpCircle, DoorOpen), which WorkflowNodeEditor/WorkflowResultsTab
   // import transitively behind TaskDetailModal's lazy workflow surfaces. The explicit mock list

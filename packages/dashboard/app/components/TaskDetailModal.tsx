@@ -2,7 +2,7 @@ import "./TaskDetailModal.css";
 import React, { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { Pencil, Bot, X, ChevronDown, ChevronRight, GitBranch, ArrowLeft, Zap, Loader2, AlertTriangle, Sparkles, Maximize2, Minimize2, Send, Square, Info, Paperclip, Eye, EyeOff } from "lucide-react";
+import { Pencil, Bot, X, ChevronDown, ChevronRight, GitBranch, ArrowLeft, Zap, Loader2, AlertTriangle, Sparkles, Maximize2, Minimize2, Send, Square, Info, Paperclip, Eye, EyeOff, Copy } from "lucide-react";
 import { useViewportMode } from "../hooks/useViewportMode";
 import { mergeTaskSnapshot } from "../hooks/useTasks";
 import { FloatingWindow } from "./FloatingWindow";
@@ -87,6 +87,7 @@ import { getPriorityColorVar, getPriorityIcon, getPriorityLabel } from "../utils
 import { hasPendingAutomaticRecovery, isTaskManuallyRetryable } from "../utils/taskRecovery";
 import { findInReviewStallLogEntry, IN_REVIEW_STALL_LOG_REGEX } from "../utils/findInReviewStallLogEntry";
 import { getTaskLogEntryAction, getTaskLogEntryOutcome } from "../utils/taskLogEntryDisplay";
+import { copyTextToClipboard } from "../utils/copyToClipboard";
 import { getRelativeTimeBucket } from "../utils/relativeTimeAgo";
 import { isReviewBudgetExhaustedApproval, isTaskAwaitingPlanApproval } from "../utils/reviewBudgetApproval";
 import { getTaskStatusBadgeLabel, hasTaskStatusBadge, isTaskPlanningActive } from "../utils/taskStatusBadgeLabel";
@@ -126,6 +127,22 @@ type ActivityViewMenuPosition = {
   minWidth: number;
   maxHeight: number;
 };
+
+type TaskActivityLogEntry = NonNullable<Parameters<typeof getTaskLogEntryAction>[0]> & {
+  timestamp: string;
+};
+
+/*
+FNXC:TaskActivityFeedCopy 2026-08-18-18:11:
+Operators copy only the bounded activity already loaded into Feed, in the same newest-first order they see. Keep source timestamps, duplicate rows, and legacy action/outcome fallbacks intact, and route all clipboard attempts through the shared secure/fallback helper.
+*/
+function serializeTaskActivityLogs(entries: readonly TaskActivityLogEntry[]): string {
+  return [...entries].reverse().map((entry) => {
+    const action = getTaskLogEntryAction(entry);
+    const outcome = getTaskLogEntryOutcome(entry);
+    return `[${entry.timestamp}] ${action}${outcome ? `\n${outcome}` : ""}`;
+  }).join("\n\n");
+}
 
 function isStringValue(value: unknown): value is string {
   return Object.prototype.toString.call(value) === STRING_OBJECT_TAG;
@@ -976,6 +993,17 @@ export function TaskDetailContent({
         : task.overlapBlockedBy === undefined ? fullDetail.overlapBlockedBy : task.overlapBlockedBy,
     } as TaskDetail)
     : ({ ...task, prompt: "" } as TaskDetail);
+  const activityLog = workingTask.log ?? [];
+  const handleCopyActivityLogs = useCallback(async () => {
+    if (detailLoading || activityLog.length === 0) return;
+    const copied = await copyTextToClipboard(serializeTaskActivityLogs(activityLog));
+    addToast(
+      copied
+        ? t("taskDetail.logs.copySuccess", "Displayed activity copied to clipboard")
+        : t("taskDetail.logs.copyFailure", "Failed to copy displayed activity"),
+      copied ? "success" : "error",
+    );
+  }, [activityLog, addToast, detailLoading, t]);
   /*
   FNXC:TaskStatusConsistency 2026-08-05-04:30:
   Detail hosts consume the same reconciled snapshot as board and list cards. Show live planning as
@@ -5908,20 +5936,34 @@ export function TaskDetailContent({
                 </div>
               ) : (
                 <div className="detail-activity" role="tabpanel">
-                  <button
-                    type="button"
-                    className="btn btn-icon btn-sm activity-expand-toggle activity-expand-toggle--overlay"
-                    onClick={() => setActivityExpanded((value) => !value)}
-                    aria-label={isActivityExpanded ? t("taskDetail.activity.collapse", "Collapse activity") : t("taskDetail.activity.expand", "Expand activity to full modal")}
-                    aria-pressed={isActivityExpanded}
-                    data-testid="task-chat-expand-toggle"
-                  >
-                    {isActivityExpanded ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
-                  </button>
+                  <div className="detail-activity-actions">
+                    <button
+                      type="button"
+                      className="btn btn-sm detail-activity-copy"
+                      onClick={() => void handleCopyActivityLogs()}
+                      disabled={detailLoading || activityLog.length === 0}
+                      aria-label={t("taskDetail.logs.copyDisplayed", "Copy displayed activity logs")}
+                      title={t("taskDetail.logs.copyDisplayed", "Copy displayed activity logs")}
+                      data-testid="task-activity-copy-logs"
+                    >
+                      <Copy aria-hidden="true" />
+                      {t("taskDetail.logs.copy", "Copy logs")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-icon btn-sm activity-expand-toggle activity-expand-toggle--overlay"
+                      onClick={() => setActivityExpanded((value) => !value)}
+                      aria-label={isActivityExpanded ? t("taskDetail.activity.collapse", "Collapse activity") : t("taskDetail.activity.expand", "Expand activity to full modal")}
+                      aria-pressed={isActivityExpanded}
+                      data-testid="task-chat-expand-toggle"
+                    >
+                      {isActivityExpanded ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+                    </button>
+                  </div>
                   <h4>{t("taskDetail.activity.feedHeading", "Feed")}</h4>
                   {(workingTask as typeof workingTask & { activityLogTruncatedCount?: number }).activityLogTruncatedCount ? (
                     <div className="detail-log-truncated">
-                      {t("taskDetail.logs.truncated", "Showing the most recent {{count}} activity entries.", { count: workingTask.log.length })}
+                      {t("taskDetail.logs.truncated", "Showing the most recent {{count}} activity entries.", { count: activityLog.length })}
                     </div>
                   ) : null}
                   {detailLoading ? (
@@ -5929,12 +5971,12 @@ export function TaskDetailContent({
                       <Loader2 className="animate-spin" aria-hidden="true" />
                       <span>{t("taskDetail.logs.loadingActivity", "Loading activity…")}</span>
                     </div>
-                  ) : workingTask.log && workingTask.log.length > 0 ? (
+                  ) : activityLog.length > 0 ? (
                     <div className="detail-activity-list" ref={activityListRef}>
                       {(() => {
                         // FNXC:TaskDetail 2026-06-14-13:43 Activity rendering must tolerate legacy `text`/`detail` log entries.
                         let highlightedOnce = false;
-                        return [...workingTask.log].reverse().map((entry, i) => {
+                        return [...activityLog].reverse().map((entry, i) => {
                           const action = getTaskLogEntryAction(entry);
                           const outcome = getTaskLogEntryOutcome(entry);
                           const stallMatch = action.match(IN_REVIEW_STALL_LOG_REGEX)

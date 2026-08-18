@@ -3369,6 +3369,31 @@ Live and Feed Activity expansion overlays the content instead of reserving a too
   padding: 0;
 }
 
+/*
+FNXC:TaskActivityFeedCopy 2026-08-18-18:11:
+Feed's copy and expansion actions share one tokenized overlay group so the bounded log remains scroll-owned and both controls stay reachable in modal, embedded, floating, and mobile hosts.
+*/
+.detail-activity-actions {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.detail-activity-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+.detail-activity-copy svg {
+  flex: 0 0 auto;
+}
+
 .activity-expand-toggle--overlay {
   position: absolute;
   top: var(--space-md);
@@ -3377,6 +3402,19 @@ Live and Feed Activity expansion overlays the content instead of reserving a too
   background: var(--surface);
   border-color: var(--border);
   box-shadow: var(--shadow-sm);
+}
+
+.detail-activity-actions .activity-expand-toggle--overlay {
+  position: static;
+  inset: auto;
+}
+
+.detail-activity-actions ~ h4,
+.detail-activity-actions ~ .detail-log-truncated,
+.detail-activity-actions ~ .detail-log-loading,
+.detail-activity-actions ~ .detail-log-empty,
+.detail-activity-actions ~ .detail-activity-list > .detail-log-entry:first-child {
+  padding-inline-end: calc((var(--space-2xl) * 4) + var(--space-lg));
 }
 
 .detail-log-loading {
@@ -3417,6 +3455,20 @@ Live and Feed Activity expansion overlays the content instead of reserving a too
   .activity-expand-toggle--overlay {
     top: var(--space-sm);
     right: var(--space-sm);
+  }
+
+  .detail-activity-actions {
+    top: var(--space-sm);
+    right: var(--space-sm);
+    gap: var(--space-xs);
+  }
+
+  .detail-activity-actions ~ h4,
+  .detail-activity-actions ~ .detail-log-truncated,
+  .detail-activity-actions ~ .detail-log-loading,
+  .detail-activity-actions ~ .detail-log-empty,
+  .detail-activity-actions ~ .detail-activity-list > .detail-log-entry:first-child {
+    padding-inline-end: calc((var(--space-2xl) * 4) + var(--space-md));
   }
 
   .detail-log-loading {

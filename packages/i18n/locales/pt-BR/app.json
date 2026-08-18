@@ -6468,6 +6468,10 @@
       "description": "Substitui as taxas por 1 milhão de tokens usadas nas estimativas de custo do Command Center. As substituições têm prioridade sobre a linha de base integrada; modelos não listados continuam usando a linha de base. Sem padrão — não definido (sem substituições)."
     },
     "projectModels": {
+      "modelOverrides": "",
+      "projectLanesSubheading": "",
+      "summarizationPointer": "",
+      "workflowLanesSubheading": "",
       "addPreset": " Adicionar predefinição ",
       "advancedWorkflowPolicy": " Política avançada de fluxo de trabalho ",
       "aIMergeCommitSummaries": " Resumos de commit de merge por IA ",
@@ -6537,6 +6541,7 @@
       "chatDefaultReset": "Redefinir padrão do Chat"
     },
     "globalModels": {
+      "modelOverrides": "",
       "allow": "allow",
       "commaSeparatedValuesSentToOpenRouterModelSync": "Valores separados por vírgula enviados à sincronização de modelos do OpenRouter. Sem padrão — não definido (sem filtro).",
       "controlsHowMuchReasoningEffortTheAIModel": "Controla o quanto de esforço de raciocínio o modelo de IA usa. Níveis mais altos produzem melhores resultados, mas custam mais. Sem padrão — não definido (aplica-se o esforço padrão do próprio modelo).",
@@ -7913,6 +7918,10 @@
       "activity": "Atividade",
       "activityHeading": "Atividade",
       "agentLog": "Log do agente",
+      "copy": "",
+      "copyDisplayed": "",
+      "copyFailure": "",
+      "copySuccess": "",
       "loadingActivity": "Carregando atividade…",
       "noActivity": "(sem atividade)",
       "truncated_one": "Mostrando as {{count}} entradas de atividade mais recentes.",
