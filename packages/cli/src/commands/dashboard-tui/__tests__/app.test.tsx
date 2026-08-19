@@ -244,6 +244,33 @@ describe("DashboardApp smoke", () => {
     unmount();
   });
 
+  /*
+  FNXC:DevTunnel 2026-08-19-04:30:
+  `pnpm dev --tunnel` prints its banner to stdout, but a TTY run hands the screen to this TUI, which
+  repaints over it — the public URL, the whole output of the flag, was unreadable. The wrapper now
+  forwards it over IPC and it belongs in the system panel beside URL and Token.
+  */
+  it("renders the dev tunnel URL in the system panel when one is published", () => {
+    const controller = newController();
+    const { lastFrame, unmount, rerender } = render(renderDashboardAppNode(controller));
+    controller.setSystemInfo({ ...makeSystemInfo(), devTunnelUrl: "https://sign-bear-kinds-lay.trycloudflare.com" });
+    rerender(renderDashboardAppNode(controller));
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Tunnel");
+    expect(frame).toContain("https://sign-bear-kinds-lay.trycloudflare.com");
+    unmount();
+  });
+
+  it("shows no tunnel row when no tunnel is running", () => {
+    const controller = newController();
+    const { lastFrame, unmount, rerender } = render(renderDashboardAppNode(controller));
+    controller.setSystemInfo(makeSystemInfo());
+    rerender(renderDashboardAppNode(controller));
+    // The row must not appear for the ordinary `fn dashboard` case.
+    expect(lastFrame() ?? "").not.toContain("Tunnel");
+    unmount();
+  });
+
   it("renders ready duration when startup has completed", () => {
     const controller = newController();
     const { lastFrame, unmount, rerender } = render(renderDashboardAppNode(controller));
