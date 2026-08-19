@@ -106,8 +106,9 @@ normal Fusion already holding 4040, the tunnel pointed at THAT instance and serv
 under a dev-looking URL. Wait for the child's listening report and tunnel the port it actually got.
 
 An explicit `--tunnel=PORT` names a target the operator chose (a Vite server the dev child knows
-nothing about), so it is used immediately and never waits. If the report never arrives the tunnel
-still comes up on the configured port, since a mis-targeted preview beats no preview at all.
+nothing about), so it is used immediately and never waits. Without one the wrapper WAITS for the
+report rather than falling back to the configured port: publishing a guess pointed a dev-looking URL
+at whatever else held that port, which is the exact confusion this fix exists to remove.
 */
 /*
 FNXC:DevTunnel 2026-08-19-03:38:
