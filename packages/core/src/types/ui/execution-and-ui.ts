@@ -109,6 +109,11 @@ export const COLOR_THEMES = [
   "brutalist",
   "neon-city",
   "parchment",
+  /*
+  FNXC:DashboardTheming 2026-08-19-19:23:
+  Medieval is a persisted selectable theme. Keep this ID and order synchronized with selector metadata and both web/Electron first-paint validators so a saved medieval preference survives startup before React hydration.
+  */
+  "medieval",
   "terminal",
   "glass",
   // FNXC:DashboardTheming 2026-07-01-00:00: Glass Silver is the silver/gray frosted sibling of Glass; keep this id in lockstep with dashboard/desktop validators and selector metadata so persisted explicit choices survive startup.

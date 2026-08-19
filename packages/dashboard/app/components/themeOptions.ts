@@ -50,6 +50,7 @@ export const COLOR_THEMES: { value: ColorTheme; label: string; className: string
   { value: "brutalist", label: "Brutalist", className: "theme-swatch-brutalist" },
   { value: "neon-city", label: "Neon City", className: "theme-swatch-neon-city" },
   { value: "parchment", label: "Parchment", className: "theme-swatch-parchment" },
+  { value: "medieval", label: "Medieval", className: "theme-swatch-medieval" },
   { value: "terminal", label: "Terminal", className: "theme-swatch-terminal" },
   { value: "glass", label: "Glass", className: "theme-swatch-glass" },
   { value: "glass-silver", label: "Glass Silver", className: "theme-swatch-glass-silver" },

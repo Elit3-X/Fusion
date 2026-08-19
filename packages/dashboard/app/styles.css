@@ -1313,6 +1313,16 @@ Modal and dock pop-out surfaces should not darken or blur the app behind them. K
   display: flex;
 }
 
+/*
+FNXC:DashboardTheming 2026-08-19-19:27:
+Medieval modal chrome uses only paint properties on the shared generic surface, preserving modal sizing, dismissal, focus, touch, and mobile behavior while providing the requested restrained wood frame.
+*/
+[data-color-theme="medieval"] .modal {
+  border-color: color-mix(in srgb, var(--border) 82%, var(--accent) 18%);
+  box-shadow: inset 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--card) 70%, var(--border) 30%), var(--shadow-lg);
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--border) 16%, transparent), transparent var(--space-2xl), color-mix(in srgb, var(--border) 12%, transparent));
+}
+
 .modal {
   position: relative;
   background: var(--surface);
@@ -3789,6 +3799,20 @@ Toast text must contrast its status background across every dashboard theme and 
 
   .modal-resize-grip {
     display: none;
+  }
+
+  /*
+  FNXC:DashboardTheming 2026-08-19-19:52:
+  Mobile's generic modal reset removes all borders, which would erase Medieval's shared wood frame at the
+  actual narrow viewport. Restore only tokenized border paint here; sizing, touch, dismissal, and the
+  fullscreen mobile modal contract remain owned by the generic rule above.
+  */
+  [data-color-theme="medieval"] .modal:not(.confirm-dialog),
+  [data-color-theme="medieval"] .modal-lg,
+  [data-color-theme="medieval"] .modal-md,
+  [data-color-theme="medieval"] .gm-modal {
+    border: var(--btn-border-width) solid color-mix(in srgb, var(--border) 82%, var(--accent) 18%);
+    box-shadow: inset 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--card) 70%, var(--border) 30%), var(--shadow-lg);
   }
 
   /* Settings modal: use the section picker as the only mobile navigation */

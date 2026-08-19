@@ -681,6 +681,13 @@
   --swatch-sample-4: #be6e3c;
 }
 
+.theme-swatch-medieval {
+  --swatch-sample-1: var(--medieval-swatch-sample-1);
+  --swatch-sample-2: var(--medieval-swatch-sample-2);
+  --swatch-sample-3: var(--medieval-swatch-sample-3);
+  --swatch-sample-4: var(--medieval-swatch-sample-4);
+}
+
 .theme-swatch-terminal {
   --swatch-sample-1: #0a0a0a;
   --swatch-sample-2: #0f120d;
@@ -1367,4 +1374,12 @@
   .theme-font-size-toggle {
     grid-template-columns: 1fr;
   }
+}
+
+
+[data-theme="light"] .theme-swatch-medieval {
+  --swatch-sample-1: var(--medieval-swatch-sample-1);
+  --swatch-sample-2: var(--medieval-swatch-sample-2);
+  --swatch-sample-3: var(--medieval-swatch-sample-3);
+  --swatch-sample-4: var(--medieval-swatch-sample-4);
 }

@@ -34,6 +34,10 @@
   --velvet-swatch-sample-2: #2b1d24;
   --velvet-swatch-sample-3: #c99a89;
   --velvet-swatch-sample-4: #b66b7d;
+  --medieval-swatch-sample-1: #21170f;
+  --medieval-swatch-sample-2: #392417;
+  --medieval-swatch-sample-3: #d5ad67;
+  --medieval-swatch-sample-4: #8db08b;
   --factory-dark-swatch-sample-1: #0d0f10;
   --factory-dark-swatch-sample-2: #1a1d1f;
   --factory-dark-swatch-sample-3: #e89532;
@@ -69,6 +73,10 @@
   --velvet-swatch-sample-2: #f0e2e0;
   --velvet-swatch-sample-3: #8a4a55;
   --velvet-swatch-sample-4: #a9636f;
+  --medieval-swatch-sample-1: #f4ead2;
+  --medieval-swatch-sample-2: #e1ceb0;
+  --medieval-swatch-sample-3: #765125;
+  --medieval-swatch-sample-4: #446b48;
   --factory-dark-swatch-sample-1: #eceef0;
   --factory-dark-swatch-sample-2: #d9dde0;
   --factory-dark-swatch-sample-3: #a95612;
@@ -7444,6 +7452,84 @@ FN-8151 adds Cobalt, Clay, and Moss with complete dark and light token ramps. Ke
 FNXC:DashboardTheming 2026-07-20-00:00:
 Aurora gives operators navy/teal/violet dark surfaces and misty light surfaces. Literal palette values stay in these canonical tokens, while globally defined swatch variables keep the unselected option accurate in either mode.
 */
+/*
+FNXC:DashboardTheming 2026-08-19-19:42:
+Medieval keeps the dashboard clean and legible while applying a restrained aged-parchment canvas, wood-framed generic modals, and the bundled pixel display face. Press Start 2P remains primary, while explicit system fallbacks render any unsupported localized glyph rather than showing tofu; terminal typography stays on --font-mono and no runtime font request is made.
+*/
+[data-color-theme="medieval"] {
+  --bg: #21170f;
+  --surface: #302116;
+  --card: #3b2a1c;
+  --card-hover: #4a3523;
+  --surface-hover: color-mix(in srgb, var(--surface) 90%, var(--text) 10%);
+  --border: #795735;
+  --text: #fff1ce;
+  --text-muted: #ddc79e;
+  --text-dim: #aa926c;
+  --todo: #d5ad67;
+  --in-progress: #79afaa;
+  --in-progress-rgb: 121, 175, 170;
+  --in-review: #c79ad4;
+  --triage: #e5ba6a;
+  --done: #8db08b;
+  --color-success: #9dca8c;
+  --color-warning: #e5ba6a;
+  --color-error: #ef8e75;
+  --color-info: #82b9c4;
+  --cta-bg: #80512c;
+  --cta-border: #d5ad67;
+  --cta-text: #fff8e5;
+  --cta-bg-hover: #9a6637;
+  --cta-border-hover: #ecd093;
+  --cta-glow: 0 0 var(--space-md) color-mix(in srgb, var(--cta-border) 30%, transparent);
+  --accent: #d5ad67;
+  --accent-text: #21170f;
+  --logo-accent: var(--accent);
+  --shadow-glow: 0 0 var(--space-lg) color-mix(in srgb, var(--accent) 28%, transparent);
+  --focus-ring: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 24%, transparent);
+  --focus-ring-strong: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 36%, transparent);
+  --font-primary: "Press Start 2P", ui-monospace, monospace;
+}
+
+[data-color-theme="medieval"][data-theme="light"] {
+  --bg: #f4ead2;
+  --surface: #ead9b8;
+  --card: #fff8e5;
+  --card-hover: #f0dfc0;
+  --surface-hover: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+  --border: #a77b4a;
+  --text: #302116;
+  --text-muted: #674e31;
+  --text-dim: #896f4d;
+  --todo: #8a612b;
+  --in-progress: #2e7473;
+  --in-progress-rgb: 46, 116, 115;
+  --in-review: #704c87;
+  --triage: #8a612b;
+  --done: #446b48;
+  --color-success: #3d7544;
+  --color-warning: #8a612b;
+  --color-error: #a94335;
+  --color-info: #2f6f89;
+  --cta-bg: #765125;
+  --cta-border: #61401e;
+  --cta-text: #fff8e5;
+  --cta-bg-hover: #5f3e1c;
+  --cta-border-hover: #4b3015;
+  --cta-glow: 0 0 var(--space-md) color-mix(in srgb, var(--cta-border) 24%, transparent);
+  --accent: #765125;
+  --accent-text: #fff8e5;
+  --logo-accent: var(--accent);
+  --shadow-glow: 0 0 var(--space-lg) color-mix(in srgb, var(--accent) 20%, transparent);
+  --focus-ring: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 18%, transparent);
+  --focus-ring-strong: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 28%, transparent);
+  --font-primary: "Press Start 2P", ui-monospace, monospace;
+}
+
+[data-color-theme="medieval"] body {
+  background-color: var(--bg);
+  background-image: linear-gradient(color-mix(in srgb, var(--text) 3%, transparent) 0 0), repeating-linear-gradient(0deg, transparent 0, transparent var(--space-2xl), color-mix(in srgb, var(--border) 12%, transparent) calc(var(--space-2xl) + var(--btn-border-width)));
+}
 /*
 FNXC:MidnightTheme 2026-08-03-02:05:
 Midnight gives operators deep-navy surfaces with restrained violet/indigo accents in dark mode and a cool pale counterpart in light mode. These complete token blocks preserve distinct semantic statuses, AA-readable text and CTA pairs, and globally resolvable swatch previews for unselected selector options.
