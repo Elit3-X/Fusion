@@ -8,8 +8,8 @@
  * FNXC:WorkflowExecutionOwnership 2026-07-29-16:20:
  * runCodingSession is the live implementation owner and announces NodeCompleted exits.
  */
-import type { Settings, TaskDetail, TaskStore } from "@fusion/core";
-import { emitWorkflowLifecycleEvent, resolveTaskLifecycleColumns } from "@fusion/core";
+import type { ResolvedTaskOutputLanguage, Settings, TaskDetail, TaskStore } from "@fusion/core";
+import { emitWorkflowLifecycleEvent, resolveTaskLifecycleColumns, resolveTaskOutputLanguage } from "@fusion/core";
 import type { ImplementationExit } from "./implementation-exit.js";
 import type {
   AuditPrimitiveInput,
@@ -60,6 +60,7 @@ export type CreateAuthoritativeWorkflowPrimitivesDeps = {
 export function createAuthoritativeWorkflowPrimitivesFromExecutor(
   deps: CreateAuthoritativeWorkflowPrimitivesDeps,
   settings: Settings,
+  outputLanguage?: ResolvedTaskOutputLanguage,
 ): WorkflowRuntimePrimitives {
     const logAudit = async (taskId: string | undefined, input: AuditPrimitiveInput): Promise<void> => {
       if (!taskId) return;
@@ -263,7 +264,7 @@ export function createAuthoritativeWorkflowPrimitivesFromExecutor(
             type: input.type,
             advisory: context[SPLIT_ACTIVE_CONTEXT_KEY] === true,
           } as const;
-          const seamResult = await deps.createAuthoritativeWorkflowSeams(settings).stepReview?.(
+          const seamResult = await deps.createAuthoritativeWorkflowSeams(settings, outputLanguage).stepReview?.(
             task,
             context,
             config,
@@ -276,7 +277,12 @@ export function createAuthoritativeWorkflowPrimitivesFromExecutor(
         }
         const live = await deps.store.getTask(task.id);
         await deps.persistTokenUsage(task.id);
-        await deps.handoffTaskToReview(live, "workflow-graph-review");
+        /*
+        FNXC:TaskOutputLanguage 2026-08-19-16:25:
+        The graph passes its fully resolved target, including original input, through this primitive.
+        Keep the live-description resolver only for legacy direct callers that have no graph snapshot.
+        */
+        await deps.handoffTaskToReview(live, "workflow-graph-review", undefined, outputLanguage ?? resolveTaskOutputLanguage(settings, live.description));
         return {
           outcome: "success",
           value: "in-review",

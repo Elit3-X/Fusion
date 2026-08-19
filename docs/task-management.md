@@ -965,3 +965,7 @@ Use `noCommitsExpected: true` for tasks where the deliverable is a decision/repo
 ### Active-time statistics
 
 Task Detail labels this measure **Total active time**. It sums durable planning AI time (`cumulativePlanningMs`, including a live `planningStartedAt` segment) and in-progress execution time (`cumulativeActiveMs`, including a live `executionStartedAt` segment). Column dwell is wall-clock queue time and is intentionally excluded.
+
+## Generated task language
+
+In **Settings → Models → Project**, choose whether AI-authored task plans, titles, steps, summaries, and recommendations use English, the task input language, or the Fusion interface language. The choice is captured when a planning, title, execution, or workflow generation begins; changing it does not translate or alter existing tasks or active sessions.

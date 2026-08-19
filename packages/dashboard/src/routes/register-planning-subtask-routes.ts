@@ -2,6 +2,7 @@ import {
   DEFAULT_TASK_PRIORITY,
   resolveEffectiveSettingsDetailedById,
   resolvePlanningSettingsModel,
+  resolveTaskOutputLanguage,
   TASK_PRIORITIES,
   THINKING_LEVELS,
   type PlanningSummary,
@@ -624,7 +625,7 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
             resolvedPlanningModelId,
             validatedThinkingLevel,
             settings.promptOverrides,
-            { projectId },
+            { projectId, taskOutputLanguage: resolveTaskOutputLanguage(settings, initialPlan) },
           )
         : await createDraftSession(
             ip,
@@ -633,7 +634,7 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
             resolvedPlanningProvider,
             resolvedPlanningModelId,
             settings.promptOverrides,
-            { projectId },
+            { projectId, taskOutputLanguage: resolveTaskOutputLanguage(settings, initialPlan) },
           );
       res.status(201).json(draft);
     } catch (err: unknown) {
@@ -917,6 +918,7 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         rootDir,
         resolvedPlanningSettings.provider,
         resolvedPlanningSettings.modelId,
+        settings,
       );
 
       res.json({ title });

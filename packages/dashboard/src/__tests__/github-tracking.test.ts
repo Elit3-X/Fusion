@@ -739,7 +739,7 @@ describe("maybeCreateTrackingIssue", () => {
       logger: { warn: vi.fn(), info: vi.fn() },
     });
 
-    expect(summarizeTitleMock).toHaveBeenCalledWith(longDescription, rootDir, "anthropic", "claude");
+    expect(summarizeTitleMock).toHaveBeenCalledWith(longDescription, rootDir, "anthropic", "claude", expect.objectContaining({ mode: "english", locale: "en" }));
     expect(updateTask).toHaveBeenCalledWith("FN-1", { title: "AI generated title" });
     expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ title: "[FN-1] AI generated title" }));
     expect(recordActivity).toHaveBeenCalledWith(expect.objectContaining({ metadata: { type: "github-tracking-title-summarized" } }));
@@ -838,7 +838,7 @@ describe("maybeCreateTrackingIssue", () => {
       logger: { warn: vi.fn(), info: vi.fn() },
     });
 
-    expect(summarizeTitleMock).toHaveBeenCalledWith("Short title fallback", rootDir, "anthropic", "claude");
+    expect(summarizeTitleMock).toHaveBeenCalledWith("Short title fallback", rootDir, "anthropic", "claude", expect.objectContaining({ mode: "english", locale: "en" }));
     expect(updateTask).toHaveBeenCalledWith("FN-1", { title: "AI short title" });
     expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ title: "[FN-1] AI short title" }));
   });

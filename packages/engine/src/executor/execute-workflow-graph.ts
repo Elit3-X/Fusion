@@ -25,6 +25,7 @@ import {
   getBuiltinWorkflow,
   resolveColumnAgentBinding,
   resolveMaxConsecutiveToolFailureRetries,
+  resolveTaskOutputLanguage,
   resolveWorkflowIrForTask,
   upsertWorkflowStepResult,
   applySupersededFindingIds,
@@ -475,11 +476,23 @@ export async function executeWorkflowGraph(
       // the finally below clears it.
       deps.graphUnattendedRuns.delete(task.id);
 
+      /*
+      FNXC:TaskOutputLanguage 2026-08-19-16:25:
+      Capture both settings and original task input before the graph can yield. Review handoffs may
+      fetch a live task after an operator edit, but their deterministic missing-summary fallback must
+      remain bound to the language target selected when this graph invocation began.
+      */
+      const outputLanguage = resolveTaskOutputLanguage(settings, task.description ?? "");
       graphAbortController = new AbortController();
       deps.activeWorkflowGraphAbortControllers.set(task.id, graphAbortController);
       const customNodeExecution = new WorkflowCustomNodeExecutionService({
+        /*
+        FNXC:TaskOutputLanguage 2026-08-19-16:34:
+        Custom prompt and review nodes can yield before their session begins. Bind the graph-start
+        resolution here so a later task-description or settings edit cannot retarget their output.
+        */
         execute: (node, nodeTask, nodeSettings, columnBinding, context) =>
-          deps.runGraphCustomNode(node, nodeTask, nodeSettings, columnBinding, context),
+          deps.runGraphCustomNode(node, nodeTask, nodeSettings, columnBinding, context, outputLanguage),
         resolveColumnBinding: resolveBindingForNode,
       });
       /*
@@ -506,8 +519,8 @@ export async function executeWorkflowGraph(
         runId: resolvedRunId,
         isLiveSharedBranchMember: (nodeTask) =>
           deps.isLiveSharedBranchGroupMember(nodeTask),
-        primitives: deps.createAuthoritativeWorkflowPrimitives(settings),
-        seams: deps.createAuthoritativeWorkflowSeams(settings),
+        primitives: deps.createAuthoritativeWorkflowPrimitives(settings, outputLanguage),
+        seams: deps.createAuthoritativeWorkflowSeams(settings, outputLanguage),
         prepareNodeExecution: (node, nodeTask, requirement) =>
           deps.prepareGraphNodeExecution(node, nodeTask, settings, requirement),
         beforeNodeExecution: async (node, nodeTask, context) =>

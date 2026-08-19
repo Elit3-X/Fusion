@@ -8,6 +8,7 @@
 import { existsSync } from "node:fs";
 import type {
   AgentStore,
+  ResolvedTaskOutputLanguage,
   Settings,
   TaskDetail,
   TaskStore,
@@ -66,6 +67,7 @@ export async function runGraphCustomNode(
   settings: Settings,
   columnBinding?: WorkflowColumnAgent,
   graphContext?: Record<string, unknown>,
+  outputLanguage?: ResolvedTaskOutputLanguage,
 ): Promise<WorkflowNodeResult> {
     const cfg = node.config ?? {};
     let live = await deps.store.getTask(nodeTask.id);
@@ -499,7 +501,7 @@ export async function runGraphCustomNode(
             : nodeEnv;
           const repoOutcome = mode === "script"
             ? await deps.executeScriptWorkflowStep(live, step, repoWorktreePath, settings, repoEnv)
-            : await deps.executeWorkflowStep(live, step, repoWorktreePath, settings, repoEnv, { unattended, principalAgentId });
+            : await deps.executeWorkflowStep(live, step, repoWorktreePath, settings, repoEnv, { unattended, principalAgentId, outputLanguage });
           perRepoOutcomes.push(repoOutcome);
           const approval = repoOutcome.verdict === undefined
             || repoOutcome.verdict === "APPROVE"
@@ -526,7 +528,7 @@ export async function runGraphCustomNode(
     } else {
       outcome = mode === "script"
         ? await deps.executeScriptWorkflowStep(live, step, worktreePath, settings, nodeEnv)
-        : await deps.executeWorkflowStep(live, step, worktreePath, settings, nodeEnv, { unattended, principalAgentId });
+        : await deps.executeWorkflowStep(live, step, worktreePath, settings, nodeEnv, { unattended, principalAgentId, outputLanguage });
     }
     /*
      * FNXC:WorkflowReviewFindings 2026-08-05-06:29:

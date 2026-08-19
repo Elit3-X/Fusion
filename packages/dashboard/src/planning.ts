@@ -30,8 +30,10 @@ import {
   THINKING_LEVELS,
   formatPlanningPlanMd,
   resolvePlanningSettingsModel,
+  resolveTaskOutputLanguage,
   summarizeTitle,
   type PromptOverrideMap,
+  type ResolvedTaskOutputLanguage,
 } from "@fusion/core";
 import type { Task } from "@fusion/core";
 import type { SubtaskItem } from "./subtask-breakdown.js";
@@ -296,6 +298,7 @@ export async function resolvePlanningModeSystemPrompt(
   store: TaskStore,
   promptOverrides?: PromptOverrideMap,
   _workflowId?: string,
+  outputLanguage?: ResolvedTaskOutputLanguage,
 ): Promise<string> {
   const settings: Partial<Settings> = (await store.getSettings().catch(() => ({}))) ?? {};
   const overrides = promptOverrides ?? settings.promptOverrides;
@@ -305,7 +308,10 @@ export async function resolvePlanningModeSystemPrompt(
     ? overrides["planning-system"]
     : undefined;
 
-  return explicitOverride ?? PLANNING_SYSTEM_PROMPT;
+  /* FNXC:TaskOutputLanguage 2026-08-19-14:56: Planning prompt resolution is server-side; React receives only form state, never the runtime resolver. */
+  const base = explicitOverride ?? PLANNING_SYSTEM_PROMPT;
+  const target = outputLanguage ?? resolveTaskOutputLanguage(settings, "");
+  return `${base}\n\n## Task Output Language\n${target.instruction} Apply this only to human-readable question, option, and running-plan values; JSON keys and enums remain canonical.`;
 }
 
 
@@ -341,6 +347,8 @@ export interface DraftInputPayload {
   modelProvider?: string;
   modelId?: string;
   thinkingLevel?: ThinkingLevel;
+  /** Immutable target captured at session start so retry and rehydration cannot retarget prose. */
+  taskOutputLanguage?: ResolvedTaskOutputLanguage;
   summarizedFor?: string;
   validated?: boolean;
   workflowId?: string;
@@ -421,6 +429,8 @@ interface Session {
   draftModelId?: string;
   /** Per-session reasoning effort persisted with the draft/session and threaded into planning agents when set. */
   draftThinkingLevel?: ThinkingLevel;
+  /** Immutable language target persisted with the first generation attempt. */
+  taskOutputLanguage?: ResolvedTaskOutputLanguage;
   /** Plan text the current title was summarized from; lets startExistingSession skip a redundant re-summarize when blur/close already covered the final text. */
   draftSummarizedFor?: string;
   ntfyConfig?: PlanningNtfyConfig;
@@ -830,6 +840,7 @@ function persistSession(session: Session, status: "generating" | "awaiting_input
       ...(session.draftModelProvider ? { modelProvider: session.draftModelProvider } : {}),
       ...(session.draftModelId ? { modelId: session.draftModelId } : {}),
       ...(session.draftThinkingLevel ? { thinkingLevel: session.draftThinkingLevel } : {}),
+      ...(session.taskOutputLanguage ? { taskOutputLanguage: session.taskOutputLanguage } : {}),
       ...(session.draftSummarizedFor ? { summarizedFor: session.draftSummarizedFor } : {}),
       ...(session.workflowId ? { workflowId: session.workflowId } : {}),
       ...(session.sourceIssue ? { sourceIssue: session.sourceIssue } : {}),
@@ -916,6 +927,18 @@ Each active planning turn owns a durable clock and return point. A modal-level D
 clock makes concurrent sessions appear synchronized, while clearing the question before
 generation leaves Stop with nowhere safe to return. Persist both at the turn boundary.
 */
+/*
+FNXC:TaskOutputLanguage 2026-08-19-15:47:
+Planning captures the resolved language before an agent is created. The persisted target, not mutable project settings, owns retries, rebuilds, and rehydrated turns.
+*/
+async function ensurePlanningOutputLanguage(session: Session, store: TaskStore): Promise<ResolvedTaskOutputLanguage> {
+  if (!session.taskOutputLanguage) {
+    const settings: Partial<Settings> = (await store.getSettings().catch(() => ({}))) ?? {};
+    session.taskOutputLanguage = resolveTaskOutputLanguage(settings, session.initialPlan);
+  }
+  return session.taskOutputLanguage;
+}
+
 function beginPlanningGeneration(
   session: Session,
   purpose: NonNullable<Session["generationPurpose"]>,
@@ -1002,6 +1025,7 @@ function buildSessionFromRow(row: AiSessionRow): Session {
     draftModelProvider: payload.modelProvider,
     draftModelId: payload.modelId,
     draftThinkingLevel: thinkingLevel,
+    taskOutputLanguage: payload.taskOutputLanguage,
     draftSummarizedFor: payload.summarizedFor,
     clarificationEnabled: typeof payload.clarificationEnabled === "boolean"
       ? payload.clarificationEnabled
@@ -1365,6 +1389,7 @@ export async function createSession(
     ntfyConfig: options?.ntfyConfig,
   };
 
+  session.taskOutputLanguage = await ensurePlanningOutputLanguage(session, store);
   sessions.set(sessionId, session);
   beginPlanningGeneration(session, "initial_plan");
   persistSession(session, "generating");
@@ -1396,7 +1421,12 @@ async function runCreateSessionFirstTurn(
   pluginRunner?: SkillPluginRunner,
 ): Promise<{ sessionId: string; firstQuestion: PlanningQuestion; summary: PlanningSummary; validated: boolean }> {
   const sessionId = session.id;
-  const systemPrompt = await resolvePlanningModeSystemPrompt(store, promptOverrides, session.workflowId);
+  const systemPrompt = await resolvePlanningModeSystemPrompt(
+    store,
+    promptOverrides,
+    session.workflowId,
+    await ensurePlanningOutputLanguage(session, store),
+  );
 
   // Create AI agent and get the first question
   // Only await engineReady if createFnAgent hasn't been set externally (e.g., via __setCreateFnAgent)
@@ -1672,11 +1702,11 @@ export async function createDraftSession(
   modelProvider?: string,
   modelId?: string,
   thinkingLevelOrPromptOverrides?: ThinkingLevel | PromptOverrideMap,
-  _promptOverridesOrOptions?: PromptOverrideMap | { projectId?: string },
-  optionsMaybe?: { projectId?: string },
+  _promptOverridesOrOptions?: PromptOverrideMap | { projectId?: string; taskOutputLanguage?: ResolvedTaskOutputLanguage },
+  optionsMaybe?: { projectId?: string; taskOutputLanguage?: ResolvedTaskOutputLanguage },
 ): Promise<{ sessionId: string; title: string }> {
   const thinkingLevel = isThinkingLevel(thinkingLevelOrPromptOverrides) ? thinkingLevelOrPromptOverrides : undefined;
-  const options = (isThinkingLevel(thinkingLevelOrPromptOverrides) ? optionsMaybe : _promptOverridesOrOptions) as { projectId?: string } | undefined;
+  const options = (isThinkingLevel(thinkingLevelOrPromptOverrides) ? optionsMaybe : _promptOverridesOrOptions) as { projectId?: string; taskOutputLanguage?: ResolvedTaskOutputLanguage } | undefined;
   if (!checkRateLimit(ip)) {
     const resetTime = getRateLimitResetTime(ip);
     throw new RateLimitError(
@@ -1699,6 +1729,8 @@ export async function createDraftSession(
     initialPlan,
     title,
     projectId: options?.projectId,
+    /* FNXC:TaskOutputLanguage 2026-08-19-16:01: Draft creation receives the server-resolved target so title generation and a later start share one immutable language snapshot. */
+    taskOutputLanguage: options?.taskOutputLanguage,
     draftModelProvider: hasModelOverride ? modelProvider : undefined,
     draftModelId: hasModelOverride ? modelId : undefined,
     draftThinkingLevel: thinkingLevel,
@@ -1763,6 +1795,7 @@ export async function summarizeDraftTitle(
   rootDir: string,
   modelProvider?: string,
   modelId?: string,
+  settings?: Partial<Settings>,
 ): Promise<string | null> {
   if (!_aiSessionStore) return null;
 
@@ -1780,9 +1813,26 @@ export async function summarizeDraftTitle(
   const effectiveProvider = payload.modelProvider ?? modelProvider;
   const effectiveModelId = payload.modelId ?? modelId;
 
+  const outputLanguage = payload.taskOutputLanguage ?? resolveTaskOutputLanguage(settings, trimmed);
+  /* FNXC:TaskOutputLanguage 2026-08-19-16:01: Legacy drafts without a target capture it before title generation, fencing subsequent retries and rehydration from later settings changes. */
+  if (!payload.taskOutputLanguage) {
+    await _aiSessionStore.updateDraft(sessionId, {
+      initialPlan: payload.initialPlan ?? "",
+      modelProvider: payload.modelProvider,
+      modelId: payload.modelId,
+      thinkingLevel: payload.thinkingLevel,
+      taskOutputLanguage: outputLanguage,
+    });
+  }
+  const inMemory = sessions.get(sessionId);
+  if (inMemory && !inMemory.taskOutputLanguage) {
+    inMemory.taskOutputLanguage = outputLanguage;
+    void persistSession(inMemory, "draft");
+  }
+
   let finalTitle = trimmed.slice(0, 60).trim();
   try {
-    const generated = await summarizeTitle(trimmed, rootDir, effectiveProvider, effectiveModelId);
+    const generated = await summarizeTitle(trimmed, rootDir, effectiveProvider, effectiveModelId, outputLanguage);
     finalTitle = generated?.trim() || finalTitle;
   } catch (error) {
     diagnostics.errorFromException(
@@ -1878,9 +1928,12 @@ export async function startExistingSession(
       persistedProvider = payload.modelProvider;
       persistedModelId = payload.modelId;
       persistedThinkingLevel = isThinkingLevel(payload.thinkingLevel) ? payload.thinkingLevel : undefined;
+      if (payload.taskOutputLanguage) session.taskOutputLanguage = payload.taskOutputLanguage;
       persistedSummarizedFor = payload.summarizedFor;
     }
   }
+
+  await ensurePlanningOutputLanguage(session, store);
 
   // Re-summarize when transitioning out of draft so the title reflects the
   // FINAL text — but skip the model call when blur/close already produced a
@@ -1899,7 +1952,7 @@ export async function startExistingSession(
       const summarizeModelId = modelId ?? persistedModelId;
       void (async () => {
         try {
-          const generated = await summarizeTitle(trimmed, rootDir, summarizeProvider, summarizeModelId);
+          const generated = await summarizeTitle(trimmed, rootDir, summarizeProvider, summarizeModelId, session.taskOutputLanguage);
           const finalTitle = generated?.trim() || fallback;
           if (!finalTitle) return;
           session.title = finalTitle;
@@ -2024,6 +2077,7 @@ export async function createSessionWithAgent(
     pluginRunner: options?.pluginRunner,
   };
 
+  session.taskOutputLanguage = await ensurePlanningOutputLanguage(session, store);
   sessions.set(sessionId, session);
   beginPlanningGeneration(session, "initial_plan");
   await persistSession(session, "generating");
@@ -2158,7 +2212,12 @@ async function createPlanningAgent(
   // Ensure engine is loaded before using createFnAgent
   await ensureEngineReady();
 
-  const systemPrompt = await resolvePlanningModeSystemPrompt(store, promptOverrides, session.workflowId);
+  const systemPrompt = await resolvePlanningModeSystemPrompt(
+    store,
+    promptOverrides,
+    session.workflowId,
+    await ensurePlanningOutputLanguage(session, store),
+  );
 
   const skillContext = buildSessionSkillContextSync(null, "executor", rootDir, pluginRunner);
 

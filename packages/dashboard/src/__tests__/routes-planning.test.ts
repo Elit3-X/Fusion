@@ -1546,6 +1546,31 @@ describe("Planning Mode Routes", () => {
         }
       });
 
+      it("captures the output language in a draft before later settings can change it", async () => {
+        const sessionStore = new MockAiSessionStore();
+        setAiSessionStore(sessionStore as unknown as Parameters<typeof setAiSessionStore>[0]);
+        store = createMockStore({
+          getSettings: vi.fn().mockResolvedValue({ taskOutputLanguage: "interface", language: "fr" }),
+        });
+
+        const draftRes = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/create-draft",
+          JSON.stringify({ initialPlan: "Plan en español" }),
+          { "Content-Type": "application/json" },
+        );
+
+        expect(draftRes.status).toBe(201);
+        await vi.waitFor(() => {
+          const row = sessionStore.rows.get(draftRes.body.sessionId);
+          expect(JSON.parse(row?.inputPayload ?? "{}").taskOutputLanguage).toMatchObject({
+            mode: "interface",
+            locale: "fr",
+          });
+        });
+      });
+
       it("starts the deferred first turn exactly once even with concurrent subscribers", async () => {
         vi.useFakeTimers();
         try {
@@ -5306,7 +5331,7 @@ describe("POST /api/ai/summarize-title", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ title: "Generated short title" });
-    expect(summarizeTitleSpy).toHaveBeenCalledWith("Short description", "/test/project", undefined, undefined);
+    expect(summarizeTitleSpy).toHaveBeenCalledWith("Short description", "/test/project", undefined, undefined, expect.objectContaining({ mode: "english", locale: "en" }));
   });
 
   it("accepts optional provider and modelId parameters", async () => {
@@ -5335,6 +5360,7 @@ describe("POST /api/ai/summarize-title", () => {
       "/test/project",
       "google",
       "gemini-2.5-pro",
+      expect.objectContaining({ mode: "english", locale: "en" }),
     );
   });
 
@@ -5360,6 +5386,7 @@ describe("POST /api/ai/summarize-title", () => {
       "/test/project",
       undefined,
       undefined,
+      expect.objectContaining({ mode: "english", locale: "en" }),
     );
   });
 
@@ -5475,6 +5502,7 @@ describe("POST /api/ai/summarize-title", () => {
       "/test/project",
       "openai",
       "gpt-4o",
+      expect.objectContaining({ mode: "english", locale: "en" }),
     );
   });
 });
@@ -5552,7 +5580,7 @@ describe("POST /planning/start-streaming with projectId scoping", () => {
     await vi.waitFor(() => {
       expect(createFnAgentSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          systemPrompt: customPlanningPrompt,
+          systemPrompt: expect.stringContaining(customPlanningPrompt),
           defaultProvider: "scoped-provider",
           defaultModelId: "scoped-model",
         }),

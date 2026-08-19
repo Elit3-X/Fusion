@@ -305,7 +305,7 @@ describe("buildSpecificationPrompt", () => {
 
       expect(prompt).toContain("## Task Definition Language");
       expect(prompt).toContain(`${displayName} (${locale})`);
-      expect(prompt).toContain("Keep every `##`/`###` section heading");
+      expect(prompt).toContain("every `##`/`###` heading");
       expect(prompt).toContain("`## Original Description`");
     });
 
@@ -333,14 +333,15 @@ describe("buildSpecificationPrompt", () => {
       ["short input", languageSettings, "Très court"],
       ["low-confidence input", languageSettings, "Atypical vocabulary provides no familiar stopwords despite being long enough for language detection to inspect this ambiguous prose sample."],
       ["unsupported Japanese input", languageSettings, "ユーザーが作業内容と必要な手順を日本語で詳細に説明し、すべての利用者が理解できるように要件と確認方法を記載しています。"],
-    ])("keeps English behavior when %s", (_reason, settings, description) => {
+    ])("uses the explicit English contract when %s", (_reason, settings, description) => {
       const prompt = buildSpecificationPrompt(
         { ...baseTask, description },
         ".fusion/tasks/KB-001/PROMPT.md",
         settings,
       );
 
-      expect(prompt).not.toContain("## Task Definition Language");
+      expect(prompt).toContain("## Task Definition Language");
+      expect(prompt).toContain(settings.taskDefinitionInInputLanguage ? "same language as the original user input" : "in English");
     });
   });
 

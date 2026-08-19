@@ -308,7 +308,7 @@ const SETTING_DESCRIPTION_KEYS: Record<string, string> = {
   // ProjectModelsSection
   autoSelectModelPreset: "projectModels.autoSelectModelPresetHint",
   autoSummarizeTitles: "projectModels.whenEnabledTasksCreatedWithoutATitleBut",
-  taskDefinitionInInputLanguage: "projectModels.taskDefinitionInInputLanguageHelp",
+  taskOutputLanguage: "projectModels.taskOutputLanguageHelp",
   defaultPresetBySize: "projectModels.autoSelectModelPresetHint",
   modelPresets: "projectModels.autoSelectModelPresetHint",
   prDescriptionPromptInstructions: "projectModels.prDescriptionPromptInstructionsHelp",
@@ -325,6 +325,8 @@ const SETTING_DESCRIPTION_KEYS: Record<string, string> = {
 
 /** Setting keys intentionally not surfaced as a plain Settings UI description field, with reasons. */
 const NOT_SURFACED_ALLOWLIST: Record<string, string> = {
+  // FNXC:TaskOutputLanguage 2026-08-19-14:56: Legacy compatibility remains persisted but hidden behind the three-mode selector.
+  taskDefinitionInInputLanguage: "legacy task-output-language compatibility flag, not a rendered Settings field",
   /*
   FNXC:OriginWorkflowSelection 2026-07-26-19:40:
   Server-side mirror of the operator's Board workflow lane, written by the dashboard

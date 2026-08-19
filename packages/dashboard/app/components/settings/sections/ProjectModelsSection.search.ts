@@ -54,13 +54,12 @@ export const projectModelsSearchEntries: SettingsSearchEntry[] = [
   },
   {
     sectionId: "project-models",
-    key: "taskDefinitionInInputLanguage",
-    labelKey: "settings.projectModels.taskDefinitionInInputLanguage",
-    labelFallback: "Write task definitions in the operator's input language",
-    helpKey: "settings.projectModels.taskDefinitionInInputLanguageHelp",
-    helpFallback:
-      "When enabled, generated task-definition prose uses supported detectable input languages (Spanish, French, Korean, or Chinese as zh-CN). Headings, markers, and code stay English. Unsupported or undetectable input stays English. Default: disabled.",
-    keywords: ["task definition", "prompt language", "localized prose", "Spanish", "French", "Korean", "Chinese"],
+    key: "taskOutputLanguage",
+    labelKey: "settings.projectModels.taskOutputLanguage",
+    labelFallback: "AI-authored task language",
+    helpKey: "settings.projectModels.taskOutputLanguageHelp",
+    helpFallback: "Choose the language for AI-authored task plans, titles, steps, summaries, and recommendations. No stored default — unset resolves English. Changes apply to new generation sessions only.",
+    keywords: ["task", "output", "language", "English", "input", "interface", "plans", "summaries"],
   },
   {
     sectionId: "project-models",

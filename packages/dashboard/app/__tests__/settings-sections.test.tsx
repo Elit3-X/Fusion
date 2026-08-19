@@ -601,22 +601,29 @@ describe("ProjectModelsSection", () => {
     expect(screen.getByTestId("mock-model-dropdown-preset-validator-model")).toHaveAttribute("data-menu-width", "readable");
   });
 
-  it("renders and updates the supported input-language task-definition toggle", () => {
+  it("renders the three-mode task-output language selector and deactivates legacy authority", () => {
     const setForm = vi.fn();
     render(
       <ProjectModelsSection
-        form={{ taskDefinitionInInputLanguage: false } as SettingsFormState}
+        form={{ taskDefinitionInInputLanguage: true } as SettingsFormState}
         setForm={setForm}
         models={models}
         addToast={vi.fn()}
       />,
     );
 
-    const toggle = screen.getByRole("checkbox", { name: "Write task definitions in the operator's input language" });
-    expect(toggle).not.toBeChecked();
-    expect(screen.getByText(/supported detectable input languages/i)).toBeInTheDocument();
-    fireEvent.click(toggle);
-    expect(setForm).toHaveBeenCalled();
+    const select = screen.getByRole("combobox", { name: "AI-authored task language" });
+    expect(select).toHaveValue("input");
+    expect(screen.getByRole("option", { name: "English (default)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "User input language" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Fusion interface language" })).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: "interface" } });
+    expect(setForm).toHaveBeenCalledWith(expect.any(Function));
+    const update = setForm.mock.calls[0]?.[0] as (form: SettingsFormState) => SettingsFormState;
+    expect(update({ taskDefinitionInInputLanguage: true } as SettingsFormState)).toMatchObject({
+      taskOutputLanguage: "interface",
+      taskDefinitionInInputLanguage: false,
+    });
   });
 
   it("colocates summarization model controls with AI summarization settings", () => {

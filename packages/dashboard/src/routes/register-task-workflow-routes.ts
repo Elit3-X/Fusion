@@ -45,6 +45,7 @@ import {
   isTaskPriority,
   REPO_OVERRIDE_RE,
   resolveTitleSummarizerSettingsModel,
+  resolveTaskOutputLanguage,
   validateNodeOverrideChange,
   evaluateImplementationTaskBind,
   applyWorkflowSettingsOverlay,
@@ -1761,6 +1762,12 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       // Get settings for auto-summarization (fast path — skips expensive workflow steps query)
       const settings = await scopedStore.getSettingsFast();
 
+      /*
+      FNXC:TaskOutputLanguage 2026-08-19-15:36:
+      A task-create request snapshots its language target before deferred title generation so a
+      settings save during the model call cannot retarget that pending title.
+      */
+      const titleOutputTarget = resolveTaskOutputLanguage(settings, typeof description === "string" ? description : "");
       // Create onSummarize callback if summarization is enabled
       const onSummarize = (summarize || settings.autoSummarizeTitles)
         ? async (desc: string): Promise<string | null> => {
@@ -1776,7 +1783,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               const { provider: resolvedProvider, modelId: resolvedModelId } =
                 resolveTitleSummarizerSettingsModel(settings);
 
-              return await summarizeTitle(desc, scopedStore.getRootDir(), resolvedProvider, resolvedModelId);
+              return await summarizeTitle(desc, scopedStore.getRootDir(), resolvedProvider, resolvedModelId, titleOutputTarget);
             } catch (err) {
               // Log the full error so server logs show what went wrong
               const errorMessage = err instanceof Error ? err.message : String(err);

@@ -13,6 +13,7 @@ import {DEFAULT_SETTINGS, isGlobalOnlySettingsKey} from "../types.js";
 import {MOVED_SETTINGS_KEYS, stripMovedSettingsKeys, patchContainsMovedKey} from "../config/moved-settings.js";
 import "../builtin-traits.js";
 import {validateLocale, assertWorktreeNamingRecycleExclusive} from "../config/settings-validation.js";
+import { isTaskOutputLanguage } from "../ai/ai-output-language.js";
 import {hasSyncPassphraseConfigured} from "../secrets/secrets-sync-passphrase.js";
 import {ensureMemoryFileWithBackend} from "../memory/project-memory.js";
 import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
@@ -175,6 +176,10 @@ export async function publishSettingsUpdated(
 
 export async function updateSettingsImpl(store: TaskStore, patch: Partial<Settings>, changedBy: ConfigChangedBy = CONFIG_CHANGED_BY_SYSTEM): Promise<Settings> {
     assertValidRecommendationSettingsPatch(patch as Record<string, unknown>);
+    /* FNXC:TaskOutputLanguage 2026-08-19-14:56: Reject malformed mode patches before the configuration transaction so neither config nor revision changes. */
+    if ("taskOutputLanguage" in patch && patch.taskOutputLanguage !== null && patch.taskOutputLanguage !== undefined && !isTaskOutputLanguage(patch.taskOutputLanguage)) {
+      throw new Error("taskOutputLanguage must be english, input, or interface");
+    }
     assertValidCredentialInstanceSettingsPatch(patch as Record<string, unknown>);
     /*
     FNXC:ConfigVersioning 2026-07-18-12:15:
@@ -218,6 +223,8 @@ export async function updateSettingsImpl(store: TaskStore, patch: Partial<Settin
         (projectPatch as Record<string, unknown>)[key] = value;
       }
     }
+    /* FNXC:TaskOutputLanguage 2026-08-19-14:56: An explicit new mode wins permanently over the compatibility flag in the same revision transaction. */
+    if (isTaskOutputLanguage(projectPatch.taskOutputLanguage)) projectPatch.taskDefinitionInInputLanguage = false;
 
     return store.withConfigLock(async () => {
       /*

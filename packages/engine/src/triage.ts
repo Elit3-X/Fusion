@@ -59,8 +59,7 @@ import {
   resolveEffectiveAgentPermissionPolicy,
   MAX_TASK_LIST_TEXT_CHARS,
   deriveFallbackTaskTitle,
-  detectContentLanguage,
-  localeDisplayName,
+  resolveTaskOutputLanguage,
   parsePlanningPlanMd,
   type NearDuplicateCandidate,
 } from "@fusion/core";
@@ -5620,30 +5619,16 @@ When writing PROMPT.md, add this as an explicit requirement under completion doc
     memorySection = "\n\n" + buildTriageMemoryInstructions("", settings, undefined, memoryMode);
   }
 
-  let taskDefinitionLanguageSection = "";
-  if (settings?.taskDefinitionInInputLanguage === true) {
-    const detectedLanguage = detectContentLanguage(task.description);
-    const isSupportedNonEnglishLanguage = (
-      detectedLanguage.locale === "es"
-      || detectedLanguage.locale === "fr"
-      || detectedLanguage.locale === "ko"
-      || detectedLanguage.locale === "zh-CN"
-    ) && (detectedLanguage.confidence === "medium" || detectedLanguage.confidence === "high");
+  /*
+  FNXC:TaskOutputLanguage 2026-08-19-14:56:
+  Triage snapshots one core-resolved target for fresh, revision, and re-specification prompts.
+  Original Description and PROMPT.md grammar remain canonical while planner prose follows the mode.
+  */
+  const outputLanguage = resolveTaskOutputLanguage(settings, originalDescription ?? task.description);
+  const taskDefinitionLanguageSection = `\n\n## Task Definition Language
+${outputLanguage.instruction} This includes task title, Mission, Before → After bullets, review assessment, step prose, acceptance criteria, and recommendations.
 
-    /*
-    FNXC:TaskDefinitionInputLanguage 2026-07-16-05:00:
-    PROMPT.md gates parse canonical English headings and markers, so opt-in localization
-    applies only to planner-authored prose. Conservative core detection limits authoring to
-    confident es/fr/ko/zh-CN input; Chinese intentionally normalizes to zh-CN, while English,
-    Japanese/unknown, short, and low-confidence descriptions keep byte-faithful English output.
-    */
-    if (isSupportedNonEnglishLanguage) {
-      taskDefinitionLanguageSection = `\n\n## Task Definition Language
-Write all human-readable, planner-authored prose in the operator's detected input language: ${localeDisplayName(detectedLanguage.locale)} (${detectedLanguage.locale}). This includes Mission, Before → After bullets, Review Level assessments, step descriptions, and Do NOT items.
-
-Keep every \`##\`/\`###\` section heading, machine marker, the verbatim \`## Original Description\` block, fenced and inline code, file paths, \`fn_*\` tool names, and commit-message conventions in canonical English. Do not translate or alter them.`;
-    }
-  }
+Keep the verbatim \`## Original Description\` block and every \`##\`/\`###\` heading, machine marker, fenced and inline code, file path, \`fn_*\` tool name, and commit-message convention canonical and unchanged.`;
 
   let attachmentsSection = "";
   if (attachmentContents && attachmentContents.length > 0) {

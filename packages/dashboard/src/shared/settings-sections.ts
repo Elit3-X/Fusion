@@ -124,7 +124,7 @@ const SETTINGS_SECTION_DEFINITIONS: readonly SettingsSectionDefinition[] = [
       "autoSummarizeTitles",
       "task definition language",
       "task definitions input language",
-      "taskDefinitionInInputLanguage",
+      "taskOutputLanguage",
       "localized task prose",
       "title summarization",
       "title summarizer",

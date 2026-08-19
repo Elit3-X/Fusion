@@ -843,20 +843,28 @@ export function ProjectModelsSection({ form, setForm, models, projectId, onOpenW
         </div>) : null}
 
       {/*
-      FNXC:TaskDefinitionInputLanguage 2026-07-16-05:00:
-      Keep task-definition language outside title and merge summarization controls: it changes
-      triage authoring only, uses no summarizer lane, and is opt-in for supported detectable
-      languages. The shared toggle row carries the responsive Project Models layout.
+      FNXC:TaskOutputLanguage 2026-08-19-14:56:
+      This is the sole task-output control in the shared desktop/mobile Project Models section.
+      The UI derives legacy true for display only; selecting a mode makes the project write authoritative.
       */}
-      <SettingsToggleRow
+      <SettingsSelectRow
         descriptor={{
-          key: "taskDefinitionInInputLanguage",
-          label: t("settings.projectModels.taskDefinitionInInputLanguage", "Write task definitions in the operator's input language"),
-          help: t("settings.projectModels.taskDefinitionInInputLanguageHelp", "When enabled, generated task-definition prose uses supported detectable input languages (Spanish, French, Korean, or Chinese as zh-CN). Headings, markers, and code stay English. Unsupported or undetectable input stays English. Default: disabled."),
+          key: "taskOutputLanguage",
+          label: t("settings.projectModels.taskOutputLanguage", "AI-authored task language"),
+          help: t("settings.projectModels.taskOutputLanguageHelp", "Choose the language for AI-authored task plans, titles, steps, summaries, and recommendations. No stored default — unset resolves English. Changes apply to new generation sessions only."),
           scope: "project",
+          options: [
+            { value: "english", label: t("settings.projectModels.taskOutputLanguageEnglish", "English (default)") },
+            { value: "input", label: t("settings.projectModels.taskOutputLanguageInput", "User input language") },
+            { value: "interface", label: t("settings.projectModels.taskOutputLanguageInterface", "Fusion interface language") },
+          ],
         }}
-        value={form.taskDefinitionInInputLanguage || false}
-        onChange={(v) => setForm((f) => ({ ...f, taskDefinitionInInputLanguage: v === true }))}
+        value={form.taskOutputLanguage ?? (form.taskDefinitionInInputLanguage ? "input" : "english")}
+        onChange={(value) => setForm((current) => ({
+          ...current,
+          taskOutputLanguage: value as "english" | "input" | "interface",
+          taskDefinitionInInputLanguage: false,
+        }))}
       />
 
       {/* --- AI Title and Git Commit Message Summarization --- */}

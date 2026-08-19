@@ -4,6 +4,7 @@ import {
   declaresAnyLifecycleTrait,
   parseRepoSlug,
   resolveTaskGithubTracking,
+  resolveTaskOutputLanguage,
   resolveWorkflowIrForTask,
   summarizeTitle,
   type GlobalSettings,
@@ -444,11 +445,13 @@ export async function maybeCreateTrackingIssue(
 
   if (canSummarizeTitle) {
     try {
+      /* FNXC:TaskOutputLanguage 2026-08-19-15:36: GitHub tracking snapshots task prose language before its asynchronous title call. */
       const generatedTitle = await summarizeTitle(
         latestTask.description,
         deps.rootDir,
         resolvedSummarizer.provider,
         resolvedSummarizer.modelId,
+        resolveTaskOutputLanguage({ ...deps.globalSettings, ...deps.projectSettings }, latestTask.description),
       );
 
       if (generatedTitle) {

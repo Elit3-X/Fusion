@@ -199,7 +199,7 @@ export const PROJECT_SECTION_KEYS: Readonly<Record<string, readonly string[]>> =
     "autoSelectModelPreset",
     "autoSummarizeTitles",
     "defaultPresetBySize",
-    "taskDefinitionInInputLanguage",
+    "taskOutputLanguage",
     "defaultWorkflowId",
     "modelPresets",
     "prDescriptionPromptInstructions",

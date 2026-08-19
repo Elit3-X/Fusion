@@ -18,6 +18,7 @@ import "../builtin-traits.js";
 import {applyReviewLevelPreset} from "../tasks/review-level-preset.js";
 import {normalizeTaskPriority} from "../tasks/task-priority.js";
 import {sanitizeTitle, summarizeTitle} from "../ai/ai-summarize.js";
+import {resolveTaskOutputLanguage} from "../ai/ai-output-language.js";
 import {extractTaskIdTokens, normalizeTitleForTaskId} from "../tasks/task-title-id-drift.js";
 import {resolveTitleSummarizerSettingsModel} from "../ai/model-resolution.js";
 import {resolveEffectiveSettingsById} from "../workflows/workflow-settings-resolver.js";
@@ -261,6 +262,8 @@ export async function createTaskBackendImpl(store: TaskStore, input: TaskCreateI
         // Never-throw: fall back to the base settings (global lane only).
       }
       const summarizerModel = resolveTitleSummarizerSettingsModel(summarizerSettings);
+      /* FNXC:TaskOutputLanguage 2026-08-19-14:56: Capture the target before the deferred title call; its late writer must not observe a later settings change. */
+      const titleLanguageTarget = resolveTaskOutputLanguage(summarizerSettings, input.description);
       if (summarizerModel.provider && summarizerModel.modelId) {
         onSummarize = async (description: string) => {
           try {
@@ -269,6 +272,7 @@ export async function createTaskBackendImpl(store: TaskStore, input: TaskCreateI
               store.getRootDir(),
               summarizerModel.provider,
               summarizerModel.modelId,
+              titleLanguageTarget,
             );
           } catch {
             return null;

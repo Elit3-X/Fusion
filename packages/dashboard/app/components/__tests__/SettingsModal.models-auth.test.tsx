@@ -229,14 +229,14 @@ describe("SettingsModal", () => {
       });
     });
 
-    it("saves the task-definition input-language toggle in the project settings payload", async () => {
+    it("saves task output language in the project settings payload", async () => {
       await expectSettingPersists({
         section: "Models · Project",
-        label: "Write task definitions in the operator's input language",
-        kind: "checkbox",
-        value: true,
+        label: "AI-authored task language",
+        kind: "select",
+        value: "input",
         scope: "project",
-        expectedKey: "taskDefinitionInInputLanguage",
+        expectedKey: "taskOutputLanguage",
       });
     });
 

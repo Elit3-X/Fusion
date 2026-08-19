@@ -2142,6 +2142,8 @@ export interface ProjectSettings {
   /** When true, writes generated task-definition prose in the operator's detected supported
    *  input language. Default: false; uncertain or unsupported input falls back to English. */
   taskDefinitionInInputLanguage?: boolean;
+  /** Project policy for human-readable AI-authored task output. Unset preserves legacy compatibility. */
+  taskOutputLanguage?: import("../../ai/ai-output-language.js").TaskOutputLanguage;
   /** When true, merge commit messages include an AI-generated summary of the
    *  changes instead of just listing step commit subjects. Body composition
    *  includes a narrative line, bullet summary, and `git diff --stat` when

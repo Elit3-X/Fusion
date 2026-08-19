@@ -751,6 +751,8 @@ export const DEFAULT_PROJECT_SETTINGS = {
   not variant-detected and unsupported input, including Japanese, remains English.
   */
   taskDefinitionInInputLanguage: false,
+  /* FNXC:TaskOutputLanguage 2026-08-19-14:56: Undefined preserves legacy true compatibility; the resolver supplies English for fresh projects. */
+  taskOutputLanguage: undefined,
   useAiMergeCommitSummary: true,
   // Title-summarizer model lanes stay project-scoped (not moved in U4).
   titleSummarizerProvider: undefined,

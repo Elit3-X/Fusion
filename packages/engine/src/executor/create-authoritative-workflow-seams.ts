@@ -5,8 +5,8 @@
  * FNXC:WorkflowExecutionOwnership 2026-07-27-16:25 / 2026-07-28-20:25:
  * Seam return vocabulary is the ownership boundary; exit events announce without changing outcomes.
  */
-import type { AgentStore, Settings, TaskStore, ThinkingLevel, WorkspaceConfig } from "@fusion/core";
-import { emitWorkflowLifecycleEvent, THINKING_LEVELS } from "@fusion/core";
+import type { AgentStore, ResolvedTaskOutputLanguage, Settings, TaskStore, ThinkingLevel, WorkspaceConfig } from "@fusion/core";
+import { emitWorkflowLifecycleEvent, resolveTaskOutputLanguage, THINKING_LEVELS } from "@fusion/core";
 import type { ImplementationExit } from "./implementation-exit.js";
 import type { WorkflowLegacySeams } from "../workflows/workflow-node-handlers.js";
 import type { AgentSemaphore } from "../concurrency/concurrency.js";
@@ -81,7 +81,8 @@ export type CreateAuthoritativeWorkflowSeamsDeps = {
 
 export function createAuthoritativeWorkflowSeams(
   deps: CreateAuthoritativeWorkflowSeamsDeps,
-  _settings: Settings,
+  settings: Settings,
+  outputLanguage?: ResolvedTaskOutputLanguage,
 ): WorkflowLegacySeams {
     return {
       // Built-in triage/spec generation runs upstream of the interpreter today,
@@ -183,7 +184,12 @@ export function createAuthoritativeWorkflowSeams(
         // the staging state the merge queue consumes.
         const live = await deps.store.getTask(seamTask.id);
         await deps.persistTokenUsage(seamTask.id);
-        await deps.handoffTaskToReview(live, "workflow-graph-review");
+        /*
+        FNXC:TaskOutputLanguage 2026-08-19-16:25:
+        Legacy graph seams receive the invocation's resolved target rather than re-detecting a
+        mutable live description. Direct seam callers retain the compatibility fallback.
+        */
+        await deps.handoffTaskToReview(live, "workflow-graph-review", undefined, outputLanguage ?? resolveTaskOutputLanguage(settings, live.description));
         return { outcome: "success", value: "in-review" };
       },
       "review-handoff": async (seamTask) => {
@@ -193,7 +199,8 @@ export function createAuthoritativeWorkflowSeams(
          */
         const live = await deps.store.getTask(seamTask.id);
         await deps.persistTokenUsage(seamTask.id);
-        await deps.handoffTaskToReview(live, "workflow-graph-review-handoff");
+        /* FNXC:TaskOutputLanguage 2026-08-19-16:25: Manual handoff uses the same invocation snapshot as the review seam. */
+        await deps.handoffTaskToReview(live, "workflow-graph-review-handoff", undefined, outputLanguage ?? resolveTaskOutputLanguage(settings, live.description));
         return { outcome: "success", value: "in-review" };
       },
       merge: async (seamTask, _context, signal) => {

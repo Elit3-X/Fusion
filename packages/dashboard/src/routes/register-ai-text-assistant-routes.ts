@@ -1,4 +1,4 @@
-import { resolveImportTranslateSettingsModel, resolveTitleSummarizerSettingsModel } from "@fusion/core";
+import { resolveImportTranslateSettingsModel, resolveTaskOutputLanguage, resolveTitleSummarizerSettingsModel } from "@fusion/core";
 import { createSessionDiagnostics } from "../ai-session-diagnostics.js";
 import { ApiError, badRequest, rateLimited, rethrowAsApiError } from "../api-error.js";
 import type { ApiRouteRegistrar } from "./types.js";
@@ -355,7 +355,14 @@ router.post("/ai/summarize-title", async (req, res) => {
     }
 
     // Process summarization
-    const title = await summarizeTitle(description, rootDir, resolvedProvider, resolvedModelId);
+    /* FNXC:TaskOutputLanguage 2026-08-19-15:36: Explicit title requests capture the project target once per request. */
+    const title = await summarizeTitle(
+      description,
+      rootDir,
+      resolvedProvider,
+      resolvedModelId,
+      resolveTaskOutputLanguage(settings, description),
+    );
 
     if (!title) {
       throw badRequest("AI returned empty title");

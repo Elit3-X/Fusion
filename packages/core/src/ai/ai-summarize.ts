@@ -14,6 +14,7 @@
 
 import { getFnAgent, type AgentMessage } from "./ai-engine-loader.js";
 import { detectContentLanguage, localeDisplayName } from "../i18n/detect-content-language.js";
+import type { ResolvedTaskOutputLanguage } from "./ai-output-language.js";
 import { DANGLING_TAIL_STOPWORDS, stripDanglingTail, stripEmptyPlaceholders } from "../tasks/task-title-id-drift.js";
 import { createLogger } from "../process/logger.js";
 const log = createLogger("ai-summarize");
@@ -227,7 +228,10 @@ function formatConfiguredModel(provider?: string, modelId?: string): string {
  * the generated title must match the operator's description language without another model call.
  * Detection only adds a medium-or-higher confidence hint; matching the description remains the rule.
  */
-function buildTitleLanguageInstruction(description: string): string {
+function buildTitleLanguageInstruction(description: string, target?: ResolvedTaskOutputLanguage): string {
+  /* FNXC:TaskOutputLanguage 2026-08-19-14:56: Deferred title generation receives a start-time snapshot and never re-reads mutable settings. */
+  if (target?.mode === "english") return "Write the title in English.";
+  if (target?.mode === "interface" && target.locale) return `Write the title in ${localeDisplayName(target.locale)} (${target.locale}).`;
   const detected = detectContentLanguage(description);
   if (detected.locale !== "unknown" && detected.confidence !== "low") {
     return `Write the title in the SAME language as the task description. Likely language: ${localeDisplayName(detected.locale)}.`;
@@ -242,6 +246,7 @@ async function runTitleSummarizer(
   rootDir: string,
   provider?: string,
   modelId?: string,
+  target?: ResolvedTaskOutputLanguage,
 ): Promise<string> {
   const agentOptions: {
     cwd: string;
@@ -282,7 +287,7 @@ async function runTitleSummarizer(
       : description;
     const wrappedPrompt =
       "Summarize the following task description into a title (≤60 chars). " +
-      buildTitleLanguageInstruction(description) + " " +
+      buildTitleLanguageInstruction(description, target) + " " +
       "Output ONLY the title text on a single line. Do not call any tools.\n\n" +
       "<description>\n" +
       truncatedDescription +
@@ -359,7 +364,8 @@ export async function summarizeTitle(
   description: string,
   rootDir: string,
   provider?: string,
-  modelId?: string
+  modelId?: string,
+  target?: ResolvedTaskOutputLanguage,
 ): Promise<string | null> {
   // Validate before creating an agent so invalid input never incurs model work.
   validateDescription(description);
@@ -371,7 +377,7 @@ export async function summarizeTitle(
   }
 
   try {
-    return await runTitleSummarizer(createFnAgent, description, rootDir, provider, modelId);
+    return await runTitleSummarizer(createFnAgent, description, rootDir, provider, modelId, target);
   } catch (err) {
     if (!provider || !modelId || !isConfiguredModelNotFoundError(err)) {
       throw err;
@@ -383,7 +389,7 @@ export async function summarizeTitle(
     );
 
     try {
-      return await runTitleSummarizer(createFnAgent, description, rootDir);
+      return await runTitleSummarizer(createFnAgent, description, rootDir, undefined, undefined, target);
     } catch (retryError) {
       const message = retryError instanceof Error ? retryError.message : String(retryError);
       log.warn(`Automatic title summarizer fallback after stale model ${staleModel} failed: ${message}`);
