@@ -2681,7 +2681,7 @@ describe("runTaskRefine", () => {
     mockRefineTask = vi.fn().mockResolvedValue({
       id: "FN-002",
       description: "Refinement of FN-001",
-      column: "triage",
+      column: "todo",
       dependencies: ["FN-001"],
       steps: [],
       currentStep: 0,
@@ -2716,6 +2716,13 @@ describe("runTaskRefine", () => {
     expect(successLine).toBeDefined();
     expect(successLine![0]).toContain("FN-002");
     expect(successLine![0]).toContain("FN-001");
+
+    const columnLine = logSpy.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("Column:"),
+    );
+    expect(columnLine).toBeDefined();
+    expect(columnLine![0]).toContain("Column: todo");
+    expect(columnLine![0]).not.toContain("triage");
 
     // Check that dependency is printed
     const depLine = logSpy.mock.calls.find(

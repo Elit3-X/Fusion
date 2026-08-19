@@ -1017,15 +1017,15 @@ Key server capabilities:
 - Core board components: `Board.tsx`, `Column.tsx`, `TaskCard.tsx`, `TaskDetailModal.tsx`, `ListView.tsx`
 - **Board column ordering (board view only)**: `todo` cards mirror scheduler pickup order (priority descending, then `createdAt` ascending/FIFO within each priority tier, then task ID ascending). `triage`, `in-progress`, and `archived` use priority descending then task ID ascending, with missing/invalid priority normalized to `normal`. `done` is completion-recency ordered (`columnMovedAt`, then `updatedAt`, then `createdAt`, newest first). In `in-review`, merge-active tasks (`status === "merging"`, `"merging-pr"`, or `"merging-fix"`) are pinned above non-merging tasks, with priority-then-ID ordering within each group.
 
-#### Refinement task routing
+#### Refinement task routing (FN-030)
 
-- `fn_task_refine` creates child tasks in `column: "triage"` with `sourceType: "task_refine"` and a dependency on the source task. Refinements are never routed directly to `todo`.
-- Refinements still require normal triage specification (PROMPT.md with valid `File Scope`) before execution routing.
+- `fn_task_refine` creates a child with `sourceType: "task_refine"`, a dependency on the completed or in-review source task, and a destination resolved from the selected workflow's lifecycle traits.
+- Automatic workflows retain their `intake` destination. A manual intake (`autoTriage: false`) is an operator capture lane, so refinements bypass it and enter that workflow's `hold`/Planning lane instead (for example, Coding (Ideas) moves from `ideas` to `todo`). If no usable workflow destination can be resolved, the existing `triage` fallback is preserved for compatibility. Once placed, every refinement follows the normal planning/specification and approval gates for its workflow.
 - To prevent starvation under large same-priority planning backlogs (FN-4647 pattern), triage polling now prefers `task_refine` rows over non-refinement rows as an ordering tiebreaker within the same priority band.
-- **Starved refinement self-healing sweep (Lane B):** `SelfHealingManager.recoverStarvedRefinementTriageTasks()` runs in startup + maintenance sweeps and targets `sourceType: "task_refine"` tasks still in `triage` (`status` `null|planning`) that are unpaused, not actively planning, older than `STARVED_REFINEMENT_RECOVERY_GRACE_MS` (10m), and have observed peer board progress (`STARVED_PEER_PROGRESS_THRESHOLD=3` non-refinement tasks advanced to `todo` after the refinement was created). Remediation is a bounded one-step priority nudge (no direct move-to-`todo`) with cooldown idempotency (`STARVED_REFINEMENT_ESCALATION_COOLDOWN_MS = grace*4`) and run-audit emission `task:auto-recover-starved-refinement` including `{ taskId, ageMs, peerProgressCount, escalation }` metadata.
+- **Starved refinement self-healing sweep (Lane B):** `SelfHealingManager.recoverStarvedRefinementTriageTasks()` runs in startup + maintenance sweeps and targets legacy-fallback `sourceType: "task_refine"` tasks still in `triage` (`status` `null|planning`) that are unpaused, not actively planning, older than `STARVED_REFINEMENT_RECOVERY_GRACE_MS` (10m), and have observed peer board progress (`STARVED_PEER_PROGRESS_THRESHOLD=3` non-refinement tasks advanced to `todo` after the refinement was created). Remediation is a bounded one-step priority nudge (no direct move-to-`todo`) with cooldown idempotency (`STARVED_REFINEMENT_ESCALATION_COOLDOWN_MS = grace*4`) and run-audit emission `task:auto-recover-starved-refinement` including `{ taskId, ageMs, peerProgressCount, escalation }` metadata.
 - **Stale planning liveness invariant:** stale-processing eviction never removes a task with a live, non-aborted triage session (`activeSessions.has(id) && !stuckAborted.has(id)`). It therefore remains in `getProcessingTaskIds()` and cannot be finalized, cleared for replanning, or priority-nudged by planning recovery sweeps. Hung promises without a session and stuck-aborted/disposed sessions remain reclaimable after the stale threshold.
-- Approval semantics are unchanged: with `requirePlanApproval=true`, refinements stop at `status: "awaiting-approval"`; otherwise they move to `todo` after spec finalization.
-- Regression coverage lives in `packages/engine/src/__tests__/triage-refinement-routing.test.ts` and locks four guarantees: bounded promotion under backlog pressure, approval-gate preservation, PROMPT-before-`todo` invariant, and unchanged baseline ordering for non-refinement-only triage sets.
+- Approval semantics are unchanged: with `requirePlanApproval=true`, refinements stop at `status: "awaiting-approval"`; otherwise they continue through the selected workflow's planning lane after spec finalization.
+- Regression coverage lives in `packages/engine/src/__tests__/triage-refinement-routing.test.ts` and the PostgreSQL refinement/comment suites, which cover automatic intake, manual-intake bypass, workflow selection, seed continuity, and comment-created children.
 - Task detail surface is shared through `TaskDetailContent` (exported from `TaskDetailModal.tsx`): desktop/tablet `ListView` renders it inline in the split right pane, while mobile and non-list entry points continue using `TaskDetailModal`.
 - In desktop split mode, `ListView` now uses a compact sidebar-first control layout (count/actions/summary chips + collapsible "View options" panel) to keep list controls dense alongside the inline detail pane; mobile keeps the card-first flow with a toolbar "View options" entry point for the same visibility/filter toggles.
 - Chat system UI: `ChatView.tsx`, `QuickChatFAB.tsx`
@@ -2026,14 +2026,14 @@ Git dashboard routes are registered in `register-git-github.ts`.
 
 ### Stranded refinement affordance (Lane C)
 
-Fusion adds an operator-first API surface to diagnose and expedite refinement tasks that remain in Planning (`triage`) without bypassing plan/approval gates from FN-4657.
+Fusion adds an operator-first API surface to diagnose and expedite refinement tasks that remain in a workflow planning lane (including the legacy `triage` fallback) without bypassing plan/approval gates from FN-4657.
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/tasks/recommendations` | List completed-task recommendations scoped to complete-role columns. Row-paginated with `limit`/`offset` (maximum 200) and returns `hasMore` plus `totalRowCount`. |
-| GET | `/api/tasks/stranded-refinements` | List stranded refinement diagnostics (`sourceType=task_refine`, `column=triage`, `paused!=true`) with reasons and recommendation. Supports `?freshnessMinutes=` (1-1440). |
+| GET | `/api/tasks/stranded-refinements` | List stranded legacy-fallback refinement diagnostics (`sourceType=task_refine`, `column=triage`, `paused!=true`) with reasons and recommendation. Supports `?freshnessMinutes=` (1-1440). |
 | GET | `/api/tasks/:id/stranded-refinement` | Return one refinement diagnostic row plus PROMPT.md presence and dependency-resolution status. |
-| POST | `/api/tasks/:id/expedite-refinement` | Request bounded expedite for a triage refinement. Clears `nextRecoveryAt` for stale/backoff rows; returns `requiresOperatorAction` for `awaiting-approval`/`failed`/`stuck-killed` without mutating status. |
+| POST | `/api/tasks/:id/expedite-refinement` | Request bounded expedite for a legacy-fallback triage refinement. Clears `nextRecoveryAt` for stale/backoff rows; returns `requiresOperatorAction` for `awaiting-approval`/`failed`/`stuck-killed` without mutating status. |
 
 Stranded reasons are: `untriaged-stale`, `awaiting-approval`, `failed`, `stuck-killed`, and `recovery-backoff`.
 
@@ -2043,7 +2043,7 @@ Non-bypass guarantees:
 - Expedite never clears `awaiting-approval` (or failed/stuck statuses).
 - `POST /api/tasks/:id/approve-plan` remains the only route that clears `awaiting-approval` and promotes approved plans.
 
-This complements FN-4657's durable triage routing fix; it does not replace triage specification or plan-approval policy.
+This complements FN-030's durable workflow-aware routing; it does not replace planning specification or plan-approval policy.
 
 | Method | Path | Description |
 |---|---|---|

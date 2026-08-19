@@ -114,14 +114,17 @@ export async function refineTaskImpl(store: TaskStore, id: string, feedback: str
     }
 
     /*
-    FNXC:MergedPlanningColumn 2026-07-31-22:35 (missed creation surface — refine):
-    Resolve the inherited workflow's intake lane instead of the legacy `"triage"` literal. The
-    hardcoded id landed refinements in a column the merged coding workflow no longer declares —
-    surfaced on the live board as an amber PLANNING badge (badge color keys off the raw column id)
-    on a card invisible to trait-driven sweeps until the undeclared-column re-home. Literal survives
-    only as the last resort for a store that cannot resolve any workflow, matching createTask.
+    FNXC:RefinementPlanningRouting 2026-08-19-05:26:
+    Refinements should be actionable immediately, so a workflow's manual capture lane is bypassed
+    when that workflow declares a Planning hold. Automatic workflows retain their intake destination;
+    a manual workflow without a usable hold, or any unresolved workflow, preserves the existing
+    `triage` fallback. Resolve these facts with the same pending selection that is persisted below so
+    placement and workflow selection cannot disagree, and use trait-derived roles rather than column ids.
     */
-    const refineIntakeColumn = (await resolveWorkflowIntakeFacts(store, pendingWorkflowSelection?.workflowId)).intake ?? "triage";
+    const refinementIntakeFacts = await resolveWorkflowIntakeFacts(store, pendingWorkflowSelection?.workflowId);
+    const refineIntakeColumn = refinementIntakeFacts.manual
+      ? refinementIntakeFacts.hold ?? "triage"
+      : refinementIntakeFacts.intake ?? "triage";
     const newTask = await store.createTaskWithDistributedReservation({ description: feedback.trim() }, {
       createTaskWithId: async (newId) => {
         // FN-5077: keep deterministic "Refinement" fallback when normalized refinement label is unusable (null).

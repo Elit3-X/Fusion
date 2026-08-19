@@ -1525,7 +1525,7 @@ export async function runTaskRefine(id: string, feedbackArg?: string, projectNam
 
     console.log();
     console.log(`  ✓ Created refinement ${newTask.id} for ${id}`);
-    console.log(`    Column: triage`);
+    console.log(`    Column: ${newTask.column}`);
     console.log(`    Dependency: ${id}`);
     console.log(`    Path: .fusion/tasks/${newTask.id}/`);
     console.log();

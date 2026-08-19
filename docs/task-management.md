@@ -630,7 +630,7 @@ Execution ownership is preserved for active work:
 This is distinct from steering comments: steering feedback targets the currently running executor session, while comment-driven re-triage requests a fresh specification pass for planned work.
 ## Refinement Tasks
 
-`fn task refine <id>` creates a new planning task that depends on the original done/in-review task.
+`fn task refine <id>` creates a new planning follow-up that depends on the original done/in-review task.
 
 Example:
 
@@ -640,10 +640,11 @@ fn task refine FN-042 --feedback "Add explicit rollback tests for partial failur
 
 Behavior:
 
-- New title format: `Refinement: <source label>`
-- New task depends on source task
-- Created in `planning`
-- Refinement tasks inherit the source task's GitHub tracking state (unlinked sources opt out; linked sources inherit `enabled` and optional `repoOverride`, but never copy the source issue link)
+- The new title is derived from the first meaningful line of the operator's feedback; the full feedback remains in the description.
+- The new task depends on the source task and keeps `sourceType: "task_refine"` lineage.
+- Placement is workflow-aware: automatic workflows retain their trait-derived `intake`; manual intakes (`autoTriage: false`) bypass the capture lane and use the workflow's trait-derived `hold`/Planning lane. If no workflow destination is available, the existing `triage` fallback is retained.
+- The selected workflow and refinement seed prompt are persisted with the child so normal planning and approval processing can continue from the returned column.
+- Refinement tasks inherit the source task's GitHub tracking state (unlinked sources opt out; linked sources inherit `enabled` and optional `repoOverride`, but never copy the source issue link).
 
 ## Archive and Restore
 
