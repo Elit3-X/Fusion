@@ -665,6 +665,17 @@ interface SettingsModalProps {
   /** Mirrors the pending project conversation layout into mounted chat surfaces immediately. */
   chatMessageLayout?: ChatMessageLayout;
   onChatMessageLayoutChange?: (layout: ChatMessageLayout) => void;
+  /** Current App-shell values and optimistic callbacks for mounted Appearance consumers. */
+  openTasksInRightSidebar?: boolean;
+  onOpenTasksInRightSidebarChange?: (enabled: boolean) => void;
+  openMobileTasksInPopup?: boolean;
+  onOpenMobileTasksInPopupChange?: (enabled: boolean) => void;
+  taskPopupsBoardListOnly?: boolean;
+  onTaskPopupsBoardListOnlyChange?: (enabled: boolean) => void;
+  showCostBadgeOnCards?: boolean;
+  onShowCostBadgeOnCardsChange?: (enabled: boolean) => void;
+  taskDetailChatFirst?: boolean;
+  onTaskDetailChatFirstChange?: (enabled: boolean) => void;
   /** Mirrors pending mobile quick-action changes into the app shell immediately. */
   onMobileNavPrimaryItemsChange?: (items: string[]) => void;
   /** Optional callback when user wants to reopen the onboarding guide */
@@ -932,6 +943,16 @@ export function SettingsModal({
   onQuickChatButtonModeChange,
   chatMessageLayout = "bubbles",
   onChatMessageLayoutChange,
+  openTasksInRightSidebar,
+  onOpenTasksInRightSidebarChange,
+  openMobileTasksInPopup,
+  onOpenMobileTasksInPopupChange,
+  taskPopupsBoardListOnly,
+  onTaskPopupsBoardListOnlyChange,
+  showCostBadgeOnCards,
+  onShowCostBadgeOnCardsChange,
+  taskDetailChatFirst,
+  onTaskDetailChatFirstChange,
   onMobileNavPrimaryItemsChange,
   onReopenOnboarding,
   onOpenApprovals,
@@ -4214,6 +4235,16 @@ export function SettingsModal({
             onShadcnCustomColorsChange={onShadcnCustomColorsChange}
             chatMessageLayout={chatMessageLayout}
             onChatMessageLayoutChange={onChatMessageLayoutChange}
+            openTasksInRightSidebar={openTasksInRightSidebar}
+            onOpenTasksInRightSidebarChange={onOpenTasksInRightSidebarChange}
+            openMobileTasksInPopup={openMobileTasksInPopup}
+            onOpenMobileTasksInPopupChange={onOpenMobileTasksInPopupChange}
+            taskPopupsBoardListOnly={taskPopupsBoardListOnly}
+            onTaskPopupsBoardListOnlyChange={onTaskPopupsBoardListOnlyChange}
+            showCostBadgeOnCards={showCostBadgeOnCards}
+            onShowCostBadgeOnCardsChange={onShowCostBadgeOnCardsChange}
+            taskDetailChatFirst={taskDetailChatFirst}
+            onTaskDetailChatFirstChange={onTaskDetailChatFirstChange}
             sessionBannersHidden={sessionBannersHidden}
             setSessionBannersHidden={setSessionBannersHidden}
           />

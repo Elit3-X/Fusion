@@ -85,6 +85,10 @@ interface AppModalsProps {
   settings: {
     prAuthAvailable: boolean;
     autoMerge: boolean;
+    openTasksInRightSidebar: boolean;
+    openMobileTasksInPopup: boolean;
+    taskPopupsBoardListOnly: boolean;
+    showCostBadgeOnCards: boolean;
     taskDetailChatFirst: boolean;
     chatMessageLayout: ChatMessageLayout;
     themeMode: ThemeMode;
@@ -98,6 +102,11 @@ interface AppModalsProps {
     setShadcnCustomColors: (colors: Record<string, string>) => void;
     setQuickChatButtonModeImmediate: (mode: "floating" | "footer" | "off") => void;
     setChatMessageLayoutImmediate: (layout: ChatMessageLayout) => void;
+    setOpenTasksInRightSidebarImmediate: (enabled: boolean) => void;
+    setOpenMobileTasksInPopupImmediate: (enabled: boolean) => void;
+    setTaskPopupsBoardListOnlyImmediate: (enabled: boolean) => void;
+    setShowCostBadgeOnCardsImmediate: (enabled: boolean) => void;
+    setTaskDetailChatFirstImmediate: (enabled: boolean) => void;
     setMobileNavPrimaryItemsImmediate: (items: string[]) => void;
   };
   /** Optional override for the settings modal close handler. When provided, this is called instead of modalManager.closeSettings. */
@@ -386,6 +395,16 @@ export function AppModals({
               onQuickChatButtonModeChange={settings.setQuickChatButtonModeImmediate}
               chatMessageLayout={settings.chatMessageLayout}
               onChatMessageLayoutChange={settings.setChatMessageLayoutImmediate}
+              openTasksInRightSidebar={settings.openTasksInRightSidebar}
+              onOpenTasksInRightSidebarChange={settings.setOpenTasksInRightSidebarImmediate}
+              openMobileTasksInPopup={settings.openMobileTasksInPopup}
+              onOpenMobileTasksInPopupChange={settings.setOpenMobileTasksInPopupImmediate}
+              taskPopupsBoardListOnly={settings.taskPopupsBoardListOnly}
+              onTaskPopupsBoardListOnlyChange={settings.setTaskPopupsBoardListOnlyImmediate}
+              showCostBadgeOnCards={settings.showCostBadgeOnCards}
+              onShowCostBadgeOnCardsChange={settings.setShowCostBadgeOnCardsImmediate}
+              taskDetailChatFirst={settings.taskDetailChatFirst}
+              onTaskDetailChatFirstChange={settings.setTaskDetailChatFirstImmediate}
               onMobileNavPrimaryItemsChange={settings.setMobileNavPrimaryItemsImmediate}
               onReopenOnboarding={onReopenOnboarding}
               onOpenApprovals={onOpenApprovals}

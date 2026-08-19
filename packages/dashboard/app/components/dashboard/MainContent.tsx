@@ -60,6 +60,12 @@ export function MainContent({
   setShadcnCustomColors,
   resolvedThemeMode,
   setQuickChatButtonModeImmediate,
+  setChatMessageLayoutImmediate,
+  setOpenTasksInRightSidebarImmediate,
+  setOpenMobileTasksInPopupImmediate,
+  setTaskPopupsBoardListOnlyImmediate,
+  setShowCostBadgeOnCardsImmediate,
+  setTaskDetailChatFirstImmediate,
   setMobileNavPrimaryItemsImmediate,
   reopenOnboardingWithNav,
   viewMode,
@@ -86,8 +92,12 @@ export function MainContent({
   mergeStrategy,
   planAutoApproveEnabled,
   settingsLoaded,
+  openTasksInRightSidebar,
   openMobileTasksInPopup,
+  taskPopupsBoardListOnly,
+  showCostBadgeOnCards,
   taskDetailChatFirst,
+  chatMessageLayout,
   skillsEnabled,
   experimentalFeatures,
   setQuickChatOpen,
@@ -328,6 +338,18 @@ export function MainContent({
             onDashboardFontScaleChange={setDashboardFontScalePct}
             onShadcnCustomColorsChange={setShadcnCustomColors}
             onQuickChatButtonModeChange={setQuickChatButtonModeImmediate}
+            chatMessageLayout={chatMessageLayout}
+            onChatMessageLayoutChange={setChatMessageLayoutImmediate}
+            openTasksInRightSidebar={openTasksInRightSidebar}
+            onOpenTasksInRightSidebarChange={setOpenTasksInRightSidebarImmediate}
+            openMobileTasksInPopup={openMobileTasksInPopup}
+            onOpenMobileTasksInPopupChange={setOpenMobileTasksInPopupImmediate}
+            taskPopupsBoardListOnly={taskPopupsBoardListOnly}
+            onTaskPopupsBoardListOnlyChange={setTaskPopupsBoardListOnlyImmediate}
+            showCostBadgeOnCards={showCostBadgeOnCards}
+            onShowCostBadgeOnCardsChange={setShowCostBadgeOnCardsImmediate}
+            taskDetailChatFirst={taskDetailChatFirst}
+            onTaskDetailChatFirstChange={setTaskDetailChatFirstImmediate}
             onMobileNavPrimaryItemsChange={setMobileNavPrimaryItemsImmediate}
             onReopenOnboarding={reopenOnboardingWithNav}
             onOpenApprovals={() => handleChangeTaskView("mailbox")}

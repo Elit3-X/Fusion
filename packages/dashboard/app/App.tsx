@@ -878,6 +878,11 @@ function AppInner() {
     goalsEnabled,
     setQuickChatButtonModeImmediate,
     setChatMessageLayoutImmediate,
+    setOpenTasksInRightSidebarImmediate,
+    setOpenMobileTasksInPopupImmediate,
+    setTaskPopupsBoardListOnlyImmediate,
+    setShowCostBadgeOnCardsImmediate,
+    setTaskDetailChatFirstImmediate,
     setMobileNavPrimaryItemsImmediate,
     toggleAutoMerge,
     togglePlanAutoApprove,
@@ -1666,6 +1671,12 @@ function AppInner() {
     setShadcnCustomColors,
     resolvedThemeMode,
     setQuickChatButtonModeImmediate,
+    setChatMessageLayoutImmediate,
+    setOpenTasksInRightSidebarImmediate,
+    setOpenMobileTasksInPopupImmediate,
+    setTaskPopupsBoardListOnlyImmediate,
+    setShowCostBadgeOnCardsImmediate,
+    setTaskDetailChatFirstImmediate,
     setMobileNavPrimaryItemsImmediate,
     reopenOnboardingWithNav,
     viewMode,
@@ -1692,8 +1703,12 @@ function AppInner() {
     mergeStrategy,
     planAutoApproveEnabled,
     settingsLoaded,
+    openTasksInRightSidebar,
     openMobileTasksInPopup,
+    taskPopupsBoardListOnly,
+    showCostBadgeOnCards,
     taskDetailChatFirst,
+    chatMessageLayout,
     skillsEnabled,
     experimentalFeatures,
     setQuickChatOpen,
@@ -2265,7 +2280,7 @@ function AppInner() {
         onSubtaskBreakdown={subtaskBreakdownEnabled ? openSubtaskBreakdownWithNav : undefined}
         taskOperations={{ moveTask, deleteTask, mergeTask, archiveTask, revertTask, retryTask, pauseTask, unpauseTask, bypassReview, resetTask, duplicateTask }}
         deepLink={{ handleDetailClose }}
-        settings={{ prAuthAvailable, autoMerge, taskDetailChatFirst, chatMessageLayout, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors, resolvedThemeMode, setThemeMode, setColorTheme, setDashboardFontScalePct, setShadcnCustomColors, setQuickChatButtonModeImmediate, setChatMessageLayoutImmediate, setMobileNavPrimaryItemsImmediate }}
+        settings={{ prAuthAvailable, autoMerge, openTasksInRightSidebar, openMobileTasksInPopup, taskPopupsBoardListOnly, showCostBadgeOnCards, taskDetailChatFirst, chatMessageLayout, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors, resolvedThemeMode, setThemeMode, setColorTheme, setDashboardFontScalePct, setShadcnCustomColors, setQuickChatButtonModeImmediate, setChatMessageLayoutImmediate, setOpenTasksInRightSidebarImmediate, setOpenMobileTasksInPopupImmediate, setTaskPopupsBoardListOnlyImmediate, setShowCostBadgeOnCardsImmediate, setTaskDetailChatFirstImmediate, setMobileNavPrimaryItemsImmediate }}
         onSettingsClose={handleSettingsCloseWithNav}
         onReopenOnboarding={reopenOnboardingWithNav}
         onOpenApprovals={(_approvalId) => handleTaskViewChange("mailbox")}

@@ -263,6 +263,35 @@ describe("SettingsModal", () => {
     expect(mockUpdateGlobalSettings).not.toHaveBeenCalled();
   });
 
+  it("mirrors mounted Appearance controls through the modal while keeping one persistence path", async () => {
+    const callbacks = {
+      onOpenTasksInRightSidebarChange: vi.fn(),
+      onOpenMobileTasksInPopupChange: vi.fn(),
+      onTaskPopupsBoardListOnlyChange: vi.fn(),
+      onShowCostBadgeOnCardsChange: vi.fn(),
+      onTaskDetailChatFirstChange: vi.fn(),
+    };
+    renderModal({ initialSection: "appearance", ...callbacks });
+    await waitForSettingsModalReady();
+
+    fireEvent.click(screen.getByLabelText("Open tasks in the right sidebar"));
+    fireEvent.click(screen.getByLabelText("Open tasks as popups"));
+    fireEvent.click(screen.getByLabelText("Keep task popups on the view where they were opened"));
+    fireEvent.click(screen.getByLabelText("Show cost badges on task cards"));
+    fireEvent.click(screen.getByLabelText("Open task details with Chat first"));
+
+    expect(callbacks.onOpenTasksInRightSidebarChange).toHaveBeenCalledWith(true);
+    expect(callbacks.onOpenMobileTasksInPopupChange).toHaveBeenCalledWith(true);
+    expect(callbacks.onTaskPopupsBoardListOnlyChange).toHaveBeenCalledWith(true);
+    expect(callbacks.onShowCostBadgeOnCardsChange).toHaveBeenCalledWith(true);
+    expect(callbacks.onTaskDetailChatFirstChange).toHaveBeenCalledWith(true);
+
+    vi.useFakeTimers();
+    await flushSettingsAutoSave();
+    vi.useRealTimers();
+    expect(mockUpdateGlobalSettings).not.toHaveBeenCalled();
+  });
+
   it("renders recommendation mailbox notices enabled by default and persists disabling it", async () => {
     renderModal({ initialSection: "general" });
     await waitForSettingsModalReady();

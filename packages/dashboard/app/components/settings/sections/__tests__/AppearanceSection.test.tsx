@@ -13,6 +13,11 @@ vi.mock("../../LanguageSelector", () => ({
 }));
 
 function renderAppearanceSection(formOverrides: Partial<Settings> = {}, onChatMessageLayoutChange = vi.fn()) {
+  const onOpenTasksInRightSidebarChange = vi.fn();
+  const onOpenMobileTasksInPopupChange = vi.fn();
+  const onTaskPopupsBoardListOnlyChange = vi.fn();
+  const onShowCostBadgeOnCardsChange = vi.fn();
+  const onTaskDetailChatFirstChange = vi.fn();
   let form: SettingsFormState = {
     maxConcurrent: 2,
     maxWorktrees: 4,
@@ -40,12 +45,30 @@ function renderAppearanceSection(formOverrides: Partial<Settings> = {}, onChatMe
       dashboardFontScalePct={100}
       chatMessageLayout={form.chatMessageLayout}
       onChatMessageLayoutChange={onChatMessageLayoutChange}
+      openTasksInRightSidebar={form.openTasksInRightSidebar}
+      onOpenTasksInRightSidebarChange={onOpenTasksInRightSidebarChange}
+      openMobileTasksInPopup={form.openMobileTasksInPopup}
+      onOpenMobileTasksInPopupChange={onOpenMobileTasksInPopupChange}
+      taskPopupsBoardListOnly={form.taskPopupsBoardListOnly}
+      onTaskPopupsBoardListOnlyChange={onTaskPopupsBoardListOnlyChange}
+      showCostBadgeOnCards={form.showCostBadgeOnCards}
+      onShowCostBadgeOnCardsChange={onShowCostBadgeOnCardsChange}
+      taskDetailChatFirst={form.taskDetailChatFirst}
+      onTaskDetailChatFirstChange={onTaskDetailChatFirstChange}
       sessionBannersHidden={false}
       setSessionBannersHidden={vi.fn()}
     />,
   );
 
-  return { setForm, getForm: () => form };
+  return {
+    setForm,
+    getForm: () => form,
+    onOpenTasksInRightSidebarChange,
+    onOpenMobileTasksInPopupChange,
+    onTaskPopupsBoardListOnlyChange,
+    onShowCostBadgeOnCardsChange,
+    onTaskDetailChatFirstChange,
+  };
 }
 
 describe("AppearanceSection", () => {
@@ -76,6 +99,22 @@ describe("AppearanceSection", () => {
 
     expect(setForm).toHaveBeenCalledTimes(1);
     expect(getForm().openTasksInRightSidebar).toBe(true);
+  });
+
+  it("mirrors every mounted Appearance toggle to its matching live callback", () => {
+    const callbacks = renderAppearanceSection();
+
+    fireEvent.click(screen.getByLabelText("Open tasks in the right sidebar"));
+    fireEvent.click(screen.getByLabelText("Open tasks as popups"));
+    fireEvent.click(screen.getByLabelText("Keep task popups on the view where they were opened"));
+    fireEvent.click(screen.getByLabelText("Show cost badges on task cards"));
+    fireEvent.click(screen.getByLabelText("Open task details with Chat first"));
+
+    expect(callbacks.onOpenTasksInRightSidebarChange).toHaveBeenCalledWith(true);
+    expect(callbacks.onOpenMobileTasksInPopupChange).toHaveBeenCalledWith(true);
+    expect(callbacks.onTaskPopupsBoardListOnlyChange).toHaveBeenCalledWith(false);
+    expect(callbacks.onShowCostBadgeOnCardsChange).toHaveBeenCalledWith(true);
+    expect(callbacks.onTaskDetailChatFirstChange).toHaveBeenCalledWith(true);
   });
 
   it("reflects a persisted enabled value", () => {

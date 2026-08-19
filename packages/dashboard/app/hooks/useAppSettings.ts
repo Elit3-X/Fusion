@@ -68,6 +68,11 @@ export interface UseAppSettingsResult {
   toggleShowQuickChatFAB: () => Promise<void>;
   setQuickChatButtonModeImmediate: (mode: QuickChatButtonMode) => void;
   setChatMessageLayoutImmediate: (layout: ChatMessageLayout) => void;
+  setOpenTasksInRightSidebarImmediate: (enabled: boolean) => void;
+  setOpenMobileTasksInPopupImmediate: (enabled: boolean) => void;
+  setTaskPopupsBoardListOnlyImmediate: (enabled: boolean) => void;
+  setShowCostBadgeOnCardsImmediate: (enabled: boolean) => void;
+  setTaskDetailChatFirstImmediate: (enabled: boolean) => void;
   setMobileNavPrimaryItemsImmediate: (items: string[]) => void;
   toggleAutoReloadOnVersionChange: () => Promise<void>;
   /** Re-fetches settings from the backend to pick up changes made externally (e.g., by SettingsModal). */
@@ -338,10 +343,30 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
 
   const setChatMessageLayoutImmediate = useCallback((layout: ChatMessageLayout) => {
     /*
-    FNXC:ChatMessageLayout 2026-08-18-20:27:
-    The Appearance draft must update already-mounted ChatView and task-chat surfaces immediately; SettingsModal remains the sole persistence owner.
+    FNXC:LiveAppearanceSettings 2026-08-19-18:07:
+    Both overlay and embedded Settings must mirror every mounted Appearance control into the App shell during its input event. These setters intentionally avoid persistence: SettingsModal remains the only debounced writer and its reconciliation remains authoritative.
     */
     setChatMessageLayout(normalizeChatMessageLayout(layout));
+  }, []);
+
+  const setOpenTasksInRightSidebarImmediate = useCallback((enabled: boolean) => {
+    setOpenTasksInRightSidebar(enabled === true);
+  }, []);
+
+  const setOpenMobileTasksInPopupImmediate = useCallback((enabled: boolean) => {
+    setOpenMobileTasksInPopup(enabled === true);
+  }, []);
+
+  const setTaskPopupsBoardListOnlyImmediate = useCallback((enabled: boolean) => {
+    setTaskPopupsBoardListOnly(enabled === true);
+  }, []);
+
+  const setShowCostBadgeOnCardsImmediate = useCallback((enabled: boolean) => {
+    setShowCostBadgeOnCards(enabled === true);
+  }, []);
+
+  const setTaskDetailChatFirstImmediate = useCallback((enabled: boolean) => {
+    setTaskDetailChatFirst(enabled === true);
   }, []);
 
   /*
@@ -413,6 +438,11 @@ export function useAppSettings(projectId?: string): UseAppSettingsResult {
     toggleShowQuickChatFAB,
     setQuickChatButtonModeImmediate,
     setChatMessageLayoutImmediate,
+    setOpenTasksInRightSidebarImmediate,
+    setOpenMobileTasksInPopupImmediate,
+    setTaskPopupsBoardListOnlyImmediate,
+    setShowCostBadgeOnCardsImmediate,
+    setTaskDetailChatFirstImmediate,
     setMobileNavPrimaryItemsImmediate,
     toggleAutoReloadOnVersionChange,
     refresh,
