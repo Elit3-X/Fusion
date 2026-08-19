@@ -71,7 +71,27 @@ pnpm verify:workspace  # deep opt-in verification: lint -> test:full -> build (N
 <!-- FNXC:TestInfrastructure 2026-06-25-00:00: verify:fast is the opt-in test-free verification path. docs/testing.md observes the broad test gate caught no recalled real bugs while consuming ~70% of shipping time in flake triage; typecheck+build+boot-smoke gives deterministic, flake-free signal without running tests. It changes no default — pnpm test, the merge gate, and CI are untouched; the full suite stays available and runs non-blocking. -->
 <!-- FNXC:TestInfrastructure 2026-06-26-00:49: verify:fast must bootstrap missing workspace dist artifacts and build @runfusion/fusion even when the CLI package is not in the changed-package set because package builds and the boot smoke invoke source-checkout wrappers that require dist outputs in fresh worktrees. -->
 <!-- FNXC:TestInfrastructure 2026-07-22-12:00: Cheap deterministic policy gates must fail before verify:fast's expensive work. Read canonical package.json pretest commands and invoke their validator entry points directly so test-free verification and the merge gate cannot drift. -->
-`pnpm verify:fast` (`scripts/verify-fast.mjs`) is the recommended **test-free verification** command. It first runs the canonical, read-only static validators from root `pretest` — `check-no-nohup`, `check-no-kill-4040`, `check-no-getdatabase`, `check-prerebase-inert`, `check-cli-runtime-routing`, `check-no-node-only-core-imports-in-dashboard`, `check-pi-versions-pinned`, `check-workspace-package-graph`, `check-no-test-timeout-appeasement`, `check-changeset-format`, `check-routes-modular`, and `check-runtime-skill-loader-drift` (which enforces the Claude/Grok runtime skill loaders' clean rename-diff) — then bootstraps missing/stale workspace dist artifacts, runs **typecheck + build scoped to the changed packages** (reusing the same git-diff / changed-package resolution as `pnpm test`), always builds the `@runfusion/fusion` CLI package required by the source-checkout boot smoke, and runs the existing **boot smoke** once. The static phase invokes each existing validator entry point without update flags, is bounded and fail-fast, and runs **no Vitest or test lane**. It gives deterministic, flake-free signal in seconds, so it is a sound project `testCommand`/verification command when you want non-test verification. With no affected package (root/docs-only diff) it runs static checks, artifact bootstrap, the CLI prerequisite build, and boot smoke. Each step is bounded by the shared `runWithWatchdog` (class `changed`) so a hang fails fast, and it exits nonzero on the first failing step. This is purely additive: it does not change `pnpm test`, the merge gate, or CI, and the full suite stays available (`pnpm test:full`, non-blocking on push to main).
+`pnpm verify:fast` (`scripts/verify-fast.mjs`) is the recommended **test-free verification** command. It first runs the canonical, read-only static validators from root `pretest`:
+
+<!-- pretest-validators:start -->
+- `check-no-nohup`
+- `check-no-cwd-relative-dashboard-test-reads`
+- `check-no-kill-4040`
+- `check-no-getdatabase`
+- `check-prerebase-inert`
+- `check-capacity-pool-id`
+- `check-cli-runtime-routing`
+- `check-no-node-only-core-imports-in-dashboard`
+- `check-pi-versions-pinned`
+- `check-workspace-package-graph`
+- `check-no-test-timeout-appeasement`
+- `check-changeset-format`
+- `check-pre-json-anchor`
+- `check-routes-modular`
+- `check-runtime-skill-loader-drift`
+<!-- pretest-validators:end -->
+
+`check-runtime-skill-loader-drift` enforces the Claude/Grok runtime skill loaders' clean rename-diff. It then bootstraps missing/stale workspace dist artifacts, runs **typecheck + build scoped to the changed packages** (reusing the same git-diff / changed-package resolution as `pnpm test`), always builds the `@runfusion/fusion` CLI package required by the source-checkout boot smoke, and runs the existing **boot smoke** once. The static phase invokes each existing validator entry point without update flags, is bounded and fail-fast, and runs **no Vitest or test lane**. It gives deterministic, flake-free signal in seconds, so it is a sound project `testCommand`/verification command when you want non-test verification. With no affected package (root/docs-only diff) it runs static checks, artifact bootstrap, the CLI prerequisite build, and boot smoke. Each step is bounded by the shared `runWithWatchdog` (class `changed`) so a hang fails fast, and it exits nonzero on the first failing step. This is purely additive: it does not change `pnpm test`, the merge gate, or CI, and the full suite stays available (`pnpm test:full`, non-blocking on push to main).
 
 `pnpm check:workspace-package-graph` verifies that every `workspace:` dependency or override in the root importer or a glob-matched workspace manifest resolves to a glob-covered workspace package, and that no package directory under `packages/` or `plugins/` falls outside `pnpm-workspace.yaml` package globs.
 
