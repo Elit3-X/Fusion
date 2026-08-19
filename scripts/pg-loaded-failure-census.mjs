@@ -34,7 +34,12 @@ export function parseDiagnosticsJsonl(text) {
 }
 
 function normalizeFile(value) {
-  const match = String(value).replaceAll("\\", "/").match(/(?:[\w@.-]+\/)*[\w@.-]+(?:\.pg)?\.test\.[cm]?[jt]sx?/i);
+  const normalized = String(value).replaceAll("\\", "/");
+  // Vitest diagnostics use absolute paths while runner failures use repo paths.
+  // Canonicalize at the test-root segment before any key-based observer join.
+  const testRoot = normalized.indexOf("src/__tests__/");
+  if (testRoot >= 0) return normalized.slice(testRoot);
+  const match = normalized.match(/(?:[\w@.-]+\/)*[\w@.-]+(?:\.pg)?\.test\.[cm]?[jt]sx?/i);
   return match?.[0] ?? null;
 }
 
@@ -93,6 +98,86 @@ export function parseFileSummary(log) {
   return { complete: true, totalFiles: failed + passed + skipped, reportedFailedFiles: failed };
 }
 
+export function parseBoundaryObserverJsonl(text) {
+  return parseDiagnosticsJsonl(text);
+}
+
+function boundaryForLifecycle(lifecyclePosition) {
+  if (lifecyclePosition === "beforeAll hook" || lifecyclePosition === "in-test setup") return "setup";
+  if (lifecyclePosition === "afterEach" || lifecyclePosition === "afterAll hook" || lifecyclePosition === "global setup-teardown") return "teardown";
+  return "body";
+}
+
+function observerFile(record) {
+  return normalizeFile(record?.testFile);
+}
+
+/**
+ * FNXC:PgTimeoutBoundaryObserver 2026-08-19-13:51:
+ * Watchdog payloads win because they are the only records carrying a cluster
+ * snapshot. Completion-only and suppressed records may support host evidence,
+ * but must never be promoted to cluster causation by inference.
+ */
+export function classifyBoundaryAttribution(failure, observerRecords, bodyUnobservableFiles = [], fullyUnobservableFiles = []) {
+  const boundary = boundaryForLifecycle(failure.lifecyclePosition);
+  const sameFile = observerRecords.filter((record) => observerFile(record) === failure.file && record.boundary === boundary);
+  if (fullyUnobservableFiles.includes(failure.file)) {
+    // These files never enter a harness-owned boundary, so their missing join
+    // is an explicit coverage limit rather than a failed observer correlation.
+    return { classification: "unjoined", boundary, record: null, hostOnly: false, fullyUnobservable: true };
+  }
+  if (boundary === "body" && bodyUnobservableFiles.includes(failure.file)) {
+    return { classification: "body-unobservable", boundary, record: null, hostOnly: false, fullyUnobservable: false };
+  }
+  const watchdog = sameFile.filter((record) => record.trigger === "boundary-watchdog");
+  const record = watchdog.find((candidate) => !candidate.probeSuppressed && candidate.cluster && candidate.template)
+    ?? watchdog[0]
+    ?? sameFile[0]
+    ?? null;
+  if (!record) return { classification: "unjoined", boundary, record: null, hostOnly: false };
+  const hostOnly = record.trigger !== "boundary-watchdog" || Boolean(record.probeSuppressed) || !record.cluster;
+  if (hostOnly) {
+    const load = Number(record?.host?.loadavg1);
+    const cpus = Number(record?.host?.cpuCount);
+    const lag = Number(record?.host?.eventLoopLagMs);
+    return { classification: (Number.isFinite(load) && Number.isFinite(cpus) && load >= cpus) || lag >= 100 ? "host-implicated" : "unjoined", boundary, record, hostOnly: true };
+  }
+  const template = record.template ?? {};
+  // A holder alone is not a convoy: only a non-owner waiter proves the
+  // timed-out boundary was queued behind the golden template advisory lock.
+  if (Array.isArray(template.advisoryWaiters) && template.advisoryWaiters.length > 0 && template.isOwner === false) {
+    return { classification: "template-convoy", boundary, record, hostOnly: false, fullyUnobservable: false };
+  }
+  const cluster = record.cluster ?? {};
+  const active = Array.isArray(cluster.activity) && cluster.activity.some((row) => row?.state === "active" || row?.wait_event || row?.blockingPids?.length);
+  const blocked = Array.isArray(cluster.locks) && cluster.locks.some((lock) => lock?.granted === false || lock?.blockingPids?.length);
+  if (active || blocked) return { classification: "cluster-implicated", boundary, record, hostOnly: false };
+  const load = Number(record?.host?.loadavg1);
+  const cpus = Number(record?.host?.cpuCount);
+  const lag = Number(record?.host?.eventLoopLagMs);
+  if ((Number.isFinite(load) && Number.isFinite(cpus) && load >= cpus) || lag >= 100) return { classification: "host-implicated", boundary, record, hostOnly: false };
+  return { classification: "unjoined", boundary, record, hostOnly: false };
+}
+
+export function summarizeBoundaryObserver(records, failures, bodyUnobservableFiles = [], fullyUnobservableFiles = []) {
+  const rows = Array.isArray(records) ? records : [];
+  const attributions = failures.map((failure) => ({ ...failure, boundaryAttribution: classifyBoundaryAttribution(failure, rows, bodyUnobservableFiles, fullyUnobservableFiles) }));
+  const suppression = {};
+  for (const row of rows) {
+    const reason = row?.probeSuppressed === "single-flight" ? "concurrency" : row?.probeSuppressed;
+    if (reason) suppression[reason] = (suppression[reason] ?? 0) + 1;
+  }
+  return {
+    boundaryObserver: rows.length ? "present" : "absent",
+    boundaryAttributionHistogram: Object.fromEntries(Object.entries(Object.groupBy(attributions, (row) => row.boundaryAttribution.classification)).map(([key, values]) => [key, values.length])),
+    observerProbeSuppression: suppression,
+    settledDuringProbeCount: rows.filter((row) => row?.settledDuringProbe === true).length,
+    fullyUnobservableFailingFiles: attributions.filter((row) => row.boundaryAttribution.fullyUnobservable).map((row) => row.file),
+    fullyUnobservableFailingFileCount: attributions.filter((row) => row.boundaryAttribution.fullyUnobservable).length,
+    attributions,
+  };
+}
+
 export function summarizeDiagnostics(diagnostics) {
   const input = Array.isArray(diagnostics) ? diagnostics : [];
   const waits = new Map();
@@ -126,7 +211,7 @@ export function summarizeDiagnostics(diagnostics) {
   };
 }
 
-export function buildCensus({ log, diagnostics = [], ordinarySlotCeiling = null, subjects = [] }) {
+export function buildCensus({ log, diagnostics = [], boundaryObserver = [], bodyUnobservableFiles = [], fullyUnobservableFiles = [], ordinarySlotCeiling = null, subjects = [] }) {
   const summary = parseFileSummary(log);
   if (!summary.complete) {
     return { status: "insufficient-data", reason: "missing Test Files summary", totalFiles: null, failingFiles: [], failingFileCount: null };
@@ -136,6 +221,7 @@ export function buildCensus({ log, diagnostics = [], ordinarySlotCeiling = null,
     return { status: "insufficient-data", reason: `summary reports ${summary.reportedFailedFiles} failed files but ${failingFiles.length} failure blocks were parsed`, totalFiles: summary.totalFiles, failingFiles, failingFileCount: null };
   }
   const diagnosticSummary = summarizeDiagnostics(diagnostics);
+  const observerSummary = summarizeBoundaryObserver(boundaryObserver, failingFiles, bodyUnobservableFiles, fullyUnobservableFiles);
   const ceiling = Number.isFinite(ordinarySlotCeiling) && ordinarySlotCeiling >= 0 ? ordinarySlotCeiling : null;
   return {
     status: "measured",
@@ -148,15 +234,19 @@ export function buildCensus({ log, diagnostics = [], ordinarySlotCeiling = null,
     ordinarySlotCeiling: ceiling,
     backendHeadroom: ceiling != null && diagnosticSummary.peakBackends != null ? ceiling - diagnosticSummary.peakBackends : null,
     ...diagnosticSummary,
+    ...observerSummary,
   };
 }
 
 function parseArgs(args) {
-  const result = { log: undefined, diagnostics: undefined, ordinarySlotCeiling: null, subjects: [] };
+  const result = { log: undefined, diagnostics: undefined, boundaryObserver: undefined, bodyUnobservableFiles: undefined, fullyUnobservableFiles: undefined, ordinarySlotCeiling: null, subjects: [] };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--log") result.log = args[++index];
     else if (argument === "--diagnostics") result.diagnostics = args[++index];
+    else if (argument === "--boundary-observer") result.boundaryObserver = args[++index];
+    else if (argument === "--body-unobservable-files") result.bodyUnobservableFiles = args[++index];
+    else if (argument === "--fully-unobservable-files") result.fullyUnobservableFiles = args[++index];
     else if (argument === "--ordinary-slot-ceiling") result.ordinarySlotCeiling = Number(args[++index]);
     else if (argument === "--subject") result.subjects.push(args[++index]);
     else throw new Error(`Unknown argument: ${argument}`);
@@ -168,5 +258,8 @@ function parseArgs(args) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = parseArgs(process.argv.slice(2));
   const parsed = args.diagnostics ? parseDiagnosticsJsonl(readFileSync(args.diagnostics, "utf8")) : { rows: [], malformedLines: 0 };
-  console.log(JSON.stringify({ ...buildCensus({ log: readFileSync(args.log, "utf8"), diagnostics: parsed.rows, ordinarySlotCeiling: args.ordinarySlotCeiling, subjects: args.subjects }), malformedDiagnosticLines: parsed.malformedLines }, null, 2));
+  const observer = args.boundaryObserver ? parseBoundaryObserverJsonl(readFileSync(args.boundaryObserver, "utf8")) : { rows: [], malformedLines: 0 };
+  const bodyUnobservableFiles = args.bodyUnobservableFiles ? readFileSync(args.bodyUnobservableFiles, "utf8").split(/\\r?\\n/).map(normalizeFile).filter(Boolean) : [];
+  const fullyUnobservableFiles = args.fullyUnobservableFiles ? readFileSync(args.fullyUnobservableFiles, "utf8").split(/\\r?\\n/).map(normalizeFile).filter(Boolean) : [];
+  console.log(JSON.stringify({ ...buildCensus({ log: readFileSync(args.log, "utf8"), diagnostics: parsed.rows, boundaryObserver: observer.rows, bodyUnobservableFiles, fullyUnobservableFiles, ordinarySlotCeiling: args.ordinarySlotCeiling, subjects: args.subjects }), malformedDiagnosticLines: parsed.malformedLines, malformedBoundaryObserverLines: observer.malformedLines }, null, 2));
 }

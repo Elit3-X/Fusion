@@ -545,6 +545,33 @@ Use `scripts/pg-loaded-failure-census.mjs` to inspect an already-retained Vitest
 
 A run is `insufficient-data` when its runner log lacks a complete `Test Files` summary or when the reported failed-file count cannot be reconciled to parsed failure blocks. A complete passing summary instead produces `status: "measured"` with `failingFileCount: 0`; never treat that zero as missing evidence or coerce incomplete input to a healthy result.
 
+<!-- FNXC:PgTimeoutBoundaryObserver 2026-08-19-14:33: FN-9149 requires a default-off observer that attributes setup, body, and teardown timeout boundaries without widening the budget it measures. The paired body window is necessary because Vitest invokes shared-harness beforeEach and afterEach as distinct hooks. -->
+
+### PostgreSQL timeout-boundary observer
+
+`FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER=1` enables a diagnostic-only JSONL channel; when unset it creates no timer, probe connection, sink write, listener, or environment mutation. `observeBoundary()` wraps harness-owned setup and teardown work. `openBoundary()`/`closeBoundary()` span the shared harness's separate `beforeEach` and `afterEach` hooks, so `shared.body` measures test bodies without editing consumers. Closing is idempotent; an abandoned window is superseded by a later open or disposed without inventing a completion.
+
+The observer arms an unref'd watchdog at boundary start. Only a pending watchdog dispatches a maintenance-connection probe; completion records are host-only and emit when elapsed time meets `FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_THRESHOLD_MS` (default 2000; `0` measures every completion). A dispatched probe survives boundary settlement and appends when it resolves, with `settledDuringProbe`, `probeLatencyMs`, and optionally `probeStartDelayMs`; records can therefore be out of order and consumers must join by pid, worker, file, boundary, and timestamp rather than JSONL order. `flush()`/`dispose()` drain bounded pending and queued probes; a missed drain becomes `probeSuppressed:"drain-timeout"`. The enabled-only `beforeExit` hook performs the same best-effort drain.
+
+The independent, tighten-only bounds are `statement timeout < probe timeout < inherited budget`, `queue timeout < probe timeout`, and `threshold <= per-boundary watchdog < inherited budget`. A probe timeout is deliberately **not** tied to a short watchdog: forced wiring runs need a fast watchdog and a real cluster round trip. Floors are `MIN_WATCHDOG_MS`, `MIN_PROBE_TIMEOUT_MS`, and `MIN_STATEMENT_TIMEOUT_MS`; an impossible floor yields `bounds-floor`, never a wider budget.
+
+| variable | default | purpose |
+|---|---:|---|
+| `..._LOG` | unset | JSONL destination |
+| `..._THRESHOLD_MS` | 2000 | completion-record threshold; 0 measures all |
+| `..._WATCHDOG_MS`, `..._WATCHDOG_SETUP_MS`, `..._WATCHDOG_BODY_MS`, `..._WATCHDOG_TEARDOWN_MS` | 12000 | global and per-boundary watchdogs |
+| `..._PROBE_TIMEOUT_MS` / `..._STATEMENT_TIMEOUT_MS` | 1500 / derived below probe | bounded client/server probe stack |
+| `..._PROBE_DRAIN_TIMEOUT_MS` | 3000 | bounded `flush()`/`dispose()` drain |
+| `..._MAX_CONCURRENT_PROBES` | 1 | counting limiter, capped by `MAX_CONCURRENT_PROBES_CEILING` (8) |
+| `..._PROBE_QUEUE_TIMEOUT_MS` | 0 | bounded slot wait; a queued probe records delay |
+| `..._MAX_PROBES` | 4 | per-process diagnostic cost cap |
+
+At concurrency 1 the cost profile matches the older single-flight observer. `probeSuppressed:"concurrency"` supersedes legacy `single-flight`; neither is a valid forced-wiring payload. The cap is configurable because once probes survive settle, a strict single flight would suppress simultaneous setup/body/teardown breaches. Probe payloads contain host load/CPU and watchdog scheduling drift (`eventLoopLagMs`, measured as the monotonic callback delay past its deadline at the snapshot instant), active SQL and lock/blocking rows, backend count, and golden-template owner/readiness plus separately reported granted advisory holders and non-granted advisory waiters. Only a non-owner waiter supports a template-convoy attribution; a holder alone does not.
+
+For an enabled-wiring check, first run disabled and normal enabled bounds to compare duration, then threshold 0 to verify setup, `shared.body`, and teardown completion records, then force per-boundary watchdogs below measured elapsed times while independently retaining a probe/drain timeout above cluster round-trip and raising probe cap/concurrency to at least 3. Every forced boundary must have a non-suppressed payload; `cap`, `concurrency`, `bounds-floor`, `drain-timeout`, and `error` require diagnosis, not acceptance. Files using the shared harness are body-observable; direct `createTaskStoreForTest` files deliberately have no harness-owned body bracket and must be reported as `body-unobservable`.
+
+Pass `--boundary-observer <jsonl>`, `--body-unobservable-files <list>`, and `--fully-unobservable-files <list>` to `scripts/pg-loaded-failure-census.mjs`. It tolerates malformed lines and classifies each failing boundary as `cluster-implicated`, `host-implicated`, `template-convoy`, `body-unobservable`, or `unjoined`; failures from fully-unobservable files remain `unjoined` but are counted and listed separately so the known no-harness limitation is never mistaken for a missing observer join. Missing/empty input stays explicitly absent rather than a measured zero.
+
 ### PostgreSQL DDL loaded-lane acceptance metric
 
 Use `scripts/pg-ddl-lane-metric.mjs` before judging a PostgreSQL DDL structural candidate. Run at least seven **interleaved** control/candidate pairs at `VITEST_MAX_WORKERS=12`; preserve one diagnostics JSONL sink and complete runner log per invocation. The exact lane is:
