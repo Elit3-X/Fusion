@@ -8,6 +8,7 @@ export const MAX_CONCURRENT_PROBES_CEILING = 8;
 
 export type PgTimeoutBoundary = "setup" | "body" | "teardown";
 export type PgTimeoutBoundaryTrigger = "boundary-complete" | "boundary-watchdog";
+export type PgTimeoutBoundaryRecordKind = "progress" | "terminal" | "breach" | "watchdog";
 export type PgTimeoutBoundarySuppression = "cap" | "concurrency" | "bounds-floor" | "drain-timeout" | "error";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -41,9 +42,18 @@ export interface PgTimeoutBoundaryRecord {
   readonly testName?: string;
   readonly boundary: PgTimeoutBoundary;
   readonly phase: string;
+  /** Stable lifecycle label used to join reporter failures without line order. */
+  readonly position: string;
+  /** Per-window identity; progress-only keys prove an abandoned boundary. */
+  readonly joinKey: string;
+  /** Caller-owned lifecycle identity used only to supersede stale open windows. */
+  readonly supersessionKey?: string;
+  readonly kind: PgTimeoutBoundaryRecordKind;
   readonly trigger: PgTimeoutBoundaryTrigger;
   readonly elapsedMs: number;
   readonly boundaryIncomplete: boolean;
+  /** A breach was synchronously recorded before its optional probe begins. */
+  readonly payloadFree?: boolean;
   readonly settledDuringProbe?: boolean;
   readonly probeLatencyMs?: number;
   readonly probeStartDelayMs?: number;
@@ -106,6 +116,14 @@ function envNumber(env: NodeJS.ProcessEnv, key: string, fallback: number, minimu
   return Number.isFinite(value) && value >= minimum ? Math.trunc(value) : fallback;
 }
 
+/** Keep observer and census file joins stable across absolute and Windows paths. */
+function normalizeTestFile(value: string): string {
+  const normalized = value.replaceAll("\\", "/");
+  const root = normalized.indexOf("src/__tests__/");
+  if (root >= 0) return normalized.slice(root);
+  return normalized;
+}
+
 function defaultHostSample(eventLoopLagMs = 0): PgTimeoutBoundaryHostSample {
   const [loadavg1, loadavg5, loadavg15] = loadavg();
   const workers = Number(process.env.VITEST_MAX_WORKERS);
@@ -129,6 +147,8 @@ interface Bounds {
   readonly maxConcurrentProbes: number;
   readonly probeQueueTimeoutMs: number;
   readonly maxProbes: number;
+  /** Zero preserves the pre-FN-9150 settle/watchdog-only observer. */
+  readonly ladderMs: number;
   readonly probeAllowed: boolean;
   readonly clamped: boolean;
 }
@@ -139,6 +159,7 @@ function resolveBounds(env: NodeJS.ProcessEnv, hookBudget: number, bodyBudget: n
   const requestedProbe = envNumber(env, "FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_PROBE_TIMEOUT_MS", 1_500, 1);
   const requestedStatement = envNumber(env, "FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_STATEMENT_TIMEOUT_MS", Math.max(MIN_STATEMENT_TIMEOUT_MS, requestedProbe - 100), 1);
   const requestedDrain = envNumber(env, "FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_PROBE_DRAIN_TIMEOUT_MS", 3_000, 1);
+  const ladderMs = envNumber(env, "FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_LADDER_MS", 0);
   const capBelowHook = Math.max(0, hookBudget - 1);
   // Floors make malformed tiny values observable, but never widen an inherited
   // budget: a budget below the floor disables probing for that boundary.
@@ -180,6 +201,7 @@ function resolveBounds(env: NodeJS.ProcessEnv, hookBudget: number, bodyBudget: n
     maxConcurrentProbes,
     probeQueueTimeoutMs,
     maxProbes: envNumber(env, "FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_MAX_PROBES", 4, 1),
+    ladderMs,
     probeAllowed,
     clamped,
   };
@@ -189,11 +211,15 @@ interface BoundaryState {
   readonly handle: PgTimeoutBoundaryHandle;
   readonly boundary: PgTimeoutBoundary;
   readonly phase: string;
-  readonly key?: string;
+  /** Unique emitted-record key; it must never be shared by adjacent test bodies. */
+  readonly joinKey: string;
+  /** Stable caller key that only controls stale-window supersession. */
+  readonly supersessionKey?: string;
   readonly startedAt: number;
   readonly timestamp: string;
   readonly host: PgTimeoutBoundaryHostSample;
   timer?: TimerHandle;
+  ladderTimer?: TimerHandle;
   settled: boolean;
   watchdogFired: boolean;
   outcome?: "resolved" | "rejected";
@@ -237,6 +263,19 @@ Once probes survive their boundary, strict single-flight would suppress body and
 teardown behind setup. The configurable limiter defaults to one (the inherited
 cost profile) but is raisable for the forced wiring gate; its ceiling prevents a
 bad environment from flooding PostgreSQL.
+
+FNXC:PgTimeoutBoundaryObserver 2026-08-19-15:43:
+FN-9150 needs elapsed evidence for boundaries Vitest abandons before they
+settle. A payload-free checkpoint ladder is independent of probes, unref'd, and
+writes synchronously so its last progress record is a lower bound rather than a
+claim about PostgreSQL state. Terminal records make progress-only join keys the
+explicit abandoned-boundary signature.
+
+FNXC:PgTimeoutBoundaryObserver 2026-08-19-16:06:
+A watchdog must append its keyed payload-free breach before scheduling a probe.
+Vitest can abandon the boundary during that residual window, so waiting for the
+probe result censors the timeout population this default-off observer measures.
+The breach locates a boundary but never asserts PostgreSQL state.
 */
 export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserverOptions = {}): PgTimeoutBoundaryObserver {
   const env = options.env ?? process.env;
@@ -270,15 +309,19 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
   const unref = (timer: TimerHandle | undefined): void => {
     (timer as unknown as { unref?: () => void } | undefined)?.unref?.();
   };
-  const emit = (state: BoundaryState, trigger: PgTimeoutBoundaryTrigger, fields: Partial<PgTimeoutBoundaryRecord>): void => {
+  const emit = (state: BoundaryState, trigger: PgTimeoutBoundaryTrigger, kind: PgTimeoutBoundaryRecordKind, fields: Partial<PgTimeoutBoundaryRecord>, writeStderr = true): void => {
     const record: PgTimeoutBoundaryRecord = {
       timestamp: state.timestamp,
       pid: process.pid,
       ...(env.VITEST_WORKER_ID ? { workerId: env.VITEST_WORKER_ID } : {}),
-      ...(options.testFile ? { testFile: options.testFile } : {}),
+      ...(options.testFile ? { testFile: normalizeTestFile(options.testFile) } : {}),
       ...(options.testName?.() ? { testName: options.testName() } : {}),
       boundary: state.boundary,
       phase: state.phase,
+      position: state.phase,
+      joinKey: state.joinKey,
+      ...(state.supersessionKey ? { supersessionKey: state.supersessionKey } : {}),
+      kind,
       trigger,
       elapsedMs: Math.max(0, now() - state.startedAt),
       boundaryIncomplete: !state.settled,
@@ -296,7 +339,9 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
     if (sink) {
       try { append(sink, `${JSON.stringify(record)}\n`); } catch { /* sink failures must not affect a test */ }
     }
-    try { writeError(`[pg-timeout-boundary-observer] ${trigger} ${state.boundary}/${state.phase}`); } catch { /* diagnostic stderr is best effort */ }
+    if (writeStderr) {
+      try { writeError(`[pg-timeout-boundary-observer] ${trigger} ${state.boundary}/${state.phase}`); } catch { /* diagnostic stderr is best effort */ }
+    }
   };
   const finalize = (pendingProbe: PendingProbe, suppression?: PgTimeoutBoundarySuppression, payload?: PgTimeoutBoundaryProbePayload): void => {
     if (pendingProbe.finalized) return;
@@ -309,7 +354,7 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
       admitQueued();
     }
     const state = pendingProbe.state;
-    emit(state, "boundary-watchdog", {
+    emit(state, "boundary-watchdog", "watchdog", {
       elapsedMs: bounds.watchdog[state.boundary],
       boundaryIncomplete: true,
       settledDuringProbe: state.settled,
@@ -354,7 +399,16 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
   };
   const requestProbe = (state: BoundaryState, eventLoopLagMs: number): void => {
     const watchdogAt = now();
-    const pendingProbe: PendingProbe = { state, watchdogAt, host: hostSample(eventLoopLagMs), controller: new AbortController(), started: false, finalized: false };
+    const host = hostSample(eventLoopLagMs);
+    // This synchronous first phase survives disposal/worker termination while a
+    // maintenance connection is still queued or executing.
+    emit(state, "boundary-watchdog", "breach", {
+      elapsedMs: bounds.watchdog[state.boundary],
+      boundaryIncomplete: true,
+      payloadFree: true,
+      host,
+    });
+    const pendingProbe: PendingProbe = { state, watchdogAt, host, controller: new AbortController(), started: false, finalized: false };
     if (!options.probe) return finalize(pendingProbe, "error");
     if (!bounds.probeAllowed) return finalize(pendingProbe, "bounds-floor");
     pending.add(pendingProbe);
@@ -373,20 +427,35 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
     // as the host/cluster snapshot, without adding another timer or I/O path.
     requestProbe(state, Math.max(0, now() - (state.startedAt + bounds.watchdog[state.boundary])));
   };
+  const armLadder = (state: BoundaryState): void => {
+    if (bounds.ladderMs === 0) return;
+    const checkpoint = (): void => {
+      if (state.ladderTimer) clearTimer(state.ladderTimer);
+      if (disposed || state.settled) return;
+      emit(state, "boundary-complete", "progress", { boundaryIncomplete: true }, false);
+      state.ladderTimer = setTimer(checkpoint, bounds.ladderMs);
+      unref(state.ladderTimer);
+    };
+    state.ladderTimer = setTimer(checkpoint, bounds.ladderMs);
+    unref(state.ladderTimer);
+  };
   const arm = (state: BoundaryState): void => {
     state.timer = setTimer(() => fireWatchdog(state), bounds.watchdog[state.boundary]);
     unref(state.timer);
+    armLadder(state);
   };
   const complete = (state: BoundaryState, outcome: "resolved" | "rejected"): void => {
     if (state.settled) return;
     state.settled = true;
     state.outcome = outcome;
     if (state.timer) clearTimer(state.timer);
+    if (state.ladderTimer) clearTimer(state.ladderTimer);
     states.delete(state.handle.id);
-    if (state.key) windows.delete(state.key);
-    if (!state.watchdogFired && Math.max(0, now() - state.startedAt) >= bounds.thresholdMs) {
-      emit(state, "boundary-complete", { outcome, boundaryIncomplete: false });
-    }
+    if (state.supersessionKey && windows.get(state.supersessionKey) === state) windows.delete(state.supersessionKey);
+    // A terminal record is emitted regardless of threshold. Progress-only keys
+    // are therefore the durable, resolution-bounded signature of abandonment.
+    const reportCompletion = !state.watchdogFired && Math.max(0, now() - state.startedAt) >= bounds.thresholdMs;
+    emit(state, "boundary-complete", "terminal", { outcome, boundaryIncomplete: false }, reportCompletion);
   };
   const beforeExit = (): void => { void flush(); };
   process.on("beforeExit", beforeExit);
@@ -412,7 +481,8 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
   return {
     enabled: true,
     observeBoundary<T>(boundary: PgTimeoutBoundary, phase: string, action: () => Promise<T>): Promise<T> {
-      const state: BoundaryState = { handle: { id: nextHandle++ }, boundary, phase, startedAt: now(), timestamp: new Date(wallNow()).toISOString(), host: hostSample(), settled: false, watchdogFired: false };
+      const handle = { id: nextHandle++ };
+      const state: BoundaryState = { handle, boundary, phase, joinKey: `${process.pid}:${env.VITEST_WORKER_ID ?? "main"}:${normalizeTestFile(options.testFile ?? "unknown")}:${phase}:${handle.id}`, startedAt: now(), timestamp: new Date(wallNow()).toISOString(), host: hostSample(), settled: false, watchdogFired: false };
       states.set(state.handle.id, state);
       arm(state);
       let result: Promise<T>;
@@ -424,10 +494,19 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
       const superseded = Boolean(prior && !prior.settled);
       if (prior && !prior.settled) {
         if (prior.timer) clearTimer(prior.timer);
+        if (prior.ladderTimer) clearTimer(prior.ladderTimer);
         prior.settled = true;
         states.delete(prior.handle.id);
       }
-      const state: BoundaryState = { handle: { id: nextHandle++ }, boundary, phase, key, startedAt: now(), timestamp: new Date(wallNow()).toISOString(), host: hostSample(), settled: false, watchdogFired: false, ...(superseded ? { supersededOpenWindow: true } : {}) };
+      const handle = { id: nextHandle++ };
+      /*
+      FNXC:PgTimeoutBoundaryObserver 2026-08-19-16:56:
+      Shared-harness body hooks reuse a file-level lifecycle key across tests.
+      That key may supersede a stale handle, but every body window needs its own
+      emitted join key: a later healthy terminal must not mask an earlier
+      abandoned body's ladder records in the failure census.
+      */
+      const state: BoundaryState = { handle, boundary, phase, joinKey: `${key}:${handle.id}`, supersessionKey: key, startedAt: now(), timestamp: new Date(wallNow()).toISOString(), host: hostSample(), settled: false, watchdogFired: false, ...(superseded ? { supersededOpenWindow: true } : {}) };
       windows.set(key, state);
       states.set(state.handle.id, state);
       arm(state);
@@ -441,7 +520,10 @@ export function createPgTimeoutBoundaryObserver(options: PgTimeoutBoundaryObserv
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
-      for (const state of states.values()) if (state.timer) clearTimer(state.timer);
+      for (const state of states.values()) {
+        if (state.timer) clearTimer(state.timer);
+        if (state.ladderTimer) clearTimer(state.ladderTimer);
+      }
       states.clear();
       windows.clear();
       await flush();

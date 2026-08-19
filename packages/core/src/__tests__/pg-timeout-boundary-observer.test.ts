@@ -69,11 +69,103 @@ describe("PG timeout boundary observer", () => {
     await observed;
     pending.resolve(payload);
     await vi.advanceTimersByTimeAsync(0);
-    expect(records(lines)).toEqual([expect.objectContaining({
-      trigger: "boundary-watchdog", boundary: "body", phase: "shared.body", boundaryIncomplete: true,
+    expect(records(lines)).toContainEqual(expect.objectContaining({
+      trigger: "boundary-watchdog", kind: "watchdog", boundary: "body", phase: "shared.body", boundaryIncomplete: true,
       settledDuringProbe: true, cluster: payload.cluster, template: payload.template,
-    })]);
+    }));
     await observer.dispose();
+  });
+
+  it("records progress-only ladder bounds for an abandoned boundary and clears unref'd timers", async () => {
+    const lines: string[] = [];
+    let now = 0;
+    const timers: Array<{ callback: () => void; ms: number; unref: ReturnType<typeof vi.fn> }> = [];
+    const clearTimer = vi.fn();
+    const observer = createPgTimeoutBoundaryObserver({
+      env: { ...env, FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_LADDER_MS: "5" },
+      now: () => now,
+      setTimer: ((callback, ms) => {
+        const timer = { callback, ms, unref: vi.fn() };
+        timers.push(timer);
+        return timer as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+      clearTimer: clearTimer as typeof clearTimeout,
+      append: (_path, line) => lines.push(line),
+      writeError: () => {},
+    });
+    observer.openBoundary("body", "shared.body", "abandoned");
+    now = 5;
+    timers.find((timer) => timer.ms === 5)?.callback();
+    now = 10;
+    timers.at(-1)?.callback();
+    await observer.dispose();
+
+    const progress = records(lines).filter((record) => record.kind === "progress");
+    expect(progress).toEqual([
+      expect.objectContaining({ joinKey: "abandoned:1", elapsedMs: 5, boundaryIncomplete: true }),
+      expect.objectContaining({ joinKey: "abandoned:1", elapsedMs: 10, boundaryIncomplete: true }),
+    ]);
+    expect(records(lines).some((record) => record.kind === "terminal")).toBe(false);
+    expect(timers.every((timer) => timer.unref.mock.calls.length === 1)).toBe(true);
+    expect(clearTimer).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps an abandoned shared-harness body window distinct from a later healthy body", async () => {
+    const lines: string[] = [];
+    let now = 0;
+    const timers: Array<{ callback: () => void; ms: number; unref: ReturnType<typeof vi.fn> }> = [];
+    const observer = createPgTimeoutBoundaryObserver({
+      env: { ...env, FUSION_PG_TEST_TIMEOUT_BOUNDARY_OBSERVER_LADDER_MS: "5" },
+      now: () => now,
+      testFile: "/repo/packages/core/src/__tests__/postgres/shared-bodies.pg.test.ts",
+      setTimer: ((callback, ms) => {
+        const timer = { callback, ms, unref: vi.fn() };
+        timers.push(timer);
+        return timer as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+      clearTimer: () => {},
+      append: (_path, line) => lines.push(line),
+      writeError: () => {},
+    });
+    // This is the file-level key passed by createSharedPgTaskStoreTestHarness
+    // for consecutive beforeEach/afterEach body windows.
+    const sharedHarnessKey = `${process.pid}:main:/repo/packages/core/src/__tests__/postgres/shared-bodies.pg.test.ts`;
+    observer.openBoundary("body", "shared.body", sharedHarnessKey);
+    now = 5;
+    timers.find((timer) => timer.ms === 5)?.callback();
+    const healthyBody = observer.openBoundary("body", "shared.body", sharedHarnessKey);
+    observer.closeBoundary(healthyBody);
+
+    const emitted = records(lines);
+    const abandonedProgress = emitted.find((record) => record.kind === "progress");
+    const healthyTerminal = emitted.find((record) => record.kind === "terminal");
+    expect(abandonedProgress).toMatchObject({ supersessionKey: sharedHarnessKey, boundary: "body", elapsedMs: 5 });
+    expect(healthyTerminal).toMatchObject({ supersessionKey: sharedHarnessKey, boundary: "body" });
+    expect(abandonedProgress?.joinKey).not.toBe(healthyTerminal?.joinKey);
+    await observer.dispose();
+  });
+
+  it("records a payload-free breach before an abandoned probe can resolve", async () => {
+    vi.useFakeTimers();
+    const lines: string[] = [];
+    const pending = deferred<PgTimeoutBoundaryProbePayload>();
+    const observer = createPgTimeoutBoundaryObserver({
+      env,
+      probe: () => pending.promise,
+      append: (_path, line) => lines.push(line),
+      writeError: () => {},
+    });
+    observer.openBoundary("setup", "database.clone", "abandoned-watchdog");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(records(lines)).toContainEqual(expect.objectContaining({
+      kind: "breach",
+      payloadFree: true,
+      joinKey: "abandoned-watchdog:1",
+      boundary: "setup",
+    }));
+    const disposing = observer.dispose();
+    await vi.advanceTimersByTimeAsync(100);
+    await disposing;
   });
 
   it("records watchdog scheduling drift as event-loop lag for host attribution", async () => {

@@ -72,7 +72,36 @@ The superseded 12s clean/dirty arm remains retained but cannot decide M5. The re
 | M2 DDL serialization | still undecided (missing evidence: join coverage) | Twelve J watchdog joins cannot correlate DDL/locks to 127 failures. |
 | M3 golden-template/advisory convoy | still undecided (missing evidence: joined golden-lock waiters) | The probe now records granted holders and non-granted golden advisory waiters; no sufficient joined timeout population exists. |
 | M4 host CPU/event-loop starvation | still undecided (missing evidence: join coverage) | The observer now records watchdog scheduling drift rather than a fixed zero, but the campaign cannot distinguish idle-cluster host starvation from blocked SQL at required body coverage. |
-| M5 dirty-cluster carryover | affirmed | The amended interleaved J04–J07 arm covaried at 0 leftovers → 29/36 failures and 1 test + 2 schema-template (one golden) + 1 pool leftover → 43/50 failures. FN-9151 owns identification and a regression-proven structural remedy; no remedy is implemented here. |
+| M5 dirty-cluster carryover | still undecided (underpowered descriptive covariation) | J04–J07 covaried at 0 leftovers → 29/36 failures and 1 test + 2 schema-template (one golden) + 1 pool leftover → 43/50 failures. FN-9150's prospectively configured clean/dirty pair was 60/42 failures, respectively, but n=1/arm is below the 7/arm Δ=20 target. Neither result is an M5 verdict; FN-9152 owns the powered arm. |
+
+## FN-9150 timeout-boundary coverage diagnosis
+
+M01 was a clean-start 27-worker measure-first run with a 1,000ms ladder, threshold 0, one probe maximum, and the 12,000ms watchdog. It reported 29/176 failing files at peak 70, leaving 27 ordinary slots of headroom. It is elapsed-distribution evidence, not attribution. Setup/body/teardown records were 3,101/804/2,579; terminal maxima were 20,448/1,895/15,013ms and progress-only maxima were 20,099/1,001/14,065ms. Progress rows are lower bounds at 1,000ms resolution and cannot be pooled with terminal elapsed measurements.
+
+The 12,000ms watchdog has at most 3,000ms before the inherited 15,000ms Vitest limit. Its 1,500ms probe timeout and non-negative single-flight queue delay leave at most 1,500ms before scheduling delay and the unobservable Vitest-to-harness offset. M01 captured 30 watchdog results and seven cap suppressions. Of 29 failing files, 14 (48.3%) were consumer `afterEach` failures outside the shared-harness bracket; they are position-unobservable, not observer misses. Four failures (13.8%) had ladder bounds; 11 (37.9%) remained observable-position unjoined. Vitest JSON exposed 1,386 per-test durations but no hook duration or hook failure position; file-level pairing produced invalid negative differences down to -13,971.94ms. The hook-clock offset is therefore unmeasurable on this reporter version, not a point estimate.
+
+FN-9150's two-phase breach row preserves a keyed elapsed record before a probe can be abandoned, while the ladder covers boundaries that never reach the watchdog. Neither row may affirm M2–M4. The real shared-harness gate passed normal, ladder, and forced runs: forced setup/body/teardown records were 10/3/13, with enriched non-suppressed payloads 3/1/4 and a reporter file join. The forced gate is wiring evidence only.
+
+A post-campaign review found that shared-harness body windows reused a file-level key. The observer now emits a unique `joinKey` for every open body window and retains that file-level value only as `supersessionKey`: a terminal record for a later healthy body can no longer mask an earlier abandoned body's progress-only ladder records. The census already groups terminal filtering by `joinKey`; a production-shaped multiple-body regression covers the separation. This is a coverage-integrity correction, not a new sample or an attribution verdict.
+
+The prospective power rule uses A01–A05 σ=12.6 and `2(1.96+0.84)^2σ²/Δ²`: Δ=20 requires seven runs/arm and Δ=10 requires 25. The 12-run self-imposed budget (46.16 minutes at 230.8s/run) cannot power either enabled-vs-unset or M5 after one measure-first and three gate-equivalent runs. The retained J enabled/control and J04–J07 clean/dirty samples are consequently descriptive; no absence or covariation from them is a powered perturbation or M5 verdict.
+
+## FN-9150 corrective campaign — retained outcomes
+
+The fixed campaign stack was pre-registered before its runs: observer threshold 0, ladder 1,000ms, 12,000ms setup/body/teardown watchdogs, 1,500/1,400/3,000ms probe/statement/drain bounds, one concurrent probe, queue timeout zero, and four probes. Every run used 27 workers, teardown diagnostics, JSON reporter capture, and a clean starting cluster unless labelled dirty. The intended two-run-per-arm allocation could not approach the pre-registered n=7/arm Δ=20 requirement; all comparisons below are explicitly **undetermined (underpowered)**.
+
+| lane | failing files | peak / headroom | positions | coverage yield (joined / ladder / position-unobservable / unjoined) | outcome |
+|---|---:|---:|---|---|---|
+| enabled C1 | 34 | 66 / 31 | afterEach 8; afterAll 9; beforeAll 1; body 16 | 0 / 2 / 8 / 24 | Coverage floor missed; no attribution. |
+| unset U1 | 39 | 70 / 27 | beforeAll 5; afterAll 4; afterEach 15; body 15 | 0 / 0 / 15 / 24 | Control retained. |
+| enabled C2 | 35 | 70 / 27 | afterEach 15; afterAll 5; beforeAll 1; body 14 | 2 / 0 / 15 / 18 | Coverage floor missed; two joined rows do not identify a mechanism. |
+| unset U2 | 66 | 66 / 31 | afterEach 28; afterAll 11; beforeAll 8; body 19 | 0 / 0 / 28 / 38 | Control retained. |
+| M5 clean | 60 | 60 / 37 | beforeAll 6; afterEach 31; afterAll 8; body 14; setup 1 | 2 / 5 / 31 / 22 | Clean arm, one `cap` suppression. |
+| M5 dirty | 42 | 78 / 19 | body 18; afterAll 5; beforeAll 5; afterEach 14 | 2 / 1 / 14 / 25 | Dirty arm began with one test, one schema-template, and one pool database. |
+
+Enabled mean failure count was 34.5 versus unset 52.5 (difference −18), but n=2/arm is below seven and the pre-declared Welch/rank comparison is not inferential. The 50% joined-plus-ladder coverage floor was missed in both enabled samples (2/34 and 2/35), so enabled rows are a coverage finding, not M2–M4 attribution. No observer probe was concurrency-suppressed in the perturbation lanes; one M5-clean record was cap-suppressed. The M5 clean/dirty difference is 18 failures at n=1/arm and is likewise **undetermined (underpowered)**. Final hygiene after every run was restored to seven backends and zero matching test/template/pool databases.
+
+Payload-free breach and ladder rows remain location-only evidence: they cannot affirm a cluster-state mechanism. The new campaign again keeps every observed peak below the 97 ordinary-slot ceiling, which preserves M1's generic-form elimination. M2–M4 remain undecided because coverage is below floor; the successor needs an executing-test/hook-position join identity or a bracket for the remaining unowned positions, while M5 needs seven interleaved runs per arm under an allocated host budget.
 
 ## Remedies disqualified by this evidence
 
@@ -84,4 +113,4 @@ not a resolution.
 
 ## Successor measurement seam
 
-FN-9151 owns the affirmed dirty-carryover structural seam: identify why retained `fusion_test_%`, `fusion_schema_template%` (including golden), and `fusion_pool_%` state covaries with the 27-worker failure population, then prove a remedy with a regression without changing timeouts, retries, skips, worker caps, quarantine, DDL, connection-budget, or admission behavior. A separate successor may improve timeout-boundary join coverage for M2–M4; it must preserve the default-off observer and repeat the perturbation control. Generic ordinary-slot exhaustion remains disqualified.
+FN-9152 owns the powered dirty-carryover measurement arm: obtain the host budget for seven interleaved clean and seven dirty runs before judging the retained covariation, without changing timeouts, retries, skips, worker caps, quarantine, DDL, connection-budget, or admission behavior. A separate successor may improve timeout-boundary join coverage for M2–M4; it must preserve the default-off observer and repeat the perturbation control. Generic ordinary-slot exhaustion remains disqualified.

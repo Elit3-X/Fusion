@@ -33,7 +33,7 @@ export function parseDiagnosticsJsonl(text) {
   return { rows, malformedLines };
 }
 
-function normalizeFile(value) {
+export function normalizeFile(value) {
   const normalized = String(value).replaceAll("\\", "/");
   // Vitest diagnostics use absolute paths while runner failures use repo paths.
   // Canonicalize at the test-root segment before any key-based observer join.
@@ -102,6 +102,25 @@ export function parseBoundaryObserverJsonl(text) {
   return parseDiagnosticsJsonl(text);
 }
 
+/** Vitest JSON exposes test durations; hook duration is not available in v4 output. */
+export function parseVitestJson(text) {
+  try {
+    const report = JSON.parse(String(text));
+    const rows = Array.isArray(report?.testResults) ? report.testResults : [];
+    return {
+      rows: rows.flatMap((file) => (Array.isArray(file?.assertionResults) ? file.assertionResults : []).map((test) => ({
+        testFile: normalizeFile(file?.name),
+        position: classifyLifecyclePosition([test?.fullName, ...(test?.failureMessages ?? [])].join("\n")),
+        durationMs: Number.isFinite(test?.duration) ? test.duration : null,
+        status: test?.status ?? null,
+      }))),
+      malformed: false,
+    };
+  } catch {
+    return { rows: [], malformed: true };
+  }
+}
+
 function boundaryForLifecycle(lifecyclePosition) {
   if (lifecyclePosition === "beforeAll hook" || lifecyclePosition === "in-test setup") return "setup";
   if (lifecyclePosition === "afterEach" || lifecyclePosition === "afterAll hook" || lifecyclePosition === "global setup-teardown") return "teardown";
@@ -129,8 +148,23 @@ export function classifyBoundaryAttribution(failure, observerRecords, bodyUnobse
   if (boundary === "body" && bodyUnobservableFiles.includes(failure.file)) {
     return { classification: "body-unobservable", boundary, record: null, hostOnly: false, fullyUnobservable: false };
   }
+  // Shared-harness afterEach only closes the body bracket; consumer afterEach
+  // hooks are outside it, so an absent record is an explicit position limit.
+  if (failure.lifecyclePosition === "afterEach") {
+    return { classification: "position-unobservable", boundary, record: null, hostOnly: false, fullyUnobservable: false };
+  }
+  // A settled boundary can legitimately have earlier checkpoints. Only a key
+  // with progress and no terminal record is an abandoned-boundary lower bound.
+  const terminalKeys = new Set(sameFile.filter((record) => record.kind === "terminal" && typeof record.joinKey === "string").map((record) => record.joinKey));
+  const abandonedProgress = sameFile.filter((record) => record.kind === "progress" && typeof record.joinKey === "string" && !terminalKeys.has(record.joinKey));
+  if (abandonedProgress.length > 0) {
+    const withElapsed = abandonedProgress.map((record) => ({ record, elapsedMs: Number(record.elapsedMs) })).filter(({ elapsedMs }) => Number.isFinite(elapsedMs));
+    const latestBound = withElapsed.length > 0 ? withElapsed.reduce((latest, candidate) => candidate.elapsedMs > latest.elapsedMs ? candidate : latest) : null;
+    return { classification: "attributed-by-ladder", boundary, record: latestBound?.record ?? abandonedProgress[0], hostOnly: true, elapsedLowerBoundMs: latestBound?.elapsedMs ?? null };
+  }
   const watchdog = sameFile.filter((record) => record.trigger === "boundary-watchdog");
   const record = watchdog.find((candidate) => !candidate.probeSuppressed && candidate.cluster && candidate.template)
+    ?? watchdog.find((candidate) => candidate.kind === "watchdog")
     ?? watchdog[0]
     ?? sameFile[0]
     ?? null;
@@ -140,7 +174,15 @@ export function classifyBoundaryAttribution(failure, observerRecords, bodyUnobse
     const load = Number(record?.host?.loadavg1);
     const cpus = Number(record?.host?.cpuCount);
     const lag = Number(record?.host?.eventLoopLagMs);
-    return { classification: (Number.isFinite(load) && Number.isFinite(cpus) && load >= cpus) || lag >= 100 ? "host-implicated" : "unjoined", boundary, record, hostOnly: true };
+    if ((Number.isFinite(load) && Number.isFinite(cpus) && load >= cpus) || lag >= 100) {
+      return { classification: "host-implicated", boundary, record, hostOnly: true };
+    }
+    // A two-phase breach is a real boundary join even when it has no cluster
+    // payload. Keep it visible as coverage rather than misreporting no record.
+    if (record?.kind === "breach" && record?.payloadFree === true) {
+      return { classification: "joined", boundary, record, hostOnly: true };
+    }
+    return { classification: "unjoined", boundary, record, hostOnly: true };
   }
   const template = record.template ?? {};
   // A holder alone is not a convoy: only a non-owner waiter proves the
@@ -167,9 +209,17 @@ export function summarizeBoundaryObserver(records, failures, bodyUnobservableFil
     const reason = row?.probeSuppressed === "single-flight" ? "concurrency" : row?.probeSuppressed;
     if (reason) suppression[reason] = (suppression[reason] ?? 0) + 1;
   }
+  const attributionCounts = Object.fromEntries(Object.entries(Object.groupBy(attributions, (row) => row.boundaryAttribution.classification)).map(([key, values]) => [key, values.length]));
   return {
     boundaryObserver: rows.length ? "present" : "absent",
-    boundaryAttributionHistogram: Object.fromEntries(Object.entries(Object.groupBy(attributions, (row) => row.boundaryAttribution.classification)).map(([key, values]) => [key, values.length])),
+    boundaryAttributionHistogram: attributionCounts,
+    joinedCoverageYield: {
+      joined: (attributionCounts.joined ?? 0) + (attributionCounts["cluster-implicated"] ?? 0) + (attributionCounts["host-implicated"] ?? 0) + (attributionCounts["template-convoy"] ?? 0),
+      attributedByLadder: attributionCounts["attributed-by-ladder"] ?? 0,
+      bodyUnobservable: attributionCounts["body-unobservable"] ?? 0,
+      positionUnobservable: attributionCounts["position-unobservable"] ?? 0,
+      unjoined: attributionCounts.unjoined ?? 0,
+    },
     observerProbeSuppression: suppression,
     settledDuringProbeCount: rows.filter((row) => row?.settledDuringProbe === true).length,
     fullyUnobservableFailingFiles: attributions.filter((row) => row.boundaryAttribution.fullyUnobservable).map((row) => row.file),
@@ -211,7 +261,7 @@ export function summarizeDiagnostics(diagnostics) {
   };
 }
 
-export function buildCensus({ log, diagnostics = [], boundaryObserver = [], bodyUnobservableFiles = [], fullyUnobservableFiles = [], ordinarySlotCeiling = null, subjects = [] }) {
+export function buildCensus({ log, diagnostics = [], boundaryObserver = [], vitestJson = [], bodyUnobservableFiles = [], fullyUnobservableFiles = [], ordinarySlotCeiling = null, subjects = [] }) {
   const summary = parseFileSummary(log);
   if (!summary.complete) {
     return { status: "insufficient-data", reason: "missing Test Files summary", totalFiles: null, failingFiles: [], failingFileCount: null };
@@ -222,6 +272,12 @@ export function buildCensus({ log, diagnostics = [], boundaryObserver = [], body
   }
   const diagnosticSummary = summarizeDiagnostics(diagnostics);
   const observerSummary = summarizeBoundaryObserver(boundaryObserver, failingFiles, bodyUnobservableFiles, fullyUnobservableFiles);
+  const reporterFiles = new Set(vitestJson.map((row) => row.testFile).filter(Boolean));
+  const observerFiles = new Set(boundaryObserver.map(observerFile).filter(Boolean));
+  const reporterJoin = {
+    observerFilesWithoutReporter: [...observerFiles].filter((file) => !reporterFiles.has(file)),
+    reporterFilesWithoutObserver: [...reporterFiles].filter((file) => !observerFiles.has(file)),
+  };
   const ceiling = Number.isFinite(ordinarySlotCeiling) && ordinarySlotCeiling >= 0 ? ordinarySlotCeiling : null;
   return {
     status: "measured",
@@ -235,16 +291,18 @@ export function buildCensus({ log, diagnostics = [], boundaryObserver = [], body
     backendHeadroom: ceiling != null && diagnosticSummary.peakBackends != null ? ceiling - diagnosticSummary.peakBackends : null,
     ...diagnosticSummary,
     ...observerSummary,
+    reporterJoin,
   };
 }
 
 function parseArgs(args) {
-  const result = { log: undefined, diagnostics: undefined, boundaryObserver: undefined, bodyUnobservableFiles: undefined, fullyUnobservableFiles: undefined, ordinarySlotCeiling: null, subjects: [] };
+  const result = { log: undefined, diagnostics: undefined, boundaryObserver: undefined, vitestJson: undefined, bodyUnobservableFiles: undefined, fullyUnobservableFiles: undefined, ordinarySlotCeiling: null, subjects: [] };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--log") result.log = args[++index];
     else if (argument === "--diagnostics") result.diagnostics = args[++index];
     else if (argument === "--boundary-observer") result.boundaryObserver = args[++index];
+    else if (argument === "--vitest-json") result.vitestJson = args[++index];
     else if (argument === "--body-unobservable-files") result.bodyUnobservableFiles = args[++index];
     else if (argument === "--fully-unobservable-files") result.fullyUnobservableFiles = args[++index];
     else if (argument === "--ordinary-slot-ceiling") result.ordinarySlotCeiling = Number(args[++index]);
@@ -259,7 +317,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = parseArgs(process.argv.slice(2));
   const parsed = args.diagnostics ? parseDiagnosticsJsonl(readFileSync(args.diagnostics, "utf8")) : { rows: [], malformedLines: 0 };
   const observer = args.boundaryObserver ? parseBoundaryObserverJsonl(readFileSync(args.boundaryObserver, "utf8")) : { rows: [], malformedLines: 0 };
+  const reporter = args.vitestJson ? parseVitestJson(readFileSync(args.vitestJson, "utf8")) : { rows: [], malformed: false };
   const bodyUnobservableFiles = args.bodyUnobservableFiles ? readFileSync(args.bodyUnobservableFiles, "utf8").split(/\\r?\\n/).map(normalizeFile).filter(Boolean) : [];
   const fullyUnobservableFiles = args.fullyUnobservableFiles ? readFileSync(args.fullyUnobservableFiles, "utf8").split(/\\r?\\n/).map(normalizeFile).filter(Boolean) : [];
-  console.log(JSON.stringify({ ...buildCensus({ log: readFileSync(args.log, "utf8"), diagnostics: parsed.rows, boundaryObserver: observer.rows, bodyUnobservableFiles, fullyUnobservableFiles, ordinarySlotCeiling: args.ordinarySlotCeiling, subjects: args.subjects }), malformedDiagnosticLines: parsed.malformedLines, malformedBoundaryObserverLines: observer.malformedLines }, null, 2));
+  console.log(JSON.stringify({ ...buildCensus({ log: readFileSync(args.log, "utf8"), diagnostics: parsed.rows, boundaryObserver: observer.rows, vitestJson: reporter.rows, bodyUnobservableFiles, fullyUnobservableFiles, ordinarySlotCeiling: args.ordinarySlotCeiling, subjects: args.subjects }), malformedDiagnosticLines: parsed.malformedLines, malformedBoundaryObserverLines: observer.malformedLines, malformedVitestJson: reporter.malformed }, null, 2));
 }

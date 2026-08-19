@@ -10,6 +10,7 @@ import {
   parseDiagnosticsJsonl,
   parseBoundaryObserverJsonl,
   classifyBoundaryAttribution,
+  parseVitestJson,
   stripAnsi,
 } from "../pg-loaded-failure-census.mjs";
 
@@ -58,6 +59,33 @@ test("joins out-of-order watchdog payloads by file and boundary, not line order"
   assert.equal(classifyBoundaryAttribution(failure, parsed.rows).classification, "cluster-implicated");
 });
 
+test("attributes a progress-only observer key without inventing a cluster payload", () => {
+  const failure = { file: "src/__tests__/postgres/abandoned.test.ts", lifecyclePosition: "test body" };
+  const observer = [
+    // Consecutive shared-harness bodies retain a common supersession identity,
+    // but their emitted record join keys must remain per-window.
+    { testFile: failure.file, boundary: "body", kind: "progress", joinKey: "body-1", supersessionKey: "shared-file", elapsedMs: 5000 },
+    { testFile: failure.file, boundary: "body", kind: "progress", joinKey: "body-1", supersessionKey: "shared-file", elapsedMs: 10000 },
+    { testFile: failure.file, boundary: "body", kind: "terminal", joinKey: "body-2", supersessionKey: "shared-file", elapsedMs: 10 },
+  ];
+  const attribution = classifyBoundaryAttribution(failure, observer);
+  assert.equal(attribution.classification, "attributed-by-ladder");
+  assert.equal(attribution.elapsedLowerBoundMs, 10000);
+  const settledProgress = [
+    { testFile: failure.file, boundary: "body", kind: "progress", joinKey: "settled-body", elapsedMs: 5000 },
+    { testFile: failure.file, boundary: "body", kind: "terminal", joinKey: "settled-body", elapsedMs: 6000 },
+  ];
+  assert.equal(classifyBoundaryAttribution(failure, settledProgress).classification, "unjoined");
+  const breachOnly = [{ testFile: failure.file, boundary: "body", kind: "breach", payloadFree: true, joinKey: "body-2", trigger: "boundary-watchdog", host: { loadavg1: 0, cpuCount: 8, eventLoopLagMs: 0 } }];
+  assert.equal(classifyBoundaryAttribution(failure, breachOnly).classification, "joined");
+
+  const reporter = parseVitestJson(JSON.stringify({ testResults: [{ name: `/repo/${failure.file}`, assertionResults: [{ fullName: "body timeout", duration: 15000, status: "failed", failureMessages: ["Test timed out in 15000ms"] }] }] }));
+  assert.equal(reporter.malformed, false);
+  assert.equal(reporter.rows[0].testFile, failure.file);
+  assert.equal(reporter.rows[0].durationMs, 15000);
+  assert.equal(parseVitestJson("truncated").malformed, true);
+});
+
 test("keeps explicit unobservable sets and suppressed watchdog failures distinct from joined attribution", () => {
   const body = { file: "src/__tests__/postgres/direct.test.ts", lifecyclePosition: "test body" };
   assert.equal(classifyBoundaryAttribution(body, [], [body.file]).classification, "body-unobservable");
@@ -71,6 +99,8 @@ test("keeps explicit unobservable sets and suppressed watchdog failures distinct
   assert.equal(census.fullyUnobservableFailingFileCount, 1);
   assert.deepEqual(census.fullyUnobservableFailingFiles, [fully.file]);
   assert.equal(census.attributions[0].boundaryAttribution.classification, "unjoined");
+  const afterEach = { file: "src/__tests__/postgres/shared.test.ts", lifecyclePosition: "afterEach" };
+  assert.equal(classifyBoundaryAttribution(afterEach, []).classification, "position-unobservable");
 });
 
 test("requires a golden advisory waiter, not a holder, for template convoy attribution", () => {
