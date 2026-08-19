@@ -1293,7 +1293,11 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       directThreadDeferredAnchorTimeoutRef.current = null;
     }
 
-    const threadId = roomThreadActive ? (rooms.activeRoom?.id ?? null) : (activeSession?.id ?? null);
+    // FNXC:ChatNavigation 2026-08-19-22:23:
+    // List-first navigation must not consume the active hook selection as a mounted thread before the user opens detail; otherwise the real detail mount misses its live-tail anchor.
+    const threadId = detailOpen
+      ? roomThreadActive ? (rooms.activeRoom?.id ?? null) : (activeSession?.id ?? null)
+      : null;
     if (!threadId) {
       lastAnchoredThreadStateRef.current = null;
       return;
@@ -1344,6 +1348,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       }
     };
   }, [
+    detailOpen,
     roomThreadActive,
     rooms.activeRoom?.id,
     rooms.messages.length,
@@ -1368,7 +1373,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
 
   // Snap to latest on new messages only when the user was pinned before growth.
   useEffect(() => {
-    const threadId = getActiveThreadId();
+    const threadId = detailOpen ? getActiveThreadId() : null;
     if (!threadId) {
       lastMessageCountRef.current = 0;
       lastThreadIdRef.current = null;
@@ -1391,7 +1396,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     if (didGrow && wasPinnedBefore) {
       scrollToBottom("new-message");
     }
-  }, [activeThreadMessages, getActiveThreadId, scrollToBottom]);
+  }, [activeThreadMessages, detailOpen, getActiveThreadId, scrollToBottom]);
 
   useEffect(() => {
     if (keyboardOverlap <= 0) {
@@ -1493,7 +1498,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       thread.style.transform = "";
       thread.style.willChange = "";
     };
-  }, [activeSession, isMobile, roomThreadActive]);
+  }, [activeSession, detailOpen, isMobile, roomThreadActive]);
 
   // Close context menu on outside click
   useEffect(() => {
