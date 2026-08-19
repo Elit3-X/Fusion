@@ -869,7 +869,7 @@ export function ProjectModelsSection({ form, setForm, models, projectId, onOpenW
         <div className="settings-field-label-row">
           <h4 className="settings-section-heading settings-section-heading--spaced">{t("settings.projectModels.aITitleAndGitCommitMessageSummarization", " AI Title and Git Commit Message Summarization ")}</h4>
           <SettingsHelpTip settingKey="project-ai-summarization">
-            {t("settings.projectModels.configuresTheModelUsedForTwoShortSummary", " Configures the model used for two short-summary jobs: auto-generating task titles from long descriptions, and generating merge commit summaries from step commits and diff stats. ")}
+            {t("settings.projectModels.configuresTheModelUsedForTwoShortSummary", " Configures the model used for two short-summary jobs: auto-generating task titles from task descriptions, and generating merge commit summaries from step commits and diff stats. ")}
             {(form.autoSummarizeTitles || form.useAiMergeCommitSummary || form.githubTrackingEnabledByDefault || false)
               ? t("settings.movedStub.summarizerModelInline", "These summarization model controls govern title auto-summarization, merge commit summaries, GitHub tracking titles, and PR metadata generation.")
               : ""}
@@ -904,8 +904,13 @@ export function ProjectModelsSection({ form, setForm, models, projectId, onOpenW
         <SettingsToggleRow
           descriptor={{
             key: "autoSummarizeTitles",
-            label: t("settings.projectModels.autoSummarizeLongDescriptionsAsTitles", " Auto-summarize long descriptions as titles "),
-            help: t("settings.projectModels.whenEnabledTasksCreatedWithoutATitleBut", " When enabled, tasks created without a title but with descriptions over 200 characters will automatically get an AI-generated title (max 60 characters). The same model is also used to generate fallback merge commit message bodies when the branch's commit log is empty (e.g. squash merges with no unique commits), and GitHub tracking issue titles when a tracked task has no title yet. Default: disabled. "),
+            /*
+            FNXC:TitleSummarization 2026-08-19-13:43:
+            The project toggle describes the all-length automatic policy. Keep explicit titles and
+            manual/force requests as separate precedence paths rather than implying this toggle is a permission gate.
+            */
+            label: t("settings.projectModels.autoSummarizeLongDescriptionsAsTitles", " Auto-summarize task titles "),
+            help: t("settings.projectModels.whenEnabledTasksCreatedWithoutATitleBut", " When enabled, every non-empty task description created without a title receives an AI-generated title (max 60 characters). Explicit titles are preserved, and manual or explicit force requests remain available when this is disabled. The same model is also used for merge commit summaries and GitHub tracking issue titles. Default: disabled. "),
             scope: "project",
           }}
           value={form.autoSummarizeTitles || false}

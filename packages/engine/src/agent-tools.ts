@@ -1524,7 +1524,12 @@ export async function createAgentTask(
           ? undefined
           : computeParentIntentClaimId({ title: input.title, description: input.description, sourceParentTaskId }) ?? undefined
       ),
-      summarize: !input.title?.trim() ? true : undefined,
+      /*
+      FNXC:TitleSummarization 2026-08-19-13:43:
+      Agent-created tasks use the same project-scoped automatic title policy as every other
+      create gateway. Do not inject summarize:true for untitled tasks; that flag is reserved for
+      an explicit caller request.
+      */
       source: nextSource,
       githubTracking: shouldPrefillGithubTrackingEnabled
         ? {

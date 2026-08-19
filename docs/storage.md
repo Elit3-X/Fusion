@@ -447,7 +447,7 @@ API endpoints reviewed:
 | `autoBackupSchedule` | Project | `GET/PUT /api/settings` | Backup cron schedule |
 | `autoBackupRetention` | Project | `GET/PUT /api/settings` | Backup retention count |
 | `autoBackupDir` | Project | `GET/PUT /api/settings` | Backup directory |
-| `autoSummarizeTitles` | Project | `GET/PUT /api/settings` | Auto-title generation |
+| `autoSummarizeTitles` | Project | `GET/PUT /api/settings` | All-length automatic AI title policy for non-empty untitled task descriptions; default `false`. Explicit titles and manual/force requests are unaffected, and the value is snapshotted per create. |
 | `titleSummarizerProvider` | Project | `GET/PUT /api/settings` | Title model provider |
 | `titleSummarizerModelId` | Project | `GET/PUT /api/settings` | Title model id |
 | `titleSummarizerFallbackProvider` | Project | `GET/PUT /api/settings` | Title fallback provider |

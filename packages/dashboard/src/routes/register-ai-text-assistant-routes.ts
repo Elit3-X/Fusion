@@ -278,8 +278,8 @@ router.post("/ai/draft-goal-description", async (req, res) => {
  * Body: { description: string, provider?: string, modelId?: string }
  * Returns: { title: string }
  *
- * Generates a concise title (≤60 characters) from descriptions longer than 200 characters.
- * Long descriptions are accepted; core truncates model input before prompting.
+ * Generates a concise title (≤60 characters) from any non-empty description.
+ * Model input is bounded by the core summarizer before prompting.
  * Rate limited: 10 requests per hour per IP
  */
 router.post("/ai/summarize-title", async (req, res) => {
@@ -294,7 +294,6 @@ router.post("/ai/summarize-title", async (req, res) => {
       getRateLimitResetTime,
       summarizeTitle,
       validateDescription,
-      MIN_DESCRIPTION_LENGTH,
       RateLimitError: _RateLimitError4,
       ValidationError: _ValidationError2,
       AiServiceError: _AiServiceError2,
@@ -359,7 +358,7 @@ router.post("/ai/summarize-title", async (req, res) => {
     const title = await summarizeTitle(description, rootDir, resolvedProvider, resolvedModelId);
 
     if (!title) {
-      throw badRequest(`Description must be at least ${MIN_DESCRIPTION_LENGTH} characters for summarization`);
+      throw badRequest("AI returned empty title");
     }
 
     res.json({ title });

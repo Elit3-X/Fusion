@@ -8,7 +8,8 @@
  */
 import {TaskStore, storeLog} from "../store.js";
 import {InvalidFileScopeError, SelfDefeatingDependencyError, detectSelfDefeatingDependency, TombstonedTaskResurrectionError} from "./errors.js";
-import {mkdir, rename, rm, writeFile} from "node:fs/promises";
+import {and, eq, isNull, sql} from "drizzle-orm";
+import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {existsSync} from "node:fs";
 import {randomUUID} from "node:crypto";
@@ -30,12 +31,13 @@ import type {WorkflowIr} from "../workflows/workflow-ir-types.js";
 import {DEFAULT_WORKFLOW_ID, getBuiltinWorkflow, isBuiltinWorkflowId} from "../workflows/builtin-workflows.js";
 import {columnsWithFlag} from "../workflows/workflow-lifecycle-traits.js";
 import {validateFileScopeInPromptContent} from "../task-store/file-scope.js";
-import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
+import {__setTaskActivityLogLimitsForTesting, rewriteHeadingLine} from "../task-store/comments.js";
 import {withTaskBranchContextInSourceMetadata} from "../task-store/branch-context.js";
 import {resolveCreateDeclaredSymbols} from "../tasks/task-symbol-resolution.js";
 import {softDeleteTaskRow as softDeleteTaskRowAsync, insertTaskRowInTransaction, isTaskIdConflictError} from "../task-store/async/async-persistence.js";
 import {recordRunAuditEvent as recordRunAuditEventAsync} from "../task-store/async/async-audit.js";
-import {recordRunAuditEventWithinTransaction} from "../postgres/data-layer.js";
+import {recordRunAuditEventWithinTransaction, taskProjectScope} from "../postgres/data-layer.js";
+import * as schema from "../postgres/schema/index.js";
 import type {DbTransaction} from "../postgres/data-layer.js";
 import { resolveTaskPrefix } from "./task-prefix.js";
 import {assertValidProviderInstanceId} from "../provider-instance.js";
@@ -137,6 +139,64 @@ async function resolveDefaultWorkflowIntakeColumn(store: TaskStore): Promise<str
   }
 }
 
+/*
+FNXC:TitleSummarization 2026-08-19-14:29:
+The deferred writer uses a fast preflight read for the common deleted/already-titled case, but the
+PostgreSQL UPDATE predicate is the authority. A title supplied by another process after that read
+must make the generated write a no-op rather than being overwritten by a later full-row update.
+*/
+async function persistDeferredTaskTitleIfUntitled(
+  store: TaskStore,
+  taskId: string,
+  title: string,
+): Promise<boolean> {
+  const observed = await store.getTask(taskId).catch(() => undefined);
+  if (!observed || observed.title?.trim()) return false;
+
+  const layer = store.asyncLayer!;
+  const updated = await layer.transactionImmediate(async (tx) => {
+    const scope = taskProjectScope(layer);
+    const conditions = [
+      eq(schema.project.tasks.id, taskId),
+      isNull(schema.project.tasks.deletedAt),
+      sql`btrim(coalesce(${schema.project.tasks.title}, '')) = ''`,
+      ...(scope ? [scope] : []),
+    ];
+    const [row] = await tx
+      .update(schema.project.tasks)
+      .set({ title, updatedAt: new Date().toISOString() })
+      .where(and(...conditions))
+      .returning();
+    return row ? store.rowToTask(store.pgRowToTaskRow(row)) : undefined;
+  });
+
+  if (!updated) return false;
+  await store.writeTaskJsonFile(store.taskDir(taskId), updated);
+  if (store.isWatching) store.taskCache.set(taskId, { ...updated });
+
+  // FNXC:TitleSummarization 2026-08-19-14:29: Keep the operator-visible prompt heading aligned without a second title mutation.
+  try {
+    const promptPath = join(store.taskDir(taskId), "PROMPT.md");
+    if (existsSync(promptPath)) {
+      const existingPrompt = await readFile(promptPath, "utf-8");
+      const triageStyle = /^#\s+Task:\s+[A-Z]+-\d+\s+-\s+/m.test(existingPrompt);
+      const heading = triageStyle
+        ? `Task: ${updated.id} - ${updated.title}`
+        : `${updated.id}: ${updated.title}`;
+      const nextPrompt = rewriteHeadingLine(existingPrompt, heading);
+      if (nextPrompt !== existingPrompt) await writeFile(promptPath, nextPrompt);
+    }
+  } catch (err) {
+    storeLog.warn(`[title-summarization] failed to sync PROMPT.md heading for ${taskId}`, {
+      taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  store.emitTaskLifecycleEventSafely("task:updated", [updated]);
+  return true;
+}
+
 export async function createTaskBackendImpl(store: TaskStore, input: TaskCreateInput, options?: {
  onSummarize?: (description: string) => Promise<string | null>; settings?: { autoSummarizeTitles?: boolean }; invokeTaskCreatedHook?: boolean; onProposalClaimConflict?: (task: Task) => void; ownershipExemption?: IntakeOwnershipExemption; },): Promise<Task> {
   /* FNXC:CredentialInstanceSelection 2026-08-01-05:43: validate task authoring input before persistence; ids are stored but runtime credential resolution remains unchanged. */
@@ -218,9 +278,15 @@ export async function createTaskBackendImpl(store: TaskStore, input: TaskCreateI
     }
 
     const title = input.title?.trim() || undefined;
+    /*
+    FNXC:TitleSummarization 2026-08-19-13:43:
+    The project-scoped autoSummarizeTitles snapshot is the sole automatic eligibility policy.
+    Do not reintroduce a description-length branch: every non-empty untitled create follows the
+    same setting, while summarize:true remains an explicit per-create force request.
+    */
     const shouldSummarize =
       !title &&
-      input.description.length > 200 &&
+      input.description.trim().length > 0 &&
       (input.summarize === true || resolvedSettings?.autoSummarizeTitles === true);
     const hasPendingSummarization = shouldSummarize && typeof onSummarize === "function";
     const shouldInvokeTaskCreatedHook = options?.invokeTaskCreatedHook !== false;
@@ -424,12 +490,9 @@ export async function createTaskBackendImpl(store: TaskStore, input: TaskCreateI
           if (sanitizedTitle) {
             await store.trackDeferredTaskCreatedWork(async () => {
               if (store.closing) return;
-              const currentTask = await store.getTask(id);
-              if (currentTask && !currentTask.title) {
-                const normalizedTitle = normalizeTitleForTaskId(sanitizedTitle, id);
-                if (normalizedTitle.title && !store.closing) {
-                  await store.updateTask(id, { title: normalizedTitle.title });
-                }
+              const normalizedTitle = normalizeTitleForTaskId(sanitizedTitle, id);
+              if (normalizedTitle.title && !store.closing) {
+                await persistDeferredTaskTitleIfUntitled(store, id, normalizedTitle.title);
               }
             });
           }

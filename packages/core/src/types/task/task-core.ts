@@ -1597,7 +1597,7 @@ export interface TaskCreateInput {
   planningThinkingLevel?: ThinkingLevel;
   /** Independent per-task merger reasoning-effort override; unset inherits merger settings. */
   mergerThinkingLevel?: ThinkingLevel;
-  /** When true, trigger AI title summarization if description is long and no title provided */
+  /** Explicitly force an AI title attempt for this create when no title is provided; project automatic policy is separate. */
   summarize?: boolean;
   /** Mission ID to link this task to (for mission hierarchy) */
   missionId?: string;

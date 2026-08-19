@@ -522,7 +522,7 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    const result = await summarizeTitle("a".repeat(201));
+    const result = await summarizeTitle("a");
 
     expect(result).toBe("Generated Title");
     expect(mockFetch).toHaveBeenCalledWith(
@@ -532,7 +532,7 @@ describe("summarizeTitle", () => {
         // `summarizeTitle` calls `fetch()` directly, bypassing `api()`, so no attribution header.
         // See the note in test/apiRequestHeaders.ts — this is a MUTATION without attribution.
         headers: API_JSON_HEADERS_NO_ATTRIBUTION,
-        body: JSON.stringify({ description: "a".repeat(201), provider: undefined, modelId: undefined }),
+        body: JSON.stringify({ description: "a", provider: undefined, modelId: undefined }),
       })
     );
   });

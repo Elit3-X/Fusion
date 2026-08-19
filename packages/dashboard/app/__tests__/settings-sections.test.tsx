@@ -639,7 +639,7 @@ describe("ProjectModelsSection", () => {
 
     const summarizationSection = screen.getByTestId("project-models-ai-summarization");
     const heading = screen.getByRole("heading", { name: "AI Title and Git Commit Message Summarization" });
-    const autoSummarizeTitles = screen.getByRole("checkbox", { name: "Auto-summarize long descriptions as titles" });
+    const autoSummarizeTitles = screen.getByRole("checkbox", { name: "Auto-summarize task titles" });
     const summarizationDropdown = screen.getByTestId("mock-model-dropdown-summarizationModel");
     const fallbackDropdown = screen.getByTestId("mock-model-dropdown-titleSummarizerFallbackModel");
     const defaultDropdown = screen.getByTestId("mock-model-dropdown-defaultModel");

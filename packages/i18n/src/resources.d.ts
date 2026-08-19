@@ -6817,7 +6817,7 @@ export default interface Resources {
         "advancedWorkflowPolicy": " Advanced workflow policy ",
         "autoSelectModelPresetHint": "Default: disabled.",
         "autoSelectPresetBasedOnTaskSize": " Auto-select preset based on task size ",
-        "autoSummarizeLongDescriptionsAsTitles": " Auto-summarize long descriptions as titles ",
+        "autoSummarizeLongDescriptionsAsTitles": " Auto-summarize task titles ",
         "automaticallyCompactContextWhenApproachingThisTokenCount": "Automatically compact context when approaching this token count. Leave empty for no cap (compact only on overflow errors). Set a number to proactively compact when reaching this token count. No default — unset (no cap).",
         "chatDefaultAgent": "Chat Default Agent",
         "chatDefaultAgentEmpty": "No agents are available for this project yet.",
@@ -6835,7 +6835,7 @@ export default interface Resources {
         "chatNewSessionModeHelp": "Prompt mode opens New Chat with this default preselected. Always-default mode skips the dialog when the configured default is complete.",
         "chatNewSessionModePrompt": "Prompt for model each time",
         "configuredPresets": "Configured presets",
-        "configuresTheModelUsedForTwoShortSummary": " Configures the model used for two short-summary jobs: auto-generating task titles from long descriptions, and generating merge commit summaries from step commits and diff stats. ",
+        "configuresTheModelUsedForTwoShortSummary": " Configures the model used for two short-summary jobs: auto-generating task titles from task descriptions, and generating merge commit summaries from step commits and diff stats. ",
         "defaultWorkflowModelLaneActions": "Default workflow model lane actions",
         "defaultWorkflowModelLanes": "Default workflow model lanes",
         "delete": " Delete ",
@@ -6880,7 +6880,7 @@ export default interface Resources {
         "useDefault": "Use default",
         "useWorkflowDefault": "Use workflow default",
         "whenEnabledMergeCommitMessagesIncludeAnAI": " When enabled, merge commit messages include an AI-generated subject plus body summary (narrative + bullets + diff-stat) instead of just listing step commit subjects. Uses the title summarization model. Default: enabled. ",
-        "whenEnabledTasksCreatedWithoutATitleBut": " When enabled, tasks created without a title but with descriptions over 200 characters will automatically get an AI-generated title (max 60 characters). The same model is also used to generate fallback merge commit message bodies when the branch's commit log is empty (e.g. squash merges with no unique commits), and GitHub tracking issue titles when a tracked task has no title yet. Default: disabled. ",
+        "whenEnabledTasksCreatedWithoutATitleBut": " When enabled, every non-empty task description created without a title receives an AI-generated title (max 60 characters). Explicit titles are preserved, and manual or explicit force requests remain available when this is disabled. The same model is also used for merge commit summaries and GitHub tracking issue titles. Default: disabled. ",
         "workflowLanesSubheading": "Workflow lanes"
       },
       "prompts": {

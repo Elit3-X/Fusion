@@ -2125,9 +2125,12 @@ export interface ProjectSettings {
    *  - "all": backups both project and per-agent memory
    *  Default: "all". */
   memoryBackupScope?: "project" | "agents" | "all";
-  /** When true, tasks created without titles but with descriptions longer than 200
-   *  characters will automatically receive an AI-generated title (max 60 chars).
-   *  Default: false. */
+  /*
+  FNXC:TitleSummarization 2026-08-19-13:43:
+  This project-scoped opt-in controls automatic title attempts for every non-empty task
+  description created without a title. It is a create-time snapshot, defaults to false, and
+  does not govern explicit per-request or manual summarization actions.
+  */
   autoSummarizeTitles?: boolean;
   /*
   FNXC:TaskDefinitionInputLanguage 2026-07-16-05:00:

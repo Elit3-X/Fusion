@@ -5276,19 +5276,37 @@ describe("POST /api/ai/summarize-title", () => {
     expect(res.body.error).toContain("description");
   });
 
-  it("validates description length (minimum 200 characters)", async () => {
+  it("rejects empty descriptions without a length threshold", async () => {
     const res = await REQUEST(
       buildApp(),
       "POST",
       "/api/ai/summarize-title",
-      JSON.stringify({
-        description: "Short description",
-      }),
+      JSON.stringify({ description: "   " }),
       { "Content-Type": "application/json" },
     );
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("at least 201 characters");
+    expect(res.body.error).toContain("description must not be empty");
+  });
+
+  it("accepts a short non-empty description", async () => {
+    const fusionCore = await import("@fusion/core");
+    fusionCore.__resetSummarizeState();
+    const summarizeTitleSpy = vi
+      .spyOn(fusionCore, "summarizeTitle")
+      .mockResolvedValueOnce("Generated short title");
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/ai/summarize-title",
+      JSON.stringify({ description: "Short description" }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ title: "Generated short title" });
+    expect(summarizeTitleSpy).toHaveBeenCalledWith("Short description", "/test/project", undefined, undefined);
   });
 
   it("accepts optional provider and modelId parameters", async () => {

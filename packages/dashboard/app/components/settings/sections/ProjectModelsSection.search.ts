@@ -66,10 +66,10 @@ export const projectModelsSearchEntries: SettingsSearchEntry[] = [
     sectionId: "project-models",
     key: "autoSummarizeTitles",
     labelKey: "settings.projectModels.autoSummarizeLongDescriptionsAsTitles",
-    labelFallback: " Auto-summarize long descriptions as titles ",
+    labelFallback: " Auto-summarize task titles ",
     helpKey: "settings.projectModels.whenEnabledTasksCreatedWithoutATitleBut",
     helpFallback:
-      " When enabled, tasks created without a title but with descriptions over 200 characters will automatically get an AI-generated title (max 60 characters). The same model is also used to generate fallback merge commit message bodies when the branch's commit log is empty (e.g. squash merges with no unique commits), and GitHub tracking issue titles when a tracked task has no title yet. Default: disabled. ",
+      " When enabled, every non-empty task description created without a title receives an AI-generated title (max 60 characters). Explicit titles are preserved, and manual or explicit force requests remain available when this is disabled. The same model is also used for merge commit summaries and GitHub tracking issue titles. Default: disabled. ",
   },
   {
     sectionId: "project-models",

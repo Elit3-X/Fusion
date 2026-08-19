@@ -756,6 +756,25 @@ describe("POST /tasks", () => {
     );
   });
 
+  it("attaches automatic title summarization for short descriptions when the project option is enabled", async () => {
+    const createdTask = { ...FAKE_TASK_DETAIL, title: undefined, description: "short request" };
+    (store.getSettingsFast as ReturnType<typeof vi.fn>).mockResolvedValue({ autoSummarizeTitles: true });
+    (store.createTask as ReturnType<typeof vi.fn>).mockResolvedValue(createdTask);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks",
+      JSON.stringify({ description: "short request" }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(201);
+    const [createInput, options] = (store.createTask as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(createInput).toMatchObject({ description: "short request", summarize: false });
+    expect(options.onSummarize).toEqual(expect.any(Function));
+  });
+
   it("forwards no-workflow and explicit owner inputs but drops public exemption-shaped fields", async () => {
     (store.createTask as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...FAKE_TASK_DETAIL,

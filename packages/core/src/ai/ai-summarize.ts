@@ -2,13 +2,14 @@
  * AI Title Summarization Service
  *
  * Provides AI-powered title generation from task descriptions.
- * Automatically generates concise titles (≤60 characters) from descriptions
- * longer than 200 characters.
+ * Automatically generates concise titles (≤60 characters) from any non-empty
+ * task description when the caller's project policy enables the attempt.
  *
  * Features:
  * - Rate limiting per IP (10 requests per hour)
  * - Dynamic import of @fusion/engine for AI agent creation
- * - Text length validation (minimum 201 characters; model input is truncated)
+ * - Text validation rejects only missing, non-string, empty, or whitespace-only input
+ * - Model input is truncated to a bounded prompt size
  */
 
 import { getFnAgent, type AgentMessage } from "./ai-engine-loader.js";
@@ -51,8 +52,8 @@ export const MAX_DESCRIPTION_LENGTH = 2000;
  */
 export const MAX_TITLE_SUMMARIZE_INPUT_LENGTH = 4000;
 
-/** Minimum description length for summarization in characters */
-export const MIN_DESCRIPTION_LENGTH = 201;
+/** Compatibility name for the non-empty description minimum. */
+export const MIN_DESCRIPTION_LENGTH = 1;
 
 /** Maximum title length in characters */
 export const MAX_TITLE_LENGTH = 60;
@@ -197,12 +198,13 @@ export function validateDescription(description: unknown): string {
     throw new ValidationError("description must be a string");
   }
 
-  // Validate description length floor. There is intentionally no upper bound:
-  // runTitleSummarizer truncates model input before prompting.
-  if (description.length < MIN_DESCRIPTION_LENGTH) {
-    throw new ValidationError(
-      `description must be at least ${MIN_DESCRIPTION_LENGTH} characters for summarization`
-    );
+  /*
+   FNXC:TitleSummarization 2026-08-19-13:43:
+   Title generation is intentionally length-independent. Reject only empty content here;
+   the model prompt remains bounded by MAX_TITLE_SUMMARIZE_INPUT_LENGTH below.
+   */
+  if (description.trim().length === 0) {
+    throw new ValidationError("description must not be empty");
   }
 
   return description;
@@ -347,7 +349,7 @@ async function runTitleSummarizer(
 
 /**
  * Summarize a task description into a concise title using AI.
- * @param description - The task description to summarize (must be >200 chars; model input is truncated)
+ * @param description - The non-empty task description to summarize; model input is truncated
  * @param rootDir - Project root directory for AI agent context
  * @param provider - Optional AI model provider (e.g., "anthropic")
  * @param modelId - Optional AI model ID (e.g., "claude-sonnet-4-5")
@@ -359,10 +361,8 @@ export async function summarizeTitle(
   provider?: string,
   modelId?: string
 ): Promise<string | null> {
-  // Validate description length first
-  if (description.length <= 200) {
-    return null; // Too short for summarization
-  }
+  // Validate before creating an agent so invalid input never incurs model work.
+  validateDescription(description);
 
   const createFnAgent = await getFnAgent();
   if (!createFnAgent) {

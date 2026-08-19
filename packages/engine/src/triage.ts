@@ -58,7 +58,6 @@ import {
   isEphemeralAgent,
   resolveEffectiveAgentPermissionPolicy,
   MAX_TASK_LIST_TEXT_CHARS,
-  MIN_DESCRIPTION_LENGTH,
   deriveFallbackTaskTitle,
   detectContentLanguage,
   localeDisplayName,
@@ -5426,17 +5425,18 @@ function isMalformedTaskTitle(title: string): boolean {
 /**
  * Resolve the title shown to the planner for a task that has not received a title yet.
  *
- * FNXC:TriageTitleFallback 2026-08-19-05:51:
- * Short descriptions never enter AI title summarization, so planning must provide a deterministic
- * title instead of `(none)`. Use the shared sanitized first-line helper rather than interpolating
- * raw multiline description text, which could corrupt the prompt's `**Title:**` structure.
+ * FNXC:TitleSummarization 2026-08-19-13:43:
+ * Planning must provide one deterministic title fallback whenever an untitled task has non-empty
+ * content, regardless of whether automatic project summarization was disabled or unavailable.
+ * Use the shared sanitized first-line helper rather than interpolating raw multiline Markdown,
+ * which could corrupt the prompt's `**Title:**` structure.
  */
 function resolveSpecificationPromptTitle(task: Pick<TaskDetail, "title" | "description">): string {
   const existingTitle = task.title?.trim();
   if (existingTitle) return existingTitle;
 
   const description = task.description ?? "";
-  if (description.trim() && description.length < MIN_DESCRIPTION_LENGTH) {
+  if (description.trim()) {
     return deriveFallbackTaskTitle(description);
   }
 

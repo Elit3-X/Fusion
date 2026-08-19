@@ -531,7 +531,7 @@ describe("buildSpecificationPrompt", () => {
   });
 
   describe("short titleless task title fallback", () => {
-    it.each([199, 200])("uses the deterministic description title at the %i-character boundary", (length) => {
+    it.each([1, 199, 200, 201, 4001])("uses the deterministic description title at the %i-character boundary", (length) => {
       const description = "a".repeat(length);
       const prompt = buildSpecificationPrompt(
         { ...baseTask, title: undefined, description },
@@ -565,14 +565,15 @@ describe("buildSpecificationPrompt", () => {
       expect(prompt).toContain("- **Title:** (none)");
     });
 
-    it("keeps (none) for titleless descriptions over the AI threshold", () => {
+    it("keeps the deterministic fallback above the former AI threshold", () => {
       const description = "a".repeat(201);
       const prompt = buildSpecificationPrompt(
         { ...baseTask, title: undefined, description },
         ".fusion/tasks/KB-001/PROMPT.md",
       );
 
-      expect(prompt).toContain("- **Title:** (none)");
+      expect(prompt).toContain(`- **Title:** ${deriveFallbackTaskTitle(description)}`);
+      expect(prompt).not.toContain("- **Title:** (none)");
     });
 
     it("uses the helper-safe first meaningful line for markdown and multiline text", () => {

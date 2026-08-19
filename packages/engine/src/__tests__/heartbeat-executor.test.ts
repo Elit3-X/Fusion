@@ -4014,7 +4014,6 @@ describe("executeHeartbeat", () => {
         description: "Follow-up task",
         dependencies: undefined,
         priority: undefined,
-        summarize: true,
         source: expect.objectContaining({
           sourceType: "agent_heartbeat",
           sourceAgentId: "agent-001",
