@@ -210,77 +210,6 @@ Mobile Planner Chat should match regular task chat: keep the composer as a singl
 FNXC:TaskDetailPlannerChat 2026-07-07-00:00:
 The Planner Chat streaming Stop button must occupy the same width footprint as the Send button it replaces (no shift/shrink on swap) and mirror the regular Chat view's stop-button sizing (`.chat-input-row`'s `--chat-input-control-size` in ChatView.css). The shared `.chat-input-send` / `.chat-input-stop` classes read that custom property from `.chat-input-row`, which the Planner composer never renders inside of, so the property was undefined here and `width` fell back to `auto`, sizing each button from its own content only. Declare the same control-size formula scoped to `.task-planner-chat-composer` and give `.task-planner-chat-send` (present on both the send and stop button variants) a matching `min-inline-size` floor so neither button can render narrower than the other on desktop, without touching ChatView.css's own token.
 */
-/*
-FNXC:TaskPlannerChatQueue 2026-08-18-23:13:
-Planner follow-ups need a visible management surface above the composer without changing the transcript's scroll ownership. Rows wrap their controls on narrow screens so every edit, ordering, delete, and force-send action remains reachable on touch.
-*/
-.task-planner-chat-pending {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: var(--space-xs);
-  min-width: 0;
-}
-
-.task-planner-chat-pending-divider {
-  border-top: var(--btn-border-width) solid var(--border);
-}
-
-.task-planner-chat-pending-heading {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
-.task-planner-chat-pending-items {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  max-height: calc(var(--space-xl) * 6);
-  margin: 0;
-  padding-inline-start: var(--space-lg);
-  overflow-y: auto;
-}
-
-.task-planner-chat-pending-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  min-width: 0;
-  color: var(--text);
-}
-
-.task-planner-chat-pending-text {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow-wrap: anywhere;
-}
-
-.task-planner-chat-pending-edit-input {
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: var(--space-xs) var(--space-sm);
-}
-
-.task-planner-chat-pending-actions {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.task-planner-chat-pending-actions .btn-icon {
-  flex: 0 0 auto;
-}
-
-.task-planner-chat-pending-force {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
 .task-planner-chat-composer {
   /* FN-7634: same formula as ChatView.css's `.chat-input-row { --chat-input-control-size: … }` so the Planner stop/send buttons share the regular Chat view's control-size floor. */
   --chat-input-control-size: calc(var(--space-lg) * 2.5);
@@ -327,19 +256,6 @@ height rather than relying on the global button minimum.
 @media (max-width: 768px) {
   .task-planner-chat {
     min-height: 0;
-  }
-
-  .task-planner-chat-pending-items {
-    max-height: calc(var(--space-xl) * 5);
-  }
-
-  .task-planner-chat-pending-item {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .task-planner-chat-pending-actions {
-    width: 100%;
   }
 
   .task-planner-chat-expand-toggle {

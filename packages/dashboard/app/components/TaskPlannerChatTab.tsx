@@ -2,7 +2,7 @@ import type { ChatInFlightGenerationState, ChatMessage, ResolvedModelSelection, 
 import { isWipColumnRole } from "../utils/columnRoles";
 import { getErrorMessage } from "@fusion/core";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, Loader2, Maximize2, Minimize2, Pencil, Send, Trash2, X } from "lucide-react";
+import { Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ToastType } from "../hooks/useToast";
 import { useComposerDictation } from "../hooks/useComposerDictation";
@@ -12,6 +12,7 @@ import type { ChatMessageInfo, ToolCallInfo } from "../hooks/chatTypes";
 import { attachChatStream, cancelChatResponse, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
 import { parseQuestionToolCall, type ParsedQuestionToolCall } from "../utils/parseQuestionToolCall";
 import { ChatQuestionResponse } from "./ChatQuestionResponse";
+import { PendingChatMessageQueue } from "./PendingChatMessageQueue";
 import { ProviderIcon } from "./ProviderIcon";
 import { StandardChatActionButton, StandardChatMessageItem, StandardStreamingMessage, formatModelTag } from "./StandardChatSurface";
 import { CHAT_COMMANDS, filterChatCommands, getSlashTriggerMatch, matchChatCommand, type ChatCommand } from "./chat-commands";
@@ -332,8 +333,6 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [pendingMessages, setPendingMessages] = useState<string[]>([]);
-  const [editingPendingIndex, setEditingPendingIndex] = useState<number | null>(null);
-  const [editingPendingText, setEditingPendingText] = useState("");
   const [queueActionPending, setQueueActionPending] = useState(false);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const autosizeRef = useRef<ChatInputAutosizeController | null>(null);
@@ -714,8 +713,6 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     setSessionId(null);
     pendingMessagesRef.current = [];
     setPendingMessages([]);
-    setEditingPendingIndex(null);
-    setEditingPendingText("");
     setQueueActionPending(false);
     setDraft("");
     composerStateRef.current = "idle";
@@ -1113,33 +1110,15 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     cancelPlannerGeneration(snapshot);
   }, [cancelPlannerGeneration]);
 
-  const beginPendingEdit = useCallback((index: number) => {
-    if (queueActionPending || !pendingMessagesRef.current[index]) return;
-    setEditingPendingIndex(index);
-    setEditingPendingText(pendingMessagesRef.current[index] ?? "");
-  }, [queueActionPending]);
-
-  const savePendingEdit = useCallback((index: number) => {
-    const content = editingPendingText.trim();
-    if (!content) {
-      const message = t("taskDetail.plannerChat.pendingEditEmpty", "Queued messages cannot be empty");
-      setError(message);
-      addToastRef.current(message, "warning");
-      return;
-    }
+  const updatePendingMessage = useCallback((index: number, content: string) => {
     const current = pendingMessagesRef.current;
     if (index < 0 || index >= current.length) return;
-    const next = current.map((pendingMessage, pendingIndex) => pendingIndex === index ? content : pendingMessage);
-    replacePendingMessages(next, sessionIdRef.current);
-    setEditingPendingIndex(null);
-    setEditingPendingText("");
+    replacePendingMessages(
+      current.map((pendingMessage, pendingIndex) => pendingIndex === index ? content : pendingMessage),
+      sessionIdRef.current,
+    );
     setError(null);
-  }, [editingPendingText, replacePendingMessages, t]);
-
-  const cancelPendingEdit = useCallback(() => {
-    setEditingPendingIndex(null);
-    setEditingPendingText("");
-  }, []);
+  }, [replacePendingMessages]);
 
   const movePendingMessage = useCallback((index: number, direction: -1 | 1) => {
     if (queueActionPending) return;
@@ -1149,22 +1128,14 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     const next = [...current];
     [next[index], next[targetIndex]] = [next[targetIndex]!, next[index]!];
     replacePendingMessages(next, sessionIdRef.current);
-    if (editingPendingIndex === index) setEditingPendingIndex(targetIndex);
-    else if (editingPendingIndex === targetIndex) setEditingPendingIndex(index);
-  }, [editingPendingIndex, queueActionPending, replacePendingMessages]);
+  }, [queueActionPending, replacePendingMessages]);
 
   const deletePendingMessage = useCallback((index: number) => {
     if (queueActionPending) return;
     const current = pendingMessagesRef.current;
     if (index < 0 || index >= current.length) return;
     replacePendingMessages(current.filter((_, pendingIndex) => pendingIndex !== index), sessionIdRef.current);
-    if (editingPendingIndex === index) {
-      setEditingPendingIndex(null);
-      setEditingPendingText("");
-    } else if (editingPendingIndex !== null && editingPendingIndex > index) {
-      setEditingPendingIndex(editingPendingIndex - 1);
-    }
-  }, [editingPendingIndex, queueActionPending, replacePendingMessages]);
+  }, [queueActionPending, replacePendingMessages]);
 
   const forceSendPendingMessage = useCallback((index: number) => {
     if (queueActionPending) return;
@@ -1468,61 +1439,15 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         )}
       </div>
 
-      {pendingMessages.length > 0 && (
-        <section className="task-planner-chat-pending" data-testid="task-planner-chat-pending-list" aria-label={t("taskDetail.plannerChat.pendingLabel", "Pending planner messages")}>
-          <div className="task-planner-chat-pending-divider" aria-hidden="true" />
-          <h6 className="task-planner-chat-pending-heading">{t("taskDetail.plannerChat.pendingHeading", "Pending messages")}</h6>
-          <ol className="task-planner-chat-pending-items">
-            {pendingMessages.map((pendingMessage, index) => {
-              const isEditing = editingPendingIndex === index;
-              return (
-                <li className="task-planner-chat-pending-item" data-testid={`task-planner-chat-pending-message-${index}`} key={`${index}-${pendingMessage}`}>
-                  {isEditing ? (
-                    <input
-                      className="input task-planner-chat-pending-edit-input"
-                      aria-label={`${t("taskDetail.plannerChat.editPending", "Edit queued message")} ${index + 1}`}
-                      value={editingPendingText}
-                      onChange={(event) => setEditingPendingText(event.target.value)}
-                      disabled={queueActionPending}
-                    />
-                  ) : (
-                    <span className="task-planner-chat-pending-text">{pendingMessage}</span>
-                  )}
-                  <div className="task-planner-chat-pending-actions">
-                    {isEditing ? (
-                      <>
-                        <button type="button" className="btn btn-icon btn-sm" onClick={() => savePendingEdit(index)} disabled={queueActionPending} aria-label={t("taskDetail.plannerChat.savePendingEdit", "Save queued message")} data-testid={`task-planner-chat-pending-save-${index}`}>
-                          <Check aria-hidden="true" />
-                        </button>
-                        <button type="button" className="btn btn-icon btn-sm" onClick={cancelPendingEdit} disabled={queueActionPending} aria-label={t("taskDetail.plannerChat.cancelPendingEdit", "Cancel queued message edit")} data-testid={`task-planner-chat-pending-cancel-${index}`}>
-                          <X aria-hidden="true" />
-                        </button>
-                      </>
-                    ) : (
-                      <button type="button" className="btn btn-icon btn-sm" onClick={() => beginPendingEdit(index)} disabled={queueActionPending} aria-label={`${t("taskDetail.plannerChat.editPending", "Edit queued message")} ${index + 1}`} data-testid={`task-planner-chat-pending-edit-${index}`}>
-                        <Pencil aria-hidden="true" />
-                      </button>
-                    )}
-                    <button type="button" className="btn btn-icon btn-sm" onClick={() => movePendingMessage(index, -1)} disabled={queueActionPending || index === 0} aria-label={`${t("taskDetail.plannerChat.movePendingEarlier", "Move queued message earlier")} ${index + 1}`} data-testid={`task-planner-chat-pending-up-${index}`}>
-                      <ArrowUp aria-hidden="true" />
-                    </button>
-                    <button type="button" className="btn btn-icon btn-sm" onClick={() => movePendingMessage(index, 1)} disabled={queueActionPending || index === pendingMessages.length - 1} aria-label={`${t("taskDetail.plannerChat.movePendingLater", "Move queued message later")} ${index + 1}`} data-testid={`task-planner-chat-pending-down-${index}`}>
-                      <ArrowDown aria-hidden="true" />
-                    </button>
-                    <button type="button" className="btn btn-icon btn-sm" onClick={() => deletePendingMessage(index)} disabled={queueActionPending} aria-label={`${t("taskDetail.plannerChat.deletePending", "Delete queued message")} ${index + 1}`} data-testid={`task-planner-chat-pending-delete-${index}`}>
-                      <Trash2 aria-hidden="true" />
-                    </button>
-                    <button type="button" className="btn btn-sm task-planner-chat-pending-force" onClick={() => forceSendPendingMessage(index)} disabled={queueActionPending} aria-label={`${t("taskDetail.plannerChat.forcePending", "Force send queued message")} ${index + 1}`} data-testid={`task-planner-chat-pending-force-${index}`}>
-                      <Send aria-hidden="true" />
-                      <span>{t("taskDetail.plannerChat.forcePendingShort", "Force send")}</span>
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      )}
+      <PendingChatMessageQueue
+        messages={pendingMessages}
+        disabled={queueActionPending}
+        onEdit={updatePendingMessage}
+        onMove={movePendingMessage}
+        onDelete={deletePendingMessage}
+        onForceSend={forceSendPendingMessage}
+        testIdPrefix="task-planner-chat-pending"
+      />
 
       {showCommandMenu && (
         <div

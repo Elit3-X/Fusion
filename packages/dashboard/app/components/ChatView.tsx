@@ -34,6 +34,7 @@ import { type Agent, type ChatTag, type Settings } from "@fusion/core";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { MicButton } from "./MicButton";
 import { ChatThinkingLevelControl } from "./ChatThinkingLevelControl";
+import { PendingChatMessageQueue } from "./PendingChatMessageQueue";
 import { AgentMentionPopup } from "./AgentMentionPopup";
 import { AgentAvatar } from "./AgentAvatar";
 import { ProviderIcon } from "./ProviderIcon";
@@ -652,7 +653,11 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     editMessageAndResend,
     stopStreaming,
     pendingMessages,
+    pendingQueueAction,
     clearPendingMessage,
+    updatePendingMessage,
+    movePendingMessage,
+    forceSendPendingMessage,
     loadMoreMessages,
     hasMoreMessages,
     searchQuery,
@@ -2770,10 +2775,6 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   // assistant bubble is noise. Hide the per-message identity row entirely.
   const hideAssistantIdentity = activeSession?.agentId === FN_AGENT_ID;
 
-  const getPendingPreview = (message: string) => message.length > 50
-    ? `${message.slice(0, 50)}…`
-    : message;
-
   useEffect(() => {
     if (!mobileSessionMenuOpen) {
       return;
@@ -3086,31 +3087,15 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
           ))}
         </div>
       )}
-      {pendingMessages.length > 0 && (
-        <>
-          {/*
-          FNXC:ChatComposer 2026-06-27-00:00:
-          Queued direct-chat messages stack above the input in FIFO order with one shared divider, so multiple sends remain visible without changing the above-composer placement established by FN-7121.
-          */}
-          <div className="chat-pending-stack" data-testid="chat-pending-stack">
-            {pendingMessages.map((pendingMessage, index) => (
-              <div className="chat-pending-message" data-testid="chat-pending-indicator" key={`${index}-${pendingMessage}`}>
-                <span>{t("chat.queuedMessage", "Queued: {{preview}}", { preview: getPendingPreview(pendingMessage) })}</span>
-                <button
-                  type="button"
-                  className="chat-pending-message-dismiss"
-                  aria-label={t("chat.dismissQueuedMessage", "Dismiss queued message")}
-                  data-testid={`chat-pending-dismiss-${index}`}
-                  onClick={() => clearPendingMessage(index)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="chat-pending-divider" aria-hidden="true" />
-        </>
-      )}
+      <PendingChatMessageQueue
+        messages={pendingMessages}
+        disabled={pendingQueueAction}
+        onEdit={updatePendingMessage ?? (() => undefined)}
+        onMove={movePendingMessage ?? (() => undefined)}
+        onDelete={clearPendingMessage}
+        onForceSend={forceSendPendingMessage ?? (() => undefined)}
+        testIdPrefix="chat-pending"
+      />
       <div className="chat-input-row">
         <button
           type="button"
@@ -3118,6 +3103,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
           data-testid="chat-attach-btn"
           aria-label={t("chat.attachFiles", "Attach files")}
           onClick={() => fileInputRef.current?.click()}
+          disabled={pendingQueueAction}
         >
           <Paperclip size={16} />
         </button>
@@ -3148,7 +3134,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                 void setSessionModel(activeSession.id, selection);
               }
             }}
-            disabled={!activeSession}
+            disabled={!activeSession || pendingQueueAction}
           />
         )}
         <div
@@ -3186,6 +3172,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
               // the visualViewport/input-focus effects own scroll compensation.
             }}
             rows={1}
+            disabled={pendingQueueAction}
             data-testid="chat-input"
           />
           <AgentMentionPopup
@@ -3213,10 +3200,14 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
             loading={fileMention.loading}
           />
         </div>
-        <MicButton {...composerDictation.micProps} />
+        <MicButton {...composerDictation.micProps} disabled={pendingQueueAction} />
+        {/*
+        FNXC:ChatPendingQueue 2026-08-19-06:25:
+        Force-send cancellation must own the Direct composer until server reconciliation completes; otherwise a new send is queued while the selected entry is being dispatched and loses its priority.
+        */}
         <StandardChatActionButton
           isStreaming={isStreaming}
-          canSend={Boolean(messageInput.trim() || pendingAttachments.length > 0)}
+          canSend={!pendingQueueAction && Boolean(messageInput.trim() || pendingAttachments.length > 0)}
           onSend={handleSend}
           onStop={stopStreaming}
         />

@@ -2589,6 +2589,45 @@ describe("useChat", () => {
     });
   });
 
+  it("force-sends a selected direct queue entry only after cancellation reconciliation", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    const cancelDeferred = createDeferredPromise<{ success: boolean; interrupted: boolean }>();
+    const streamHandlers: StreamAppendHandlers[] = [];
+    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
+    mockFetchChatMessages.mockResolvedValue({ messages: [] });
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      streamHandlers.push(handlers as StreamAppendHandlers);
+      return { close: vi.fn(), isConnected: () => true };
+    });
+    mockCancelChatResponse.mockReturnValueOnce(cancelDeferred.promise);
+
+    const { result } = renderHook(() => useChat("proj-123"));
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    act(() => result.current.selectSession("session-001"));
+    await waitFor(() => expect(result.current.activeSession?.id).toBe("session-001"));
+
+    act(() => {
+      result.current.sendMessage("First");
+      result.current.sendMessage("Keep first");
+      result.current.sendMessage("Force second");
+    });
+    await waitFor(() => expect(result.current.pendingMessages).toEqual(["Keep first", "Force second"]));
+
+    act(() => result.current.forceSendPendingMessage?.(1));
+    expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+    expect(mockCancelChatResponse).toHaveBeenCalledWith("session-001", "proj-123");
+    expect(result.current.pendingMessages).toEqual(["Keep first", "Force second"]);
+
+    act(() => streamHandlers[0]?.onText(" stale callback"));
+    cancelDeferred.resolve({ success: true, interrupted: true });
+    await waitFor(() => {
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(2);
+      expect(mockStreamChatResponse.mock.calls[1]?.[1]).toBe("Force second");
+      expect(result.current.pendingMessages).toEqual(["Keep first"]);
+    });
+    expect(result.current.streamingText).toBe("");
+  });
+
   it("sending during streaming queues pendingMessages without warning toast", async () => {
     const session = makeSession({ id: "session-001", agentId: "agent-001" });
     mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });

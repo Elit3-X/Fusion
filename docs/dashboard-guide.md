@@ -246,6 +246,14 @@ The server accepts the replacement only after it has discarded the target and ev
 
 Planner Chat refreshes task detail after an accepted replacement. Steering comments and refinement tasks created by discarded planner turns are durable side effects and are not rolled back; when applicable, Planner Chat shows the existing informational notice. The edit behavior is shared across desktop, popup/dock/host, mobile/touch, and task-detail surfaces.
 
+## Pending messages in Direct and Planner Chat
+
+Direct Chat and task-detail Planner Chat share one browser-local, text-only pending queue per chat session. While a model reply is active, send additional text to add it to the queue; the queue survives reloads under the session-scoped `fusion:chat-pending:<sessionId>` storage key and does not cross projects, tasks, or sessions.
+
+Both model-loop surfaces expose the same queue controls: edit an entry, move it earlier or later, delete it, or **Force send** a selected entry. Duplicate text is selected by its position in the list, not by its content. A blank edit is rejected without deleting the queued entry, and queue controls remain named and touch-reachable on narrow screens.
+
+Normal completion and **Stop** release only the FIFO front after cancellation and authoritative history reconciliation. **Force send** first fences and cancels the active stream, waits for cancellation plus reconciliation, then dispatches only the selected entry; failures keep the entry in its original queue position. Attachments are never queued. Activity task chat, Chat Rooms, and CLI-backed chat intentionally keep their separate interaction and transport contracts and do not inherit these model-loop queue controls.
+
 ## Automations
 
 <!-- FNXC:AutomationTools 2026-06-26-00:00: Automation AI-prompt steps now default to the full coding tool set and expose per-step restrictions so operators can intentionally narrow tool access without breaking legacy schedules. -->

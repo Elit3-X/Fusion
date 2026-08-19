@@ -2377,61 +2377,6 @@ Thinking-section text uses the defined muted text token across all themes. The m
   box-shadow: var(--focus-ring-strong);
 }
 
-/* === Chat Pending Message === */
-/*
-FNXC:ChatComposer 2026-06-27-00:00:
-Queued-message banners stack above the composer input with a capped scroll area, and the shared divider below them makes the queued state visually distinct without rendering an empty rule when the FIFO queue is empty.
-*/
-.chat-pending-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  width: 100%;
-  max-height: calc(var(--space-xl) * 6);
-  overflow-y: auto;
-}
-
-.chat-pending-message {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  width: 100%;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--todo) 10%, transparent);
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.chat-pending-divider {
-  width: 100%;
-  border-top: 1px solid var(--border);
-}
-
-.chat-pending-message span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-pending-message-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: var(--space-xs);
-  line-height: 1;
-  flex-shrink: 0;
-  font-size: 0.875rem;
-}
-
-.chat-pending-message-dismiss:hover {
-  color: var(--text-muted);
-}
-
 /* Sidebar footer contains the primary chat-scope action on desktop and mobile. */
 .chat-sidebar-footer {
   display: block;
@@ -2454,14 +2399,6 @@ Queued-message banners stack above the composer input with a capped scroll area,
    thread takes the full viewport. The thread already renders a back
    button (ChevronLeft) on mobile to flip back to the session list. */
 @media (max-width: 768px) {
-  .chat-pending-stack {
-    max-height: calc(var(--space-xl) * 5);
-  }
-
-  .chat-pending-message {
-    align-items: flex-start;
-  }
-
   .chat-view__body {
     flex-direction: column;
   }

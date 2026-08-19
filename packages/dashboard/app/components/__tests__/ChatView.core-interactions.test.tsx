@@ -909,14 +909,20 @@ describe("ChatView core interactions", () => {
     expect(screen.getByTestId("chat-send-btn")).toBeInTheDocument();
   });
 
-  it("renders stacked pending message indicators above the input row and dismisses one entry", async () => {
+  it("renders the shared pending queue controls above the input row", async () => {
     const clearPendingMessage = vi.fn();
+    const updatePendingMessage = vi.fn();
+    const movePendingMessage = vi.fn();
+    const forceSendPendingMessage = vi.fn();
     const activeSession = activeSessionFixture;
     setupMockChat({
       activeSession,
       messages: [],
       pendingMessages: ["Queued A", "Queued B", "Queued C with a very long body that should truncate in the preview"],
       clearPendingMessage,
+      updatePendingMessage,
+      movePendingMessage,
+      forceSendPendingMessage,
     });
 
     const { rerender } = await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
@@ -941,14 +947,30 @@ describe("ChatView core interactions", () => {
     });
     expect(inputArea!.querySelectorAll(".chat-pending-divider")).toHaveLength(1);
 
+    await userEvent.click(screen.getByTestId("chat-pending-edit-1"));
+    const editInput = screen.getByRole("textbox", { name: "Edit queued message 2" });
+    await userEvent.clear(editInput);
+    await userEvent.type(editInput, "Edited queued B");
+    await userEvent.click(screen.getByTestId("chat-pending-save-1"));
+    expect(updatePendingMessage).toHaveBeenCalledWith(1, "Edited queued B");
+    await userEvent.click(screen.getByTestId("chat-pending-up-2"));
+    await userEvent.click(screen.getByTestId("chat-pending-down-0"));
+    expect(movePendingMessage).toHaveBeenNthCalledWith(1, 2, -1);
+    expect(movePendingMessage).toHaveBeenNthCalledWith(2, 0, 1);
     await userEvent.click(screen.getByTestId("chat-pending-dismiss-1"));
     expect(clearPendingMessage).toHaveBeenCalledWith(1);
+    await userEvent.click(screen.getByTestId("chat-pending-force-0"));
+    expect(forceSendPendingMessage).toHaveBeenCalledWith(0);
+    expect(screen.queryByTestId("chat-pending-message-dismiss")).not.toBeInTheDocument();
 
     setupMockChat({
       activeSession,
       messages: [],
       pendingMessages: [],
       clearPendingMessage,
+      updatePendingMessage,
+      movePendingMessage,
+      forceSendPendingMessage,
     });
     rerender(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
