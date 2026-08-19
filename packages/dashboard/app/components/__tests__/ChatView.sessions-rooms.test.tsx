@@ -571,6 +571,50 @@ describe("FN-5380 scroll preservation", () => {
     });
   });
 
+  it("keeps populated direct and room viewports mounted during revalidation", async () => {
+    const directMessages = makeMessages(12);
+    setupMockChat({ activeSession: activeSessionFixture, messages: directMessages, messagesLoading: false });
+    const directView = rtlRender(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+    const directContainer = document.querySelector(".chat-messages") as HTMLDivElement;
+    const readDirectScrollTop = attachScrollGeometry(directContainer, 520);
+    fireEvent.scroll(directContainer);
+
+    setupMockChat({ activeSession: activeSessionFixture, messages: directMessages, messagesLoading: true });
+    directView.rerender(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    expect(screen.getByText("Message 1")).toBeInTheDocument();
+    expect(screen.queryByText("Loading messages...")).not.toBeInTheDocument();
+    expect(readDirectScrollTop()).toBe(520);
+    directView.unmount();
+
+    const room = createRoomFixture("ops");
+    const roomMessages = makeMessages(12, room.id).map((message) => ({
+      id: message.id,
+      roomId: room.id,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt,
+      senderAgentId: null,
+      thinkingOutput: null,
+      metadata: null,
+      mentions: [],
+    }));
+    localStorage.setItem("fusion:chat-scope", "rooms");
+    setupMockChat({ sessions: [], filteredSessions: [] });
+    setupMockRooms({ rooms: [room], activeRoom: room, messages: roomMessages, messagesLoading: false });
+    const roomView = rtlRender(<ChatView projectId="proj-123" addToast={vi.fn()} experimentalFeatures={{ chatRooms: true }} />);
+    const roomContainer = document.querySelector(".chat-messages") as HTMLDivElement;
+    const readRoomScrollTop = attachScrollGeometry(roomContainer, 460);
+    fireEvent.scroll(roomContainer);
+
+    setupMockRooms({ rooms: [room], activeRoom: room, messages: roomMessages, messagesLoading: true });
+    roomView.rerender(<ChatView projectId="proj-123" addToast={vi.fn()} experimentalFeatures={{ chatRooms: true }} />);
+
+    expect(screen.getByText("Message 1")).toBeInTheDocument();
+    expect(screen.queryByText("Loading messages...")).not.toBeInTheDocument();
+    expect(readRoomScrollTop()).toBe(460);
+  });
+
   it("auto-scrolls on new message only when previously pinned", async () => {
     const baseMessages = makeMessages(4);
     setupMockChat({ activeSession: activeSessionFixture, messages: baseMessages });

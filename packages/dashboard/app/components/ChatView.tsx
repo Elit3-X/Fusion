@@ -2959,7 +2959,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
             onQuestionSubmit={handleQuestionSubmit}
           />
         </>
-      ) : messagesLoading ? (
+      ) : messagesLoading && messages.length === 0 ? (
         <div className="chat-empty-state">{t("chat.loadingMessages", "Loading messages...")}</div>
       ) : messages.length === 0 && !activeSession ? (
         renderEmptyState()
@@ -4007,7 +4007,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
               </div>
               )}
               <div className="chat-messages" ref={messagesContainerRef} onScroll={updateScrollState}>
-                {rooms.messagesLoading ? (
+                {rooms.messagesLoading && rooms.messages.length === 0 ? (
                   <div className="chat-empty-state">{t("chat.loadingMessages", "Loading messages...")}</div>
                 ) : rooms.messages.filter((message) => message.content.trim() !== ROOM_SKIP_SENTINEL).length === 0 ? (
                   <div className="chat-empty-state">{t("chat.noMessagesYet", "No messages yet. Start the conversation!")}</div>

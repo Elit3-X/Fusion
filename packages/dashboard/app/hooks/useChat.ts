@@ -692,13 +692,21 @@ export function useChat(
       const cacheKey = getChatMessagesCacheKey(projectId, sessionId);
       const cachedMessages = !isPaginationRequest ? readCachedMessages(projectId, sessionId) : [];
       const hasCachedMessages = cachedMessages.length > 0;
+      const hasRetainedMessages = !isPaginationRequest
+        && activeSessionRef.current?.id === sessionId
+        && messagesRef.current.length > 0
+        && messagesRef.current.every((message) => message.sessionId === sessionId);
 
-      if (!isPaginationRequest && hasCachedMessages) {
+      /*
+      FNXC:ChatTranscriptRevalidation 2026-08-19-18:09:
+      A same-session background revalidation must not blank a populated selected transcript or
+      invalidate its reader anchor. Reserve messagesLoading for cold loads (and pagination), while
+      retaining in-memory rows until the fenced authoritative response replaces them.
+      */
+      if (!isPaginationRequest && hasCachedMessages && !hasRetainedMessages) {
         setMessages(sortChatMessagesChronologically(cachedMessages));
-        setMessagesLoading(false);
-      } else {
-        setMessagesLoading(true);
       }
+      setMessagesLoading(isPaginationRequest || (!hasCachedMessages && !hasRetainedMessages));
 
       try {
         const data = await fetchChatMessages(sessionId, { limit: 50, order: "desc", ...opts }, projectId);
