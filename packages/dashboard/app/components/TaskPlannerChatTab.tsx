@@ -9,11 +9,14 @@ import { useComposerDictation } from "../hooks/useComposerDictation";
 import { getPersistedPendingChatMessages, setPersistedPendingChatMessages } from "../hooks/chatPendingMessageStorage";
 import { MicButton } from "./MicButton";
 import type { ChatMessageInfo, ToolCallInfo } from "../hooks/chatTypes";
-import { attachChatStream, cancelChatResponse, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
+import { attachChatStream, cancelChatResponse, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, updateChatSession, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
 import { parseQuestionToolCall, type ParsedQuestionToolCall } from "../utils/parseQuestionToolCall";
 import { ChatQuestionResponse } from "./ChatQuestionResponse";
 import { PendingChatMessageQueue } from "./PendingChatMessageQueue";
 import { ProviderIcon } from "./ProviderIcon";
+import { CustomModelDropdown } from "./CustomModelDropdown";
+import { ChatThinkingLevelControl } from "./ChatThinkingLevelControl";
+import { useModelsCache } from "../hooks/useModelsCache";
 import { StandardChatActionButton, StandardChatMessageItem, StandardStreamingMessage, formatModelTag } from "./StandardChatSurface";
 import { CHAT_COMMANDS, filterChatCommands, getSlashTriggerMatch, matchChatCommand, type ChatCommand } from "./chat-commands";
 import { useChatMessageLayout } from "../context/ChatMessageLayoutContext";
@@ -31,7 +34,7 @@ interface TaskPlannerChatTabProps {
   active: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
-  planningModel: ResolvedModelSelection;
+  taskChatModel: ResolvedModelSelection & { thinkingLevel?: string };
   addToast: (msg: string, type?: ToastType) => void;
   onTaskUpdated?: (task: Task) => void;
 }
@@ -326,7 +329,7 @@ function buildPlannerQuestionRenderStates(messages: readonly ChatMessage[]): Map
   return states;
 }
 
-export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expanded = false, onExpandedChange, planningModel, addToast, onTaskUpdated }: TaskPlannerChatTabProps) {
+export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expanded = false, onExpandedChange, taskChatModel, addToast, onTaskUpdated }: TaskPlannerChatTabProps) {
   const { t } = useTranslation("app");
   const chatMessageLayout = useChatMessageLayout();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -368,22 +371,106 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   const streamRequestRef = useRef(0);
   const addToastRef = useRef(addToast);
   const onTaskUpdatedRef = useRef(onTaskUpdated);
+  const taskChatModelRef = useRef(taskChatModel);
 
   useEffect(() => {
     addToastRef.current = addToast;
     onTaskUpdatedRef.current = onTaskUpdated;
-  }, [addToast, onTaskUpdated]);
+    taskChatModelRef.current = taskChatModel;
+  }, [addToast, onTaskUpdated, taskChatModel]);
 
-  const planningModelProvider = isUsableModel(planningModel) ? planningModel.provider : undefined;
-  const planningModelId = isUsableModel(planningModel) ? planningModel.modelId : undefined;
-  const planningModelLabel = planningModelProvider && planningModelId ? `${planningModelProvider}/${planningModelId}` : "";
-  const activeModelTag = formatModelTag(planningModelProvider, planningModelId);
+  const [sessionModel, setSessionModel] = useState<ResolvedModelSelection & { thinkingLevel?: string }>(taskChatModel);
+  const hasLocalTargetOverrideRef = useRef(false);
+  const { models, favoriteProviders, favoriteModels } = useModelsCache();
+  const displayedModel = sessionModel;
+  const displayedModelProvider = isUsableModel(displayedModel) ? displayedModel.provider : undefined;
+  const displayedModelId = isUsableModel(displayedModel) ? displayedModel.modelId : undefined;
+  const displayedModelLabel = displayedModelProvider && displayedModelId ? `${displayedModelProvider}/${displayedModelId}` : "";
+  const activeModelTag = formatModelTag(displayedModelProvider, displayedModelId);
   const modelPayload = useMemo(() => {
-    return planningModelProvider && planningModelId
-      ? { modelProvider: planningModelProvider, modelId: planningModelId }
+    return displayedModelProvider && displayedModelId
+      ? {
+          modelProvider: displayedModelProvider,
+          modelId: displayedModelId,
+          ...(displayedModel.thinkingLevel ? { thinkingLevel: displayedModel.thinkingLevel } : {}),
+        }
       : {};
-  }, [planningModelId, planningModelProvider]);
-  const plannerChatScopeKey = `${task.id}\u0000${projectId ?? ""}\u0000${planningModelProvider ?? ""}\u0000${planningModelId ?? ""}`;
+  }, [displayedModel, displayedModelId, displayedModelProvider]);
+
+  /*
+  FNXC:TaskChatDefaultModel 2026-08-19-12:12:
+  Task Chat exposes the same model and thinking controls as Direct Chat, but keeps model-only targeting so a selection never impersonates a durable agent or bypasses the synthetic task authorization contract. Before the first send selections stay local; an existing session is patched in its project scope.
+  */
+  const handleTaskChatModelChange = useCallback(async (value: string) => {
+    const slashIndex = value.indexOf("/");
+    const useProjectDefault = value === "";
+    if (!useProjectDefault && (slashIndex <= 0 || slashIndex === value.length - 1)) return;
+    const modelProvider = useProjectDefault ? taskChatModel.provider : value.slice(0, slashIndex);
+    const modelId = useProjectDefault ? taskChatModel.modelId : value.slice(slashIndex + 1);
+    if (!modelProvider || !modelId) return;
+    hasLocalTargetOverrideRef.current = !useProjectDefault;
+    setSessionModel((current) => ({
+      ...current,
+      provider: modelProvider,
+      modelId,
+      ...(useProjectDefault ? { thinkingLevel: taskChatModel.thinkingLevel } : {}),
+    }));
+    const resolvedSessionId = sessionIdRef.current;
+    if (!resolvedSessionId) return;
+    try {
+      const { session } = await updateChatSession(
+        resolvedSessionId,
+        {
+          modelProvider,
+          modelId,
+          thinkingLevel: useProjectDefault ? taskChatModel.thinkingLevel ?? null : displayedModel.thinkingLevel ?? null,
+        },
+        projectId,
+      );
+      if (sessionIdRef.current !== resolvedSessionId) return;
+      setSessionModel({
+        ...(session.modelProvider && session.modelId ? { provider: session.modelProvider, modelId: session.modelId } : {}),
+        ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+      });
+    } catch (err) {
+      const message = getErrorMessage(err) || t("taskDetail.plannerChat.modelChangeFailed", "Failed to change task chat model");
+      setError(message);
+      addToastRef.current(message, "error");
+    }
+  }, [displayedModel.thinkingLevel, projectId, t, taskChatModel]);
+
+  const handleTaskChatThinkingChange = useCallback(async (thinkingLevel: string) => {
+    hasLocalTargetOverrideRef.current = true;
+    setSessionModel((current) => ({ ...current, ...(thinkingLevel ? { thinkingLevel } : { thinkingLevel: undefined }) }));
+    const resolvedSessionId = sessionIdRef.current;
+    if (!resolvedSessionId) return;
+    try {
+      const { session } = await updateChatSession(resolvedSessionId, { thinkingLevel: thinkingLevel || null }, projectId);
+      if (sessionIdRef.current !== resolvedSessionId) return;
+      setSessionModel((current) => ({
+        ...current,
+        ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : { thinkingLevel: undefined }),
+      }));
+    } catch (err) {
+      const message = getErrorMessage(err) || t("taskDetail.plannerChat.thinkingChangeFailed", "Failed to change task chat thinking level");
+      setError(message);
+      addToastRef.current(message, "error");
+    }
+  }, [projectId, t]);
+
+  const plannerChatScopeKey = `${task.id}\u0000${projectId ?? ""}`;
+
+  useEffect(() => {
+    if (
+      !sessionId
+      && !hasLocalTargetOverrideRef.current
+      && (sessionModel.provider !== taskChatModel.provider
+        || sessionModel.modelId !== taskChatModel.modelId
+        || sessionModel.thinkingLevel !== taskChatModel.thinkingLevel)
+    ) {
+      setSessionModel(taskChatModel);
+    }
+  }, [sessionId, sessionModel, taskChatModel]);
 
   const handleComposerRef = useCallback((textarea: HTMLTextAreaElement | null) => {
     autosizeRef.current?.destroy();
@@ -460,7 +547,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       setHistoryLoaded(true);
     } catch (refreshError) {
       if (!isCurrentRequest()) return;
-      const message = getErrorMessage(refreshError) || t("taskDetail.plannerChat.loadFailed", "Failed to load planner chat");
+      const message = getErrorMessage(refreshError) || t("taskDetail.plannerChat.loadFailed", "Failed to load task chat");
       setError(message);
       addToastRef.current(message, "error");
     }
@@ -606,7 +693,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       },
       onError: (streamError: string | ChatFailureInfo, meta?: ChatStreamErrorMeta) => {
         if (!isCurrentStreamRequest()) return;
-        const message = normalizeChatFailureSummary(streamError, t("taskDetail.plannerChat.sendFailed", "Planner chat failed to respond"));
+        const message = normalizeChatFailureSummary(streamError, t("taskDetail.plannerChat.sendFailed", "Task chat failed to respond"));
         setError(message);
         composerStateRef.current = "idle";
         setComposerState("idle");
@@ -659,11 +746,12 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     setHistoryLoaded(false);
     setError(null);
     try {
-      const { session: lookupSession } = await fetchTaskPlannerChatSession(task.id, modelPayload, projectId);
+      const { session: lookupSession } = await fetchTaskPlannerChatSession(task.id, {}, projectId);
       if (loadRequestRef.current !== requestId) return;
       if (!lookupSession) {
         sessionIdRef.current = null;
         setSessionId(null);
+        setSessionModel(taskChatModelRef.current);
         replacePendingMessages([], null);
         setMessages([]);
         setHistoryLoaded(true);
@@ -678,6 +766,15 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       ]);
       if (loadRequestRef.current !== requestId) return;
       const resolvedSession = refreshedSessionResult.session;
+      setSessionModel(
+        resolvedSession.modelProvider && resolvedSession.modelId
+          ? {
+              provider: resolvedSession.modelProvider,
+              modelId: resolvedSession.modelId,
+              ...(resolvedSession.thinkingLevel ? { thinkingLevel: resolvedSession.thinkingLevel } : {}),
+            }
+          : taskChatModelRef.current,
+      );
       setMessages(sortMessages(loadedMessages));
       setHistoryLoaded(true);
       if (resolvedSession.isGenerating || resolvedSession.inFlightGeneration) {
@@ -694,7 +791,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       }
     } catch (err) {
       if (loadRequestRef.current !== requestId) return;
-      const message = getErrorMessage(err) || t("taskDetail.plannerChat.loadFailed", "Failed to load planner chat");
+      const message = getErrorMessage(err) || t("taskDetail.plannerChat.loadFailed", "Failed to load task chat");
       setError(message);
       setHistoryLoaded(false);
     } finally {
@@ -702,7 +799,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         setLoading(false);
       }
     }
-  }, [modelPayload, projectId, replacePendingMessages, startPlannerStream, task.id, t]);
+  }, [projectId, replacePendingMessages, startPlannerStream, task.id, t]);
 
   useEffect(() => {
     loadRequestRef.current += 1;
@@ -711,6 +808,8 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     streamRef.current = null;
     sessionIdRef.current = null;
     setSessionId(null);
+    hasLocalTargetOverrideRef.current = false;
+    setSessionModel(taskChatModelRef.current);
     pendingMessagesRef.current = [];
     setPendingMessages([]);
     setQueueActionPending(false);
@@ -825,7 +924,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       restorePendingQueueReservation(reservation);
       composerStateRef.current = "idle";
       setComposerState("idle");
-      const message = getErrorMessage(err) || t("taskDetail.plannerChat.sendFailed", "Planner chat failed to respond");
+      const message = getErrorMessage(err) || t("taskDetail.plannerChat.sendFailed", "Task chat failed to respond");
       setError(message);
       addToastRef.current(message, "error");
     }
@@ -851,11 +950,18 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     setError(null);
 
     try {
-      const { session } = sessionIdRef.current
-        ? { session: { id: sessionIdRef.current } }
-        : await ensureTaskPlannerChatSession(task.id, modelPayload, projectId);
+      const { session } = await ensureTaskPlannerChatSession(task.id, modelPayload, projectId);
       if (!isCurrentStreamRequest()) return;
       const resolvedSessionId = session.id;
+      setSessionModel(
+        session.modelProvider && session.modelId
+          ? {
+              provider: session.modelProvider,
+              modelId: session.modelId,
+              ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+            }
+          : taskChatModel,
+      );
       sessionIdRef.current = resolvedSessionId;
       setSessionId(resolvedSessionId);
       // FNXC:TaskPlannerChatQueue 2026-08-18-23:13:
@@ -872,14 +978,14 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       });
     } catch (err) {
       if (!isCurrentStreamRequest()) return;
-      const message = getErrorMessage(err) || t("taskDetail.plannerChat.sendFailed", "Planner chat failed to respond");
+      const message = getErrorMessage(err) || t("taskDetail.plannerChat.sendFailed", "Task chat failed to respond");
       setError(message);
       addToast(message, "error");
       composerStateRef.current = "idle";
       setComposerState("idle");
       setStreamingThinking("");
     }
-  }, [addToast, enqueuePendingMessage, modelPayload, projectId, replacePendingMessages, startPlannerStream, task.id, t]);
+  }, [addToast, enqueuePendingMessage, modelPayload, projectId, replacePendingMessages, startPlannerStream, task.id, taskChatModel, t]);
 
   const refreshTaskAfterEdit = useCallback(async (hadDiscardedSideEffect: boolean) => {
     try {
@@ -942,7 +1048,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         replacementMessage,
         onAccepted: resolve,
         onRejected: (message) => {
-          const failureMessage = message || t("taskDetail.plannerChat.editFailed", "Failed to edit planner chat message");
+          const failureMessage = message || t("taskDetail.plannerChat.editFailed", "Failed to edit task chat message");
           setError(failureMessage);
           addToastRef.current(failureMessage, "error");
           void refreshMessagesForSession(resolvedSessionId, () => true).finally(() => reject(new Error(failureMessage)));
@@ -1313,13 +1419,13 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   The planner Chat tab owns an in-view expand/collapse button so mobile users can reclaim vertical room while keeping close/back/task identity controls reachable. This state is independent from Activity Live expansion because Activity still represents operational steering/history, not planner-model conversation.
   */
   return (
-    <section className={`task-planner-chat${chatMessageLayout === "full-width" ? " task-planner-chat--full-width" : ""}`} aria-label={t("taskDetail.plannerChat.label", "Planner chat")} data-testid="task-planner-chat-panel">
+    <section className={`task-planner-chat${chatMessageLayout === "full-width" ? " task-planner-chat--full-width" : ""}`} aria-label={t("taskDetail.plannerChat.label", "Task-aware chat")} data-testid="task-planner-chat-panel">
       {onExpandedChange && (
         <button
           type="button"
           className="btn btn-icon btn-sm task-planner-chat-expand-toggle task-planner-chat-expand-toggle--overlay"
           onClick={() => onExpandedChange(!expanded)}
-          aria-label={expanded ? t("taskDetail.plannerChat.collapse", "Collapse planner chat") : t("taskDetail.plannerChat.expand", "Expand planner chat")}
+          aria-label={expanded ? t("taskDetail.plannerChat.collapse", "Collapse task chat") : t("taskDetail.plannerChat.expand", "Expand task chat")}
           aria-pressed={expanded}
           aria-expanded={expanded}
           data-testid="task-planner-chat-expand-toggle"
@@ -1332,26 +1438,26 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         {loading ? (
           <div className="task-planner-chat-state" role="status" aria-live="polite">
             <Loader2 className="animate-spin" aria-hidden="true" />
-            <span>{t("taskDetail.plannerChat.loading", "Loading planner chat…")}</span>
+            <span>{t("taskDetail.plannerChat.loading", "Loading task chat…")}</span>
           </div>
         ) : showEmptyState ? (
           <div className="task-planner-chat-empty" data-testid="task-planner-chat-empty">
-            {isUsableModel(planningModel) && (
+            {isUsableModel(displayedModel) && (
               <span
                 className="task-planner-chat-empty-model"
                 data-testid="task-planner-chat-model"
-                title={planningModelLabel}
-                aria-label={planningModelLabel}
+                title={displayedModelLabel}
+                aria-label={displayedModelLabel}
               >
-                <ProviderIcon provider={planningModel.provider} size="sm" />
+                <ProviderIcon provider={displayedModel.provider} size="sm" />
               </span>
             )}
             <div className="task-planner-chat-empty-copy">
               <h5>{t("taskDetail.plannerChat.emptyTitle", "Start a task-aware chat")}</h5>
-              <p>{t("taskDetail.plannerChat.emptyBody", "Ask planning questions about this task's current status, recent activity, blockers, next steps, or definition. Starter prompts send as normal chat messages.")}</p>
+              <p>{t("taskDetail.plannerChat.emptyBody", "Ask questions about this task's current status, recent activity, blockers, next steps, or definition. Starter prompts send as normal chat messages.")}</p>
             </div>
             {starterPrompts.length > 0 && (
-              <div className="task-planner-chat-starters" aria-label={t("taskDetail.plannerChat.startersLabel", "Planner chat starter prompts")}>
+              <div className="task-planner-chat-starters" aria-label={t("taskDetail.plannerChat.startersLabel", "Task chat starter prompts")}>
                 {starterPrompts.map((prompt) => (
                   <button
                     key={prompt.id}
@@ -1380,11 +1486,11 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
                     streamingThinking={message.thinkingOutput ?? streamingThinking}
                     streamingToolCalls={streamingToolCalls}
                     forcePlain={false}
-                    agentName={t("taskDetail.plannerChat.assistant", "Planner")}
+                    agentName={t("taskDetail.plannerChat.assistant", "Task Chat")}
                     hideAssistantIdentity={false}
                     showAssistantModelTag={Boolean(activeModelTag)}
                     activeModelTag={activeModelTag}
-                    activeModelProvider={planningModelProvider ?? null}
+                    activeModelProvider={displayedModelProvider ?? null}
                     toolCallRenderer={(toolCall, index) => renderPlannerToolCall(message, toolCall, index)}
                   />
                 );
@@ -1402,11 +1508,11 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
                   key={message.id}
                   message={toStandardChatMessage(message)}
                   forcePlain={false}
-                  agentName={t("taskDetail.plannerChat.assistant", "Planner")}
+                  agentName={t("taskDetail.plannerChat.assistant", "Task Chat")}
                   hideAssistantIdentity={false}
                   showAssistantModelTag={Boolean(activeModelTag)}
                   activeModelTag={activeModelTag}
-                  activeModelProvider={planningModelProvider ?? null}
+                  activeModelProvider={displayedModelProvider ?? null}
                   activeSessionId={sessionId}
                   projectId={projectId}
                   isAwaitingQuestionAnswer={message.role === "assistant"}
@@ -1428,11 +1534,11 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
                 streamingThinking={streamingThinking}
                 streamingToolCalls={[]}
                 forcePlain={false}
-                agentName={t("taskDetail.plannerChat.assistant", "Planner")}
+                agentName={t("taskDetail.plannerChat.assistant", "Task Chat")}
                 hideAssistantIdentity={false}
                 showAssistantModelTag={Boolean(activeModelTag)}
                 activeModelTag={activeModelTag}
-                activeModelProvider={planningModelProvider ?? null}
+                activeModelProvider={displayedModelProvider ?? null}
               />
             )}
           </>
@@ -1483,11 +1589,32 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         </div>
       )}
       <div className="task-planner-chat-composer">
+        <div className="task-planner-chat-target-controls" data-testid="task-planner-chat-target-controls">
+          <CustomModelDropdown
+            id="task-planner-chat-model-selector"
+            label={t("taskDetail.plannerChat.modelLabel", "Chat model")}
+            models={models}
+            value={displayedModelProvider && displayedModelId ? `${displayedModelProvider}/${displayedModelId}` : ""}
+            onChange={(value) => void handleTaskChatModelChange(value)}
+            placeholder={t("model.selectPlaceholder", "Select a model…")}
+            defaultOptionLabel={t("models.useDefault", "Use project default")}
+            favoriteProviders={favoriteProviders}
+            favoriteModels={favoriteModels}
+            disabled={queueActionPending || composerState === "sending"}
+          />
+          <ChatThinkingLevelControl
+            level={displayedModel.thinkingLevel}
+            defaultThinkingLevel={taskChatModel.thinkingLevel ?? "off"}
+            showTargetSection={false}
+            onChange={(level) => void handleTaskChatThinkingChange(level)}
+            disabled={queueActionPending || composerState === "sending"}
+          />
+        </div>
         <textarea
           ref={handleComposerRef}
           className="input task-planner-chat-input"
-          aria-label={t("taskDetail.plannerChat.inputLabel", "Message planner chat")}
-          placeholder={t("taskDetail.plannerChat.placeholder", "Ask the planner about this task… Type / for commands")}
+          aria-label={t("taskDetail.plannerChat.inputLabel", "Message task chat")}
+          placeholder={t("taskDetail.plannerChat.placeholder", "Ask about this task… Type / for commands")}
           value={draft}
           onChange={handleDraftChange}
           onKeyDown={handleKeyDown}

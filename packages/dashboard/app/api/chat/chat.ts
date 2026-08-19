@@ -2,6 +2,7 @@
  * FNXC:CodeOrganization 2026-07-19-12:00:
  * Chat sessions / rooms / streaming client API peeled from legacy.ts.
  */
+import { THINKING_LEVELS } from "@fusion/core";
 import type {
   ChatAttachment,
   ChatMessage,
@@ -38,6 +39,7 @@ export interface ChatMessageListResponse {
 export interface TaskPlannerChatSessionInput {
   modelProvider?: string;
   modelId?: string;
+  thinkingLevel?: string;
 }
 
 export interface ChatRoomListResponse {
@@ -167,7 +169,11 @@ function normalizeTaskPlannerChatInput(taskId: string, input: TaskPlannerChatSes
   if ((normalizedProvider && !normalizedModelId) || (!normalizedProvider && normalizedModelId)) {
     throw new Error("Both modelProvider and modelId must be provided together, or neither should be provided");
   }
-  return { normalizedTaskId, normalizedProvider, normalizedModelId };
+  const normalizedThinkingLevel = input.thinkingLevel?.trim();
+  if (normalizedThinkingLevel && !THINKING_LEVELS.includes(normalizedThinkingLevel as (typeof THINKING_LEVELS)[number])) {
+    throw new Error(`thinkingLevel must be one of ${THINKING_LEVELS.join(", ")}`);
+  }
+  return { normalizedTaskId, normalizedProvider, normalizedModelId, normalizedThinkingLevel };
 }
 
 export function fetchTaskPlannerChatSession(
@@ -175,16 +181,13 @@ export function fetchTaskPlannerChatSession(
   input: TaskPlannerChatSessionInput = {},
   projectId?: string,
 ): Promise<{ session: EnrichedChatSession | null }> {
-  const { normalizedTaskId, normalizedProvider, normalizedModelId } = normalizeTaskPlannerChatInput(taskId, input);
+  const { normalizedTaskId } = normalizeTaskPlannerChatInput(taskId, input);
 
   /*
-  FNXC:TaskDetailPlannerChat 2026-06-30-18:20:
-  Task-detail planner chats are task-local but no longer pre-created by opening the Chat tab. Use lookup-only resume here so global Chat history only receives planner sessions after an explicit user message creates one.
+  FNXC:TaskChatDefaultModel 2026-08-19-12:12:
+  Task-detail Chat history is keyed only by the synthetic task target and project scope. A Direct Chat default change must not hide the existing transcript; model changes are applied only by the explicit-send ensure path.
   */
-  return fetchResumeChatSession({
-    agentId: `task-planner:${normalizedTaskId}`,
-    ...(normalizedProvider && normalizedModelId ? { modelProvider: normalizedProvider, modelId: normalizedModelId } : {}),
-  }, projectId);
+  return fetchResumeChatSession({ agentId: `task-planner:${normalizedTaskId}` }, projectId);
 }
 
 export function ensureTaskPlannerChatSession(
@@ -192,11 +195,11 @@ export function ensureTaskPlannerChatSession(
   input: TaskPlannerChatSessionInput = {},
   projectId?: string,
 ): Promise<ChatSessionResponse> {
-  const { normalizedTaskId, normalizedProvider, normalizedModelId } = normalizeTaskPlannerChatInput(taskId, input);
+  const { normalizedTaskId, normalizedProvider, normalizedModelId, normalizedThinkingLevel } = normalizeTaskPlannerChatInput(taskId, input);
 
   /*
-  FNXC:TaskDetailPlannerChat 2026-06-30-22:30:
-  Task planner chat uses a task-scoped session seam instead of the generic agent-chat creator so it can bind the conversation to the task and planning model without requiring a real executor/reviewer agent or turning the message into steering.
+  FNXC:TaskChatDefaultModel 2026-08-19-12:12:
+  The task Chat session remains synthetic and task-scoped, but an explicit send applies the current Direct Chat model and thinking target to that one persisted session before streaming.
 
   FNXC:TaskDetailPlannerChat 2026-06-30-18:20:
   This mutating helper is reserved for explicit user sends (composer, starter prompts, and planner-question answers). Tab activation must call fetchTaskPlannerChatSession instead so empty task-detail visits do not create chat history.
@@ -207,6 +210,7 @@ export function ensureTaskPlannerChatSession(
       method: "POST",
       body: JSON.stringify({
         ...(normalizedProvider && normalizedModelId ? { modelProvider: normalizedProvider, modelId: normalizedModelId } : {}),
+        ...(normalizedThinkingLevel ? { thinkingLevel: normalizedThinkingLevel } : {}),
       }),
     },
   );

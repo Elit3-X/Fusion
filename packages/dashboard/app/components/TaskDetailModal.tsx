@@ -91,7 +91,7 @@ import { copyTextToClipboard } from "../utils/copyToClipboard";
 import { getRelativeTimeBucket } from "../utils/relativeTimeAgo";
 import { isReviewBudgetExhaustedApproval, isTaskAwaitingPlanApproval } from "../utils/reviewBudgetApproval";
 import { getTaskStatusBadgeLabel, hasTaskStatusBadge, isTaskPlanningActive } from "../utils/taskStatusBadgeLabel";
-import { ACTIVE_STATUSES, resolveEffectiveExecutor, resolveEffectivePlanning, resolveEffectiveValidator, type ModelSelection } from "./effective-model-resolution";
+import { ACTIVE_STATUSES, resolveEffectiveExecutor, resolveEffectivePlanning, resolveEffectiveTaskChat, resolveEffectiveValidator, type ModelSelection } from "./effective-model-resolution";
 import { TaskContextMenu, buildTaskActionMenuModel, getTaskPrAutomationLabel } from "./TaskContextMenu";
 import type { TaskContextMenuColumnFlags, TaskContextMenuColumnMetadata } from "./TaskContextMenu";
 import { FLOATING_WINDOW_GEOMETRY_CHANGE_EVENT } from "./FloatingWindow";
@@ -7074,7 +7074,7 @@ export function TaskDetailContent({
                   active={active && activeTab === "planner-chat"}
                   expanded={isPlannerChatExpanded}
                   onExpandedChange={setPlannerChatExpanded}
-                  planningModel={resolveEffectivePlanning(workingTask, agentLogEntries, settings)}
+                  taskChatModel={resolveEffectiveTaskChat(settings)}
                   addToast={addToast}
                   onTaskUpdated={onTaskUpdated}
                 />

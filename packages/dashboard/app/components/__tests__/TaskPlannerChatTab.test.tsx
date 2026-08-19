@@ -108,7 +108,7 @@ function renderPlannerChat(overrides: Partial<React.ComponentProps<typeof TaskPl
     <TaskPlannerChatTab
       task={makeTask("FN-7310")}
       active
-      planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+      taskChatModel={{ provider: "anthropic", modelId: "claude-plan" }}
       addToast={vi.fn()}
       {...overrides}
     />,
@@ -198,11 +198,11 @@ describe("TaskPlannerChatTab", () => {
     expect(emptyState).toHaveTextContent("Start a task-aware chat");
     expect(document.querySelector(".task-planner-chat-header")).toBeNull();
     expect(screen.queryByText("Planner Chat")).toBeNull();
-    expect(emptyState).toHaveTextContent("Ask planning questions about this task's current status, recent activity, blockers, next steps, or definition.");
+    expect(emptyState).toHaveTextContent("Ask questions about this task's current status, recent activity, blockers, next steps, or definition.");
     expect(emptyState).toHaveTextContent("Starter prompts send as normal chat messages.");
     expect(mockFetchTaskPlannerChatSession).toHaveBeenCalledWith(
       "FN-7310",
-      { modelProvider: "anthropic", modelId: "claude-plan" },
+      {},
       undefined,
     );
     expect(mockEnsureTaskPlannerChatSession).not.toHaveBeenCalled();
@@ -221,6 +221,33 @@ describe("TaskPlannerChatTab", () => {
     expect(screen.getAllByTestId(/task-planner-chat-starter-/)).toHaveLength(4);
   });
 
+  it("uses the Direct Chat model target and exposes model/thinking controls without losing task scope", async () => {
+    const user = userEvent.setup();
+    mockFetchTaskPlannerChatSession.mockResolvedValueOnce({ session: null });
+    renderPlannerChat({
+      taskChatModel: { provider: "openai", modelId: "gpt-direct", thinkingLevel: "high" },
+    });
+
+    await screen.findByTestId("task-planner-chat-empty");
+    expect(screen.getByRole("button", { name: "Chat model" })).toBeInTheDocument();
+    expect(screen.getByTestId("chat-thinking-btn")).toHaveAccessibleName("Thinking level");
+    await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
+
+    expect(mockEnsureTaskPlannerChatSession).toHaveBeenCalledWith(
+      "FN-7310",
+      { modelProvider: "openai", modelId: "gpt-direct", thinkingLevel: "high" },
+      undefined,
+    );
+    expect(mockStreamChatResponse).toHaveBeenCalledWith(
+      "chat-planner",
+      "Summarize the recent activity for this task and call out anything important I should know.",
+      expect.any(Object),
+      undefined,
+      undefined,
+      { taskId: "FN-7310" },
+    );
+  });
+
   it("caps the loaded planner composer, preserves deliberate expansion, and resets on clear", async () => {
     mockFetchChatMessages.mockResolvedValueOnce({
       messages: [{ id: "planner-history", sessionId: "chat-planner", role: "assistant", content: "Loaded planner history", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" }],
@@ -228,7 +255,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat();
 
     await screen.findByText("Loaded planner history");
-    const input = await screen.findByLabelText("Message planner chat") as HTMLTextAreaElement;
+    const input = await screen.findByLabelText("Message task chat") as HTMLTextAreaElement;
     Object.defineProperty(input, "scrollHeight", {
       configurable: true,
       get: () => 500,
@@ -309,7 +336,7 @@ describe("TaskPlannerChatTab", () => {
     expect(emptyState).toHaveTextContent("Start a task-aware chat");
     expect(mockFetchTaskPlannerChatSession).toHaveBeenCalledWith(
       "FN-7310",
-      { modelProvider: "anthropic", modelId: "claude-plan" },
+      {},
       undefined,
     );
     expect(mockEnsureTaskPlannerChatSession).not.toHaveBeenCalled();
@@ -350,7 +377,7 @@ describe("TaskPlannerChatTab", () => {
     await screen.findByTestId("task-planner-chat-empty");
 
     expect(mockEnsureTaskPlannerChatSession).not.toHaveBeenCalled();
-    await user.type(screen.getByLabelText("Message planner chat"), "What changed in this completed task?");
+    await user.type(screen.getByLabelText("Message task chat"), "What changed in this completed task?");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(mockEnsureTaskPlannerChatSession).toHaveBeenCalledWith(
@@ -399,12 +426,12 @@ describe("TaskPlannerChatTab", () => {
     expect(await screen.findByTestId("task-planner-chat-empty")).toBeInTheDocument();
     const toggle = screen.getByTestId("task-planner-chat-expand-toggle");
     const modelBadge = screen.getByTestId("task-planner-chat-model");
-    expect(toggle).toHaveAccessibleName("Collapse planner chat");
+    expect(toggle).toHaveAccessibleName("Collapse task chat");
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveClass("task-planner-chat-expand-toggle--overlay");
     expect(screen.getByTestId("task-planner-chat-panel")).toContainElement(toggle);
     expect(screen.getByTestId("task-planner-chat-empty")).toContainElement(modelBadge);
-    expect(screen.getByTestId("task-planner-chat-panel")).toContainElement(screen.getByLabelText("Message planner chat"));
+    expect(screen.getByTestId("task-planner-chat-panel")).toContainElement(screen.getByLabelText("Message task chat"));
     expect(screen.getByTestId("task-planner-chat-panel")).toContainElement(screen.getByRole("button", { name: "Send" }));
 
     await userEvent.click(toggle);
@@ -412,8 +439,9 @@ describe("TaskPlannerChatTab", () => {
     expect(onExpandedChange).toHaveBeenCalledWith(false);
   });
 
-  it("omits model override when the effective planning model is undefined", async () => {
-    renderPlannerChat({ planningModel: {} });
+  it("omits model override when the effective task Chat model is undefined", async () => {
+    mockFetchTaskPlannerChatSession.mockResolvedValueOnce({ session: null });
+    renderPlannerChat({ taskChatModel: {} });
 
     await screen.findByTestId("task-planner-chat-empty");
     expect(mockFetchTaskPlannerChatSession).toHaveBeenCalledWith("FN-7310", {}, undefined);
@@ -429,7 +457,7 @@ describe("TaskPlannerChatTab", () => {
       <TaskPlannerChatTab
         task={makeTask("FN-7310")}
         active
-        planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+        taskChatModel={{ provider: "anthropic", modelId: "claude-plan" }}
         addToast={vi.fn()}
       />,
     );
@@ -473,12 +501,15 @@ describe("TaskPlannerChatTab", () => {
       <TaskPlannerChatTab
         task={makeTask("FN-7312")}
         active
-        planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+        taskChatModel={{ provider: "anthropic", modelId: "claude-plan" }}
         addToast={vi.fn()}
       />,
     );
 
     await screen.findByTestId("task-planner-chat-empty");
+    mockEnsureTaskPlannerChatSession.mockImplementationOnce((taskId: string) => Promise.resolve({
+      session: makePlannerSession({ id: taskId === "FN-7312" ? "chat-new-task" : "chat-planner", agentId: `task-planner:${taskId}` }),
+    }));
     firstLoad.resolve({
       session: {
         id: "chat-old-task",
@@ -544,7 +575,7 @@ describe("TaskPlannerChatTab", () => {
       <TaskPlannerChatTab
         task={makeTask("FN-7312")}
         active
-        planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+        taskChatModel={{ provider: "anthropic", modelId: "claude-plan" }}
         addToast={vi.fn()}
       />,
     );
@@ -691,7 +722,7 @@ describe("TaskPlannerChatTab", () => {
 
     renderPlannerChat();
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Loading planner chat…");
+    expect(await screen.findByRole("status")).toHaveTextContent("Loading task chat…");
     expect(screen.queryByTestId("task-planner-chat-empty")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Summarize recent activity/ })).not.toBeInTheDocument();
   });
@@ -713,7 +744,7 @@ describe("TaskPlannerChatTab", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("History unavailable");
     expect(screen.queryByTestId("task-planner-chat-empty")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Message planner chat")).toBeEnabled();
+    expect(screen.getByLabelText("Message task chat")).toBeEnabled();
   });
 
   it("renders persisted planner-chat messages", async () => {
@@ -745,7 +776,7 @@ describe("TaskPlannerChatTab", () => {
         <TaskPlannerChatTab
           task={makeTask("FN-7310")}
           active
-          planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+          taskChatModel={{ provider: "anthropic", modelId: "claude-plan" }}
           addToast={vi.fn()}
         />
       </ChatMessageLayoutProvider>,
@@ -779,7 +810,7 @@ describe("TaskPlannerChatTab", () => {
     await screen.findByText("Earlier plan");
     expect(metrics.scrollTop).toBe(metrics.scrollHeight);
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Keep streaming");
+    await user.type(screen.getByLabelText("Message task chat"), "Keep streaming");
     await user.click(screen.getByRole("button", { name: "Send" }));
     metrics.scrollTop = 120;
     fireEvent.scroll(screen.getByTestId("task-planner-chat-transcript"));
@@ -804,7 +835,7 @@ describe("TaskPlannerChatTab", () => {
 
     renderPlannerChat();
     await screen.findByText("Earlier plan");
-    await user.type(screen.getByLabelText("Message planner chat"), "Keep streaming");
+    await user.type(screen.getByLabelText("Message task chat"), "Keep streaming");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     metrics.scrollHeight = 1400;
@@ -859,7 +890,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Help plan this");
+    await user.type(screen.getByLabelText("Message task chat"), "Help plan this");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(mockStreamChatResponse).toHaveBeenCalledWith(
@@ -884,7 +915,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
 
-    const input = screen.getByLabelText("Message planner chat");
+    const input = screen.getByLabelText("Message task chat");
     await user.type(input, "First reply");
     await user.click(screen.getByRole("button", { name: "Send" }));
     act(() => {
@@ -923,7 +954,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat({ projectId: "project-1" });
     await screen.findByTestId("task-planner-chat-empty");
 
-    const input = screen.getByLabelText("Message planner chat");
+    const input = screen.getByLabelText("Message task chat");
     fireEvent.change(input, { target: { value: "First mobile tap planner message" } });
     firstTapSendFromFocusedPlannerTextarea(input, screen.getByRole("button", { name: "Send" }));
 
@@ -950,17 +981,22 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
 
-    const input = screen.getByLabelText("Message planner chat");
+    const input = screen.getByLabelText("Message task chat");
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton).toBeDisabled();
     fireEvent.change(input, { target: { value: "   \n  " } });
     expect(sendButton).toBeDisabled();
     firstTapSendFromFocusedPlannerTextarea(input, sendButton);
     expect(mockStreamChatResponse).not.toHaveBeenCalled();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     fireEvent.change(input, { target: { value: "Do not duplicate planner tap" } });
     expect(sendButton).not.toBeDisabled();
     firstTapSendFromFocusedPlannerTextarea(input, sendButton);
+    await waitFor(() => expect(mockEnsureTaskPlannerChatSession).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(1));
     fireEvent.pointerDown(sendButton, { pointerType: "touch" });
     fireEvent.click(sendButton);
 
@@ -985,7 +1021,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Think with an icon");
+    await user.type(screen.getByLabelText("Message task chat"), "Think with an icon");
     const sendButton = screen.getByTestId("chat-send-btn");
     expect(sendButton).toHaveAccessibleName("Send");
     expect(sendButton.querySelector("svg")).toBeTruthy();
@@ -994,6 +1030,7 @@ describe("TaskPlannerChatTab", () => {
     expect(sendButton.querySelector("span")).toBeNull();
 
     fireEvent.pointerDown(sendButton, { pointerType: "touch" });
+    await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(1));
     act(() => {
       streamHandlers.onThinking?.("checking the plan");
     });
@@ -1105,7 +1142,7 @@ describe("TaskPlannerChatTab", () => {
     expect(await screen.findByText("Stored answer")).toBeInTheDocument();
     expect(screen.getByText("stored plan notes")).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Think about this");
+    await user.type(screen.getByLabelText("Message task chat"), "Think about this");
     fireEvent.pointerDown(screen.getByTestId("chat-send-btn"), { pointerType: "touch" });
 
     expect(await screen.findByText("Thinking…")).toBeInTheDocument();
@@ -1117,12 +1154,12 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Mobile first tap");
+    await user.type(screen.getByLabelText("Message task chat"), "Mobile first tap");
     const sendButton = screen.getByTestId("chat-send-btn");
     fireEvent.pointerDown(sendButton, { pointerType: "touch" });
     fireEvent.click(sendButton);
 
-    expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledTimes(1));
     expect(mockStreamChatResponse).toHaveBeenCalledWith(
       "chat-planner",
       "Mobile first tap",
@@ -1152,7 +1189,7 @@ describe("TaskPlannerChatTab", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Refresh unavailable");
     expect(addToast).toHaveBeenCalledWith("Refresh unavailable", "error");
-    expect(screen.getByLabelText("Message planner chat")).toBeEnabled();
+    expect(screen.getByLabelText("Message task chat")).toBeEnabled();
   });
 
   it("sends manual status/progress questions with the current task identity", async () => {
@@ -1160,7 +1197,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat({ task: makeTask("FN-STATUS") });
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "What is the current status and progress?");
+    await user.type(screen.getByLabelText("Message task chat"), "What is the current status and progress?");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(mockStreamChatResponse).toHaveBeenCalledWith(
@@ -1225,11 +1262,11 @@ describe("TaskPlannerChatTab", () => {
     mockFetchTaskPlannerChatSession.mockResolvedValueOnce({ session: null });
     renderPlannerChat({
       task: { ...makeTask("FN-MISSING-CONTEXT"), dependencies: [], prompt: undefined, log: undefined } as any,
-      planningModel: { provider: "openai", modelId: "gpt-planner" },
+      taskChatModel: { provider: "openai", modelId: "gpt-planner" },
     });
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Explain the current task state with whatever context exists.");
+    await user.type(screen.getByLabelText("Message task chat"), "Explain the current task state with whatever context exists.");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(mockEnsureTaskPlannerChatSession).toHaveBeenCalledWith(
@@ -1405,7 +1442,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat({ projectId: "project-1", onTaskUpdated });
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Tell the executor to keep Activity and Chat separate");
+    await user.type(screen.getByLabelText("Message task chat"), "Tell the executor to keep Activity and Chat separate");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByTestId("task-planner-chat-steering-confirmation")).toHaveTextContent("Added as steering comment");
@@ -1499,7 +1536,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat({ projectId: "project-1", onTaskUpdated });
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Delete the risky parts and rewrite the security flow broadly");
+    await user.type(screen.getByLabelText("Message task chat"), "Delete the risky parts and rewrite the security flow broadly");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     const question = await screen.findByTestId("chat-question-response");
@@ -1552,7 +1589,7 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat({ projectId: "project-1", onTaskUpdated });
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Add empty steering");
+    await user.type(screen.getByLabelText("Message task chat"), "Add empty steering");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("I could not add that as steering.")).toBeInTheDocument();
@@ -1641,7 +1678,7 @@ describe("TaskPlannerChatTab", () => {
 
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
-    await user.type(screen.getByLabelText("Message planner chat"), "slow planner prompt");
+    await user.type(screen.getByLabelText("Message task chat"), "slow planner prompt");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("slow planner prompt")).toBeInTheDocument();
@@ -1709,7 +1746,7 @@ describe("TaskPlannerChatTab", () => {
 
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
-    await user.type(screen.getByLabelText("Message planner chat"), "hello after 429");
+    await user.type(screen.getByLabelText("Message task chat"), "hello after 429");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("hello after 429")).toBeInTheDocument();
@@ -1730,7 +1767,7 @@ describe("TaskPlannerChatTab", () => {
 
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
-    await user.type(screen.getByLabelText("Message planner chat"), "blocked before persist");
+    await user.type(screen.getByLabelText("Message task chat"), "blocked before persist");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("blocked before persist")).toBeInTheDocument();
@@ -1749,14 +1786,14 @@ describe("TaskPlannerChatTab", () => {
     });
     const { rerender } = renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
-    await user.type(screen.getByLabelText("Message planner chat"), "old task message");
+    await user.type(screen.getByLabelText("Message task chat"), "old task message");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     rerender(
       <TaskPlannerChatTab
         task={makeTask("FN-7312")}
         active
-        planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+        taskChatModel={{ provider: "anthropic", modelId: "claude-plan" }}
         addToast={vi.fn()}
       />,
     );
@@ -1775,11 +1812,11 @@ describe("TaskPlannerChatTab", () => {
     renderPlannerChat();
     await screen.findByTestId("task-planner-chat-empty");
 
-    await user.type(screen.getByLabelText("Message planner chat"), "Question");
+    await user.type(screen.getByLabelText("Message task chat"), "Question");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Planner unavailable");
-    await waitFor(() => expect(screen.getByLabelText("Message planner chat")).toBeEnabled());
+    await waitFor(() => expect(screen.getByLabelText("Message task chat")).toBeEnabled());
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 
@@ -1821,7 +1858,7 @@ describe("TaskPlannerChatTab", () => {
       renderPlannerChat();
       await screen.findByTestId("task-planner-chat-empty");
 
-      await user.type(screen.getByLabelText("Message planner chat"), "In flight");
+      await user.type(screen.getByLabelText("Message task chat"), "In flight");
       await user.click(screen.getByRole("button", { name: "Send" }));
 
       const optimisticMessage = await screen.findByText("In flight");
@@ -1928,7 +1965,7 @@ describe("TaskPlannerChatTab", () => {
       renderPlannerChat();
       await screen.findByTestId("chat-message-edit-m1");
 
-      await user.type(screen.getByLabelText("Message planner chat"), "another message");
+      await user.type(screen.getByLabelText("Message task chat"), "another message");
       await user.click(screen.getByRole("button", { name: "Send" }));
 
       await waitFor(() => expect(screen.queryByTestId("chat-message-edit-m1")).toBeNull());
@@ -2029,7 +2066,7 @@ describe("TaskPlannerChatTab", () => {
   describe("slash-command /steer", () => {
     it("shows /steer in the '/' menu, disabled with a hint, when the task's agent is not running", async () => {
       renderPlannerChat({ task: makeTask("FN-7310", { column: "todo" }) });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "/" } });
 
@@ -2040,7 +2077,7 @@ describe("TaskPlannerChatTab", () => {
 
     it("enables /steer in the menu when the task's agent is running (column === in-progress)", async () => {
       renderPlannerChat({ task: makeTask("FN-7310", { column: "in-progress" }) });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "/" } });
 
@@ -2050,7 +2087,7 @@ describe("TaskPlannerChatTab", () => {
 
     it("submitting '/steer do X' on a running task calls addSteeringComment and does not start a planner-chat send", async () => {
       renderPlannerChat({ task: makeTask("FN-7310", { column: "in-progress" }), projectId: "proj-1" });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "/steer do X" } });
       fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2062,7 +2099,7 @@ describe("TaskPlannerChatTab", () => {
 
     it("submitting a normal message still starts a planner-chat send when the task's agent is running", async () => {
       renderPlannerChat({ task: makeTask("FN-7310", { column: "in-progress" }) });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "What is the status?" } });
       fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2074,7 +2111,7 @@ describe("TaskPlannerChatTab", () => {
     it("submitting '/steer ...' with no running agent shows a hint and does not dispatch or send a message", async () => {
       const addToast = vi.fn();
       renderPlannerChat({ task: makeTask("FN-7310", { column: "todo" }), addToast });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "/steer do X" } });
       fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2087,7 +2124,7 @@ describe("TaskPlannerChatTab", () => {
 
     it("does not dispatch when the trigger appears mid-message", async () => {
       renderPlannerChat({ task: makeTask("FN-7310", { column: "in-progress" }) });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "please /steer this" } });
       fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2105,7 +2142,7 @@ describe("TaskPlannerChatTab", () => {
       mockAddSteeringComment.mockReturnValueOnce(runPromise as unknown as ReturnType<typeof mockAddSteeringComment>);
 
       renderPlannerChat({ task: makeTask("FN-7310", { column: "in-progress" }), projectId: "proj-1" });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "/steer do X" } });
       fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2125,7 +2162,7 @@ describe("TaskPlannerChatTab", () => {
     // accessible copy must say "command", not the reused skill-menu copy.
     it("labels the command menu with command-specific copy, not skill copy", async () => {
       renderPlannerChat({ task: makeTask("FN-7310", { column: "in-progress" }) });
-      const textarea = await screen.findByLabelText("Message planner chat");
+      const textarea = await screen.findByLabelText("Message task chat");
 
       fireEvent.change(textarea, { target: { value: "/" } });
 
@@ -2153,7 +2190,7 @@ describe("TaskPlannerChatTab", () => {
       await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
       await waitFor(() => expect(streamHandlers).toHaveLength(1));
 
-      const input = screen.getByLabelText("Message planner chat");
+      const input = screen.getByLabelText("Message task chat");
       for (const message of ["Follow-up A", "Follow-up B", "Follow-up B"]) {
         await user.type(input, message);
         await user.keyboard("{Enter}");
@@ -2208,7 +2245,7 @@ describe("TaskPlannerChatTab", () => {
         <TaskPlannerChatTab
           task={makeTask("FN-7311")}
           active
-          planningModel={{ provider: "anthropic", modelId: "claude-plan" }}
+          taskChatModel={{ provider: "anthropic", modelId: "claude-plan" }}
           addToast={vi.fn()}
         />,
       );
@@ -2237,7 +2274,7 @@ describe("TaskPlannerChatTab", () => {
       renderPlannerChat();
       await screen.findByTestId("task-planner-chat-empty");
       await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
-      const input = screen.getByLabelText("Message planner chat");
+      const input = screen.getByLabelText("Message task chat");
       for (const message of ["First", "Duplicate", "Duplicate"]) {
         await user.type(input, message);
         await user.keyboard("{Enter}");
@@ -2281,7 +2318,7 @@ describe("TaskPlannerChatTab", () => {
       renderPlannerChat();
       await screen.findByTestId("task-planner-chat-empty");
       await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
-      const input = screen.getByLabelText("Message planner chat");
+      const input = screen.getByLabelText("Message task chat");
       for (const message of ["Keep this first", "Force this second"]) {
         await user.type(input, message);
         await user.keyboard("{Enter}");
@@ -2318,7 +2355,7 @@ describe("TaskPlannerChatTab", () => {
       renderPlannerChat();
       await screen.findByTestId("task-planner-chat-empty");
       await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
-      const input = screen.getByLabelText("Message planner chat");
+      const input = screen.getByLabelText("Message task chat");
       await user.type(input, "Queued after stop");
       await user.keyboard("{Enter}");
       await waitFor(() => expect(streamHandlers).toHaveLength(1));
@@ -2339,7 +2376,7 @@ describe("TaskPlannerChatTab", () => {
       renderPlannerChat();
       await screen.findByTestId("task-planner-chat-empty");
       await user.click(screen.getByRole("button", { name: /Summarize recent activity/ }));
-      const input = screen.getByLabelText("Message planner chat");
+      const input = screen.getByLabelText("Message task chat");
       await user.type(input, "Retain me");
       await user.keyboard("{Enter}");
       await waitFor(() => expect(screen.getByTestId("task-planner-chat-pending-force-0")).toBeInTheDocument());

@@ -240,7 +240,7 @@ describe("TaskDetailModal planner Chat tab", () => {
 
     const toggle = screen.getByTestId("task-planner-chat-expand-toggle");
     expect(detail).not.toHaveClass("task-detail-content--planner-chat-expanded");
-    expect(toggle).toHaveAccessibleName("Expand planner chat");
+    expect(toggle).toHaveAccessibleName("Expand task chat");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Activity" })).toBeInTheDocument();
@@ -248,7 +248,7 @@ describe("TaskDetailModal planner Chat tab", () => {
     await user.click(toggle);
 
     expect(detail).toHaveClass("task-detail-content--planner-chat-expanded");
-    expect(screen.getByTestId("task-planner-chat-expand-toggle")).toHaveAccessibleName("Collapse planner chat");
+    expect(screen.getByTestId("task-planner-chat-expand-toggle")).toHaveAccessibleName("Collapse task chat");
   });
 
   it("resets planner Chat expanded mode when switching tasks", async () => {

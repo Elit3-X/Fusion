@@ -175,8 +175,11 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
   }
 
   /*
+  FNXC:TaskChatDefaultModel 2026-08-19-12:12:
+  Task-detail Chat keeps the synthetic task-scoped target (`task-planner:<taskId>`) for server-built context and scoped tools, while explicit sends update the persisted Direct Chat model and thinking target on that same session.
+
   FNXC:TaskDetailPlannerChat 2026-06-30-22:30:
-  Task planner Chat uses a synthetic task-scoped chat target (`task-planner:<taskId>`) so the dashboard can persist/resume a conversation without binding it to an executor/reviewer agent or the Activity steering-comment pipeline. The route validates the task in the scoped project store and stores the effective planning model override on the session.
+  Task planner Chat uses a synthetic task-scoped chat target (`task-planner:<taskId>`) so the dashboard can persist/resume a conversation without binding it to an executor/reviewer agent or the Activity steering-comment pipeline. The route validates the task in the scoped project store and stores the current Chat target on the session.
 
   FNXC:TaskDetailPlannerChatRetention 2026-06-30-18:45:
   Planner chats that already have user interaction remain available when a task reaches done, and archived-task cleanup removes existing task-planner sessions through ChatStore deletion so archived tasks stop retaining task-local planner context.
@@ -193,6 +196,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       }
 
       const { modelProvider, modelId } = validateModelPair(req.body?.modelProvider, req.body?.modelId);
+      const thinkingLevel = validateThinkingLevel(req.body?.thinkingLevel);
       const { store: scopedStore, projectId } = await getProjectContext(req);
       const { chatStore } = await resolveScopedChatStore(projectId);
       const task = await scopedStore.getTask(taskId).catch(() => null);
@@ -201,50 +205,68 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       }
 
       const agentId = `${TASK_PLANNER_CHAT_AGENT_ID_PREFIX}${task.id}`;
-      let existing = await chatStore.findLatestActiveSessionForTarget({
-        agentId,
-        ...(projectId ? { projectId } : {}),
-      });
-
-      // FNXC:CentralProjectIdentity 2026-07-14-00:15:
-      // ctx projectId now resolves to the launch id, so a projectId-filtered lookup
-      // misses legacy active planner sessions created with a null projectId → we'd
-      // create a duplicate. On a scoped miss, retry unscoped and reuse a matched
-      // legacy (null-projectId) session for this task-specific agent. The projectId
-      // is not stamped onto it: ChatSessionUpdateInput has no projectId field, so no
-      // clean update path exists — reusing it is enough to prevent the duplicate.
-      if (!existing && projectId) {
-        const legacy = await chatStore.findLatestActiveSessionForTarget({ agentId });
-        if (legacy && legacy.projectId == null) {
-          existing = legacy;
-        }
-      }
-
-      if (existing) {
-        const session = modelProvider && modelId
-          ? await chatStore.updateSession(existing.id, { modelProvider, modelId })
-          : existing;
-        res.json({ session });
-        return;
-      }
 
       /*
-      FNXC:WorkflowResolvedColumns 2026-07-30-06:50 (batch-core):
-      Planner chat is refused for archived tasks. Keyed on the literal, a renamed board started
-      planner sessions against archived cards, whose rows the archive treats as immutable.
+      FNXC:TaskChatDefaultModel 2026-08-19-12:47:
+      Explicit task-chat sends must serialize lookup, retarget, and first creation by task target.
+      The task lifecycle advisory lock is cross-process in PostgreSQL and keeps two tabs from
+      creating divergent transcripts while preserving the synthetic task context boundary.
       */
-      if ((await archivedColumnsForTask(scopedStore, task.id)).has(task.column)) {
-        throw badRequest(`Task ${task.id} is archived; planner chat cannot be started for archived tasks`);
-      }
+      const result = await scopedStore.withPlanningLifecycleLock(task.id, async () => {
+        let existing = await chatStore.findLatestActiveSessionForTarget({
+          agentId,
+          ...(projectId ? { projectId } : {}),
+        });
 
-      const session = await chatStore.createSession({
-        agentId,
-        title: `${task.id} planner chat`,
-        projectId: projectId ?? null,
-        modelProvider: modelProvider ?? null,
-        modelId: modelId ?? null,
+        // FNXC:CentralProjectIdentity 2026-07-14-00:15:
+        // ctx projectId now resolves to the launch id, so a projectId-filtered lookup
+        // misses legacy active planner sessions created with a null projectId → we'd
+        // create a duplicate. On a scoped miss, retry unscoped and reuse a matched
+        // legacy (null-projectId) session for this task-specific agent. The projectId
+        // is not stamped onto it: ChatSessionUpdateInput has no projectId field, so no
+        // clean update path exists — reusing it is enough to prevent the duplicate.
+        if (!existing && projectId) {
+          const legacy = await chatStore.findLatestActiveSessionForTarget({ agentId });
+          if (legacy && legacy.projectId == null) {
+            existing = legacy;
+          }
+        }
+
+        if (existing) {
+          const updates = {
+            ...(modelProvider && modelId ? { modelProvider, modelId } : {}),
+            ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+          };
+          const session = Object.keys(updates).length > 0
+            ? await chatStore.updateSession(existing.id, updates)
+            : existing;
+          return { created: false, session };
+        }
+
+        /*
+        FNXC:WorkflowResolvedColumns 2026-07-30-06:50 (batch-core):
+        Planner chat is refused for archived tasks. Keyed on the literal, a renamed board started
+        planner sessions against archived cards, whose rows the archive treats as immutable.
+        */
+        if ((await archivedColumnsForTask(scopedStore, task.id)).has(task.column)) {
+          throw badRequest(`Task ${task.id} is archived; planner chat cannot be started for archived tasks`);
+        }
+
+        const session = await chatStore.createSession({
+          agentId,
+          title: `${task.id} planner chat`,
+          projectId: projectId ?? null,
+          modelProvider: modelProvider ?? null,
+          modelId: modelId ?? null,
+          thinkingLevel: thinkingLevel ?? null,
+        });
+        return { created: true, session };
       });
-      res.status(201).json({ session });
+      if (result.created) {
+        res.status(201).json({ session: result.session });
+      } else {
+        res.json({ session: result.session });
+      }
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
@@ -345,6 +367,9 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       const isContentSearch = hasSearchQuery && !isTitleOnly;
 
       const isResumeLookup = lookup === "resume";
+      const isTaskPlannerResumeLookup = isResumeLookup
+        && typeof agentId === "string"
+        && agentId.trim().startsWith(TASK_PLANNER_CHAT_AGENT_ID_PREFIX);
       const hasModelProvider = typeof modelProvider === "string" && modelProvider.trim().length > 0;
       const hasModelId = typeof modelId === "string" && modelId.trim().length > 0;
       if (hasModelProvider !== hasModelId) {
@@ -357,16 +382,25 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
 
       let sessions = isResumeLookup
         ? await (async () => {
-            const matched = await chatStore.findLatestActiveSessionForTarget({
+            let matched = await chatStore.findLatestActiveSessionForTarget({
               agentId: agentId!.trim(),
               ...(projectId && { projectId }),
-              ...(hasModelProvider && hasModelId
+              ...(!isTaskPlannerResumeLookup && hasModelProvider && hasModelId
                 ? {
                     modelProvider: modelProvider!.trim(),
                     modelId: modelId!.trim(),
                   }
                 : {}),
             });
+
+            /*
+            FNXC:TaskChatDefaultModel 2026-08-19-12:12:
+            Synthetic task Chat lookup ignores the current Direct model and falls back to a legacy null-project session when needed. This preserves one transcript across settings changes without weakening project scoping for normal Chat sessions.
+            */
+            if (!matched && isTaskPlannerResumeLookup && projectId) {
+              const legacy = await chatStore.findLatestActiveSessionForTarget({ agentId: agentId!.trim() });
+              if (legacy?.projectId == null) matched = legacy;
+            }
 
             return matched ? [matched] : [];
           })()

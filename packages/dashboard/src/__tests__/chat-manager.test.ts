@@ -2119,8 +2119,13 @@ describe("ChatManager.sendMessage", () => {
       id: "chat-001",
       agentId: "task-planner:FN-7310",
       status: "active",
-      modelProvider: "anthropic",
-      modelId: "claude-plan",
+      /*
+      FNXC:TaskChatDefaultModel 2026-08-19-12:12:
+      The persisted synthetic task session carries the Direct Chat target into ChatManager. This test keeps the task context and scoped tool assertions alongside the model-loop precedence check.
+      */
+      modelProvider: "openai",
+      modelId: "gpt-direct",
+      thinkingLevel: "high",
     });
 
     const createResolvedSession = vi.fn(async () => ({
@@ -2164,8 +2169,9 @@ describe("ChatManager.sendMessage", () => {
     await chatManager.sendMessage("chat-001", "How should I plan this?");
 
     const createOptions = createResolvedSession.mock.calls[0]?.[0];
-    expect(createOptions.defaultProvider).toBe("anthropic");
-    expect(createOptions.defaultModelId).toBe("claude-plan");
+    expect(createOptions.defaultProvider).toBe("openai");
+    expect(createOptions.defaultModelId).toBe("gpt-direct");
+    expect(createOptions.defaultThinkingLevel).toBe("high");
     expect(createOptions.systemPrompt).toContain("## Task Planner Chat Context");
     expect(createOptions.systemPrompt).toContain("Task ID: FN-7310");
     expect(createOptions.systemPrompt).toContain("Title: Add planner chat");

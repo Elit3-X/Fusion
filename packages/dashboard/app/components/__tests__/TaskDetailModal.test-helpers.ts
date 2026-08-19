@@ -138,6 +138,8 @@ vi.mock("lucide-react", () => ({
   Square: (props: any) => React.createElement("svg", { "data-testid": "square-icon", ...props }),
   Info: (props: any) => React.createElement("svg", { "data-testid": "info-icon", ...props }),
   Bot: () => null,
+  // FNXC:TaskChatDefaultModel 2026-08-19-12:12: Task Chat reuses the Direct Chat thinking-level control, so its Brain icon is part of the shared modal mock surface.
+  Brain: () => null,
   CircleDot: () => null,
   XCircle: () => null,
   Workflow: () => null,
