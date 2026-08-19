@@ -994,8 +994,27 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
         }
       }
 
+      /*
+      FNXC:RemoteAuth 2026-08-19-01:10:
+      NO SILENT FAKE "STARTING". Without an engine nothing can start, and this used to answer
+      `{state:"starting"}` anyway — so the UI showed a tunnel coming up that never would, settling to
+      `stopped` with `lastError: null` and no way to tell a broken tunnel from an unmanaged one. The
+      operator hit exactly this: repeated starts, always stopped, never an error. It is reachable in
+      a container whose launch directory is not the registered project, because an unscoped request
+      falls back to a launch-dir store with no engine.
+
+      Still 200 and still idempotent — a dashboard legitimately runs without an engine (--no-engine),
+      and an error there would be wrong — but the state is now the truth (`stopped`, not `starting`)
+      and carries the reason, which the UI already renders from lastError.
+      */
       if (!engine) {
-        res.json({ state: "starting", provider });
+        res.json({
+          state: "stopped",
+          provider,
+          url: null,
+          lastError: "No engine is attached to this request's project scope — pass ?projectId= for the project whose tunnel should start",
+          lastErrorCode: "REMOTE_TUNNEL_ENGINE_UNAVAILABLE",
+        });
         return;
       }
 
