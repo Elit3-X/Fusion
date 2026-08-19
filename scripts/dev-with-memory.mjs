@@ -109,7 +109,13 @@ An explicit `--tunnel=PORT` names a target the operator chose (a Vite server the
 nothing about), so it is used immediately and never waits. If the report never arrives the tunnel
 still comes up on the configured port, since a mis-targeted preview beats no preview at all.
 */
-const DEV_SERVER_PORT_REPORT_TIMEOUT_MS = 60_000;
+/*
+FNXC:DevTunnel 2026-08-19-03:38:
+How long to wait quietly before saying WHY no tunnel has appeared yet. Startup legitimately takes
+minutes (workspace build, embedded Postgres) and can stop dead on an interactive prompt — a real
+run sat on "Run central db now? (Y/n)" and never listened at all.
+*/
+const DEV_SERVER_REPORT_NOTICE_MS = 60_000;
 let reportDevServerListening;
 const devServerListeningReport = new Promise((resolve) => { reportDevServerListening = resolve; });
 
@@ -117,19 +123,29 @@ async function resolveTunnelTarget() {
   const configured = resolveDevTunnelPort(undefined);
   if (tunnelPort) return { port: tunnelPort, token: null, source: "explicit" };
 
-  const timeout = new Promise((resolve) => {
-    setTimeout(() => resolve(null), DEV_SERVER_PORT_REPORT_TIMEOUT_MS).unref?.();
-  });
-  const reported = await Promise.race([devServerListeningReport, timeout]);
+  /*
+  FNXC:DevTunnel 2026-08-19-03:38:
+  WAIT for the dev server rather than falling back to the configured port. The old fallback published
+  a tunnel to whatever held that port, which on the machine this matters for — a container whose own
+  Fusion owns 4040 — meant handing out a "dev server" URL that served a DIFFERENT instance entirely.
+  A missing tunnel is a visible, self-explaining problem; a tunnel to the wrong app is a silent one
+  that costs an afternoon. The wait is unbounded because a tunnel is worthless before the server is
+  up anyway, and it costs nothing: it holds no work, and the dev loop is already running.
+  */
+  const notice = setInterval(() => {
+    console.warn(`[fusion:dev] waiting for the dev server to start before tunnelling (nothing is published yet) — if it is asking you something, answer it`);
+  }, DEV_SERVER_REPORT_NOTICE_MS);
+  notice.unref?.();
 
-  if (!reported) {
-    console.warn(`[fusion:dev] dev server never reported its port — tunnelling ${configured}, which may not be it`);
-    return { port: configured, token: null, source: "assumed" };
+  try {
+    const reported = await devServerListeningReport;
+    if (reported.port !== configured) {
+      console.log(`[fusion:dev] dev server bound ${reported.port} (not ${configured}) — tunnelling ${reported.port}`);
+    }
+    return { port: reported.port, token: reported.token, source: "reported" };
+  } finally {
+    clearInterval(notice);
   }
-  if (reported.port !== configured) {
-    console.log(`[fusion:dev] dev server bound ${reported.port} (not ${configured}) — tunnelling ${reported.port}`);
-  }
-  return { port: reported.port, token: reported.token, source: "reported" };
 }
 
 async function openDevTunnel() {

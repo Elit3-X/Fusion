@@ -136,6 +136,12 @@ Behaviour worth knowing:
 - **The token comes from the same place the dashboard's does** — `FUSION_DASHBOARD_TOKEN`,
   `FUSION_DAEMON_TOKEN`, then `~/.fusion/settings.json`. On a first authenticated run the token may
   not exist yet when the tunnel comes up; the banner then points at the dashboard's own startup line.
+- **The tunnel waits for the dev server, and never guesses.** It publishes only the port the dev
+  server reports it actually bound. If startup is slow — or stopped on an interactive prompt such as
+  `Run central db now? (Y/n)` — no tunnel appears and the wrapper says so once a minute. It will not
+  fall back to the configured port: on a machine where something else already owns that port (a
+  container whose own Fusion holds 4040) that published a "dev server" URL serving a different
+  instance entirely.
 - **A failed tunnel never takes the dev server down.** If `cloudflared` is missing or no URL is
   published, it logs and carries on; losing a preview URL must not cost you your dev loop.
 - **Restarts reuse the tunnel.** In `--watch` mode a fresh quick tunnel would hand out a different
