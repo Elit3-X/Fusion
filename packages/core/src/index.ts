@@ -614,6 +614,12 @@ export {
   isBuiltinWorkflowId,
   isBuiltinWorkflowPluginGated,
   isBuiltinWorkflowDeprecated,
+  isBuiltinWorkflowToggleEligible,
+  toggleEligibleBuiltinWorkflowIds,
+  defaultEnabledBuiltinWorkflowIds,
+  effectiveEnabledBuiltinWorkflowIds,
+  validateEnabledBuiltinWorkflowIds,
+  resolveEffectiveDefaultWorkflowId,
   DEFAULT_WORKFLOW_ID,
   resolveDefaultWorkflowIr,
 } from "./workflows/builtin-workflows.js";

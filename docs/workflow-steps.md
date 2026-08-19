@@ -26,10 +26,14 @@ FNXC:WorkflowRuntime 2026-06-28-08:10:
 Selectable built-in workflows must share the canonical dispatch traits: their held work enters through a capacity-released `todo`/backlog column and moves to the first WIP execution column via the hold/release sweep, so non-default built-ins do not need a separate dispatcher.
 -->
 
-Fusion workflows define the task lifecycle policy that moves work from an idea to delivery. The default coding path is **Plan/Triage → Execute → graph-native optional gates → Review → Merge**, but that path is now represented as a workflow selection rather than only as fixed engine behavior. A task with no explicit workflow resolves to `builtin:coding`; an explicit missing/corrupt custom workflow fails closed instead of silently falling back.
+Fusion workflows define the task lifecycle policy that moves work from an idea to delivery. The default coding path is **Plan/Triage → Execute → graph-native optional gates → Review → Merge**, but that path is now represented as a workflow selection rather than only as fixed engine behavior. `builtin:coding` remains the catalog default; when project enablement excludes it, unselected/new work and dashboard defaults use the first enabled normal built-in in catalog order. An explicitly selected existing built-in remains resolvable even when it is disabled for new selection, while an explicit missing/corrupt custom workflow fails closed instead of silently falling back.
 
 ### Selecting workflows
 
+<!--
+FNXC:DisabledBuiltinWorkflows 2026-08-19-00:18:
+Project Settings treats an unset `enabledBuiltinWorkflowIds` as all normal built-ins enabled and requires every explicit list to retain at least one valid, available built-in. Disabled built-ins stay in management/direct-resolution paths only; they are omitted from new-task and board/header/list/Planning/Missions/Graph pickers.
+-->
 Operators can select workflows in the dashboard wherever the task or board workflow selector is shown. Agents and automation can discover, author, tune, and assign them with the workflow tools:
 
 - `fn_workflow_list` / `fn_workflow_get` — list built-in and custom workflow definitions and inspect a definition's IR before editing.

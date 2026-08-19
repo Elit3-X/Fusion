@@ -21,6 +21,10 @@ import {readProjectConfig as readProjectConfigAsync, writeProjectConfig as write
 import {appendConfigurationRevision, createConfigurationRevision} from "../async-stores/async-configuration-revision-store.js";
 import {isValidProviderInstanceId} from "../provider-instance.js";
 import {applyWorkspaceModeToggle, withWorkspaceModeLock, type WorkspaceModeToggleOps} from "../git/git-repository.js";
+import {
+  getRequiredPluginIdForBuiltinWorkflow,
+  validateEnabledBuiltinWorkflowIds,
+} from "../workflows/builtin-workflows.js";
 
 /*
  * FNXC:CredentialInstanceSelection 2026-08-01-05:38:
@@ -52,6 +56,17 @@ let workspaceModeOpsForTesting: Partial<WorkspaceModeToggleOps> | undefined;
 /** @internal Test-only workspace filesystem override for production-shaped settings writers. */
 export function __setWorkspaceModeOpsForTesting(ops: Partial<WorkspaceModeToggleOps> | undefined): void {
   workspaceModeOpsForTesting = ops;
+}
+
+async function assertValidEnabledBuiltinWorkflowIds(store: TaskStore, value: unknown): Promise<void> {
+  validateEnabledBuiltinWorkflowIds(value);
+  if (!Array.isArray(value)) return;
+  for (const rawId of value) {
+    const requiredPluginId = getRequiredPluginIdForBuiltinWorkflow(rawId);
+    if (requiredPluginId && !(await store.isPluginInstalled(requiredPluginId))) {
+      throw new Error(`enabledBuiltinWorkflowIds contains unavailable plugin-gated workflow id: ${rawId}`);
+    }
+  }
 }
 
 function assertValidCredentialInstanceSettingsPatch(patch: Record<string, unknown>): void {
@@ -259,6 +274,13 @@ export async function updateSettingsImpl(store: TaskStore, patch: Partial<Settin
         const globalSettings = await store.globalSettingsStore.getSettings();
         const previousMerged = canonicalizeSettings({ ...DEFAULT_SETTINGS, ...globalSettings, ...config.settings } as Settings);
         const updatedProjectSettings = canonicalizeSettings({ ...config.settings, ...projectPatch } as Settings);
+        /*
+        FNXC:DisabledBuiltinWorkflows 2026-08-19-00:18:
+        Validate the resolved project snapshot while the configuration lock is held,
+        before either the settings row or its immutable revision can be written. This
+        keeps malformed enablement lists atomic across dashboard, CLI, and import writers.
+        */
+        await assertValidEnabledBuiltinWorkflowIds(store, updatedProjectSettings.enabledBuiltinWorkflowIds);
         // FNXC:TaskPinnedWorktrees 2026-07-16-00:00: reject recycleWorktrees + worktreeNaming:"task-id"
         // (mutually exclusive) against the resolved next state BEFORE persisting the invalid combination.
         assertWorktreeNamingRecycleExclusive({ ...DEFAULT_SETTINGS, ...globalSettings, ...updatedProjectSettings } as Settings);

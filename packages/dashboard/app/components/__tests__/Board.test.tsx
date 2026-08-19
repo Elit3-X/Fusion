@@ -1321,6 +1321,28 @@ describe("Board", () => {
       expect(screen.getByTestId("workflow-switcher")).toHaveTextContent("Coding");
     });
 
+    it("keeps an explicitly disabled Coding lane out of the Board selector", async () => {
+      const quickFix = { ...DEFAULT_WORKFLOW, id: "builtin:quick-fix", name: "Quick Fix" };
+      const review = { ...DEFAULT_WORKFLOW, id: "builtin:review-heavy", name: "Review Heavy" };
+      fetchBoardWorkflowsMock.mockResolvedValue({
+        flagEnabled: true,
+        defaultWorkflowId: quickFix.id,
+        workflows: [
+          { ...DEFAULT_WORKFLOW, selectable: false },
+          { ...quickFix, selectable: true },
+          { ...review, selectable: true },
+        ],
+        taskWorkflowIds: { "FN-1": DEFAULT_WORKFLOW.id },
+      });
+      renderBoard({ tasks: [mkTask({ id: "FN-1" })] });
+
+      const selector = await screen.findByTestId("workflow-switcher");
+      fireEvent.click(selector);
+      expect(screen.queryByTestId("workflow-switcher-option-builtin:coding")).toBeNull();
+      expect(screen.getByTestId("workflow-switcher-option-builtin:quick-fix")).toBeInTheDocument();
+      expect(screen.getByTestId("workflow-switcher-option-builtin:review-heavy")).toBeInTheDocument();
+    });
+
     it("puts create controls on the workflow intake column instead of the first visible column", async () => {
       const workflow = {
         id: "wf-intake-second",

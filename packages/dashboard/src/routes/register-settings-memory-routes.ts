@@ -1,4 +1,9 @@
-import { createLogger } from "@fusion/core";
+import {
+  createLogger,
+  effectiveEnabledBuiltinWorkflowIds,
+  getRequiredPluginIdForBuiltinWorkflow,
+  validateEnabledBuiltinWorkflowIds,
+} from "@fusion/core";
 import { resolveRequestActor } from "../request-actor.js";
 
 const severityAuditLog = createLogger("dashboard-register-settings-memory-routes");
@@ -67,6 +72,7 @@ import { mkdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { ApiError, badRequest } from "../api-error.js";
 import { resolveGithubTrackingAuth } from "../github-auth.js";
+import { emitWorkflowSseEvent } from "../sse.js";
 import { generateRemoteToken, issueRemoteAuthToken, maskRemoteToken } from "../remote-auth.js";
 import { invalidateAllGlobalSettingsCaches } from "../project-store-resolver.js";
 import type { ApiRoutesContext } from "./types.js";
@@ -595,7 +601,11 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
 
   router.put("/settings", async (req, res) => {
     try {
-      const { store: scopedStore } = await getProjectContext(req);
+      const workflowEnablementPatch = Object.prototype.hasOwnProperty.call(req.body ?? {}, "enabledBuiltinWorkflowIds");
+      const { store: scopedStore, projectId } = await getProjectContext(req);
+      const previousWorkflowSettings = workflowEnablementPatch
+        ? await scopedStore.getSettings()
+        : undefined;
       // Strip server-owned fields that should never be persisted to config.json.
       // These are computed server-side and injected only on GET /settings.
        
@@ -613,6 +623,22 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
       const globalFieldsFound = Object.keys(clientSettings).filter((k) => globalKeySet.has(k) && !projectKeySet.has(k));
       if (globalFieldsFound.length > 0) {
         throw badRequest(`Cannot update global settings via this endpoint. Use PUT /settings/global instead. Global fields found: ${globalFieldsFound.join(", ")}`);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(clientSettings, "enabledBuiltinWorkflowIds")) {
+        try {
+          validateEnabledBuiltinWorkflowIds(clientSettings.enabledBuiltinWorkflowIds);
+          if (Array.isArray(clientSettings.enabledBuiltinWorkflowIds)) {
+            for (const workflowId of clientSettings.enabledBuiltinWorkflowIds) {
+              const requiredPluginId = getRequiredPluginIdForBuiltinWorkflow(workflowId);
+              if (requiredPluginId && !(await scopedStore.isPluginInstalled(requiredPluginId))) {
+                throw new Error(`enabledBuiltinWorkflowIds contains unavailable plugin-gated workflow id: ${workflowId}`);
+              }
+            }
+          }
+        } catch (error) {
+          throw badRequest(error instanceof Error ? error.message : String(error));
+        }
       }
 
       if (Object.prototype.hasOwnProperty.call(clientSettings, "modelPresets")) {
@@ -764,7 +790,20 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
       }
 
       const settings = await scopedStore.updateSettings(clientSettings, resolveRequestActor(req));
-      
+      if (
+        workflowEnablementPatch
+        && previousWorkflowSettings
+        && JSON.stringify(effectiveEnabledBuiltinWorkflowIds(previousWorkflowSettings.enabledBuiltinWorkflowIds))
+          !== JSON.stringify(effectiveEnabledBuiltinWorkflowIds(settings.enabledBuiltinWorkflowIds))
+      ) {
+        /*
+        FNXC:DisabledBuiltinWorkflows 2026-08-19-00:18:
+        Settings changes invalidate the shared board-workflow cache only after the
+        PostgreSQL settings/revision transaction commits. One event refreshes every
+        Header, Board, List, Planning, and Graph consumer without polling.
+        */
+        emitWorkflowSseEvent("workflow:updated", { reason: "enabledBuiltinWorkflowIds" }, projectId);
+      }
       res.json(settings);
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -779,6 +818,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
         errorMessage.includes("modelPresets")
         || errorMessage.includes("must include both provider and modelId")
         || errorMessage.includes("mutually exclusive")
+        || errorMessage.includes("enabledBuiltinWorkflowIds")
       ) ? 400 : 500;
       throw new ApiError(status, errorMessage);
     }

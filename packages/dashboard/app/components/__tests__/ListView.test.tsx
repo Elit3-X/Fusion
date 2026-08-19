@@ -1662,6 +1662,44 @@ describe("ListView", () => {
     expect(screen.getByRole("listbox", { name: "Workflow" })).toBeInTheDocument();
   });
 
+  it("keeps disabled Coding out of the List selector while retaining its task assignment", async () => {
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue({
+      flagEnabled: true,
+      defaultWorkflowId: "builtin:quick-fix",
+      workflows: [
+        {
+          id: "builtin:coding",
+          name: "Coding",
+          selectable: false,
+          columns: [{ id: "todo", name: "Todo", flags: { hold: true } }],
+        },
+        {
+          id: "builtin:quick-fix",
+          name: "Quick Fix",
+          selectable: true,
+          columns: [{ id: "todo", name: "Todo", flags: { hold: true } }],
+        },
+        {
+          id: "builtin:review-heavy",
+          name: "Review Heavy",
+          selectable: true,
+          columns: [{ id: "todo", name: "Todo", flags: { hold: true } }],
+        },
+      ],
+      taskWorkflowIds: { "FN-001": "builtin:coding" },
+    });
+
+    renderListView({
+      tasks: [createMockTask({ id: "FN-001", column: "todo", title: "Disabled Coding task" })],
+    });
+
+    const selector = await screen.findByTestId("workflow-switcher");
+    fireEvent.click(selector);
+    expect(screen.queryByTestId("workflow-switcher-option-builtin:coding")).toBeNull();
+    expect(screen.getByTestId("workflow-switcher-option-builtin:quick-fix")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-switcher-option-builtin:review-heavy")).toBeInTheDocument();
+  });
+
   it("keeps a custom list workflow selected after task refresh and workflow payload revalidation", async () => {
     vi.mocked(fetchBoardWorkflows).mockResolvedValue({
       flagEnabled: true,
