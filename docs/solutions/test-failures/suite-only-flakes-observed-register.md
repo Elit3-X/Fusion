@@ -19,9 +19,18 @@ tags:
 
 # Observed suite-only flakes register
 
-This register preserves first-sighting evidence under the narrow exception in [AGENTS.md](../../../AGENTS.md#standing-rule-flaky-tests-are-quarantined-on-sight-deletion-ratchet), and merge-gate eviction records. An eviction record documents a gate flake removed from the blocking canary list while coverage continues in the non-blocking lane. It is not a quarantine: the normal default remains a ledger entry plus matching Vitest `exclude` in the same commit.
+This register has **3 active observation records** (entries 1, 2, and 7): **2 active first sightings** and **1 escalated second sighting**. It also has **1 merge-gate eviction record** (entry 6) and **8 archived closed records**. Only the active section drives quarantine and escalation decisions; the other sections preserve historical evidence.
 
-## 1. Project identity returns no stored identity
+<!--
+FNXC:TestFlakeRegister 2026-08-19-11:14:
+The flat register mixed closed narratives with open records, making it unusable as a quarantine-on-sight decision aid. Sections make the active decision surface explicit while entry numbers and heading text remain frozen for inbound anchors and cross-reference stability. Active status lines must distinguish first sightings from reproduced escalations and name the evidence owners retained by each record.
+-->
+
+## Active observation records
+
+### 1. Project identity returns no stored identity
+
+- **Status:** Escalated second sighting — reproduced by FN-9126; structural-fix owner FN-9131.
 
 - **File:** `packages/core/src/__tests__/postgres/project-identity.test.ts`
 - **Exact test:** `project-identity async (PostgreSQL integration) > returns null when no identity is stored`
@@ -49,7 +58,11 @@ This register preserves first-sighting evidence under the narrow exception in [A
 | PostgreSQL directory, 27 workers (run 1) | subject passed; 173 files; 1335 passed / 31 failed / 4 skipped |
 | PostgreSQL directory, 27 workers (run 2) | **subject timeout reproduced**; 173 files; 942 passed / 46 failed / 382 skipped |
 
-## 2. Schema applier retains registered dependents
+### 2. Schema applier retains registered dependents
+
+- **Status:** Active first sighting — owner FN-9128.
+
+The FN-9128 harness-isolation fix does not close this record because no reproduced failure explained the original assertion mechanism.
 
 - **Owner:** FN-9128
 - **File:** `packages/core/src/__tests__/postgres/schema-applier.test.ts`
@@ -77,7 +90,86 @@ DDL microbenchmarks of the pre-fix pristine shape measured `CREATE DATABASE` 44.
 | full core ×3, 6 workers | subject passed; unrelated settings-revision-attribution failure |
 | PostgreSQL directory, 12 workers | subject passed; unrelated satellite-store ordering failure |
 
-## 3. Plugin runner complete-lane lifecycle hook
+### 7. Mission store PostgreSQL teardown hook
+
+- **Status:** Active first sighting — owner FN-9127.
+
+- **File:** `packages/core/src/__tests__/postgres/mission-store.pg.test.ts`
+- **Exact test:** `MissionStore (PostgreSQL backend mode)` suite `afterAll` hook (`h.afterAll`).
+- **Observed tree/SHA:** `32f677bbc207e421fd260ae2ba22fcefeeef4d86` (FN-8979 worktree).
+- **Observed frequency:** first observation in a direct targeted rerun; 61 tests in the file passed.
+
+| run | result |
+|---|---|
+| targeted file with `--silent=passed-only` | passed (exit 0) |
+| targeted file with dot reporter | **afterAll hook timed out** at 15s; 61 tests passed |
+
+The timeout occurred after all test assertions and is unrelated to FN-8979's canonical mission-blocker contract. This file retains substantial coverage, so this first observation is recorded rather than quarantined. A second sighting requires the normal file-level quarantine decision.
+
+**Evidence gathering pending 2026-08-17 (FN-9136):** The shared-harness teardown is serial (store, layer, admin client, `DROP DATABASE WITH (FORCE)`, temporary directory), so a loaded close/drop block remains a plausible historical mechanism. FN-9136's seven-pair per-fork `TRUNCATE` reuse campaign was rejected because its experimental fork cleanup leaked dead-owner databases; that rejection preserves isolation but does not resolve this original loaded timing symptom. FN-9127 retains CI/host-specific phase instrumentation and full failure capture ownership; core PostgreSQL quarantine is policy-forbidden.
+
+| verification | result |
+|---|---|
+| targeted dot reporter ×3 | 61 tests passed; afterAll passed |
+| full core ×3, 6 workers | subject passed; unrelated settings-revision-attribution failure |
+
+**Instrumented outcome 2026-08-16 (FN-9127): entry 7 remains unreproduced and is now self-diagnosing.** The default-off teardown recorder was measured on `beb8ae67dba1ed122cab94a4641e875ccebd21f1` against PostgreSQL 15.15 (`max_connections=100`, 97 ordinary slots). It writes synchronous JSONL records and its in-flight phase/teardown watchdogs fire before the inherited 15s hook is aborted, so a phase that never settles still leaves timing plus `pg_stat_activity` evidence. The durable campaign tables and full snapshot rows are retained in task document `FN-9127/evidence`; `/tmp/fn-9127-*.log` and `/tmp/fn-9127-diag-*.jsonl` are scratch copies only.
+
+| instrumented shape | result | measured worst phase | watchdog / snapshot |
+|---|---|---:|---|
+| subject dot ×3 | all passed | `dropDatabase` 154ms | no / none |
+| full core, 4 workers | unrelated settings attribution failure | 1,439ms globally | no / none |
+| full core, 6 workers | unrelated settings attribution failure | 1,576ms globally | no / none |
+| full core, 8 workers | unrelated settings attribution failure | 1,905ms globally | no / none |
+| full core, 12 workers | unrelated settings attribution + schema-applier timeout | `dropDatabase` 3,582ms globally | 30 / 30 |
+
+The 12-worker snapshots show 21 backends and concurrent template `CREATE DATABASE`/`DROP DATABASE WITH (FORCE)` work, including `IPC/CheckpointDone` and `IPC/ProcSignalBarrier`; they do not implicate this mission-store suite. FN-9130 measured advisory admission as a non-remedy: uniform pooling regressed to 49 watchdogs / 5,068ms and drop-only wiring to 27 / 3,361ms against the 4–5 / 3,284ms baseline. A bounded deferred-drop reaper also failed the end-to-end criterion: watchdogs became zero by construction, but two green runs took 117.2s and 122.4s versus the 108.1s baseline maximum, and a later run timed out in unrelated loaded setup. The reaper was reverted. FN-9136 then rejected candidate C after its golden-template gate passed: the required seven-pair 12-worker campaign left pooled `fusion_pool_*` databases owned by dead fork PIDs because the experiment lacked an awaited fork-exit flush and direct imports degraded to the shared `local` identity. The isolation failure required removing all harness wiring regardless of wall time. FN-9134 supplied a pre-registered report-only lane metric and completed its required seven-pair alternating control/candidate campaign at 12 workers. The control/candidate medians were 137.81s/146.91s, candidate pairs 02–06 were red, and every sample observed 32 or 33 surviving `fusion_test_%` databases (pair 04 increased 32 to 33). The tool's `no-improvement` verdict and the automatic non-zero-leak rejection removed the prototype and all of its wiring/tests together. The full per-run JSONL/log evidence is retained in task document `FN-9134/evidence`; this remains unresolved rather than becoming a quarantine or timeout change. No teardown behavior was changed: there is no evidence-backed cause for this entry's historical 15s afterAll abort. This first-sighting record remains retained; a second sighting follows the normal escalation. Core PostgreSQL files cannot be quarantined inline because the gate-policy assertion requires `quarantinedCoreTests` to remain empty; that is an owner-escalated decision.
+
+### Common shape and investigated result
+
+FN-9125 established that former entry 3 was not PostgreSQL-suite-adjacent: `plugin-runner.test.ts` used an in-memory mocked TaskStore and had no PostgreSQL/harness import. FN-9135 did not identify a root cause, but FN-9141's completed shuffled worker-reuse campaign reproduced and structurally fixed the logger mock-history fixture defect; the suite and its renamed-complete-lane dispatch coverage remain active. Entries 2 and 7 remain evidence-gathering-pending PostgreSQL first sightings: current full-output runs at six workers plus a twelve-worker PostgreSQL-directory run did not reproduce either subject identity, so FN-9125 cannot claim them superseded or resolved. Entry 1 instead reproduced under FN-9126 and remains escalated to FN-9131 for structural-fix ownership. The golden-template/advisory-lock lifecycle and schema-applier's inline baseline path are concrete architecture facts, not a demonstrated cause of these assertions. Core policy forbids inline PG quarantine: FN-9126 owns entry 1's reproduced evidence, FN-9131 owns its structural-fix escalation, FN-9128 exclusively owns entry 2, and FN-9127 owns entry 7 for CI/host-specific `pg_stat_activity`, lifecycle timing, and a complete loaded failure capture before any source or fan-out change. Entry 6 instead records a merge-gate eviction after a loaded-lane setup-hook timeout; `FNXC:PgTestTemplateDb 2026-07-19-17:20` and `FNXC:PgTestWorkerCap 2026-07-18-18:00` are already-landed mitigations for that mode, not new diagnoses to re-open. The Planning Mode entries are separate frontend timing observations.
+
+
+
+## Merge-gate eviction records
+
+### 6. Sync workflow IR default canary setup hook
+
+- **Status:** Merge-gate eviction 2026-08-16 by FN-8928.
+
+- **File:** `packages/core/src/__tests__/postgres/sync-workflow-ir-is-always-default.pg.test.ts`
+- **Exact test:** `resolveTaskWorkflowIrSync ignores a task's real workflow (PostgreSQL)` suite `beforeAll` setup hook.
+- **Observed tree/SHA:** FN-8912 evidence; local confirmation tree `51437558ac352dad3481e0dbe9622fa51af4c599`.
+- **Observed frequency:** 1 observed merge-gate sighting in FN-8912; not reproduced locally. This is an **evicted merge-gate canary**, not a first-sighting register exception.
+
+| run | result |
+|---|---|
+| FN-8912 loaded `pnpm test:gate` | **setup hook timed out** at the inherited 15s budget; direct scoped rerun passed |
+| shape A: capped `test:pg-gate` ×5 | 3 files / 13 tests passed each run |
+| shape B: isolated target ×3 | 1 file / 3 tests passed each run |
+| shape C: uncapped default-config PostgreSQL directory ×5 | 153 files / 1263 passed plus 1 skipped each run |
+
+FN-8928 evicted the file from the blocking gate under the AGENTS.md gate rule; default-core discovery preserves its regression coverage. Shape C was clean, so no quarantine escalation was required. A later non-blocking-core failure is an ordinary on-sight quarantine decision. `FNXC:PgTestTemplateDb 2026-07-19-17:20` (run-shared golden template) and `FNXC:PgTestWorkerCap 2026-07-18-18:00` (four-fork PG-gate cap) are already-landed mitigations for this same 15s setup-hook timeout mode.
+
+## Policy and escalation
+
+Quarantine is file-level, while the first-sighting exception preserves coverage in files retaining 6 / 75 / 80 passing tests. Under that exception, recording preserves valuable coverage. A **second sighting** of a registered test is an on-sight quarantine: add it to `scripts/lib/test-quarantine.json` and the matching Vitest `exclude` in one lockstep commit; this register entry is then evidence for the ledger `reason`.
+
+Merge-gate eviction records follow a separate branch: the gate can no longer be reddened by that file, while the non-blocking suite retains coverage. A further failure there is an ordinary on-sight quarantine. For PostgreSQL files, the gate-policy assertion forbidding a core-config quarantine exclude makes that an owner decision escalated as its own task rather than an inline edit.
+
+Capture **full runner output** before recording or quarantining a failure—for example, tee it to a file. Never pipe a dot reporter through `tail`: the summary survives while the `FAIL` identity lines needed for a quarantine entry are exactly what gets truncated.
+
+Source: [Runfusion/Fusion issue #2862](https://github.com/Runfusion/Fusion/issues/2862).
+
+
+
+## Archive — closed records
+
+Archived records are historical evidence only and never authorize a quarantine decision.
+
+### 3. Plugin runner complete-lane lifecycle hook
+
+- **Status:** Closed 2026-08-17 by FN-9141 — rescued (fixture defect).
 
 - **File:** `packages/engine/src/__tests__/plugin-runner.test.ts`
 - **Historical exact test:** `PluginRunner > task lifecycle hooks > should invoke onTaskCompleted when the complete lane is RENAMED`
@@ -120,7 +212,9 @@ Seven tests failed in `plugin-runner.test.ts`, but only this one identity surviv
 
 The rescue retains plugin loading, contribution accessor, runtime compatibility, hot-reload, and lifecycle-hook assertions, including the renamed-complete-lane `onTaskCompleted` dispatch that would have been uniquely lost under deletion. The direct regression now covers the worker-reused cleanup sequence that caused the reproduced warning assertion failure.
 
-## 4. Planning Mode direct task handoff
+### 4. Planning Mode direct task handoff
+
+- **Status:** Closed 2026-08-10 by FN-8936 — superseded.
 
 - **File:** `packages/dashboard/app/components/__tests__/PlanningModeModal.planning-flow.test.tsx`
 - **Exact test:** `PlanningModeModal sequential flow > creates the task directly and offers task and session-list handoffs`
@@ -136,7 +230,9 @@ The failure is unrelated to the mobile question footer: it exercises the complet
 
 **Superseded 2026-08-10 (FN-8936):** The second sighting moved the file to the deletion-ratchet ledger. Investigation classified the direct handoff as a detached test-node hydration race, not a product create-state race; the suite was rescued by settling hydration and re-querying the live Proceed action before every previously unsafe direct click. The ledger and Vitest exclusion were removed together after exact and loaded-file proof, without timeout/retry/assertion appeasement.
 
-## 5. Planning Mode mobile plan-tab selection
+### 5. Planning Mode mobile plan-tab selection
+
+- **Status:** Closed 2026-08-10 by FN-8936 — suite re-admitted.
 
 - **File:** `packages/dashboard/app/components/__tests__/PlanningModeModal.planning-flow.test.tsx`
 - **Exact test:** `PlanningModeModal sequential flow > uses full-view Questions and Plan preview tabs on mobile`
@@ -151,70 +247,9 @@ The failure exercises the pre-existing mobile tab transition, while the task-cre
 
 **Suite re-admitted 2026-08-10 (FN-8936):** This first-sighting mobile observation did not receive a second failure. The shared file-level quarantine was removed only after the direct-handoff root cause was structurally fixed and the unexcluded loaded suite, including this mobile coverage, passed.
 
-## Common shape and investigated result
+### 8. Planning Mode duplicate-response generation reconciliation
 
-FN-9125 established that former entry 3 was not PostgreSQL-suite-adjacent: `plugin-runner.test.ts` used an in-memory mocked TaskStore and had no PostgreSQL/harness import. FN-9135 did not identify a root cause, but FN-9141's completed shuffled worker-reuse campaign reproduced and structurally fixed the logger mock-history fixture defect; the suite and its renamed-complete-lane dispatch coverage remain active. Entries 1, 2, and 7 remain evidence-gathering-pending PostgreSQL observations: current full-output runs at six workers plus a twelve-worker PostgreSQL-directory run did not reproduce any subject identity, so FN-9125 cannot claim them superseded or resolved. The golden-template/advisory-lock lifecycle and schema-applier's inline baseline path are concrete architecture facts, not a demonstrated cause of these assertions. Core policy forbids inline PG quarantine: FN-9126 owns entry 1, FN-9128 exclusively owns entry 2, and FN-9127 owns entry 7 for CI/host-specific `pg_stat_activity`, lifecycle timing, and a complete loaded failure capture before any source or fan-out change. Entry 6 instead records a merge-gate eviction after a loaded-lane setup-hook timeout; `FNXC:PgTestTemplateDb 2026-07-19-17:20` and `FNXC:PgTestWorkerCap 2026-07-18-18:00` are already-landed mitigations for that mode, not new diagnoses to re-open. The Planning Mode entries are separate frontend timing observations.
-
-## Policy and escalation
-
-Quarantine is file-level, while the first-sighting exception preserves coverage in files retaining 6 / 75 / 80 passing tests. Under that exception, recording preserves valuable coverage. A **second sighting** of a registered test is an on-sight quarantine: add it to `scripts/lib/test-quarantine.json` and the matching Vitest `exclude` in one lockstep commit; this register entry is then evidence for the ledger `reason`.
-
-Merge-gate eviction records follow a separate branch: the gate can no longer be reddened by that file, while the non-blocking suite retains coverage. A further failure there is an ordinary on-sight quarantine. For PostgreSQL files, the gate-policy assertion forbidding a core-config quarantine exclude makes that an owner decision escalated as its own task rather than an inline edit.
-
-Capture **full runner output** before recording or quarantining a failure—for example, tee it to a file. Never pipe a dot reporter through `tail`: the summary survives while the `FAIL` identity lines needed for a quarantine entry are exactly what gets truncated.
-
-Source: [Runfusion/Fusion issue #2862](https://github.com/Runfusion/Fusion/issues/2862).
-
-## 6. Sync workflow IR default canary setup hook
-
-- **File:** `packages/core/src/__tests__/postgres/sync-workflow-ir-is-always-default.pg.test.ts`
-- **Exact test:** `resolveTaskWorkflowIrSync ignores a task's real workflow (PostgreSQL)` suite `beforeAll` setup hook.
-- **Observed tree/SHA:** FN-8912 evidence; local confirmation tree `51437558ac352dad3481e0dbe9622fa51af4c599`.
-- **Observed frequency:** 1 observed merge-gate sighting in FN-8912; not reproduced locally. This is an **evicted merge-gate canary**, not a first-sighting register exception.
-
-| run | result |
-|---|---|
-| FN-8912 loaded `pnpm test:gate` | **setup hook timed out** at the inherited 15s budget; direct scoped rerun passed |
-| shape A: capped `test:pg-gate` ×5 | 3 files / 13 tests passed each run |
-| shape B: isolated target ×3 | 1 file / 3 tests passed each run |
-| shape C: uncapped default-config PostgreSQL directory ×5 | 153 files / 1263 passed plus 1 skipped each run |
-
-FN-8928 evicted the file from the blocking gate under the AGENTS.md gate rule; default-core discovery preserves its regression coverage. Shape C was clean, so no quarantine escalation was required. A later non-blocking-core failure is an ordinary on-sight quarantine decision. `FNXC:PgTestTemplateDb 2026-07-19-17:20` (run-shared golden template) and `FNXC:PgTestWorkerCap 2026-07-18-18:00` (four-fork PG-gate cap) are already-landed mitigations for this same 15s setup-hook timeout mode.
-
-## 7. Mission store PostgreSQL teardown hook
-
-- **File:** `packages/core/src/__tests__/postgres/mission-store.pg.test.ts`
-- **Exact test:** `MissionStore (PostgreSQL backend mode)` suite `afterAll` hook (`h.afterAll`).
-- **Observed tree/SHA:** `32f677bbc207e421fd260ae2ba22fcefeeef4d86` (FN-8979 worktree).
-- **Observed frequency:** first observation in a direct targeted rerun; 61 tests in the file passed.
-
-| run | result |
-|---|---|
-| targeted file with `--silent=passed-only` | passed (exit 0) |
-| targeted file with dot reporter | **afterAll hook timed out** at 15s; 61 tests passed |
-
-The timeout occurred after all test assertions and is unrelated to FN-8979's canonical mission-blocker contract. This file retains substantial coverage, so this first observation is recorded rather than quarantined. A second sighting requires the normal file-level quarantine decision.
-
-**Evidence gathering pending 2026-08-17 (FN-9136):** The shared-harness teardown is serial (store, layer, admin client, `DROP DATABASE WITH (FORCE)`, temporary directory), so a loaded close/drop block remains a plausible historical mechanism. FN-9136's seven-pair per-fork `TRUNCATE` reuse campaign was rejected because its experimental fork cleanup leaked dead-owner databases; that rejection preserves isolation but does not resolve this original loaded timing symptom. FN-9127 retains CI/host-specific phase instrumentation and full failure capture ownership; core PostgreSQL quarantine is policy-forbidden.
-
-| verification | result |
-|---|---|
-| targeted dot reporter ×3 | 61 tests passed; afterAll passed |
-| full core ×3, 6 workers | subject passed; unrelated settings-revision-attribution failure |
-
-**Instrumented outcome 2026-08-16 (FN-9127): entry 7 remains unreproduced and is now self-diagnosing.** The default-off teardown recorder was measured on `beb8ae67dba1ed122cab94a4641e875ccebd21f1` against PostgreSQL 15.15 (`max_connections=100`, 97 ordinary slots). It writes synchronous JSONL records and its in-flight phase/teardown watchdogs fire before the inherited 15s hook is aborted, so a phase that never settles still leaves timing plus `pg_stat_activity` evidence. The durable campaign tables and full snapshot rows are retained in task document `FN-9127/evidence`; `/tmp/fn-9127-*.log` and `/tmp/fn-9127-diag-*.jsonl` are scratch copies only.
-
-| instrumented shape | result | measured worst phase | watchdog / snapshot |
-|---|---|---:|---|
-| subject dot ×3 | all passed | `dropDatabase` 154ms | no / none |
-| full core, 4 workers | unrelated settings attribution failure | 1,439ms globally | no / none |
-| full core, 6 workers | unrelated settings attribution failure | 1,576ms globally | no / none |
-| full core, 8 workers | unrelated settings attribution failure | 1,905ms globally | no / none |
-| full core, 12 workers | unrelated settings attribution + schema-applier timeout | `dropDatabase` 3,582ms globally | 30 / 30 |
-
-The 12-worker snapshots show 21 backends and concurrent template `CREATE DATABASE`/`DROP DATABASE WITH (FORCE)` work, including `IPC/CheckpointDone` and `IPC/ProcSignalBarrier`; they do not implicate this mission-store suite. FN-9130 measured advisory admission as a non-remedy: uniform pooling regressed to 49 watchdogs / 5,068ms and drop-only wiring to 27 / 3,361ms against the 4–5 / 3,284ms baseline. A bounded deferred-drop reaper also failed the end-to-end criterion: watchdogs became zero by construction, but two green runs took 117.2s and 122.4s versus the 108.1s baseline maximum, and a later run timed out in unrelated loaded setup. The reaper was reverted. FN-9136 then rejected candidate C after its golden-template gate passed: the required seven-pair 12-worker campaign left pooled `fusion_pool_*` databases owned by dead fork PIDs because the experiment lacked an awaited fork-exit flush and direct imports degraded to the shared `local` identity. The isolation failure required removing all harness wiring regardless of wall time. FN-9134 supplied a pre-registered report-only lane metric and completed its required seven-pair alternating control/candidate campaign at 12 workers. The control/candidate medians were 137.81s/146.91s, candidate pairs 02–06 were red, and every sample observed 32 or 33 surviving `fusion_test_%` databases (pair 04 increased 32 to 33). The tool's `no-improvement` verdict and the automatic non-zero-leak rejection removed the prototype and all of its wiring/tests together. The full per-run JSONL/log evidence is retained in task document `FN-9134/evidence`; this remains unresolved rather than becoming a quarantine or timeout change. No teardown behavior was changed: there is no evidence-backed cause for this entry's historical 15s afterAll abort. This first-sighting record remains retained; a second sighting follows the normal escalation. Core PostgreSQL files cannot be quarantined inline because the gate-policy assertion requires `quarantinedCoreTests` to remain empty; that is an owner-escalated decision.
-
-## 8. Planning Mode duplicate-response generation reconciliation
+- **Status:** Closed 2026-08-16 by FN-9116 — resolved (product race).
 
 - **File:** `packages/dashboard/app/components/__tests__/PlanningModeModal.planning-flow.test.tsx`
 - **Exact test:** `PlanningModeModal sequential flow > silently reconciles duplicate-response generation conflicts on $viewport with $label`
@@ -250,7 +285,9 @@ FN-9116 adds deterministic ordering coverage for desktop and mobile rows across 
 
 The flake is structurally removed rather than stabilized: every hydration/recovery writer now has an ownership boundary before it can overwrite a newer turn. This is a published behavior fix, so FN-9116 includes a patch changeset.
 
-## 11. Settings revision attribution reset-ordering assertion
+### 11. Settings revision attribution reset-ordering assertion
+
+- **Status:** Closed 2026-08-16 by FN-9129 — resolved (reset-ordering assertion).
 
 - **File:** `packages/core/src/__tests__/settings-revision-attribution.test.ts`
 - **Exact test:** `settings revision attribution > round-trips every explicit provenance variant through committed JSONB revisions`
@@ -276,7 +313,9 @@ AssertionError: expected [ { id: 'fusion-system', …(1) }, …(4) ] to deeply e
 
 The two command-center durable-agent activity cases observed once at 12 workers are classified as co-observed identity-reuse risk, not this subject's cause: the repaired 12-worker campaign passed them. Core PostgreSQL quarantine remains forbidden and `quarantinedCoreTests` remains empty.
 
-## 9. Create Room picker loaded-lane state ordering
+### 9. Create Room picker loaded-lane state ordering
+
+- **Status:** Closed 2026-08-16 by FN-9120 — resolved (product race).
 
 - **File:** `packages/dashboard/app/components/__tests__/CreateRoomModal.test.tsx`
 - **Exact test:** `CreateRoomModal > shows loading, empty, no-match, populated, and selected-member picker states`
@@ -293,7 +332,9 @@ The two command-center durable-agent activity cases observed once at 12 workers 
 
 The component now owns an explicit idle/loading/loaded/failed phase and fences each request with an epoch plus cleanup. A current successful reload removes selected IDs absent from its roster. The test uses controlled deferred promises in a single persistently-mounted modal, proves close/reopen/project ordering, failure and unmount fencing, duplicate-name/selection reconciliation, and desktop/mobile empty-state copy invariants without retries, sleeps, waits around the old assertion, or mock re-pinning.
 
-## 10. Planning Mode loaded-turn affordance ownership
+### 10. Planning Mode loaded-turn affordance ownership
+
+- **Status:** Closed 2026-08-16 by FN-9117 — resolved (product ownership race).
 
 - **Files:** `packages/dashboard/app/components/__tests__/PlanningModeModal.planning-flow.test.tsx`, `PlanningModeModal.ui-interactions.test.tsx`
 - **Exact cases:** `opens Plan preview without submitting and preserves the current mobile answer on return`; `can restart initial planning after stopping its first generation`; `can refine a stopped initial plan into the first question`; both desktop/mobile rows of `keeps five substantive choices and one Other usable on %s`; `submits an answer after deferred same-session hydration on %s`; and FN-9117's `keeps post-Stop plan review when a pre-Stop loading poll resolves on %s`.
@@ -317,7 +358,9 @@ It is the companion to entries 4, 5, and 8: FN-8936 fixed detached test-node han
 
 No UI surface changed; this was a state-ownership and regression-coverage repair. The existing patch changeset remains applicable because Planning Mode behavior is user-visible.
 
-## 12. Satellite approval audit lifecycle ordering assertion
+### 12. Satellite approval audit lifecycle ordering assertion
+
+- **Status:** Closed 2026-08-16 by FN-9132 — resolved (product ordering defect).
 
 - **File:** `packages/core/src/__tests__/postgres/satellite-stores.pg.test.ts`
 - **Exact test:** `PostgreSQL satellite stores (U6 consolidated, shared harness) > PostgreSQL satellite DB-injected stores (VAL-DATA-016) > ApprovalRequestStore: replayed/conflicting decisions 409, grants expire, ownership enforced`
