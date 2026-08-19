@@ -19,12 +19,16 @@ truncation semantics themselves are covered against real PostgreSQL in
 packages/core/src/__tests__/postgres/chat-store-content-search-edit.pg.test.ts; the seam under
 test here is the pi session branch/repoint behavior, which is store-agnostic.
 */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rm } from "node:fs/promises";
-import { ChatManager } from "../chat.js";
+import {
+  ChatManager,
+  __resetChatState,
+  __setCreateResolvedAgentSession,
+} from "../chat.js";
 import type { ChatMessage, ChatSession } from "@fusion/core";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
@@ -98,14 +102,22 @@ class FakeChatStore {
     return this.sessions.get(id);
   }
 
-  async addMessage(sessionId: string, input: { role: "user" | "assistant"; content: string }): Promise<ChatMessage> {
+  async addMessage(
+    sessionId: string,
+    input: {
+      role: "user" | "assistant";
+      content: string;
+      thinkingOutput?: string;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<ChatMessage> {
     const message: ChatMessage = {
       id: `msg-${++this.counter}`,
       sessionId,
       role: input.role,
       content: input.content,
-      thinkingOutput: null,
-      metadata: null,
+      thinkingOutput: input.thinkingOutput ?? null,
+      metadata: input.metadata ?? null,
       createdAt: new Date().toISOString(),
     };
     this.messages.push(message);
@@ -229,6 +241,49 @@ describe("ChatManager.rewindSessionForEdit — pi session context seam (real Ses
     // in-memory leaf) is the part of this fix that actually matters.
     const oldFileStillHasDiscardedTurn = extractText(SessionManager.open(sessionFile!).buildSessionContext());
     expect(oldFileStillHasDiscardedTurn).toContain("second turn");
+  });
+
+  it("persists an interrupted prefix into the reopened pi context exactly once", async () => {
+    __resetChatState();
+    const session = chatStore.createSession({ agentId: "agent-001" });
+    session.title = "Existing title";
+    const seedManager = SessionManager.create(tmpDir);
+    await chatStore.setCliSessionFile(session.id, seedManager.getSessionFile()!);
+
+    const prefix = "Distinct interrupted prefix";
+    let rejectPrompt: ((reason?: unknown) => void) | undefined;
+    __setCreateResolvedAgentSession(async (options: any) => ({
+      session: {
+        prompt: vi.fn().mockImplementation(async () => {
+          options.onThinking?.("thinking prefix");
+          options.onText?.(prefix);
+          return new Promise<void>((_resolve, reject) => {
+            rejectPrompt = reject;
+          });
+        }),
+        dispose: vi.fn().mockImplementation(() => rejectPrompt?.(new Error("disposed"))),
+        state: { messages: [] },
+      },
+    }) as any);
+
+    const sendPromise = chatManager.sendMessage(session.id, "hello");
+    await new Promise((resolve) => setImmediate(resolve));
+    const cancellation = await chatManager.cancelGeneration(session.id);
+    await sendPromise;
+
+    expect(cancellation).toEqual(expect.objectContaining({ success: true, interrupted: true }));
+    const assistantRows = (await chatStore.getMessages(session.id)).filter((message) => message.role === "assistant");
+    expect(assistantRows).toHaveLength(1);
+    expect(assistantRows[0]).toEqual(expect.objectContaining({
+      content: prefix,
+      metadata: expect.objectContaining({ interrupted: true }),
+    }));
+
+    const reopened = SessionManager.open((await chatStore.getSession(session.id))!.cliSessionFile!);
+    const contextTexts = extractText(reopened.buildSessionContext());
+    expect(contextTexts.filter((text) => text === prefix)).toHaveLength(1);
+
+    __resetChatState();
   });
 
   it("falls back to a rebuilt retained session when branch materialization fails", async () => {

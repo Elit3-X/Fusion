@@ -1601,6 +1601,54 @@ export class ChatManager {
     return this.persistInFlightGeneration(sessionId, snapshot, generationId);
   }
 
+  /*
+   * FNXC:ChatCancellation 2026-08-19-05:20:
+   * An explicit Stop must write the streamed textual prefix to the same file-backed pi session that the next turn reopens. PostgreSQL history alone cannot restore model context, while appending a second assistant entry would make the model see the prefix twice when pi already recorded it during cancellation.
+   */
+  private persistInterruptedSessionContext(
+    sessionManager: SessionManager | undefined,
+    session: ChatSession | null | undefined,
+    text: string,
+  ): void {
+    if (!text) {
+      return;
+    }
+    if (!sessionManager || !session) {
+      throw new Error("Interrupted chat context has no file-backed session");
+    }
+
+    const context = sessionManager.buildSessionContext();
+    const lastAssistant = [...context.messages].reverse().find((message) => message.role === "assistant");
+    const lastAssistantText = lastAssistant && Array.isArray(lastAssistant.content)
+      ? lastAssistant.content
+        .filter((part): part is { type: "text"; text: string } => part?.type === "text" && typeof part.text === "string")
+        .map((part) => part.text)
+        .join("")
+      : typeof lastAssistant?.content === "string" ? lastAssistant.content : "";
+
+    if (lastAssistantText === text) {
+      return;
+    }
+
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text }],
+      api: "chat",
+      provider: session.modelProvider ?? "unknown",
+      model: session.modelId ?? "unknown",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    });
+  }
+
   private async getChatModelSettings(): Promise<{
     fallbackProvider?: string;
     fallbackModelId?: string;
@@ -2447,6 +2495,7 @@ export class ChatManager {
     };
     const toolCallsAccum: ToolCallRecord[] = [];
     const pendingToolStarts = new Map<string, Array<{ toolName: string; args?: Record<string, unknown> }>>();
+    let sessionManager: SessionManager | undefined;
     let fallbackInfo:
       | { primaryModel: string; fallbackModel: string; triggerPoint: "session-creation" | "prompt-time" }
       | undefined;
@@ -2708,7 +2757,7 @@ export class ChatManager {
       // the Claude CLI --resume session it owns) is keyed off the chat. On the
       // first user message we create a fresh, file-backed session and persist
       // its path; subsequent messages reopen the same file.
-      const sessionManager = await this.resolveCliSessionManager(session);
+      sessionManager = await this.resolveCliSessionManager(session);
 
       /*
        * FNXC:ChatMessageEdit 2026-07-07-09:00:
@@ -3100,10 +3149,18 @@ export class ChatManager {
         && generationEntry.cancellationRequested;
       if (isExplicitCancellation) {
         let interruptedMessage: ChatMessage | undefined;
-        // FNXC:ChatCancellation 2026-08-18-21:52:
-        // Stop is a durable conversation transition: save the visible prefix before
-        // clearing its checkpoint so the next model turn and reload see the same context.
+        let interruptionDurable = true;
+        // FNXC:ChatCancellation 2026-08-19-05:20:
+        // Stop is a durable conversation transition: save the visible prefix to both the PostgreSQL transcript and the reopened pi session before clearing its checkpoint. A failed durable write keeps the checkpoint available for recovery and reports failure so clients retain their local prefix.
         if (accumulatedText || accumulatedThinking || toolCallsAccum.length > 0) {
+          if (accumulatedText) {
+            try {
+              this.persistInterruptedSessionContext(sessionManager, session, accumulatedText);
+            } catch (persistErr) {
+              interruptionDurable = false;
+              diagnostics.error(`Failed to persist interrupted pi context for session ${sessionId}:`, persistErr);
+            }
+          }
           try {
             interruptedMessage = await this.chatStore.addMessage(sessionId, {
               role: "assistant",
@@ -3116,15 +3173,18 @@ export class ChatManager {
               },
             });
           } catch (persistErr) {
+            interruptionDurable = false;
             diagnostics.error(`Failed to persist interrupted response for session ${sessionId}:`, persistErr);
           }
         }
 
-        await this.flushInFlightGenerationPersist(sessionId, null, generationId);
+        if (interruptionDurable) {
+          await this.flushInFlightGenerationPersist(sessionId, null, generationId);
+        }
         const current = this.activeGenerations.get(sessionId);
         if (current?.generationId === generationId) {
           current.cancellationResult = {
-            success: true,
+            success: interruptionDurable,
             interrupted: Boolean(interruptedMessage),
             ...(interruptedMessage ? { message: interruptedMessage } : {}),
           };

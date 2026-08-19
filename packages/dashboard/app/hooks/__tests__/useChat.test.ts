@@ -2527,6 +2527,34 @@ describe("useChat", () => {
     expect(result.current.messages.some((message) => message.failureInfo)).toBe(false);
   });
 
+  it("retains the optimistic interrupted prefix when history has no matching durable row", async () => {
+    const session = makeSession({ id: "session-001", agentId: "agent-001" });
+    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });
+    mockFetchChatMessages.mockResolvedValue({ messages: [] });
+    mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: true });
+
+    let streamHandlers: StreamAppendHandlers | undefined;
+    mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+      streamHandlers = handlers as StreamAppendHandlers;
+      return { close: vi.fn(), isConnected: () => true };
+    });
+
+    const { result } = renderHook(() => useChat("proj-123"));
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    act(() => result.current.selectSession("session-001"));
+    await waitFor(() => expect(result.current.activeSession?.id).toBe("session-001"));
+    act(() => result.current.sendMessage("Hello"));
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+    act(() => streamHandlers?.onText("Distinct retained prefix"));
+    await waitFor(() => expect(result.current.streamingText).toBe("Distinct retained prefix"));
+
+    act(() => result.current.stopStreaming());
+    await waitFor(() => expect(mockCancelChatResponse).toHaveBeenCalledWith("session-001", "proj-123"));
+    await waitFor(() => {
+      expect(result.current.messages.filter((message) => message.content === "Distinct retained prefix")).toHaveLength(1);
+    });
+  });
+
   it("stopStreaming with no pendingMessages cancels stream without sending anything", async () => {
     const session = makeSession({ id: "session-001", agentId: "agent-001" });
     mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });

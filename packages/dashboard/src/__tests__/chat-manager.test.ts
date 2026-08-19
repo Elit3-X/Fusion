@@ -64,6 +64,7 @@ const { mockSessionManagerCreate, mockSessionManagerOpen } = vi.hoisted(() => {
     branch: () => {},
     resetLeaf: () => {},
     appendMessage: () => "entry-fake",
+    buildSessionContext: () => ({ messages: [] }),
     createBranchedSession: () => "/tmp/test/.pi-fake/session-branched.jsonl",
   };
   return {

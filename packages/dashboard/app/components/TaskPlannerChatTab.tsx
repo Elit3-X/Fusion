@@ -1071,8 +1071,17 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
           ...refreshed,
           ...persisted.filter((message) => !refreshed.some((candidate) => candidate.id === message.id)),
         ];
+        const hasDurableInterruptedMessage = Boolean(cancellationResult.message)
+          || reconciled.some((message) =>
+            message.role === "assistant"
+            && message.content === snapshot.text
+            && message.metadata?.interrupted === true,
+          );
         setMessages((current) => mergePlannerTranscriptWithOptimistic(
-          current.filter((message) => message.id !== interruptedLocalId),
+          current.filter((message) =>
+            message.id !== "streaming-assistant"
+            && (!hasDurableInterruptedMessage || message.id !== interruptedLocalId),
+          ),
           reconciled,
         ));
 

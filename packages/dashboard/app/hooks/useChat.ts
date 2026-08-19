@@ -348,6 +348,7 @@ function mapChatMessageToInfo(message: ChatMessage): ChatMessageInfo {
     toolCalls: extractCompletedToolCalls(message.metadata),
     fallbackInfo: extractFallbackInfo(message.metadata),
     failureInfo: extractFailureInfo(message.metadata),
+    ...(message.metadata ? { metadata: message.metadata } : {}),
     attachments: message.attachments,
     createdAt: message.createdAt,
   };
@@ -1488,8 +1489,19 @@ export function useChat(
               ? [persistedInterruptedMessage]
               : []),
           ];
+          const hasDurableInterruptedMessage = Boolean(persistedInterruptedMessage)
+            || reconciled.some((message) =>
+              message.role === "assistant"
+              && message.content === stoppedText
+              && message.metadata?.interrupted === true,
+            );
           setMessages((current) => {
-            let next = current.filter((message) => message.id !== interruptedLocalId && message.id !== "streaming-assistant");
+            // FNXC:ChatCancellation 2026-08-19-05:20:
+            // A successful but incomplete history read must not erase the optimistic prefix. Remove it only after the cancel response or history proves the interrupted row exists; otherwise merge durable history around the still-visible local recovery bubble.
+            let next = current.filter((message) =>
+              message.id !== "streaming-assistant"
+              && (!hasDurableInterruptedMessage || message.id !== interruptedLocalId),
+            );
             for (const persisted of reconciled) {
               next = reconcileOptimisticSentMessage(next, persisted);
             }
