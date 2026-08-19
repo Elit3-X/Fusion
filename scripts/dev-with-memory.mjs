@@ -168,6 +168,22 @@ async function openDevTunnel() {
   // fallback for targets that never reported one (an explicit --tunnel=PORT).
   const auth = resolveDevTunnelAuth({ port, dashboardPort, args: forwardedArgs, reportedToken: token });
   devTunnel = await startDevTunnel({ port, auth });
+
+  /*
+  FNXC:DevTunnel 2026-08-19-04:30:
+  Hand the URL to the dev server so its TUI can display it. The banner above goes to stdout, which a
+  TTY run has already given to the dashboard TUI — it paints over the banner, leaving the public URL
+  (the whole point of --tunnel) unreadable. Mirrors DEV_TUNNEL_READY_MESSAGE in
+  packages/cli/src/commands/dev-source-restart.ts; the literal is duplicated because this wrapper is
+  plain JS that must not load the TS build.
+  */
+  if (devTunnel?.url && appChild?.connected) {
+    try {
+      appChild.send({ type: "fusion:dev-tunnel-ready", url: devTunnel.url, port });
+    } catch {
+      // Display-only: a failed hand-off must never take the tunnel or the dev loop down.
+    }
+  }
 }
 
 function runApp(extraArgs) {
@@ -209,7 +225,22 @@ function runApp(extraArgs) {
   watchRestart.attach(tsx);
   tsx.on("message", (message) => {
     const listening = readDevServerListening(message);
-    if (listening) reportDevServerListening(listening);
+    if (listening) {
+      reportDevServerListening(listening);
+      /*
+      FNXC:DevTunnel 2026-08-19-04:30:
+      Re-announce an existing tunnel to a RESTARTED dev server. Watch-mode restarts reuse the tunnel
+      (a fresh quick tunnel would hand out a new hostname every reload), but the new child starts
+      with no knowledge of it, so its TUI would show no tunnel row at all after the first restart.
+      */
+      if (devTunnel?.url && tsx.connected) {
+        try {
+          tsx.send({ type: "fusion:dev-tunnel-ready", url: devTunnel.url, port: listening.port });
+        } catch {
+          // Display-only.
+        }
+      }
+    }
     watchRestart.onMessage(message);
   });
   ensureSourceWatcher();

@@ -149,6 +149,7 @@ import { DASHBOARD_STARTUP_STATUS, runTuiStartupPrelude } from "./dashboard-star
 import { phaseTime } from "../startup-phase.js";
 import {
   DEV_SERVER_LISTENING_MESSAGE,
+  DEV_TUNNEL_READY_MESSAGE,
   DEV_SOURCE_RESTART_ARMED_MESSAGE,
   registerDevSourceRestart,
 } from "./dev-source-restart.js";
@@ -804,6 +805,15 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   // launch URL (as `?token=...`) so the user can click once and the browser
   // stores it to localStorage for subsequent loads.
   const dashboardAuthToken = await resolveDashboardAuthToken(opts);
+
+  /*
+  FNXC:DevTunnel 2026-08-19-04:30:
+  Set by the dev wrapper's IPC hand-off (see DEV_TUNNEL_READY_MESSAGE) and rendered by the TUI.
+  Declared at run scope because the two halves — receiving the URL and having a TUI to draw it on —
+  complete in either order.
+  */
+  let devTunnelUrl: string | undefined;
+  let applyDevTunnelUrl: (() => void) | undefined;
 
   // Single sink/logger pair for all dashboard command diagnostics.
   // In TTY mode this routes to DashboardTUI; in non-TTY mode it falls back to console.*.
@@ -2974,6 +2984,21 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     setLocalDashboardPort(actualPort);
 
     /*
+    FNXC:DevTunnel 2026-08-19-04:30:
+    Capture the dev tunnel URL as soon as it can arrive, not when the TUI happens to exist. The
+    wrapper sends it once, whenever cloudflared publishes — which can land before or after the TUI
+    is constructed, and a message with no listener attached is simply lost. Store it here and let
+    whichever comes second do the rendering.
+    */
+    process.on("message", (message: unknown) => {
+      const parsed = message as { type?: string; url?: string } | null;
+      if (parsed?.type !== DEV_TUNNEL_READY_MESSAGE) return;
+      if (typeof parsed.url !== "string" || parsed.url.length === 0) return;
+      devTunnelUrl = parsed.url;
+      applyDevTunnelUrl?.();
+    });
+
+    /*
     FNXC:DevTunnel 2026-08-19-02:05: report the REAL port to the dev supervisor (no-op without an
     IPC channel, i.e. every non-`pnpm dev` launch). See DEV_SERVER_LISTENING_MESSAGE.
 
@@ -3075,7 +3100,14 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
         startTimeMs: dashboardStartedAt,
         startupDurationMs,
       };
-      tui.setSystemInfo(systemInfo);
+      /*
+      FNXC:DevTunnel 2026-08-19-04:30:
+      `pnpm dev --tunnel` prints its banner to stdout, which a TTY run hands to this TUI — the TUI
+      paints over it, so the public URL (the entire point of the flag) was unreadable. Render it in
+      the system panel instead, whether the URL arrived before this point or arrives later.
+      */
+      applyDevTunnelUrl = () => tui.setSystemInfo({ ...systemInfo, devTunnelUrl });
+      tui.setSystemInfo({ ...systemInfo, devTunnelUrl });
       tui.setReady(true);
       tui.setSettings({
         maxConcurrent: settings.maxConcurrent ?? 1,

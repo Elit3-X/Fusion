@@ -13,6 +13,14 @@ export const DEV_SOURCE_RESTART_ARMED_MESSAGE = "fusion:dev-source-restart-armed
  */
 export const DEV_SERVER_LISTENING_MESSAGE = "fusion:dev-server-listening";
 
+/**
+ * FNXC:DevTunnel 2026-08-19-04:30:
+ * Parent -> child: the public tunnel URL, once cloudflared has published one. The wrapper prints a
+ * banner, but a TTY dev run hands the screen to the dashboard TUI, which paints over it — so the
+ * URL the flag exists to produce could not be read. The dashboard shows it in its system panel.
+ */
+export const DEV_TUNNEL_READY_MESSAGE = "fusion:dev-tunnel-ready";
+
 interface DevSourceChangeMessage {
   type: typeof DEV_SOURCE_CHANGE_MESSAGE;
 }

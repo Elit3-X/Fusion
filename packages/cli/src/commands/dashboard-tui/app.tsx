@@ -396,6 +396,14 @@ function SystemPanel({ state, isFocused }: { state: DashboardState; isFocused: b
               <Text color="yellow">{info.authToken}</Text>
             </Box>
           )}
+          {/* FNXC:DevTunnel 2026-08-19-04:30: the wrapper's tunnel banner is painted over by this
+              TUI, so the public URL is shown here — full width, never truncated, like the token. */}
+          {info.devTunnelUrl && (
+            <Box flexDirection="row" gap={1} flexShrink={0}>
+              <Text dimColor>Tunnel</Text>
+              <Text color="cyanBright">{info.devTunnelUrl}</Text>
+            </Box>
+          )}
           {/* Inline hint row — always shown so the [Enter] / [c] shortcuts
               stay discoverable even when the panel doesn't currently own
               keyboard focus (e.g. when the narrow-mode log strip below has
