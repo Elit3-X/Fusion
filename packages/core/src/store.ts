@@ -205,7 +205,7 @@ export interface TaskStoreEvents {
   second argument. The first argument remains the Task so existing one-argument subscribers are
   unchanged; absent metadata is unknown, never a legacy-lane claim.
   */
-  "task:updated": [task: Task, meta?: { lanes?: TaskMoveLanes }];
+  "task:updated": [task: Task, meta?: { lanes?: TaskMoveLanes; failedTransition?: boolean }];
   /*
   FNXC:CrossProcessDeleteObservation 2026-08-01-11:39:
   Observed outbox delivery is at-least-once, including a crash-window duplicate. The explicit
@@ -608,12 +608,19 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   FNXC:WorkflowEvents 2026-08-01-06:28:
   Safe lifecycle emission invokes listeners directly to isolate listener failures, so it bypasses
   EventEmitter.emit. Decorate this path too; otherwise the hot update surfaces silently miss lanes.
+
+  FNXC:ActivityLogFailureDedup 2026-08-19-20:03:
+  Update metadata now carries the failure-transition marker, but warm-cache updates must retain the
+  existing resolved lanes decoration and cold-cache updates must preserve absent metadata.
   */
   public emitTaskLifecycleEventSafely( event: "task:created" | "task:updated" | "task:deleted", args: TaskStoreEvents["task:created"] | TaskStoreEvents["task:updated"] | TaskStoreEvents["task:deleted"], ): boolean {
-    if (event === "task:updated" && args.length === 1) {
+    if (event === "task:updated") {
       const task = args[0] as Task;
+      const metadata = args[1] as TaskStoreEvents["task:updated"][1] | undefined;
       const lanes = this.laneCache.get(task.id);
-      if (lanes !== undefined) return emitTaskLifecycleEventSafelyImpl(this, event, [task, { lanes }]);
+      if (lanes !== undefined && metadata?.lanes === undefined) {
+        return emitTaskLifecycleEventSafelyImpl(this, event, [task, { ...metadata, lanes }]);
+      }
     }
     return emitTaskLifecycleEventSafelyImpl(this, event, args);
   }

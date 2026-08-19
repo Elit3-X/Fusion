@@ -318,9 +318,14 @@ export function setupActivityLogListenersImpl(store: TaskStore): void {
       );
     });
 
-    // Task updated (check for failures)
-    store.on("task:updated", (task) => {
-      if (task.status === "failed") {
+    /*
+    FNXC:ActivityLogFailureDedup 2026-08-19-19:33:
+    A failed-state bookkeeping update is not a new durable failure episode. Only the serialized
+    non-failed → failed transition from updateTask may append task:failed activity, so listeners
+    cannot turn subsequent task mutations into an unbounded project.activity_log write path.
+    */
+    store.on("task:updated", (task, meta) => {
+      if (meta?.failedTransition) {
         store.recordActivityFromListener(
           {
             type: "task:failed",

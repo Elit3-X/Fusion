@@ -1245,7 +1245,11 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
           lanes: respecifyMoveLanes,
         });
       }
-      store.emitTaskLifecycleEventSafely("task:updated", [task]);
+      const failedTransition = !wasFailed && task.status === "failed";
+      store.emitTaskLifecycleEventSafely("task:updated", [
+        task,
+        failedTransition ? { failedTransition: true } : undefined,
+      ]);
       return task;
     }
   }

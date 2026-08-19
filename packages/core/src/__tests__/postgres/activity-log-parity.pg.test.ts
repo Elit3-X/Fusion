@@ -63,6 +63,56 @@ pgDescribe("activity log parity (PostgreSQL)", () => {
     });
   });
 
+  it("records one failure activity row per failed episode", async () => {
+    const store = h.store();
+    const task = await store.createTask({
+      title: "Deduplicate failed activity",
+      description: "Failure activity must only record episode transitions",
+    });
+    const error = "BLOCKED: prerequisite unavailable";
+
+    await store.updateTask(task.id, { status: "failed", error });
+    await store.updateTask(task.id, { title: "Deduplicate failed activity (updated)" });
+    await store.updateTask(task.id, { priority: "high" });
+
+    await vi.waitFor(async () => {
+      const failures = await store.getActivityLog({ type: "task:failed" });
+      expect(failures.filter((entry) => entry.taskId === task.id && entry.metadata?.error === error)).toHaveLength(1);
+    });
+
+    // An identical activity row in another project must not influence this project's feed.
+    await h.adminDb().insert(schema.project.activityLog).values({
+      projectId: "other-project",
+      id: "other-project-failure",
+      timestamp: new Date().toISOString(),
+      type: "task:failed",
+      taskId: task.id,
+      details: `Task ${task.id} failed: ${error}`,
+      metadata: { error },
+    });
+    expect((await store.getActivityLog({ type: "task:failed" }))
+      .filter((entry) => entry.taskId === task.id && entry.metadata?.error === error)).toHaveLength(1);
+
+    await store.updateTask(task.id, { status: null });
+    await store.updateTask(task.id, { status: "failed", error });
+    await store.updateTask(task.id, { description: "Still in the second failure episode" });
+
+    await vi.waitFor(async () => {
+      const failures = await store.getActivityLog({ type: "task:failed" });
+      expect(failures.filter((entry) => entry.taskId === task.id && entry.metadata?.error === error)).toHaveLength(2);
+    });
+
+    const errorless = await store.createTask({ description: "Errorless failed activity" });
+    await store.updateTask(errorless.id, { status: "failed" });
+    await store.updateTask(errorless.id, { title: "Errorless failed activity (updated)" });
+    await vi.waitFor(async () => {
+      const failures = await store.getActivityLog({ type: "task:failed" });
+      expect(failures.filter((entry) => entry.taskId === errorless.id)).toEqual([
+        expect.objectContaining({ metadata: undefined }),
+      ]);
+    });
+  });
+
   it("keeps failed writes best-effort so audit storage cannot break product operations", async () => {
     const layer = h.layer();
     const insert = vi.spyOn(layer.db, "insert").mockImplementation(() => {
