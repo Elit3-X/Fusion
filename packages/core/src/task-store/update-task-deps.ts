@@ -8,7 +8,7 @@
  */
 import {TaskStore, storeLog, type TaskDependencyMutation} from "../store.js";
 import {buildRefinementSeedPrompt} from "../mesh/mesh-task-replication.js";
-import {toTaskMoveLanes} from "../workflows/workflow-lifecycle-traits.js";
+import {resolveDependencyReplanTarget, resolveLifecycleColumns, toTaskMoveLanes} from "../workflows/workflow-lifecycle-traits.js";
 import {resolveWorkflowIrForTask} from "../workflows/workflow-ir-resolver.js";
 import {SelfDefeatingDependencyError, detectSelfDefeatingDependency} from "./errors.js";
 import {resolveTaskLifecycleColumns} from "../workflows/workflow-lifecycle-traits.js";
@@ -445,17 +445,22 @@ async function updateTaskDependenciesWithTaskLockImpl(store: TaskStore, id: stri
       /*
       FNXC:WorkflowLifecycleColumns 2026-08-04-06:35 (FN-8768 — GUARD AND DESTINATION together):
       A new dependency on a card still resting in the HOLD lane, or parked after exhausting Plan
-      Review in a distinct review column, sends it back to INTAKE for re-specification. Both ends
-      were literals, so this never fired on a renamed board — and converting
-      only the guard would have written an `intake` column the board may not declare directly into the row,
-      which is worse than not firing: the store would hold a card in a column that does not exist.
-
-      A board declaring no intake column keeps the card where it is; the dependency is still recorded and
-      still blocks, so nothing is lost except a re-specification hop that board has no lane for.
+      Review in a distinct review column, requests re-specification through the shared lifecycle policy.
+      Automatic intakes remain the destination; a manual intake is a capture lane, so the policy uses the
+      workflow's HOLD column instead. A workflow with no safe derived target keeps the card where it is.
       */
-      const respecifyLifecycle = await resolveTaskLifecycleColumns(store, id);
+      /*
+      FNXC:DependencyReplanManualIntake 2026-08-19-02:59:
+      Resolve the source hold role and automatic replan destination from one IR snapshot. A concurrent
+      workflow edit must not combine an old hold role with a new intake/hold destination and write a
+      column that neither workflow version selected for this card.
+      */
+      const respecifyIr = hasNewDependencies
+        ? await resolveWorkflowIrForTask(store, id).catch(() => undefined)
+        : undefined;
+      const respecifyLifecycle = respecifyIr ? resolveLifecycleColumns(respecifyIr) : undefined;
       const holdColumn = respecifyLifecycle?.hold ?? "todo";
-      const intakeColumn = respecifyLifecycle?.intake;
+      const replanColumn = resolveDependencyReplanTarget(respecifyIr);
       const respecifyFromColumn = task.column;
       const isPlanReviewCapPark = task.status === "awaiting-approval"
         && task.awaitingApprovalReason === "plan-review-replan-cap";
@@ -485,8 +490,8 @@ async function updateTaskDependenciesWithTaskLockImpl(store: TaskStore, id: stri
       if (shouldRespecify) {
         task.status = "needs-replan";
       }
-      if (shouldRespecify && intakeColumn !== undefined) {
-        task.column = intakeColumn;
+      if (shouldRespecify && replanColumn !== undefined) {
+        task.column = replanColumn;
         movedToTriage = true;
         /*
         FNXC:PlanningDependencyReseed 2026-08-04-00:30:
@@ -507,14 +512,14 @@ async function updateTaskDependenciesWithTaskLockImpl(store: TaskStore, id: stri
         The move EVENT below already guards on exactly this condition; the timestamp did not, so the two
         disagreed about whether a move had happened. Same condition, one answer.
         */
-        if (intakeColumn !== respecifyFromColumn) {
+        if (replanColumn !== respecifyFromColumn) {
           task.columnMovedAt = task.updatedAt;
         }
         task.log.push({
           timestamp: task.updatedAt,
-          action: intakeColumn === respecifyFromColumn
+          action: replanColumn === respecifyFromColumn
             ? "Re-specification requested — new dependency added"
-            : `Moved to ${intakeColumn} for re-specification — new dependency added`,
+            : `Moved to ${replanColumn} for re-specification — new dependency added`,
           ...(runContext ? { runContext } : {}),
         });
       }

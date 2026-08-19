@@ -8,6 +8,7 @@
  */
 import {type TaskStore, storeLog} from "../store.js";
 import {
+  resolveDependencyReplanTarget,
   resolveLifecycleColumns,
   resolveTaskLifecycleColumns,
   toTaskMoveLanes,
@@ -264,21 +265,10 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
 
         /*
         FNXC:WorkflowLifecycleColumns 2026-07-31-02:40 (batch-core feed):
-        THIS WROTE A COLUMN THAT NO LONGER EXISTS ON ANY BOARD.
-
-        Adding a new dependency to a hold-lane card re-seeds it for re-specification. The destination
-        was the literal `"triage"` — a column U11 (#2515) DELETED. The default lineage is now
-        `todo | in-progress | in-review | done | archived`, so on a stock board today this moves the
-        card into a column nothing declares and nothing renders: the card leaves its lane and appears
-        in none, recoverable only by moving it back by hand.
-
-        That is a live defect independent of renaming, which is why it is fixed rather than flagged:
-        the old behaviour cannot be preserved, because the column it targeted is gone.
-
-        Resolved intake lane, and NO literal fallback. On the default board the intake lane is `todo`
-        — the card's current column — so the move becomes a no-op while the status reset and the log
-        entry still record the re-specification. When the workflow will not resolve, the column is
-        left ALONE: refusing to move is recoverable, writing a column that may not exist is not.
+        Dependency replans use workflow-derived destinations and never write an undeclared literal.
+        The shared policy returns an automatic intake, or the hold lane when the intake is manual
+        (`autoTriage:false`, as in Coding (Ideas)). If the workflow cannot provide a safe destination,
+        the card stays in its current column while dependency invalidation remains authoritative.
 
         FNXC:WorkflowEvents 2026-08-03-02:01:
         The task:moved emit below used to fire on every re-seed with hardcoded from=todo/to=triage,
@@ -305,11 +295,11 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
         const shouldRespecify = hasNewDeps
           && ((holdLane !== undefined && task.column === holdLane) || isPlanReviewCapPark);
         if (shouldRespecify) {
-          const intakeLane = depLanes?.intake;
+          const replanLane = resolveDependencyReplanTarget(respecifyIr);
           respecifyFromColumn = task.column;
-          const relocating = intakeLane !== undefined && intakeLane !== task.column;
+          const relocating = replanLane !== undefined && replanLane !== task.column;
           if (relocating) {
-            task.column = intakeLane;
+            task.column = replanLane;
             task.columnMovedAt = new Date().toISOString();
           }
           /*
@@ -326,7 +316,7 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
           const depLogEntry: TaskLogEntry = {
             timestamp: new Date().toISOString(),
             action: relocating
-              ? `Moved to ${intakeLane} for re-specification — new dependency added`
+              ? `Moved to ${replanLane} for re-specification — new dependency added`
               : "Re-seeded for re-specification — new dependency added",
           };
           if (runContext) {

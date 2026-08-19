@@ -171,6 +171,88 @@ pgTest("TaskStore dependency mutations (PostgreSQL)", () => {
   });
 
   /*
+  FNXC:DependencyReplanManualIntake 2026-08-19-02:45:
+  A Coding (Ideas) card has a real specification before this mutation, but its workflow's `ideas`
+  intake is a manual capture lane. Both public dependency writers must therefore preserve the prompt,
+  retire approval evidence, and re-enter the executable `todo` planning lane without touching a live or
+  terminal continuation. Each case gets its own task because PostgreSQL enforces one active continuation
+  per task.
+  */
+  it.each([
+    { api: "dedicated", continuationState: "runnable", expectedState: "cancelled" },
+    { api: "dedicated", continuationState: "held", expectedState: "cancelled" },
+    { api: "dedicated", continuationState: "retrying", expectedState: "cancelled" },
+    { api: "dedicated", continuationState: "running", expectedState: "running" },
+    { api: "dedicated", continuationState: "succeeded", expectedState: "succeeded" },
+    { api: "generic", continuationState: "runnable", expectedState: "cancelled" },
+    { api: "generic", continuationState: "held", expectedState: "cancelled" },
+    { api: "generic", continuationState: "retrying", expectedState: "cancelled" },
+    { api: "generic", continuationState: "running", expectedState: "running" },
+    { api: "generic", continuationState: "succeeded", expectedState: "succeeded" },
+  ] as const)("routes Coding (Ideas) dependency replans through the $api writer and preserves $continuationState continuation state", async ({ api, continuationState, expectedState }) => {
+    const prerequisite = await store.createTask({ description: `${api} ideas prerequisite`, column: "done" });
+    const dependent = await store.createTask({
+      description: `${api} ideas dependent`,
+      workflowId: "builtin:coding-ideas",
+    } as never);
+    expect(dependent.column).toBe("ideas");
+    await store.moveTask(dependent.id, "todo", {
+      moveSource: "engine",
+      recoveryRehome: true,
+      bypassGuards: true,
+    });
+    await store.updateTask(dependent.id, {
+      prompt: SPEC_LOCK_PROMPT,
+      approvedPlanFingerprint: `sha256:${api}-ideas-approved`,
+      workflowStepResults: [{
+        workflowStepId: "plan-review",
+        workflowStepName: "Plan Review",
+        status: "passed",
+        completedAt: "2026-08-19T02:45:00.000Z",
+      }],
+    });
+    const promptPath = join(h.rootDir(), ".fusion", "tasks", dependent.id, "PROMPT.md");
+    const promptBefore = await readFile(promptPath, "utf8");
+    const before = await store.getTask(dependent.id);
+    const workItemInput = {
+      runId: `${dependent.id}:continuation:${continuationState}`,
+      taskId: dependent.id,
+      nodeId: "plan-review",
+      kind: "task" as const,
+      state: continuationState,
+      stableWorkflowRunId: `${dependent.id}:workflow`,
+      continuationSequence: 0,
+      waitReason: "planning",
+      sourceColumn: "todo",
+      targetColumn: "todo",
+      irHash: "ir-v1",
+    };
+    const workItem = continuationState === "succeeded"
+      ? await store.upsertWorkflowWorkItem(workItemInput as never)
+      : await store.replaceActiveTaskWorkflowContinuation(workItemInput as never);
+
+    if (api === "dedicated") {
+      await store.updateTaskDependencies(dependent.id, { operation: "add", dependency: prerequisite.id });
+    } else {
+      await store.updateTask(dependent.id, { dependencies: [prerequisite.id] });
+    }
+
+    const updated = await store.getTask(dependent.id);
+    expect(updated.column).toBe("todo");
+    expect(updated.columnMovedAt).toBe(before.columnMovedAt);
+    expect(updated.status).toBe("needs-replan");
+    expect(updated.approvedPlanFingerprint).toBeUndefined();
+    expect(updated.workflowStepResults).toEqual([expect.objectContaining({
+      workflowStepId: "plan-review",
+      status: "passed",
+      supersededAt: expect.any(String),
+      supersededReason: "dependency-change",
+    })]);
+    expect(await readFile(promptPath, "utf8")).toBe(promptBefore);
+    expect((await store.getWorkflowWorkItem(workItem.id))?.state).toBe(expectedState);
+  });
+
+  /*
   FNXC:SpecLock 2026-08-09-20:34:
   A mission/slice link is planning lineage. It must retire the same acceptance projection as a
   dependency mutation even though no dependency is added and the task remains in its current lane.
@@ -265,6 +347,7 @@ pgTest("TaskStore dependency mutations (PostgreSQL)", () => {
 
       const updated = await store.getTask(dependent.id);
       expect(updated.status).toBe("needs-replan");
+      expect(updated.column).toBe("triage");
       expect(updated.workflowStepResults).toEqual([
         expect.objectContaining({
           workflowStepId: "plan-review",
@@ -369,18 +452,23 @@ pgTest("TaskStore dependency mutations (PostgreSQL)", () => {
     } as never);
   }
 
-  it("sends a HOLD-lane card back to a DISTINCT intake lane when a dependency is added", async () => {
+  it.each(["dedicated", "generic"] as const)("sends a HOLD-lane card back to a DISTINCT intake lane through the %s writer", async (api) => {
     const definition = await splitLaneWorkflow();
-    const blocker = await store.createTask({ description: "prerequisite", workflowId: definition.id } as never);
-    const dependent = await store.createTask({ description: "dependent", workflowId: definition.id } as never);
+    const blocker = await store.createTask({ description: `${api} prerequisite`, workflowId: definition.id } as never);
+    const dependent = await store.createTask({ description: `${api} dependent`, workflowId: definition.id } as never);
     await store.moveTask(dependent.id, "ready" as never, { bypassGuards: true } as never);
 
     const before = await store.getTask(dependent.id);
 
-    const updated = await store.updateTaskDependencies(dependent.id, {
-      operation: "add",
-      dependency: blocker.id,
-    } as never);
+    if (api === "dedicated") {
+      await store.updateTaskDependencies(dependent.id, {
+        operation: "add",
+        dependency: blocker.id,
+      } as never);
+    } else {
+      await store.updateTask(dependent.id, { dependencies: [blocker.id] });
+    }
+    const updated = await store.getTask(dependent.id);
 
     expect(updated.column).toBe("inbox");
     expect(updated.status).toBe("needs-replan");
@@ -438,9 +526,17 @@ pgTest("TaskStore dependency mutations (PostgreSQL)", () => {
       store.updateTaskDependencies(c.id, { operation: "replace", from: b.id, to: a.id }),
     ).rejects.toThrow(/does not depend on/);
 
+    const beforeDuplicate = await store.getTask(c.id);
     await expect(
       store.updateTaskDependencies(c.id, { operation: "add", dependency: a.id }),
     ).rejects.toThrow(/already depends on/);
+    const afterDuplicate = await store.getTask(c.id);
+    expect(afterDuplicate).toMatchObject({
+      dependencies: beforeDuplicate.dependencies,
+      column: beforeDuplicate.column,
+      status: beforeDuplicate.status,
+      updatedAt: beforeDuplicate.updatedAt,
+    });
 
     await expect(
       store.updateTaskDependencies(c.id, { operation: "add", dependency: c.id }),
