@@ -30,7 +30,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync,
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, parseExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveReboundTarget, resolveReboundTargetForTask, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
+import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, parseExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveReboundTarget, resolveReboundTargetForTask, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
   resolveNearDuplicateCanonicalFlags,
   LEGACY_COLUMN_IDS_BY_ROLE,
   TERMINAL_ROLES,
@@ -1242,15 +1242,33 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       stalenessAnchor: string | null | undefined;
       reason: string;
       extra?: Record<string, unknown>;
+      workspaceMode?: boolean;
     },
   ): Promise<{ ok: boolean; stalenessMs: number; reason: string; metadata: Record<string, unknown> }> {
     const livePaths = activeSessionRegistry.pathsForTask(task.id);
     const hasActiveRegisteredPath = livePaths.some((path) => activeSessionRegistry.isPathActive(path));
-    const sessionDead = !hasActiveRegisteredPath && !executingTaskLock.has(task.id) && this.options.isTaskActive?.(task.id) !== true;
+    const workspaceTask = input.workspaceMode ?? isWorkspaceTask(task);
+    const workspaceLiveness = workspaceTask ? await this.isWorkspaceTaskLiveDurably(task) : undefined;
+    const sessionDead = workspaceTask
+      ? !workspaceLiveness!.live
+      : !hasActiveRegisteredPath && !executingTaskLock.has(task.id) && this.options.isTaskActive?.(task.id) !== true;
 
     let worktreeUnusable = true;
     let worktreeClassification: { ok: boolean; classification?: string; reason?: string };
-    if (task.worktree) {
+    if (workspaceTask) {
+      /*
+      FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+      Triple proof for a workspace review failure treats only the stale singular/root route as
+      unusable. Valid sub-repository entries are preserved and are not evidence that implementation
+      work was lost; active sub-repository liveness still blocks the backward move above.
+      */
+      worktreeClassification = {
+        ok: false,
+        classification: "workspace-root-routing",
+        reason: "singular workspace-root worktree metadata is not a managed repository checkout",
+      };
+      worktreeUnusable = true;
+    } else if (task.worktree) {
       const cls = await classifyTaskWorktree(this.options.rootDir, task.worktree);
       worktreeClassification = cls.ok
         ? { ok: true }
@@ -15144,6 +15162,17 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
+      let workspaceConfigured = false;
+      try {
+        const workspaceConfig = await loadWorkspaceConfig(this.options.rootDir);
+        workspaceConfigured = (workspaceConfig?.repos.length ?? 0) > 0;
+      } catch { /* a missing/unreadable config remains single-repository mode */ }
+      /*
+      FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+      Recovery resolves workspace mode from the authoritative workspace configuration, not only the
+      task's populated map. This covers a configured task whose first acquisition has not yet written
+      entries and prevents a root failure from entering single-repository cleanup.
+      */
       /*
       FNXC:WorkflowResolvedColumns 2026-07-30-21:40 (the query-filter class, twenty-seventh sweep):
       THE NOTE BELOW SAID THIS WAS UNFIXABLE. It called the literal query "unfixable without a
@@ -15230,20 +15259,19 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             });
             continue;
           }
-          if (isWorkspaceTask(task)) {
-            await auditor.database({
-              type: noActionEvent as DatabaseMutationType,
-              target: task.id,
-              metadata: { reason: "workspace-task", priorStatus: task.status ?? null, priorWorktree: task.worktree ?? null },
-            });
-            continue;
-          }
+          /*
+          FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+          Workspace review recovery is eligible when the stale failure names the singular/root route.
+          evaluateBackwardMoveTripleProof now fences active declared-repository sessions, while
+          autoRecoverWorktreeSessionStartFailure clears only singular metadata and preserves progress.
+          */
           const proof = await this.evaluateBackwardMoveTripleProof(task, {
             stage,
             graceMs: settings.taskStuckTimeoutMs ?? STALE_ACTIVE_BRANCH_EXECUTION_GRACE_MS,
             stalenessAnchor: task.columnMovedAt ?? task.updatedAt,
             reason: mergeActiveCandidate ? "missing-worktree-merge-active-candidate" : "missing-worktree-review-candidate",
             extra: { priorStatus: task.status ?? null },
+            workspaceMode: workspaceConfigured || isWorkspaceTask(task),
           });
           if (!proof.ok) {
             await this.emitBackwardMoveNoAction(task, stage, noActionEvent, proof);

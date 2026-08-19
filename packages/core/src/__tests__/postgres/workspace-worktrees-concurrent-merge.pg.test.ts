@@ -68,6 +68,42 @@ pgTest("workspace worktree per-repo atomic merge (PostgreSQL)", () => {
     expect(isWorkspaceTask(updated)).toBe(true);
   });
 
+  it("atomically repairs legacy singular routing while retaining every repo entry", async () => {
+    const first = h.store();
+    const second = h.store();
+    const task = await first.createTask({ description: "workspace stale root routing" });
+    const entries = {
+      "repo-a": { worktreePath: "/tmp/repo-a/.worktrees/fn-legacy", branch: "fusion/a", baseCommitSha: "base-a" },
+      "repo-b": { worktreePath: "/tmp/repo-b/.worktrees/fn-legacy", branch: "fusion/b", baseCommitSha: "base-b" },
+    };
+    await first.mergeWorkspaceWorktreeEntry(task.id, "repo-a", entries["repo-a"]);
+    await first.mergeWorkspaceWorktreeEntry(task.id, "repo-b", entries["repo-b"]);
+    await first.updateTask(task.id, {
+      worktree: "/tmp/.worktrees/fn-legacy",
+      branch: "fusion/legacy",
+      executionStartBranch: "fusion/legacy",
+      baseCommitSha: "root-base",
+    });
+
+    const normalized = await first.normalizeWorkspaceTaskWorktreeMetadata(task.id);
+    expect(normalized.worktree).toBeUndefined();
+    expect(normalized.branch).toBeUndefined();
+    expect(normalized.executionStartBranch).toBeUndefined();
+    expect(normalized.baseCommitSha).toBeUndefined();
+    expect(normalized.workspaceWorktrees).toEqual(entries);
+
+    /* FNXC:WorkspaceRootRouting 2026-08-19-12:15: A concurrent per-key merge after normalization
+    must retain the complete map. */
+    await Promise.all([
+      first.normalizeWorkspaceTaskWorktreeMetadata(task.id),
+      second.mergeWorkspaceWorktreeEntry(task.id, "repo-a", { landedSha: "landed-a" }, { requireExistingEntry: true }),
+    ]);
+    expect((await first.getTask(task.id)).workspaceWorktrees).toEqual({
+      "repo-a": { ...entries["repo-a"], landedSha: "landed-a" },
+      "repo-b": entries["repo-b"],
+    });
+  });
+
   it("does not create an absent required entry or clobber siblings", async () => {
     const store = h.store();
     const task = await store.createTask({ description: "required entry no-op" });

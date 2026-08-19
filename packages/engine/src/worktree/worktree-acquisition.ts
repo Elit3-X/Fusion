@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile 
 import { exec } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { acquireWorktreePathReservation, assertWorkspaceRepoRelPath, canonicalizeWorktreePath, resolveEngineIncarnationId, resolveEngineNodeId, workspaceWorktreeGroupSegment, WORKSPACE_GROUP_MARKER_FILENAME, type RunMutationContext, type Settings, type Task, type TaskStore, type SecretsStore, type WorkspaceLeaseHandle, type WorkspaceWorktreeContext } from "@fusion/core";
+import { acquireWorktreePathReservation, assertWorkspaceRepoRelPath, canonicalizeWorktreePath, resolveEngineIncarnationId, resolveEngineNodeId, workspaceWorktreeGroupSegment, WORKSPACE_GROUP_MARKER_FILENAME, type RunMutationContext, type Settings, type Task, type TaskStore, type SecretsStore, type WorkspaceConfig, type WorkspaceLeaseHandle, type WorkspaceWorktreeContext } from "@fusion/core";
 import { generateWorktreeName, resolveTaskWorkingBranch, slugify } from "./worktree-names.js";
 import { resolveTaskWorktreePathForBackend, resolveWorktreesDir, WORKTREE_RECOVERY_DIRNAME } from "./worktree-paths.js";
 import { hydrateWorktreeDb } from "./worktree-db-hydrate.js";
@@ -48,6 +48,7 @@ import { resolveIntegrationBranch } from "../merge/integration-branch.js";
 import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "./workspace-base-branch.js";
 import { activeSessionRegistry, type ActiveSessionRegistry } from "../agents/active-session-registry.js";
 import { refreshReusedWorktreeBase, type WorktreeBaseRefreshResult } from "../worktree-base-refresh.js";
+import { normalizeWorkspaceTaskRouting } from "../executor/workspace-config-resolver.js";
 
 const execAsync = promisify(exec);
 const WORKTREE_BACKEND_MARKER = "fusion-worktree-backend-kind";
@@ -1294,6 +1295,22 @@ async function verifyResumeBranchNotMisbound(input: {
   }
 }
 
+export interface AcquireWorkspaceTaskWorktreesOptions {
+  workspaceConfig: Pick<WorkspaceConfig, "repos">;
+  workspaceRootDir: string;
+  task: Task;
+  store: TaskStore;
+  settings: Partial<Settings>;
+  logger?: AcquireWorkspaceRepoWorktreeOptions["logger"];
+  secretsStore?: AcquireWorkspaceRepoWorktreeOptions["secretsStore"];
+  audit?: AcquireWorkspaceRepoWorktreeOptions["audit"];
+  runContext?: RunMutationContext;
+  registry?: ActiveSessionRegistry;
+  runConfiguredCommand?: AcquireTaskWorktreeOptions["runConfiguredCommand"];
+  taskEnv?: NodeJS.ProcessEnv;
+  addActiveWorktree?: (taskId: string, path: string) => void;
+}
+
 export interface AcquireWorkspaceRepoWorktreeOptions {
   repoRelPath: string;
   workspaceRootDir: string;
@@ -1711,4 +1728,50 @@ export class WorkspaceRepoAcquireBusyError extends Error {
     super(`workspace sub-repo ${repoRelPath} acquisition is in progress for task ${holderTaskId}`);
     this.name = "WorkspaceRepoAcquireBusyError";
   }
+}
+
+/**
+ * FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+ * A workspace task needs a complete durable per-repository worktree set before any planning,
+ * execution, or review session starts. Acquire/reuse only the declared repositories, register each
+ * real sub-repository path, and return one deterministic coordinator cwd; never synthesize a root
+ * worktree or use the non-Git workspace directory as a session fallback.
+ */
+export async function acquireWorkspaceTaskWorktrees(
+  opts: AcquireWorkspaceTaskWorktreesOptions,
+): Promise<{ task: Task; coordinatorWorktreePath: string }> {
+  const repoRelPaths = [...new Set(opts.workspaceConfig.repos)];
+  if (repoRelPaths.length === 0) {
+    throw new Error(`Workspace task ${opts.task.id} has no declared repositories`);
+  }
+
+  let current = await normalizeWorkspaceTaskRouting(opts.store, opts.task.id);
+
+  for (const repoRelPath of repoRelPaths) {
+    const acquired = await acquireWorkspaceRepoWorktree({
+      repoRelPath,
+      workspaceRootDir: opts.workspaceRootDir,
+      task: current,
+      store: opts.store,
+      settings: opts.settings,
+      logger: opts.logger,
+      secretsStore: opts.secretsStore,
+      audit: opts.audit,
+      runContext: opts.runContext,
+      registry: opts.registry,
+      runConfiguredCommand: opts.runConfiguredCommand,
+      taskEnv: opts.taskEnv,
+    });
+    opts.addActiveWorktree?.(opts.task.id, acquired.worktreePath);
+    current = await opts.store.getTask(opts.task.id);
+  }
+
+  const entries = current.workspaceWorktrees ?? {};
+  const coordinatorWorktreePath = repoRelPaths
+    .map((repoRelPath) => entries[repoRelPath]?.worktreePath)
+    .find((path): path is string => typeof path === "string" && path.length > 0);
+  if (!coordinatorWorktreePath) {
+    throw new Error(`Workspace task ${opts.task.id} did not acquire a declared repository worktree`);
+  }
+  return { task: current, coordinatorWorktreePath };
 }

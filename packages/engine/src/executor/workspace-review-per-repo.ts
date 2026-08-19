@@ -19,6 +19,7 @@
  * verdict so the caller's existing verdict→edge mapping (APPROVE done-marking, REVISE block, RETHINK reset,
  * UNAVAILABLE retry) is unchanged.
  */
+import { resolve, sep } from "node:path";
 import type { Task } from "@fusion/core";
 import type { ReviewResult } from "../execution/reviewer.js";
 import { classifyWorkspaceZeroAcquire, type WorkspaceZeroAcquireOptions } from "./workspace-zero-acquire.js";
@@ -30,12 +31,32 @@ export async function reviewWorkspacePerRepo(
   // (Phase C). The loop below still tags findings with `repoRel` from its own iteration key.
   task: Task,
   invokeForCwd: (cwd: string) => Promise<ReviewResult>,
-  options: Omit<WorkspaceZeroAcquireOptions, "workspaceMode"> & { workspaceMode?: boolean } = {},
+  options: Omit<WorkspaceZeroAcquireOptions, "workspaceMode"> & {
+    workspaceMode?: boolean;
+    workspaceRepos?: readonly string[];
+    workspaceRootDir?: string;
+  } = {},
 ): Promise<ReviewResult> {
   const workspaceWorktrees = task.workspaceWorktrees ?? {};
-  // FNXC:Workspace 2026-06-21-15:00: F6 — sort repo keys so the reported FIRST failing repo is
-  // deterministic across runs/rehydrate.
-  const repoKeys = Object.keys(workspaceWorktrees).sort();
+  const declaredRepos = options.workspaceRepos ? new Set(options.workspaceRepos) : undefined;
+  const seenPaths = new Set<string>();
+  // FNXC:WorkspaceRootRouting 2026-08-19-12:15: Only declared repository entries are reviewable;
+  // stale root-keyed metadata and duplicate paths cannot become reviewer cwd values.
+  const repoKeys = Object.keys(workspaceWorktrees)
+    .filter((repoRel) => {
+      if (declaredRepos && !declaredRepos.has(repoRel)) return false;
+      const worktreePath = workspaceWorktrees[repoRel]?.worktreePath;
+      if (typeof worktreePath !== "string" || worktreePath.length === 0) return false;
+      const canonical = resolve(worktreePath);
+      if (options.workspaceRootDir) {
+        const root = resolve(options.workspaceRootDir);
+        if (canonical === root || canonical.startsWith(`${root}${sep}.worktrees${sep}`)) return false;
+      }
+      if (seenPaths.has(canonical)) return false;
+      seenPaths.add(canonical);
+      return true;
+    })
+    .sort();
   if (repoKeys.length === 0) {
     /*
     FNXC:Workspace 2026-08-15-04:21:

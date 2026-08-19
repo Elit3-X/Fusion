@@ -451,6 +451,62 @@ export async function linkTaskRecommendationImpl(
   });
 }
 
+export async function normalizeWorkspaceTaskWorktreeMetadataImpl(
+  store: TaskStore,
+  id: string,
+): Promise<Task> {
+  return store.withTaskLock(id, async () => {
+    const layer = store.asyncLayer!;
+    const outcome = await layer.transactionImmediate(async (tx) => {
+      /*
+      FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+      A populated workspace configuration makes the singular task checkout fields stale routing
+      metadata. Clear those fields under the same project/task advisory transaction used by per-repo
+      merges, while leaving the JSON map untouched so concurrent acquisition or landing cannot lose a
+      sibling repository. The operation never inspects or mutates the filesystem.
+      */
+      await acquireTaskAdvisoryXactLock(tx, layer.projectId, id);
+      const row = await readTaskRowInTransaction(tx, id, { includeDeleted: true }, layer.projectId);
+      if (!row) throw new TaskNotFoundError(id);
+      if (row.deletedAt) throw new TaskDeletedError(id, row.deletedAt as string);
+
+      const current = store.rowToTask(store.pgRowToTaskRow(row));
+      const hasStaleSingularRouting = Boolean(
+        current.worktree
+        || current.branch
+        || current.executionStartBranch
+        || current.baseCommitSha,
+      );
+      if (!hasStaleSingularRouting) return { task: current, mutated: false };
+
+      const updatedAt = new Date().toISOString();
+      const [updatedRow] = await tx
+        .update(schema.project.tasks)
+        .set({
+          worktree: null,
+          branch: null,
+          executionStartBranch: null,
+          baseCommitSha: null,
+          updatedAt,
+        })
+        .where(and(eq(schema.project.tasks.id, id), taskProjectScope(layer)))
+        .returning();
+      if (!updatedRow) throw new TaskNotFoundError(id);
+      return { task: store.rowToTask(store.pgRowToTaskRow(updatedRow)), mutated: true };
+    });
+
+    if (outcome.mutated) {
+      /* FNXC:WorkspaceRootRouting 2026-08-19-12:15: sessionFile is a task.json-only resumable
+      handle. Reproject the row after the atomic singular-field clear so a root-bound legacy session
+      cannot be reopened on the next run. */
+      await store.writeTaskJsonFile(store.taskDir(id), outcome.task);
+      if (store.isWatching) store.taskCache.set(id, { ...outcome.task });
+      store.emitTaskLifecycleEventSafely("task:updated", [outcome.task]);
+    }
+    return outcome.task;
+  });
+}
+
 /*
 FNXC:TaskWedgeNotifications 2026-08-01-15:35:
 Resolution changes only the active episode status. The PostgreSQL compare-and-set
@@ -489,7 +545,9 @@ export async function mergeWorkspaceWorktreeEntryImpl(
         .update(schema.project.tasks)
         .set({
           workspaceWorktrees: { ...workspaceWorktrees, [repoRelPath]: { ...existing, ...patch } },
-          ...(options.clearSingularWorktree ? { worktree: null, branch: null } : {}),
+          ...(options.clearSingularWorktree
+            ? { worktree: null, branch: null, executionStartBranch: null, baseCommitSha: null }
+            : {}),
           updatedAt,
         })
         .where(and(eq(schema.project.tasks.id, id), taskProjectScope(layer)))

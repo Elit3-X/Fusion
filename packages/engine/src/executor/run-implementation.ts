@@ -192,7 +192,7 @@ import { mergeEffectiveSettings } from "../project/effective-settings.js";
 import { buildStepFailureMessage, emitProactiveStatus, sanitizeFailureReason } from "../project/proactive-status.js";
 import { createRunAuditor, generateSyntheticRunId, type EngineRunContext } from "../util/run-audit.js";
 import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
-import { acquireTaskWorktree, WorktreeBaseRefreshError } from "../worktree/worktree-acquisition.js";
+import { acquireTaskWorktree, acquireWorkspaceTaskWorktrees, WorktreeBaseRefreshError } from "../worktree/worktree-acquisition.js";
 import { resolveWorktreesDir } from "../worktree/worktree-paths.js";
 import {
   RemovalReason,
@@ -647,19 +647,56 @@ export async function runImplementation(
         }
       }
 
-      const hadAssignedWorktree = Boolean(task.worktree) || externalExecutionRoute.configured;
       const taskCommandAbortController = new AbortController();
       deps.registerConfiguredCommandController(task.id, taskCommandAbortController);
+      let workspaceCoordinatorWorktree: string | undefined;
       /*
-      FNXC:Workspace 2026-06-21-12:00:
-      KTD1 — in workspace mode `deps.rootDir` is a NON-git parent. Acquiring a root worktree there fails. Skip root acquisition entirely and run the agent session rooted at the browse-only workspace root; the agent acquires per-sub-repo worktrees on demand via fn_acquire_repo_worktree. `task.worktree` stays unset. We synthesize a non-fresh, non-resume acquisition with an empty branch so the downstream env-injection/onStart bookkeeping runs unchanged while every rootDir git preflight (base capture, contamination, liveness) is gated off below. The non-workspace branch is byte-for-byte the original acquisition path.
+      FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+      A configured workspace is acquired as a complete per-repository set before execution. The
+      singular task fields are normalized first, every declared repository is reused/acquired, and
+      the agent receives one real sub-repository worktree as coordinator cwd. The workspace root is
+      never a task checkout or a recovery fallback.
+      */
+      if (hasWorkspaceRepos && deps.workspaceConfig) {
+        const workspace = await acquireWorkspaceTaskWorktrees({
+          workspaceConfig: deps.workspaceConfig,
+          workspaceRootDir: deps.rootDir,
+          task,
+          store: deps.store,
+          settings,
+          logger: executorLog,
+          secretsStore: deps.options.secretsStore,
+          audit,
+          runContext: deps.getRunContextFor(task.id),
+          runConfiguredCommand: (command, cwd, timeoutMs, env) =>
+            runConfiguredCommand(
+              command,
+              cwd,
+              timeoutMs,
+              env,
+              audit,
+              taskCommandAbortController.signal,
+            ).then((result) => {
+              if (taskCommandAbortController.signal.aborted) {
+                throw createConfiguredCommandAbortError(task.id, command);
+              }
+              return result;
+            }),
+          taskEnv,
+          addActiveWorktree: deps.addActiveWorktree,
+        });
+        task = workspace.task;
+        workspaceCoordinatorWorktree = workspace.coordinatorWorktreePath;
+      }
 
+      const hadAssignedWorktree = Boolean(task.worktree) || externalExecutionRoute.configured;
+      /*
       FNXC:ExternalExecutionCheckout 2026-08-09-23:53:
       Operator-routed external checkouts skip Fusion worktree acquisition and run against the persisted checkout.
       */
-      const acquisition: AcquireTaskWorktreeResult = deps.workspaceConfig
+      const acquisition: AcquireTaskWorktreeResult = hasWorkspaceRepos
         ? {
-            worktreePath: deps.rootDir,
+            worktreePath: workspaceCoordinatorWorktree!,
             branch: "",
             source: "existing",
             hydrated: true,
@@ -768,8 +805,10 @@ export async function runImplementation(
       }
 
       /*
-      FNXC:Workspace 2026-06-21-12:00:
-      KTD1 — the git preflights below run against `worktreePath`, which equals the non-git workspace root in workspace mode. The per-repo equivalents return in Phase B (master U3) against each acquired sub-repo worktree.
+      FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+      The workspace coordinator `worktreePath` is one acquired declared sub-repository checkout, not
+      the non-Git workspace root. Workspace-specific post-session capture still iterates the complete
+      durable per-repository map; singular git preflights remain disabled for workspace tasks.
 
       FNXC:ExternalExecutionCheckout 2026-08-10-03:05:
       An operator-routed checkout still needs the read-only base snapshot used by modified-file capture. It must not enter contamination or managed-worktree liveness checks: the persisted checkout is deliberately operator-owned and lives outside Fusion's worktree directory.
@@ -936,7 +975,9 @@ export async function runImplementation(
       }
       } // end !deps.workspaceConfig preflight gate (FNXC:Workspace KTD1)
 
-      // FNXC:Workspace 2026-06-21-12:00: KTD2 — register the worktree path under the task's Set. In workspace mode `worktreePath` is the browse-only root; per-repo sub-repo worktree paths ARE now added to the same Set as the agent acquires them (F2: fn_acquire_repo_worktree's onAcquired callback → addActiveWorktree), so the Set holds root + N sub-repo paths, not just the root. Non-workspace tasks add exactly one path → a one-element set (unchanged liveness/owner semantics).
+      // FNXC:WorkspaceRootRouting 2026-08-19-12:15: Register only real task worktrees. Workspace
+      // acquisition already added every declared sub-repository path; this coordinator add is
+      // idempotent and never adds the non-Git workspace root. Single-repository tasks retain one path.
       deps.addActiveWorktree(task.id, worktreePath);
       executorLog.debug(`${task.id}: worktree ready at ${worktreePath}`);
 

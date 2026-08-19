@@ -207,13 +207,20 @@ export async function runGraphCustomNode(
     A recorded-but-missing worktree is RE-ACQUIRED (strip the stale metadata first, mirroring
     prepareGraphNodeExecution) rather than degraded to the root — this replaces FN-7996's
     run-Plan-Review-from-the-repo-root fallback, which is exactly the shared-path behavior being
-    removed. Workspace projects are unchanged: `ensureGraphCustomNodeWorktree` returns the task
-    untouched there, because workspace sessions are rooted at the browse-root by design and per-repo
-    isolation comes from the sub-repo acquire lease.
+    removed. Workspace projects use the same acquisition seam for every declared repository and
+    choose one acquired sub-repository worktree as the coordinator cwd; the non-Git workspace root
+    is never a graph session or review checkout.
     */
     const nodeDisplayName = typeof cfg.name === "string" && cfg.name.trim() ? cfg.name.trim() : node.id;
     const isPlanReviewNode = node.id === "plan-review-step" || nodeDisplayName === "Plan Review" || optionalGroupId === "plan-review";
-    if (!workspaceConfig) {
+    if (workspaceConfig) {
+      /*
+      FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+      A workspace graph node must reacquire/reuse the declared per-repository set before any session,
+      command, or review body is built. The returned task deliberately has no singular worktree.
+      */
+      executionTarget = await deps.ensureGraphCustomNodeWorktree(executionTarget, settings, node.id);
+    } else {
       const recordedWorktreeMissing = Boolean(executionTarget.worktree) && !existsSync(executionTarget.worktree!);
       /*
       A node with NO recorded worktree is pre-execution (planning / Plan Review): acquire one.
@@ -240,11 +247,18 @@ export async function runGraphCustomNode(
       }
     }
 
-    if (writeCapable && !executionTarget.worktree && !workspaceConfig) {
+    const workspaceCoordinator = workspaceConfig
+      ? Object.keys(executionTarget.workspaceWorktrees ?? {})
+        .filter((repoRelPath) => workspaceConfig.repos.includes(repoRelPath))
+        .sort()
+        .map((repoRelPath) => executionTarget.workspaceWorktrees?.[repoRelPath]?.worktreePath)
+        .find((path): path is string => typeof path === "string" && path.length > 0)
+      : undefined;
+    if (!executionTarget.worktree && !workspaceCoordinator) {
       return { outcome: "failure", value: "no-worktree-for-write-node" };
     }
 
-    const worktreePath = executionTarget.worktree || deps.rootDir;
+    const worktreePath = executionTarget.worktree || workspaceCoordinator || deps.rootDir;
     let prompt = typeof cfg.prompt === "string" ? cfg.prompt : "";
     let modelProvider = typeof cfg.modelProvider === "string" && cfg.modelProvider.trim() ? cfg.modelProvider : undefined;
     let modelId = typeof cfg.modelId === "string" && cfg.modelId.trim() ? cfg.modelId : undefined;
@@ -460,9 +474,60 @@ export async function runGraphCustomNode(
     const principalAgentId = typeof graphContext?.["workflow:principal-agent-id"] === "string"
       ? graphContext["workflow:principal-agent-id"]
       : undefined;
-    let outcome: WorkflowStepOutcome = mode === "script"
-      ? await deps.executeScriptWorkflowStep(live, step, worktreePath, settings, nodeEnv)
-      : await deps.executeWorkflowStep(live, step, worktreePath, settings, nodeEnv, { unattended, principalAgentId });
+    let outcome: WorkflowStepOutcome;
+    const workspaceReviewPaths = workspaceConfig && declaredReviewKind
+      ? Object.keys(executionTarget.workspaceWorktrees ?? {})
+        .filter((repoRelPath) => workspaceConfig.repos.includes(repoRelPath))
+        .sort()
+        .map((repoRelPath) => executionTarget.workspaceWorktrees?.[repoRelPath]?.worktreePath)
+        .filter((path): path is string => typeof path === "string" && path.length > 0)
+      : [];
+    if (workspaceConfig && declaredReviewKind) {
+      /*
+      FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+      Explicit graph plan/code review nodes are per-repository reviews, not a single review against
+      the coordinator checkout. Evaluate declared worktrees deterministically, stop at the first real
+      non-approval, and preserve that repository's actual outcome for the graph's existing edges.
+      */
+      if (workspaceReviewPaths.length === 0) {
+        outcome = { success: false, error: "No acquired declared-repository worktree was available for workspace review", failureValue: "workspace-review-no-worktrees" };
+      } else {
+        const perRepoOutcomes: WorkflowStepOutcome[] = [];
+        for (const repoWorktreePath of workspaceReviewPaths) {
+          const repoEnv = mode === "prompt"
+            ? (await deps.buildInjectedRuntimeEnv(live.id, repoWorktreePath, undefined)).env
+            : nodeEnv;
+          const repoOutcome = mode === "script"
+            ? await deps.executeScriptWorkflowStep(live, step, repoWorktreePath, settings, repoEnv)
+            : await deps.executeWorkflowStep(live, step, repoWorktreePath, settings, repoEnv, { unattended, principalAgentId });
+          perRepoOutcomes.push(repoOutcome);
+          const approval = repoOutcome.verdict === undefined
+            || repoOutcome.verdict === "APPROVE"
+            || repoOutcome.verdict === "APPROVE_WITH_NOTES"
+            || repoOutcome.verdict === "CLOSE_NO_OP";
+          if (!repoOutcome.success || !approval) break;
+        }
+        const firstFailure = perRepoOutcomes.find((candidate) => {
+          const approval = candidate.verdict === undefined
+            || candidate.verdict === "APPROVE"
+            || candidate.verdict === "APPROVE_WITH_NOTES"
+            || candidate.verdict === "CLOSE_NO_OP";
+          return !candidate.success || !approval;
+        });
+        const selected = firstFailure ?? perRepoOutcomes[perRepoOutcomes.length - 1];
+        outcome = {
+          ...selected,
+          output: perRepoOutcomes.map((candidate, index) => `[${workspaceReviewPaths[index]}]\n${candidate.output ?? ""}`).join("\n\n"),
+          ...(perRepoOutcomes.some((candidate) => candidate.findings?.length)
+            ? { findings: perRepoOutcomes.flatMap((candidate) => candidate.findings ?? []) }
+            : {}),
+        };
+      }
+    } else {
+      outcome = mode === "script"
+        ? await deps.executeScriptWorkflowStep(live, step, worktreePath, settings, nodeEnv)
+        : await deps.executeWorkflowStep(live, step, worktreePath, settings, nodeEnv, { unattended, principalAgentId });
+    }
     /*
      * FNXC:WorkflowReviewFindings 2026-08-05-06:29:
      * Script nodes retain their exit-code verdict semantics, but an explicitly classified review

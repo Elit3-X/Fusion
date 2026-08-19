@@ -39,6 +39,7 @@ import {
 } from "../project/proactive-status.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import { executorLog, reviewerLog } from "../logger.js";
+import { normalizeWorkspaceTaskRouting } from "./workspace-config-resolver.js";
 
 const WORKFLOW_THINKING_LEVEL_SET: ReadonlySet<string> = new Set(THINKING_LEVELS);
 
@@ -341,11 +342,33 @@ export function createAuthoritativeWorkflowSeams(
           return { verdict: "UNAVAILABLE", review: "no active step instance" };
         }
         const stepIndex = active.stepIndex;
-        const detail = await deps.store.getTask(seamTask.id);
-        // Worktree isolation (KTD-11): review the instance's OWN worktree when set.
-        const worktreePath = active.worktreePath || detail.worktree || deps.rootDir;
-        const reviewCwd = resolveReviewCheckoutCwd(detail, worktreePath);
-        logReviewCheckoutRouting(seamTask.id, detail, reviewCwd, worktreePath);
+        let detail = await deps.store.getTask(seamTask.id);
+        const workspaceConfig = deps.ensureWorkspaceConfig
+          ? await deps.ensureWorkspaceConfig()
+          : deps.workspaceConfig;
+        const workspaceCoordinator = workspaceConfig
+          ? Object.keys(detail.workspaceWorktrees ?? {})
+            .filter((repoRelPath) => workspaceConfig.repos.includes(repoRelPath))
+            .sort()
+            .map((repoRelPath) => detail.workspaceWorktrees?.[repoRelPath]?.worktreePath)
+            .find((path): path is string => typeof path === "string" && path.length > 0)
+          : undefined;
+        if (workspaceConfig) {
+          /*
+          FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+          A code review must not interpret historical singular root metadata as its checkout. Repair
+          that metadata before selecting a cwd, then let reviewWorkspacePerRepo consume only the
+          durable declared-repository entries; an empty map remains a real unavailable review.
+          */
+          detail = await normalizeWorkspaceTaskRouting(deps.store, seamTask.id) as typeof detail;
+        }
+        // Worktree isolation (KTD-11): workspace review uses the durable per-repo set; single-repo
+        // review uses the instance's own worktree. Neither path falls back to the workspace root.
+        const worktreePath = workspaceCoordinator || active.worktreePath || detail.worktree || deps.rootDir;
+        const reviewCwd = workspaceConfig
+          ? workspaceCoordinator ?? ""
+          : resolveReviewCheckoutCwd(detail, worktreePath);
+        if (reviewCwd) logReviewCheckoutRouting(seamTask.id, detail, reviewCwd, worktreePath);
         const stepName = detail.steps[stepIndex]?.name ?? `Step ${stepIndex}`;
         const promptContent = detail.prompt ?? "";
         const userComments = selectUserCommentsForAgentContext(detail, { limit: null });
@@ -428,18 +451,17 @@ export function createAuthoritativeWorkflowSeams(
           const invoke = () => invokeReviewerForCwd(cwd);
           return sem ? sem.runNested(invoke) : invoke();
         };
-        const workspaceConfig = deps.ensureWorkspaceConfig
-          ? await deps.ensureWorkspaceConfig()
-          : deps.workspaceConfig;
         /*
-        FNXC:Workspace 2026-08-15-04:31:
-        Only step-review nodes use this per-repo aggregation seam. Prompt-node
-        code-review and plan-review groups remain intentionally out of scope;
-        extending their workspace awareness requires separate review authority work.
+        FNXC:WorkspaceRootRouting 2026-08-19-12:15:
+        Every workspace step-review is aggregated across the acquired repository set. Prompt-node
+        review routing is handled by runGraphCustomNode's matching per-repository coordinator loop;
+        no review form may use the singular detail.worktree or workspace root as a fallback.
         */
         const invokeReviewer = () =>
-          workspaceConfig && reviewCwd === worktreePath
+          workspaceConfig
             ? deps.reviewWorkspacePerRepo(detail, (cwd: string) => runForCwd(cwd), {
+                workspaceRepos: workspaceConfig.repos,
+                workspaceRootDir: deps.rootDir,
                 /*
                 FNXC:Workspace 2026-08-15-04:49:
                 fn_task_done persists an accepted no-op sentinel as noCommitsExpected

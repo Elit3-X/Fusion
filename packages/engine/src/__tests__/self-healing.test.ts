@@ -4090,7 +4090,7 @@ describe("SelfHealingManager", () => {
       managerWithRecovery.stop();
     });
 
-    it("emits no-action for workspace tasks instead of single-repo missing-worktree recovery", async () => {
+    it("repairs stale root routing for workspace tasks without resetting progress", async () => {
       const managerWithRecovery = new SelfHealingManager(store, { rootDir: "/tmp/test-project" });
       (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
         {
@@ -4100,7 +4100,7 @@ describe("SelfHealingManager", () => {
           status: "merging",
           worktree: null,
           workspaceWorktrees: { app: { worktree: "/tmp/ws/app", branch: "fusion/FN-7802-WORKSPACE" } },
-          error: "Refusing to start coding agent in missing worktree: /tmp/ws/app",
+          error: "Refusing to start coding agent in unregistered git worktree: /tmp/ws/.worktrees/FN-7802-WORKSPACE",
           steps: [{ status: "done" }],
           log: [],
         },
@@ -4108,12 +4108,15 @@ describe("SelfHealingManager", () => {
 
       const result = await managerWithRecovery.recoverMissingWorktreeReviewFailures();
 
-      expect(result).toBe(0);
-      expect(store.updateTask).not.toHaveBeenCalled();
-      expect(store.moveTask).not.toHaveBeenCalled();
+      expect(result).toBe(1);
+      expect(store.updateTask).toHaveBeenCalledWith("FN-7802-WORKSPACE", expect.objectContaining({
+        worktree: null,
+        branch: null,
+        sessionFile: null,
+      }));
+      expect(store.moveTask).toHaveBeenCalledWith("FN-7802-WORKSPACE", "todo", { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
       expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
-        mutationType: "task:reconcile-missing-worktree-merge-active-no-action",
-        metadata: expect.objectContaining({ reason: "workspace-task" }),
+        mutationType: "task:reconcile-missing-worktree-merge-active",
       }));
       managerWithRecovery.stop();
     });
