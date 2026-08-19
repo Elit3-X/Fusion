@@ -1207,6 +1207,14 @@ describe("ListView", () => {
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Retry" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Pause" })).toBeInTheDocument();
+    /*
+    FNXC:TaskMovementContextMenu 2026-08-19-18:37:
+    When a task has several legal destinations, list movement is grouped under one
+    accessible Move to entry instead of presenting a noisy run of sibling actions.
+    */
+    expect(screen.getByRole("menuitem", { name: "Move to" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Move to In progress" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to" }));
     expect(screen.getByRole("menuitem", { name: "Move to In progress" })).toBeInTheDocument();
     expect(failedRow).not.toHaveClass("list-row--selected");
     expect(onOpenDetail).not.toHaveBeenCalled();
@@ -1228,7 +1236,7 @@ describe("ListView", () => {
     read "Back to In Progress" — they go through the no-metadata fallback, which uses
     the legacy column label map.
     */
-    expect(screen.getByRole("menuitem", { name: "Back to In progress" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Move to", exact: true })).toBeInTheDocument();
 
     fireEvent.contextMenu(document.querySelector('.list-row[data-id="FN-006"]') as HTMLElement, { clientX: 40, clientY: 50 });
     expect(screen.getByRole("menuitem", { name: "Merge & Close" })).toBeInTheDocument();
@@ -1257,6 +1265,7 @@ describe("ListView", () => {
 
     mockConfirm.mockResolvedValueOnce(true);
     fireEvent.contextMenu(document.querySelector('.list-row[data-id="FN-007"]') as HTMLElement, { clientX: 40, clientY: 50 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Move to Todo" }));
     await waitFor(() => expect(onMoveTask).toHaveBeenCalledWith("FN-007", "todo", { preserveProgress: true }));
 
@@ -3343,174 +3352,7 @@ describe("ListView", () => {
     expect(todoZone?.textContent).toContain("1");
   });
 
-  it("handles drag and drop to move tasks between columns", async () => {
-    const tasks = [createMockTask({ id: "FN-001", column: "triage" })];
-    const mockOnMoveTask = vi.fn(() => Promise.resolve(tasks[0]));
 
-    renderListView({ tasks, onMoveTask: mockOnMoveTask });
-
-    const row = screen.getByText("FN-001").closest("tr")!;
-
-    // Simulate drag start
-    fireEvent.dragStart(row, {
-      dataTransfer: {
-        setData: vi.fn(),
-        effectAllowed: "move",
-      },
-    });
-
-    // Simulate drop on todo column drop zone (use querySelector for specificity)
-    const todoZone = document.querySelector('[data-column="todo"].list-drop-zone')!;
-    fireEvent.dragOver(todoZone, {
-      preventDefault: vi.fn(),
-      dataTransfer: { dropEffect: "move" },
-    });
-
-    fireEvent.drop(todoZone, {
-      preventDefault: vi.fn(),
-      dataTransfer: {
-        getData: vi.fn(() => "FN-001"),
-      },
-    });
-
-    await waitFor(() => {
-      expect(mockOnMoveTask).toHaveBeenCalledWith("FN-001", "todo", undefined);
-    });
-  });
-
-  it("prompts to preserve progress when dropping task with completed steps to todo", async () => {
-    const tasks = [createMockTask({
-      id: "FN-001",
-      column: "in-progress",
-      steps: [
-        { title: "Step 1", status: "done" },
-        { title: "Step 2", status: "pending" },
-      ],
-    })];
-    const mockOnMoveTask = vi.fn(() => Promise.resolve(tasks[0]));
-    mockConfirm.mockResolvedValueOnce(true);
-
-    renderListView({ tasks, onMoveTask: mockOnMoveTask });
-
-    const row = screen.getByText("FN-001").closest("tr")!;
-    fireEvent.dragStart(row, {
-      dataTransfer: {
-        setData: vi.fn(),
-        effectAllowed: "move",
-      },
-    });
-
-    const todoZone = document.querySelector('[data-column="todo"].list-drop-zone')!;
-    fireEvent.drop(todoZone, {
-      preventDefault: vi.fn(),
-      dataTransfer: {
-        getData: vi.fn(() => "FN-001"),
-      },
-    });
-
-    await waitFor(() => {
-      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
-        title: "Preserve Progress?",
-        cancelLabel: "Reset Progress",
-      }));
-      expect(mockOnMoveTask).toHaveBeenCalledWith("FN-001", "todo", { preserveProgress: true });
-    });
-  });
-
-  it("prompts to preserve progress when dropping task with completed steps to a workflow hold column", async () => {
-    const tasks = [createMockTask({
-      id: "FN-001",
-      column: "doing",
-      steps: [
-        { title: "Step 1", status: "done" },
-        { title: "Step 2", status: "pending" },
-      ],
-    })];
-    const mockOnMoveTask = vi.fn(() => Promise.resolve(tasks[0]));
-    mockConfirm.mockResolvedValueOnce(true);
-    vi.mocked(fetchBoardWorkflows).mockResolvedValue({
-      flagEnabled: true,
-      defaultWorkflowId: "wf-custom",
-      workflows: [
-        {
-          id: "wf-custom",
-          name: "Custom",
-          columns: [
-            { id: "queue", name: "Queue", flags: { hold: true } },
-            { id: "doing", name: "Doing", flags: { countsTowardWip: true } },
-            { id: "shipped", name: "Shipped", flags: { complete: true } },
-          ],
-        },
-      ],
-      taskWorkflowIds: { "FN-001": "wf-custom" },
-    });
-
-    renderListView({ tasks, onMoveTask: mockOnMoveTask });
-    await waitFor(() => expect(document.querySelector('[data-column="queue"].list-drop-zone')).toBeTruthy());
-
-    fireEvent.drop(document.querySelector('[data-column="queue"].list-drop-zone')!, {
-      preventDefault: vi.fn(),
-      dataTransfer: {
-        getData: vi.fn(() => "FN-001"),
-      },
-    });
-
-    await waitFor(() => {
-      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
-        title: "Preserve Progress?",
-      }));
-      expect(mockOnMoveTask).toHaveBeenCalledWith("FN-001", "queue", { preserveProgress: true });
-    });
-  });
-
-  it("does not set draggable for paused tasks", () => {
-    const tasks = [createMockTask({ id: "FN-001", paused: true })];
-
-    renderListView({ tasks });
-
-    const row = screen.getByText("FN-001").closest("tr")!;
-    // Paused tasks should have draggable="false"
-    expect(row.getAttribute("draggable")).toBe("false");
-  });
-
-  it("sets draggable for non-paused tasks", () => {
-    const tasks = [createMockTask({ id: "FN-001", paused: false })];
-
-    renderListView({ tasks });
-
-    const row = screen.getByText("FN-001").closest("tr")!;
-    // Non-paused tasks should have draggable="true"
-    expect(row.getAttribute("draggable")).toBe("true");
-  });
-
-  it("shows error toast when onMoveTask fails during drag and drop", async () => {
-    const tasks = [createMockTask({ id: "FN-001", column: "triage" })];
-    const mockOnMoveTask = vi.fn(() => Promise.reject(new Error("Move failed")));
-
-    renderListView({ tasks, onMoveTask: mockOnMoveTask });
-
-    const row = screen.getByText("FN-001").closest("tr")!;
-
-    fireEvent.dragStart(row, {
-      dataTransfer: {
-        setData: vi.fn(),
-        effectAllowed: "move",
-      },
-    });
-
-    // Use querySelector to find the specific drop zone
-    const todoZone = document.querySelector('[data-column="todo"].list-drop-zone')!;
-    fireEvent.drop(todoZone, {
-      preventDefault: vi.fn(),
-      dataTransfer: {
-        getData: vi.fn(() => "FN-001"),
-      },
-    });
-
-    await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith("Move failed", "error");
-    });
-  });
 
   it("displays full description in title cell when no title exists", () => {
     const longDescription = "A".repeat(100);

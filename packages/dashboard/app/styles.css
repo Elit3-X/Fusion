@@ -707,15 +707,6 @@ html *::after {
     box-shadow var(--transition-normal);
 }
 
-html .card.dragging,
-html .card.dragging *,
-html .list-row.dragging,
-html .list-row.dragging *,
-html .column.drag-over,
-html .column.drag-over * {
-  transition: none !important;
-}
-
 [data-theme="light"] .agent-dialog-overlay,
 [data-theme="light"] .chat-new-dialog-backdrop {
   background: transparent;
@@ -1186,11 +1177,6 @@ rather than relying on the absence of a declaration.
   min-height: 0;
   transition: border-color var(--transition-normal);
   scroll-snap-align: center;
-}
-
-.column.drag-over {
-  border-color: var(--todo);
-  box-shadow: inset 0 0 0 1px var(--todo);
 }
 
 .column-header {

@@ -999,6 +999,7 @@ describe("TaskCard", () => {
     );
 
     fireEvent.contextMenu(document.querySelector(".card")!, { clientX: 24, clientY: 28 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Move to Todo" }));
 
     await waitFor(() => expect(onMoveTask).toHaveBeenCalledWith("FN-001", "todo", { preserveProgress: true }));
@@ -1945,43 +1946,14 @@ describe("TaskCard", () => {
     expect(screen.queryByTestId("branch-progress-badge")).toBeNull();
   });
 
-  it("keeps native card dragging enabled by default", () => {
+  /*
+  FNXC:TaskMovementContextMenu 2026-08-19-18:37:
+  Task cards must never expose native HTML drag behavior. Movement is intentional
+  context-menu work, which keeps board and touch input paths consistent.
+  */
+  it("does not expose native card dragging", () => {
     const { container } = render(<TaskCard task={makeTask()} onOpenDetail={noop} addToast={noop} />);
-    const card = container.querySelector(".card") as HTMLElement;
-    expect(card.getAttribute("draggable")).toBe("true");
-  });
-
-  it("disables native card dragging when disableDrag is true", () => {
-    const { container } = render(<TaskCard task={makeTask()} onOpenDetail={noop} addToast={noop} disableDrag={true} />);
-    const card = container.querySelector(".card") as HTMLElement;
-    expect(card.getAttribute("draggable")).toBe("false");
-  });
-
-  // FN-6389 follow-up: native HTML5 drag is desktop-mouse only and doesn't move
-  // cards via touch, but a `draggable` element still arms the browser's touch-drag
-  // heuristic, which intermittently hijacks horizontal swipes meant to scroll the
-  // mobile board. On touch-primary (coarse pointer) devices we drop `draggable`.
-  it("disables native card dragging on touch-primary (coarse pointer) devices", () => {
-    const original = window.matchMedia;
-    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-      matches: query === "(hover: none) and (pointer: coarse)",
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })) as unknown as typeof window.matchMedia;
-    try {
-      const { container } = render(<TaskCard task={makeTask()} onOpenDetail={noop} addToast={noop} />);
-      const card = container.querySelector(".card") as HTMLElement;
-      expect(card.getAttribute("draggable")).toBe("false");
-      // No drag-start handler should be wired on touch (would arm the heuristic).
-      const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
-      const prevented = !card.dispatchEvent(dragStart);
-      expect(prevented).toBe(false);
-    } finally {
-      window.matchMedia = original;
-    }
+    expect(container.querySelector(".card")).not.toHaveAttribute("draggable");
   });
 
   it.each([
@@ -4815,6 +4787,7 @@ describe("TaskCard", () => {
     expect(screen.queryByRole("button", { name: "Send back" })).toBeNull();
 
     fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to", exact: true }));
 
     expect(screen.getByRole("menuitem", { name: "Done (no merge)" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Move to Planning" })).toBeTruthy();
@@ -4846,6 +4819,7 @@ describe("TaskCard", () => {
     );
 
     fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to", exact: true }));
 
     const planningMoves = screen.getAllByRole("menuitem", { name: "Move to Planning" });
     expect(planningMoves).toHaveLength(1);
@@ -4856,6 +4830,7 @@ describe("TaskCard", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 
     fireEvent.contextMenu(document.querySelector(".card")!, { clientX: 24, clientY: 28 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move to", exact: true }));
     await waitFor(() => expect(screen.getAllByRole("menuitem", { name: "Move to Planning" })).toHaveLength(1));
     expect(screen.getByRole("menuitem", { name: "Move to Done" })).toBeTruthy();
   });
@@ -4880,6 +4855,7 @@ describe("TaskCard", () => {
     );
 
     fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to", exact: true }));
     const planningMoves = screen.getAllByRole("menuitem", { name: "Move to Planning" });
     expect(planningMoves).toHaveLength(1);
     fireEvent.click(planningMoves[0]);
@@ -4895,6 +4871,7 @@ describe("TaskCard", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to", exact: true }));
     expect(screen.queryByRole("menuitem", { name: "Done (no merge)" })).toBeNull();
     expect(screen.getAllByRole("menuitem", { name: "Move to Planning" })).toHaveLength(1);
   });
@@ -4916,6 +4893,7 @@ describe("TaskCard", () => {
     );
 
     fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to", exact: true }));
     expect(screen.getByRole("menuitem", { name: "Move to Planning" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Move to Done" })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Done (no merge)" })).toBeNull();
@@ -4935,6 +4913,7 @@ describe("TaskCard", () => {
     expect(screen.queryByRole("button", { name: "Send back" })).toBeNull();
 
     fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to", exact: true }));
 
     expect(screen.getByRole("menuitem", { name: "Move to Todo" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Move to Planning" })).toBeTruthy();
@@ -7653,16 +7632,7 @@ describe("TaskCard memo comparator provenance behavior", () => {
     ).toBe(false);
   });
 
-  it("returns false when disableDrag changes", () => {
-    const task = makeTask();
 
-    expect(
-      __test_areTaskCardPropsEqual(
-        { task, onOpenDetail: noop, addToast: noop, disableDrag: false } as any,
-        { task, onOpenDetail: noop, addToast: noop, disableDrag: true } as any,
-      ),
-    ).toBe(false);
-  });
 
   it("returns false when board context-menu action handlers change", () => {
     const task = makeTask();

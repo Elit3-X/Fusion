@@ -113,7 +113,7 @@ export function DockTaskList({ columnFlagsByTaskId,
       {revertedTasks.length > 0 && (
         <section className="dock-task-list__reverted" aria-label={t("tasks.revertedTasks", "Reverted Tasks")} data-testid="dock-reverted-tasks">
           <h3>{t("tasks.revertedTasks", "Reverted Tasks")}</h3>
-          {revertedTasks.map((task) => <TaskCard key={`reverted-${task.id}`} task={task} taskColumnFlags={columnFlagsByTaskId?.get(task.id)} projectId={projectId} onOpenDetail={handleOpenTask} onDeleteTask={onDeleteTask} onReviseTask={onReviseTask} addToast={addToast} disableDrag />)}
+          {revertedTasks.map((task) => <TaskCard key={`reverted-${task.id}`} task={task} taskColumnFlags={columnFlagsByTaskId?.get(task.id)} projectId={projectId} onOpenDetail={handleOpenTask} onDeleteTask={onDeleteTask} onReviseTask={onReviseTask} addToast={addToast} />)}
         </section>
       )}
       {isEmpty ? (
@@ -139,7 +139,6 @@ export function DockTaskList({ columnFlagsByTaskId,
             */
             onDeleteTask={onDeleteTask}
             addToast={addToast}
-            disableDrag={true}
             prAuthAvailable={prAuthAvailable}
             autoMergeEnabled={autoMergeEnabled}
           />

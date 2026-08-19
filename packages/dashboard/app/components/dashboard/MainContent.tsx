@@ -447,7 +447,6 @@ export function MainContent({
                 projectId={currentProject?.id}
                 onOpenDetail={openPluginTaskDetail}
                 addToast={addToast}
-                disableDrag={true}
                 prAuthAvailable={prAuthAvailable}
                 autoMergeEnabled={autoMerge}
                 nearDuplicateCanonicalInactive={typeof task.sourceMetadata?.nearDuplicateOf === "string"

@@ -229,20 +229,9 @@ interface ColumnProps {
   /** Manually promote a held card out of this hold column (workflow mode). */
   /** `force` waives the unplanned-for-execution gate after operator confirmation. */
   onPromote?: (taskId: string, options?: { force?: boolean }) => Promise<void>;
-  /**
-   * Pre-check whether a drop into THIS column is allowed for the dragged task.
-   * Returns null for "allowed", or an i18n messageKey for a deterministic
-   * rejection (guard/capacity/unknown-column/workflow-mismatch). When a
-   * rejection is returned, dragover is NOT prevented, so the card never renders
-   * in this column (no-move semantics, R17). The dragged task id is read from a
-   * board-level ref set on dragstart.
-   */
-  canDropTask?: (taskId: string) => string | null;
-  /** Read the id of the task currently being dragged (board-level ref). */
-  getDraggingTaskId?: () => string | null;
 }
 
-function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onRevertTask, onDeleteTask, onArchiveAllDone, sortMode, onSortModeChange, doneSortMode, onDoneSortModeChange, collapsed, onToggleCollapse, archivedHasMore, archivedLoadingMore, onLoadMoreArchived, allTasks, availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, onOpenMission, lastFetchTimeMs, taskCardFieldDefs, taskWorkflowBadges, blockerFanoutMap, prAuthAvailable, holdTaskIds, workflowMode, workflowId, workflowOptions, defaultWorkflowId, columnDisplayName, columnDescription, columnFlags, workflowContextMenuColumns, taskContextMenuColumnsByTaskId, onPromote, canDropTask, getDraggingTaskId }: ColumnProps) {
+function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onRevertTask, onDeleteTask, onArchiveAllDone, sortMode, onSortModeChange, doneSortMode, onDoneSortModeChange, collapsed, onToggleCollapse, archivedHasMore, archivedLoadingMore, onLoadMoreArchived, allTasks, availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, onOpenMission, lastFetchTimeMs, taskCardFieldDefs, taskWorkflowBadges, blockerFanoutMap, prAuthAvailable, holdTaskIds, workflowMode, workflowId, workflowOptions, defaultWorkflowId, columnDisplayName, columnDescription, columnFlags, workflowContextMenuColumns, taskContextMenuColumnsByTaskId, onPromote }: ColumnProps) {
   const { t } = useTranslation("app");
   // Anchor the board.rejection.* catalog keys for the i18next extractor (it
   // scopes `t` to the useTranslation binding, so the shared translateRejection
@@ -256,7 +245,6 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktree
     promoteRejected: t("board.rejection.promoteRejected", "This card could not be promoted."),
   }), [t]);
   void rejectionCopy;
-  const [dragOver, setDragOver] = useState(false);
   const [visibleTaskCount, setVisibleTaskCount] = useState(VISIBLE_TASKS_INITIAL);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isReplanning, setIsReplanning] = useState(false);
@@ -429,127 +417,6 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktree
   useEffect(() => {
     setVisibleTaskCount(VISIBLE_TASKS_INITIAL);
   }, [isSearchActive, searchResultSignature]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    // Don't allow dropping into archived column via drag-drop
-    if (isArchived) return;
-    // Workflow mode (R17): deterministic rejections are NO-MOVE — we do NOT
-    // call preventDefault, so the browser refuses the drop and the card never
-    // renders in this column. A null result means the drop is allowed.
-    if (workflowMode && canDropTask && getDraggingTaskId) {
-      const draggingId = getDraggingTaskId();
-      if (draggingId) {
-        const rejectionKey = canDropTask(draggingId);
-        if (rejectionKey) {
-          setInlineFeedback(translateRejectionKey(t, rejectionKey));
-          return; // no preventDefault → no-move
-        }
-      }
-    }
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOver(true);
-  }, [isArchived, workflowMode, canDropTask, getDraggingTaskId, t]);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    const el = e.currentTarget as HTMLElement;
-    if (!el.contains(e.relatedTarget as Node)) {
-      setDragOver(false);
-      setInlineFeedback(null);
-    }
-  }, []);
-
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const taskId = e.dataTransfer.getData("text/plain");
-    if (!taskId) return;
-
-    // Check if task is already in this column - if so, skip the API call
-    const task = tasks.find((t) => t.id === taskId);
-    if (task && task.column === column) {
-      return; // No-op: task is already in this column
-    }
-
-    try {
-      const sourceTask = allTasks?.find((t) => t.id === taskId) ?? task;
-      const hasStepProgress = sourceTask?.steps.some((step) => step.status !== "pending") ?? false;
-      /*
-      FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — R8 drift conversion):
-      This component's `column` IS the drop target, so its own `columnFlags` are the
-      target's traits — no lookup needed, unlike the same prompt in TaskCard/ListView
-      where the card and the destination differ. Ids remain the fallback for the
-      no-metadata window.
-      */
-      /*
-      FNXC:WorkflowResolvedColumns 2026-07-30-19:20 (Phase B — consolidated, semantics verified):
-      Routed through `isPreImplementationColumnRole`. This is the SAME preserve-progress prompt that
-      helper was written for — ListView asks it about a move target, this component asks it about
-      itself — and the degraded id sets are identical (`{todo, triage}`), so the consolidation is
-      exact rather than approximately right.
-
-      Verified before consolidating, because the sibling case in TaskContextMenu is NOT
-      interchangeable: `isPreExecutionHoldColumn` drives the Plan affordance and its degraded set is
-      `{triage}` alone, so routing THAT through this helper added `plan` to flagless `todo` cards.
-      Same shape, different degraded answer — matched here, kept separate there.
-      */
-      const shouldPrompt = hasStepProgress && isPreImplementationColumnRole(columnFlags, column);
-      let moveOptions: { preserveProgress?: boolean } | undefined;
-
-      if (shouldPrompt) {
-        const keepProgress = await confirm({
-          title: t("column.preserveProgressTitle", "Preserve Progress?"),
-          message: t("column.preserveProgressMessage", "This task has completed steps. Keep progress before moving?"),
-          confirmLabel: t("column.keepProgress", "Keep Progress"),
-          cancelLabel: t("column.resetProgress", "Reset Progress"),
-        });
-
-        if (keepProgress) {
-          moveOptions = { preserveProgress: true };
-        } else {
-          const resetProgress = await confirm({
-            title: t("column.resetProgressTitle", "Reset Progress?"),
-            message: t("column.resetProgressMessage", "Reset all step progress before moving this task?"),
-            confirmLabel: t("column.resetProgressConfirm", "Reset Progress"),
-            cancelLabel: t("column.cancelMove", "Cancel Move"),
-            danger: true,
-          });
-          if (!resetProgress) {
-            return;
-          }
-        }
-      }
-
-      await onMoveTask(taskId, column, moveOptions);
-    } catch (err) {
-      // Workflow mode (R17): a structured 409 carries a typed rejection. The
-      // optimistic move snaps back automatically (the next SSE/refresh restores
-      // the card's real column); surface the translated rejection messageKey.
-      const rejection = extractTransitionRejection(err);
-      if (rejection) {
-        addToast(translateRejection(t, rejection), "error");
-      } else {
-        addToast(getErrorMessage(err), "error");
-      }
-    }
-  /*
-  FNXC:WorkflowResolvedColumns 2026-07-31-00:40:
-  `columnFlags` BELONGS IN THIS LIST — the drop handler asks it whether this lane is pre-implementation.
-
-  `shouldPrompt` gates the "Preserve Progress?" confirmation on
-  `isPreImplementationColumnRole(columnFlags, column)`. The flags arrive after first paint, and
-  `useCallback` without them in its deps hands the DOM the closure built during the pre-load render.
-  In that closure the helper falls back to `LEGACY_PRE_IMPLEMENTATION_COLUMN_IDS`, which does not
-  contain a renamed intake/hold lane — so `shouldPrompt` is false and a card with completed steps is
-  moved WITHOUT asking, silently resetting progress the user was meant to be offered a choice about.
-
-  SEVERITY, STATED HONESTLY: `allTasks` and `tasks` are in this list and change identity on any
-  task-list refresh, so the stale closure is rebuilt within seconds on an active board — a window,
-  not a permanent wrong answer, like the near-duplicate chip and unlike the TaskCard ticker whose
-  refreshing dependency fired only at local midnight. The window is exactly the quiet gap after the
-  traits land, and a drop inside it loses work without a prompt.
-  */
-  }, [addToast, allTasks, column, columnFlags, confirm, onMoveTask, tasks, t]);
 
   /*
   FNXC:BoardPromote 2026-07-25-04:55:
@@ -902,11 +769,8 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, showWorktree
 
   return (
     <div
-      className={`column${dragOver ? " drag-over" : ""}${isArchived ? " column-archived" : ""}${isCollapsed ? " column-collapsed" : ""}`}
+      className={`column${isArchived ? " column-archived" : ""}${isCollapsed ? " column-collapsed" : ""}`}
       data-column={column}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       <div className="column-header">
         <div className={`column-dot dot-${column}`} />

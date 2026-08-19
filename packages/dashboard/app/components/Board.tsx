@@ -14,7 +14,6 @@ import { useColumnScrollSnap } from "../hooks/useColumnScrollSnap";
 import { useBoardMousePan } from "../hooks/useBoardMousePan";
 import { MOBILE_MEDIA_QUERY, useViewportMode } from "../hooks/useViewportMode";
 import { recordResumeEvent } from "../utils/resumeInstrumentation";
-import { getBoardCanDropTaskRejection } from "./boardCanDropTask";
 import { WorkflowSwitcher } from "./WorkflowSwitcher";
 import { computeWorkflowStatusCounts } from "./workflowStatusCounts";
 import { writeBoardWorkflowsCache } from "../utils/boardWorkflowsCache";
@@ -412,7 +411,6 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
     refreshBoardWorkflows,
     setBoardWorkflowsState,
   } = useBoardWorkflows({ projectId });
-  const draggingTaskIdRef = useRef<string | null>(null);
 
   /*
   FNXC:WorkflowResolvedColumns 2026-07-30-23:15 (the board's fan-out read the LEGACY lanes):
@@ -449,7 +447,6 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
     }
   }, [onToggleAutoMerge]);
 
-  const getDraggingTaskId = useCallback(() => draggingTaskIdRef.current, []);
 
   const workflowStatusCounts = useMemo(() => {
     /*
@@ -888,52 +885,6 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
     return grouped;
   }, [aggregateBoardColumns, aggregateQuickCreateTarget, boardWorkflows, getColumnSortMode, getEffectiveTaskWorkflowId, tasks, workflowColumnsByWorkflowId]);
 
-  // Drag pre-check (R17): adjacency + capacity from the lane's column metadata.
-  // Cross-lane drag → workflow-mismatch. Deterministic rejections return a
-  // messageKey (no-move); null = allowed.
-  const canDropTask = useCallback((taskId: string, targetColumnId: string, laneWorkflowId: string): string | null => (
-    getBoardCanDropTaskRejection({
-      boardWorkflows,
-      tasks,
-      maxConcurrent,
-      taskId,
-      targetColumnId,
-      laneWorkflowId,
-    })
-  ), [boardWorkflows, tasks, maxConcurrent]);
-
-  /*
-  FNXC:WorkflowBoard 2026-07-29-00:00 (U12 — measured perf fix):
-  Bind `canDropTask` per (lane, column) ONCE per dependency change instead of creating
-  a new arrow inline in the render. `Column` is `React.memo`, and a fresh function
-  identity on any prop defeats that entirely — so before this, ANY Board state change
-  (collapsing the archived column, changing Done sort, opening the switcher)
-  re-rendered EVERY column and every card beneath it, not just the affected one.
-
-  This was invisible for a long time: the "keeps unaffected columns stable" regression
-  test measured the LEGACY single-lane board, whose props were all stable. Deleting
-  that board (U12 part 1) repointed the test at the real board, where it failed. I
-  instrumented `React.memo`'s comparator to list which props actually change identity
-  on a collapse toggle, and the answer was exactly one: `canDropTask`.
-
-  A `useRef` cache invalidated by `useEffect` does NOT work here, which is why my first
-  attempt at this failed and was reverted: the effect runs AFTER the render that
-  populated the cache, so it wipes the very bindings that render created and the next
-  render allocates fresh ones. `useMemo` keyed on the resolver has no such window —
-  the map lives exactly as long as the closure it belongs to.
-  */
-  const canDropTaskBinder = useMemo(() => {
-    const bindings = new Map<string, (taskId: string) => string | null>();
-    return (columnId: string, laneWorkflowId: string) => {
-      const key = `${laneWorkflowId}::${columnId}`;
-      let bound = bindings.get(key);
-      if (!bound) {
-        bound = (taskId: string) => canDropTask(taskId, columnId, laneWorkflowId);
-        bindings.set(key, bound);
-      }
-      return bound;
-    };
-  }, [canDropTask]);
 
   // FN-4380: GitHub badge state comes from persisted task fields (`task.prInfo`,
   // `task.issueInfo`, `task.githubTracking.issue`) and live WebSocket `badge:updated`
@@ -1076,7 +1027,6 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
                     onDeleteTask={onDeleteTask}
                     onReviseTask={onReviseTask}
                     addToast={addToast}
-                    disableDrag
                   />
                 ))}
               </section>
@@ -1094,13 +1044,6 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
           id="board"
           ref={setBoardRef}
           {...boardMousePanHandlers}
-          onDragStart={(e) => {
-            const id = (e.target as HTMLElement)?.closest?.("[data-id]")?.getAttribute("data-id");
-            if (id) draggingTaskIdRef.current = id;
-          }}
-          onDragEnd={() => {
-            draggingTaskIdRef.current = null;
-          }}
         >
           {selectedWorkflowColumns.map((columnDef) => {
             const isCreateColumn = columnDef.id === selectedWorkflowCreateColumnId;
@@ -1125,8 +1068,6 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
                 showWorktreeGrouping={showWorktreeGrouping}
                 onMoveTask={onMoveTask}
                 onPromote={handlePromote}
-                canDropTask={canDropTaskBinder(columnDef.id, selectedWorkflow.id)}
-                getDraggingTaskId={getDraggingTaskId}
                 onPauseTask={onPauseTask}
                 onUnpauseTask={onUnpauseTask}
                 onResetTask={onResetTask}
@@ -1170,7 +1111,7 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
           {partitionRevertedTasks(selectedWorkflowTasks).reverted.length > 0 && (
             <section className="reverted-tasks-section" aria-label={t("tasks.revertedTasks", "Reverted Tasks")} data-testid="board-reverted-tasks">
               <h2>{t("tasks.revertedTasks", "Reverted Tasks")}</h2>
-              {partitionRevertedTasks(selectedWorkflowTasks).reverted.map((task) => <TaskCard key={`reverted-${task.id}`} task={task} taskColumnFlags={blockerFanoutColumnFlagsByTaskId.get(task.id)} onOpenDetail={onOpenDetail} onDeleteTask={onDeleteTask} onReviseTask={onReviseTask} addToast={addToast} disableDrag />)}
+              {partitionRevertedTasks(selectedWorkflowTasks).reverted.map((task) => <TaskCard key={`reverted-${task.id}`} task={task} taskColumnFlags={blockerFanoutColumnFlagsByTaskId.get(task.id)} onOpenDetail={onOpenDetail} onDeleteTask={onDeleteTask} onReviseTask={onReviseTask} addToast={addToast} />)}
             </section>
           )}
           {selectedWorkflowArchivedColumn && (
@@ -1191,8 +1132,6 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
               showWorktreeGrouping={showWorktreeGrouping}
               onMoveTask={onMoveTask}
               onPromote={handlePromote}
-              canDropTask={canDropTaskBinder(selectedWorkflowArchivedColumn.id, selectedWorkflow.id)}
-              getDraggingTaskId={getDraggingTaskId}
               onPauseTask={onPauseTask}
               onUnpauseTask={onUnpauseTask}
               onResetTask={onResetTask}

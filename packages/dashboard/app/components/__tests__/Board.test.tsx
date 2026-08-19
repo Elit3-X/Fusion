@@ -118,7 +118,7 @@ vi.mock("../Column", () => ({
           </button>
         ) : null}
         {tasks.map((task) => (
-          <article key={task.id} data-id={task.id} draggable data-testid={`board-task-card-${task.id}`}>
+          <article key={task.id} data-id={task.id} data-testid={`board-task-card-${task.id}`}>
             {task.title ?? task.description ?? task.id}
           </article>
         ))}
@@ -2074,7 +2074,11 @@ describe("Board", () => {
       expect(board).not.toHaveClass("is-mouse-panning");
 
       const card = screen.getByTestId("board-task-card-FN-1");
-      expect(card).toHaveAttribute("draggable", "true");
+      /*
+      FNXC:TaskCardInteraction 2026-08-19-19:07:
+      Native task dragging is retired; cards remain ordinary pointer targets so board panning excludes them without preserving the drag contract.
+      */
+      expect(card).not.toHaveAttribute("draggable");
       fireEvent.pointerDown(card, { button: 0, clientX: 100, clientY: 50, pointerId: 2, pointerType: "mouse" });
       fireEvent.pointerMove(card, { clientX: 40, clientY: 50, pointerId: 2, pointerType: "mouse" });
       fireEvent.pointerUp(card, { pointerId: 2, pointerType: "mouse" });
