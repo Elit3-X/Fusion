@@ -2,6 +2,48 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
+## 0.77.0-beta.3
+
+### Highlights
+
+- Remote login links mint an expiring session cookie instead of handing over the dashboard token
+- Idle and paused projects drop from ~98% CPU toward under 50% via 60s outbox polling
+- Terminal sessions are shared across browsers, with Reopen and close-here vs end-session
+- Starting Fusion no longer stalls on onboarding prompts on a working Postgres install
+- New Prometheus /metrics endpoint on the dashboard port for runtime and project metrics
+
+### Security
+
+- Remote login links no longer redirect with the dashboard's non-expiring token in the URL. Opening `/remote-login` now sets an opaque, expiring, revocable HttpOnly session cookie, so revoking a remote token actually logs the recipient out. Persistent links get a 30-day in-memory session; short-lived links can never outlive the token that authorised them.
+- Starting a remote tunnel with no engine running now reports `stopped` with a clear reason instead of claiming it is starting.
+
+### New
+
+- `pnpm dev --tunnel` publishes a dev server through a Cloudflare quick tunnel and prints the public URL. Accepts `--tunnel=PORT` plus `FUSION_DEV_TUNNEL`/`FUSION_DEV_TUNNEL_PORT`; tunnel failure is non-fatal and watch-mode restarts keep the same shared link alive.
+- Terminal sessions are now shared across browsers. A browser with no stored tabs adopts the server's running sessions instead of spawning its own PTY, closing a tab asks whether to close here or end the session, and a footer Reopen control reattaches to detached sessions.
+- A `GET /metrics` endpoint on the dashboard exposes runtime metrics (CPU time, heap/RSS, request count and latency, child-process and git spawns) and domain metrics (active/idle projects, board tasks, running agents, Postgres queries per second) in Prometheus text format. The body is unauthenticated on the existing dashboard port — bind to a trusted network if that matters.
+
+### Performance
+
+- Idle task-lifecycle outbox consumers back off from a fixed 5s poll toward a 60s cadence with jitter, so paused and idle projects stop the poll storm that pinned CPU near 98%. A new event mid-backoff snaps the cadence back to 5s, and delivery ordering and at-least-once guarantees are unchanged.
+
+### Fixed
+
+- Starting Fusion on a working install no longer auto-launches onboarding and no longer stops dead on "Run ai provider setup now?" — the initialized-install check now recognises an embedded Postgres data directory, and auto-launched onboarding runs non-interactively. Explicit `fn onboard` keeps every step.
+- Onboarding always creates the central database instead of asking, since declining produced an install Fusion cannot run on and blocked non-interactive startups.
+- Remote tunnels target the dashboard's actual bound port instead of hardcoding 4040, so a `--port` override or an ephemeral rebind no longer publishes a tunnel to whatever else owns 4040.
+- `pnpm dev --tunnel` now tunnels the dev server's real port, prints its real bearer token and a ready-to-open `?token=` link, and waits for the server to come up rather than publishing a URL to another instance.
+- The tunnel URL is now readable in the dashboard TUI as its own Tunnel row — including operator-started remote tunnels — instead of being painted over by the TUI, and the row is measured so a long trycloudflare hostname cannot squeeze itself out of the panel.
+- Pressing Enter on the TUI System panel no longer kills the TUI when no URL opener is installed.
+- Stopping `pnpm dev` with a signal now tears down the dev server and its tunnel instead of orphaning a live public URL.
+- A persistent remote link no longer expires after 15 minutes.
+- Reconnecting to a terminal no longer duplicates its history, and two browsers sharing a session now size the PTY to the smallest attached viewer instead of last-writer-wins. Attaching a new viewer also no longer eats queued output from everyone already watching.
+
+### Internal
+
+- The agent session terminal clears before replaying scrollback, matching its protocol; unused central-DB path plumbing was dropped from the backup manager.
+- Repaired four red workspace-merge tests caused by a stale module mock.
+
 ## 0.77.0-beta.2
 
 ### Highlights
