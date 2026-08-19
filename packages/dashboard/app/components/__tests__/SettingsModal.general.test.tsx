@@ -276,6 +276,41 @@ describe("SettingsModal", () => {
     expect(mockUpdateSettings).toHaveBeenCalled();
     expect(mockUpdateSettings.mock.calls.at(-1)?.[0]).toMatchObject({ recommendationMailboxNoticeEnabled: false });
   });
+
+  it.each(["mobile", "desktop"] as const)("shows exactly one default-off required recommendation toggle on %s", async (mode) => {
+    viewportMode = mode;
+    renderModal({ initialSection: "general" });
+    await waitForSettingsModalReady();
+
+    const toggle = screen.getByRole("checkbox", { name: "Require automatic task recommendations" });
+    expect(screen.getAllByRole("checkbox", { name: "Require automatic task recommendations" })).toHaveLength(1);
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText(/cap 0 disables capture regardless/i)).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.click(toggle);
+    await flushSettingsAutoSave();
+    vi.useRealTimers();
+    expect(mockUpdateSettings.mock.calls.at(-1)?.[0]).toMatchObject({ requireTaskRecommendations: true });
+  });
+
+  it("renders enabled required recommendations and preserves one usable control when capture is disabled", async () => {
+    mockFetchSettings.mockResolvedValueOnce({
+      ...defaultSettings,
+      requireTaskRecommendations: true,
+      maxRecommendationsPerTask: 0,
+    });
+    mockFetchSettingsByScope.mockResolvedValueOnce({
+      global: defaultSettings,
+      project: { requireTaskRecommendations: true, maxRecommendationsPerTask: 0 },
+    });
+    renderModal({ initialSection: "general" });
+    await waitForSettingsModalReady();
+
+    expect(screen.getByRole("checkbox", { name: "Require automatic task recommendations" })).toBeChecked();
+    expect(screen.getAllByRole("checkbox", { name: "Require automatic task recommendations" })).toHaveLength(1);
+    expect(screen.getByText(/cap 0 disables capture regardless/i)).toBeInTheDocument();
+  });
   // Keep Advanced off by default so disclosure default/persist tests stay truthful.
   installSettingsModalEnv({ advancedSettings: false });
 
@@ -1821,6 +1856,7 @@ describe("SettingsModal", () => {
       expect(payload.autoMerge).toBeNull();
       expect(payload.maxConcurrent).toBeNull();
       expect(payload.maxRecommendationsPerTask).toBeNull();
+      expect(payload.requireTaskRecommendations).toBeNull();
       expect(payload.recommendationMailboxNoticeEnabled).toBeNull();
       // Global-only key must never appear in a project-scope reset payload.
       expect(payload).not.toHaveProperty("themeMode");

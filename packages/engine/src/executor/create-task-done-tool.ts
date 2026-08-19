@@ -97,7 +97,7 @@ export function createTaskDoneTool(
         "documentation is updated — call as the final action after finishing all work; automatically marks all " +
         "remaining steps as done. At this accepted final checkpoint, when recommendation capture is enabled, submit up to " +
         "the project cap of genuine, task-ready out-of-scope recommendations with stable unique ids, or explicitly send " +
-        "recommendations: [] when none qualify; at cap 0, omit recommendations (an empty list is accepted for compatibility). " +
+        "recommendations: [] when none qualify; when required by project policy, an explicit array is mandatory, but a shorter list or [] is valid when relevance does not support more; at cap 0, omit recommendations. " +
         "Do not use recommendations for required fixes, blockers, secrets, commands, or reasoning. " +
         "With outcome=\"blocked\": honestly park the task when the work genuinely cannot proceed (upstream API break, " +
         "missing dependency task, unresolvable external blocker). Blocked is NOT a completion claim — it does not " +
@@ -117,7 +117,7 @@ export function createTaskDoneTool(
           title: Type.String(),
           description: Type.String(),
           category: Type.Union([Type.Literal("improvement"), Type.Literal("feature"), Type.Literal("bug"), Type.Literal("other")]),
-        }), { description: "For accepted completed outcomes when capture is enabled: submit at most the project cap of task-ready out-of-scope suggestions with unique stable ids, or [] when none qualify. At cap 0, omit this field; an empty list is accepted for compatibility but populated input is rejected. Never send for blocked/refused outcomes or include mandatory fixes, secrets, executable commands, or reasoning." })),
+        }), { description: "For accepted completed outcomes when capture is enabled: submit at most the project cap of task-ready out-of-scope suggestions with unique stable ids, or [] when none qualify. When requireTaskRecommendations is enabled and the cap is positive, this field is mandatory, but a shorter list or [] is valid when relevance does not support more. At cap 0, omit this field; populated input is rejected. Never send for blocked/refused outcomes or include mandatory fixes, secrets, executable commands, or reasoning." })),
         /*
         FNXC:Lifecycle 2026-07-16-10:20:
         FN-8141 laundered a genuinely-impossible task into `done`: fn_task_done only expressed success, the bulk-completion
@@ -429,9 +429,21 @@ export function createTaskDoneTool(
           };
         }
 
+        const maximumRecommendations = settings.maxRecommendationsPerTask ?? 3;
+        /*
+        FNXC:TaskRecommendations 2026-08-19-13:05:
+        Required mode is an explicit evaluation contract, not a quota. Refuse only an omitted array at the live accepted-completion boundary; valid empty, short, and at-cap arrays remain quality-first outcomes.
+        */
+        if (settings.requireTaskRecommendations === true && maximumRecommendations > 0 && params.recommendations === undefined) {
+          const message = `Cannot mark task done yet — project policy requires an explicit recommendations array when maxRecommendationsPerTask is ${maximumRecommendations}. Send relevant recommendations or recommendations: [] and call fn_task_done() again.`;
+          return {
+            content: [{ type: "text" as const, text: message }],
+            details: { error: message },
+          };
+        }
         const completionRecommendations = params.recommendations === undefined
           ? undefined
-          : validateCompletionRecommendations(params.recommendations, settings.maxRecommendationsPerTask ?? 3);
+          : validateCompletionRecommendations(params.recommendations, maximumRecommendations);
         if (typeof completionRecommendations === "string") {
           return {
             content: [{ type: "text" as const, text: `Cannot mark task done yet — ${completionRecommendations}.` }],

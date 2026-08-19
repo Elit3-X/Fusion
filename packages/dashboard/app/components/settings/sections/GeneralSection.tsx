@@ -201,6 +201,17 @@ export function GeneralSection({ form, setForm, projectId, addToast, prefixError
         value={form.maxRecommendationsPerTask ?? 3}
         onChange={(value) => setForm((current) => ({ ...current, maxRecommendationsPerTask: value ?? 3 }))}
       />
+      {/* FNXC:TaskRecommendations 2026-08-19-13:05: A single shared project toggle makes completion evaluation mandatory only for positive caps; relevance wins over filling the configured maximum, and cap 0 remains authoritative. */}
+      <SettingsToggleRow
+        descriptor={{
+          key: "requireTaskRecommendations",
+          label: t("settings.general.requireTaskRecommendations", "Require automatic task recommendations"),
+          help: t("settings.general.requireTaskRecommendationsHelp", "Default: disabled. When enabled, successful completion must explicitly evaluate grounded follow-ups. The executor aims toward the configured maximum, but fewer or [] are correct when relevance does not support more; cap 0 disables capture regardless of this setting."),
+          scope: "project",
+        }}
+        value={form.requireTaskRecommendations === true}
+        onChange={(value) => setForm((current) => ({ ...current, requireTaskRecommendations: value === true }))}
+      />
       {/*
         FNXC:TaskRecommendations 2026-08-13-03:56:
         The operator asked to be notified in the mailbox when a completed task produces
@@ -259,11 +270,11 @@ export function GeneralSection({ form, setForm, projectId, addToast, prefixError
             <SettingsHelpTip settingKey="enabledBuiltinWorkflowIds">{t("settings.general.disabledFusionWorkflowsAreHiddenFromWorkflow", "Disabled Fusion workflows are hidden from workflow pickers. Existing tasks that already use one continue to resolve. Default: all built-in workflows enabled (unset).")}</SettingsHelpTip>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-            <span id="builtin-workflow-enablement-hint" className="sr-only">At least one built-in workflow must remain enabled.</span>
+            <span id="builtin-workflow-enablement-hint" className="sr-only">{t("settings.general.builtinWorkflowAtLeastOneEnabled", "At least one built-in workflow must remain enabled.")}</span>
             {builtinWorkflows.map((workflow) => {
                 const checked = enabledBuiltinWorkflowIds.has(workflow.id);
                 const isLastEnabled = checked && enabledBuiltinWorkflowCount <= 1;
-                return (<label key={workflow.id} htmlFor={`builtin-workflow-${workflow.id}`} className="checkbox-label" title={isLastEnabled ? "At least one built-in workflow must remain enabled" : undefined}>
+                return (<label key={workflow.id} htmlFor={`builtin-workflow-${workflow.id}`} className="checkbox-label" title={isLastEnabled ? t("settings.general.builtinWorkflowAtLeastOneEnabled", "At least one built-in workflow must remain enabled.") : undefined}>
                 <input id={`builtin-workflow-${workflow.id}`} type="checkbox" checked={checked} disabled={isLastEnabled} aria-describedby="builtin-workflow-enablement-hint" onChange={(e) => setBuiltinWorkflowEnabled(workflow.id, e.target.checked)}/>
                 <WorkflowIcon workflowId={workflow.id} decorative />
                 <span>{workflow.name}</span>

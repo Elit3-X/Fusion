@@ -1040,6 +1040,14 @@ export interface ProjectSettings {
    */
   maxRecommendationsPerTask?: number;
   /**
+   * FNXC:TaskRecommendations 2026-08-19-13:05:
+   * Default-off project policy requiring an explicit completion recommendation
+   * evaluation when the cap is positive. The executor targets the cap for
+   * relevant, task-ready findings, but a shorter list or [] is correct when
+   * grounded candidates do not qualify; this setting never authorizes filler.
+   */
+  requireTaskRecommendations?: boolean;
+  /**
    * FNXC:TaskRecommendations 2026-08-13-03:56:
    * The operator requested an on/off switch for recommendation mailbox notices. This controls
    * best-effort observability only; disabling it never changes recommendation capture or storage.

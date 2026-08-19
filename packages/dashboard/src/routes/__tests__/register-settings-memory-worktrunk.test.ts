@@ -95,6 +95,11 @@ function createApp(pluginRunner?: Record<string, unknown>, daemonToken?: string)
     {
       githubToken: undefined,
       validateModelPresets: vi.fn(() => undefined),
+      sanitizeBooleanSetting: vi.fn((name: string, value: unknown) => {
+        if (value === undefined || value === null) return undefined;
+        if (typeof value !== "boolean") throw new Error(`${name} must be a boolean`);
+        return value;
+      }),
       sanitizeOverlapIgnorePaths: vi.fn(() => undefined),
       discoverDashboardPiExtensions: vi.fn(async () => ({
         manifestPaths: [],
@@ -181,6 +186,29 @@ describe("register-settings-memory-routes worktrunk gate", () => {
     expect(resolveWorktrunkBinaryMock).not.toHaveBeenCalled();
     expect(probeWorktrunkMock).not.toHaveBeenCalled();
     expect(scopedStore.updateSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitizes required recommendation policy as a project boolean", async () => {
+    const { app, scopedStore } = createApp();
+
+    expect((await patchSettings(app, { requireTaskRecommendations: true })).status).toBe(200);
+    expect(scopedStore.updateSettings).toHaveBeenCalledWith(
+      { requireTaskRecommendations: true },
+      expect.anything(),
+    );
+
+    scopedStore.updateSettings.mockClear();
+    expect((await patchSettings(app, { requireTaskRecommendations: false })).status).toBe(200);
+    expect(scopedStore.updateSettings).toHaveBeenCalledWith(
+      { requireTaskRecommendations: false },
+      expect.anything(),
+    );
+
+    scopedStore.updateSettings.mockClear();
+    const malformed = await patchSettings(app, { requireTaskRecommendations: "true" });
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error).toContain("requireTaskRecommendations must be a boolean");
+    expect(scopedStore.updateSettings).not.toHaveBeenCalled();
   });
 
   it("rejects an empty built-in workflow set before persistence", async () => {

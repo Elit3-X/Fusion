@@ -6089,6 +6089,7 @@
       "allowEphemeralAgentsToCreateTasksHint": "",
       "quickChatCloseOnOutsideClickHint": "",
       "disabledFusionWorkflowsAreHiddenFromWorkflow": "",
+      "builtinWorkflowAtLeastOneEnabled": "",
       "autoTranslateImportedIssues": "",
       "autoTranslateImportedIssuesHelp": "",
       "translationTargetLanguage": "",
@@ -6146,6 +6147,8 @@
       "refinementTaskWorkflowHelp": "",
       "maxRecommendationsPerTask": "",
       "maxRecommendationsPerTaskHelp": "",
+      "requireTaskRecommendations": "",
+      "requireTaskRecommendationsHelp": "",
       "recommendationMailboxNoticeEnabled": "",
       "recommendationMailboxNoticeEnabledHelp": ""
     },

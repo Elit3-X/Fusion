@@ -6097,6 +6097,7 @@
       "ephemeralAgentTaskCreationPolicyDeny": "Negar",
       "quickChatCloseOnOutsideClickHint": "Quando ativado, clicar fora da janela do Chat Rápido a fecha. Desative para mantê-la aberta até que você a feche explicitamente. Padrão: ativado.",
       "disabledFusionWorkflowsAreHiddenFromWorkflow": "Fluxos de trabalho do Fusion desativados ficam ocultos nos seletores de fluxo de trabalho. Tarefas existentes que já usam um deles continuam sendo processadas normalmente. Padrão: todos os fluxos de trabalho integrados ativados (não definido).",
+      "builtinWorkflowAtLeastOneEnabled": "",
       "aiUndoTaskWorkflow": "Fluxo de trabalho de tarefas de reversão por IA",
       "aiUndoTaskWorkflowInherit": "Herdar fluxo de trabalho padrão do projeto",
       "aiUndoTaskWorkflowHelp": "Fluxo de trabalho atribuído a tarefas de reversão por IA (AI-undo), que revertem código já publicado e exigem revisão mais rigorosa. Escolha \"Herdar fluxo de trabalho padrão do projeto\" para mantê-las no padrão do projeto. Padrão: com foco intenso em revisão.",
@@ -6135,7 +6136,9 @@
       "recommendationMailboxNoticeEnabled": "",
       "recommendationMailboxNoticeEnabledHelp": "",
       "maxRecommendationsPerTask": "Máximo de recomendações por tarefa",
-      "maxRecommendationsPerTaskHelp": "Padrão: 3. Defina 0 para desativar recomendações; escolha um número inteiro de 1 a 20 para limitar cada tarefa concluída."
+      "maxRecommendationsPerTaskHelp": "Padrão: 3. Defina 0 para desativar recomendações; escolha um número inteiro de 1 a 20 para limitar cada tarefa concluída.",
+      "requireTaskRecommendations": "",
+      "requireTaskRecommendationsHelp": ""
     },
     "mobileNav": {
       "label": "Seção de configurações"

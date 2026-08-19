@@ -63,6 +63,9 @@ describe("settings key parity", () => {
     expect(isProjectSettingsKey("maxConcurrent")).toBe(true);
     expect(isProjectSettingsKey("maxRecommendationsPerTask")).toBe(true);
     expect(isGlobalSettingsKey("maxRecommendationsPerTask")).toBe(false);
+    expect(isProjectSettingsKey("requireTaskRecommendations")).toBe(true);
+    expect(isGlobalSettingsKey("requireTaskRecommendations")).toBe(false);
+    expect(DEFAULT_PROJECT_SETTINGS.requireTaskRecommendations).toBe(false);
     expect(isProjectSettingsKey("chatMessageLayout")).toBe(true);
     expect(isGlobalSettingsKey("chatMessageLayout")).toBe(false);
     expect(PROJECT_SETTINGS_KEYS).toContain("chatMessageLayout");

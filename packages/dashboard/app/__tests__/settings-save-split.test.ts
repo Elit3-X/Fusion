@@ -34,6 +34,8 @@ describe("scope anchors", () => {
     expect(isProjectSettingsKey("gitlabAuthToken")).toBe(true);
     expect(isGlobalSettingsKey("gitlabAuthTokenType")).toBe(true);
     expect(isProjectSettingsKey("gitlabAuthTokenType")).toBe(true);
+    expect(isProjectSettingsKey("requireTaskRecommendations")).toBe(true);
+    expect(isGlobalSettingsKey("requireTaskRecommendations")).toBe(false);
   });
 
   it("every MODEL_LANE_KEYS entry is a project settings key", () => {
@@ -74,6 +76,20 @@ describe("resolveScopedMcpSettings", () => {
       global: { mcpServers: { enabled: true, servers: [globalServer] } },
       project: {},
     } as never)).toBeUndefined();
+  });
+});
+
+describe("required recommendation policy ownership", () => {
+  it("routes the changed toggle to the project patch only", () => {
+    const result = splitSettingsSave({
+      payload: { requireTaskRecommendations: true },
+      initialValues: { requireTaskRecommendations: false } as never,
+      initialScopedValues: { global: {}, project: { requireTaskRecommendations: false } } as never,
+      activeSection: "general",
+    });
+
+    expect(result.projectPatch).toEqual({ requireTaskRecommendations: true });
+    expect(result.globalPatch).toEqual({});
   });
 });
 

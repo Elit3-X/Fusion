@@ -93,6 +93,7 @@ const SETTING_DESCRIPTION_KEYS: Record<string, string> = {
   updateChannel: "globalGeneral.releaseChannelHelp",
   autoUpdateAndRestart: "globalGeneral.autoUpdateAndRestartHelp",
   // AppearanceSection
+  chatMessageLayout: "appearance.chatMessageLayoutHelp",
   openTasksInRightSidebar: "appearance.openTasksInRightSidebarHelp",
   openMobileTasksInPopup: "appearance.openMobileTasksInPopupHelp",
   taskPopupsBoardListOnly: "appearance.taskPopupsBoardListOnlyHelp",
@@ -295,6 +296,7 @@ const SETTING_DESCRIPTION_KEYS: Record<string, string> = {
   showTaskChatsInCommonFeed: "general.showTaskChatsInCommonFeedHint",
   taskPrefix: "general.prefixForNewTaskIDsEGKB",
   maxRecommendationsPerTask: "general.maxRecommendationsPerTaskHelp",
+  requireTaskRecommendations: "general.requireTaskRecommendationsHelp",
   recommendationMailboxNoticeEnabled: "general.recommendationMailboxNoticeEnabledHelp",
   workspaceMode: "general.workspaceModeHint",
   defaultWorkflowId: "general.newTasksInheritThisCustomWorkflowsStepsOverridable",

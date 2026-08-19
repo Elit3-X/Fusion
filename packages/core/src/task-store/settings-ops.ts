@@ -33,15 +33,19 @@ import {
  */
 /**
  * FNXC:TaskRecommendations 2026-08-08-05:02:
- * Reject an invalid project cap atomically rather than coercing an executor's
- * completion policy. Zero deliberately disables recommendations; 1..20 bounds
- * retained operator-visible suggestions.
+ * Reject invalid recommendation policy atomically rather than coercing an
+ * executor's completion contract. Zero deliberately disables recommendations;
+ * 1..20 bounds retained operator-visible suggestions, and the requirement is a
+ * project-only boolean that never permits irrelevant filler.
  */
 function assertValidRecommendationSettingsPatch(patch: Record<string, unknown>): void {
   const value = patch.maxRecommendationsPerTask;
-  if (value === undefined || value === null) return;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 20) {
+  if (value !== undefined && value !== null && (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 20)) {
     throw new Error("maxRecommendationsPerTask must be an integer between 0 and 20");
+  }
+  const requireRecommendations = patch.requireTaskRecommendations;
+  if (requireRecommendations !== undefined && requireRecommendations !== null && typeof requireRecommendations !== "boolean") {
+    throw new Error("requireTaskRecommendations must be a boolean");
   }
 }
 
@@ -349,6 +353,8 @@ export async function updateGlobalSettingsImpl(store: TaskStore, patch: Partial<
     boundary instead of allowing one project's completion cap to leak into every project.
     */
     delete (globalPatch as Record<string, unknown>).maxRecommendationsPerTask;
+    // FNXC:TaskRecommendations 2026-08-19-13:05: The completion requirement is project policy; discard untyped global patches so it cannot leak across projects.
+    delete (globalPatch as Record<string, unknown>).requireTaskRecommendations;
 
     // Handle deep merge + targeted null clear semantics for remoteAccess
     const incomingRemoteAccess = (globalPatch as Record<string, unknown>)["remoteAccess"];

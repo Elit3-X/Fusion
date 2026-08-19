@@ -647,6 +647,10 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
       if (Object.prototype.hasOwnProperty.call(clientSettings, "ignoreHiddenOverlapPaths")) {
         clientSettings.ignoreHiddenOverlapPaths = sanitizeBooleanSetting("ignoreHiddenOverlapPaths", clientSettings.ignoreHiddenOverlapPaths);
       }
+      // FNXC:TaskRecommendations 2026-08-19-13:05: Keep the required-completion policy boolean-safe at the HTTP boundary while canonical project-key routing handles scope and persistence.
+      if (Object.prototype.hasOwnProperty.call(clientSettings, "requireTaskRecommendations")) {
+        clientSettings.requireTaskRecommendations = sanitizeBooleanSetting("requireTaskRecommendations", clientSettings.requireTaskRecommendations);
+      }
       if (Object.prototype.hasOwnProperty.call(clientSettings, "overlapIgnorePaths")) {
         clientSettings.overlapIgnorePaths = sanitizeOverlapIgnorePaths(clientSettings.overlapIgnorePaths);
       }
@@ -819,6 +823,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
         || errorMessage.includes("must include both provider and modelId")
         || errorMessage.includes("mutually exclusive")
         || errorMessage.includes("enabledBuiltinWorkflowIds")
+        || errorMessage.includes("requireTaskRecommendations must be a boolean")
       ) ? 400 : 500;
       throw new ApiError(status, errorMessage);
     }

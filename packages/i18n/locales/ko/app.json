@@ -6088,6 +6088,7 @@
       "gitLabEnabledHint": "",
       "allowEphemeralAgentsToCreateTasksHint": "",
       "quickChatCloseOnOutsideClickHint": "",
+      "builtinWorkflowAtLeastOneEnabled": "",
       "disabledFusionWorkflowsAreHiddenFromWorkflow": "",
       "autoTranslateImportedIssues": "",
       "autoTranslateImportedIssuesHelp": "",
@@ -6146,6 +6147,8 @@
       "refinementTaskWorkflowHelp": "",
       "maxRecommendationsPerTask": "",
       "maxRecommendationsPerTaskHelp": "",
+      "requireTaskRecommendations": "",
+      "requireTaskRecommendationsHelp": "",
       "recommendationMailboxNoticeEnabled": "",
       "recommendationMailboxNoticeEnabledHelp": ""
     },

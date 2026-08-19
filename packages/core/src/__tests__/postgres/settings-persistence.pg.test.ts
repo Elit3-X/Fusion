@@ -124,6 +124,24 @@ pgTest("VAL-CROSS-004: Settings persistence (PostgreSQL)", () => {
     expect(settings.taskPrefix).toBe("ACTIVE");
   });
 
+  it("keeps recommendation policy project-scoped and validates it atomically", async () => {
+    const store = h.store();
+    expect((await store.getSettings()).requireTaskRecommendations).toBe(false);
+
+    await store.updateSettings({ requireTaskRecommendations: true });
+    expect((await store.getSettings()).requireTaskRecommendations).toBe(true);
+
+    // JSON/API callers can evade the GlobalSettings TypeScript shape; global persistence must not.
+    await store.updateGlobalSettings({ requireTaskRecommendations: false } as never);
+    expect((await store.getSettings()).requireTaskRecommendations).toBe(true);
+
+    await expect(store.updateSettings({ requireTaskRecommendations: "yes" } as never)).rejects.toThrow("requireTaskRecommendations must be a boolean");
+    expect((await store.getSettings()).requireTaskRecommendations).toBe(true);
+
+    await store.updateSettings({ requireTaskRecommendations: null });
+    expect((await store.getSettings()).requireTaskRecommendations).toBe(false);
+  });
+
   it("keeps the recommendation cap project-scoped when an untyped global patch includes it", async () => {
     const store = h.store();
     await store.updateSettings({ maxRecommendationsPerTask: 7 });
