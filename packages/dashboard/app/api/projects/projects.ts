@@ -137,8 +137,6 @@ export interface ProjectCreateInput {
   cloneUrl?: string;
   workspaceMode?: boolean;
   taskPrefix?: string;
-  /** Confirmed "create anyway without a git repo" when git is missing on the host (never valid for clone mode). */
-  skipGitInit?: boolean;
 }
 
 export type DockerNodeConfigInfo = DockerNodeConfig;

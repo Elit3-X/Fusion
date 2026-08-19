@@ -19,7 +19,7 @@ You can register a workspace from three surfaces:
 - The project registration API accepts `workspaceMode`. An explicit `true` requests detection; an omitted value also permits automatic detection. The detection endpoint returns `{ repos, isWorkspace }`.
 - The interactive CLI project resolver detects candidates, asks you to confirm workspace mode, initializes the store, then writes the workspace configuration.
 
-`detectWorkspaceRepos` scans only direct children of the selected root. It excludes `node_modules`, `.fusion`, `.git`, and `.pi`; a child must have a `.git` marker and pass a real Git work-tree probe. Nested repositories are not discovered. When workspace configuration is present, `ensureGitRepositoryForProjectPath` intentionally skips `git init` at the root: do not create a root repository just to make workspace mode work.
+`detectWorkspaceRepos` scans only direct children of the selected root. It excludes `node_modules`, `.fusion`, `.git`, and `.pi`; a child must have a `.git` marker and pass a real Git work-tree probe. Nested repositories are not discovered. Registration then prepares every configured or detected member: each member must have a verifiable `HEAD` and the managed `.gitignore` rules (`.fusion/`, `.pi/`, `.worktrees/`, `fusion.db`, `fusion.db-wal`, and `fusion.db-shm`). If a member is non-Git or unborn, Fusion initializes it and creates a baseline; if preparation fails, no workspace project row is registered or activated. When workspace configuration is present, `ensureGitRepositoryForProjectPath` intentionally skips `git init` at the root: do not create a root repository just to make workspace mode work.
 
 ## The workspace config file
 
@@ -39,11 +39,11 @@ For example:
 
 Each `repos` entry is relative to the workspace root and must stay inside it. Absolute paths, `..` escapes, empty values, and non-string values are rejected or filtered when `loadWorkspaceConfig` reads the file. Keep member repositories as direct children so they remain discoverable and easy to operate.
 
-The configuration file is written by registration, repository initialization, the interactive CLI resolver, and `addWorkspaceRepo`. The configuration file makes the root a workspace at repository-initialization time. The automatic path writes the `workspaceMode` setting before `workspace.json`, preventing a partially written configuration from making the next registration incorrectly treat the root as a workspace.
+The configuration file is written by registration, repository initialization, the interactive CLI resolver, and `addWorkspaceRepo`. The configuration file makes the root a workspace at repository-initialization time. The automatic path prepares members before publishing the workspace decision, then writes the `workspaceMode` setting before `workspace.json`, preventing a partially written configuration from making the next registration incorrectly treat the root as a workspace. The root remains browse-only and non-Git throughout.
 
 ## Adding a repository to an existing workspace
 
-In **Settings → General → Workspace repositories**, choose a detected candidate or enter a direct-child directory and select **Add**. The same operation is available to integrations as `POST /api/git/workspace-repos` with `{ "repo": "api" }`. Adds are idempotent. Fusion requires an in-root direct child that is a real Git work tree and rejects excluded names (`node_modules`, `.fusion`, `.git`, `.pi`), absolute paths, and escapes.
+In **Settings → General → Workspace repositories**, choose a detected candidate or enter a direct-child directory and select **Add**. The same operation is available to integrations as `POST /api/git/workspace-repos` with `{ "repo": "api" }`. Adds are idempotent. Fusion requires an in-root direct child that is a real Git work tree and rejects excluded names (`node_modules`, `.fusion`, `.git`, `.pi`, `.worktrees`), absolute paths, and escapes.
 
 A running task picks up a newly added member on its next `fn_acquire_repo_worktree` call without restarting the engine. Membership only grows during a live run: a failed or empty refresh preserves the last known-good members; removals require an engine restart. Tasks already in review or merging refuse late acquisition to avoid bypassing review; create a follow-up task instead.
 

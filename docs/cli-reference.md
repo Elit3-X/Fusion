@@ -149,10 +149,9 @@ fn init
 fn init --name my-project --path /absolute/path/to/project
 ```
 
-When the target directory is not already a Git repository, Fusion initializes
-minimal Git metadata during registration so task worktrees can be created. Use
-`fn init --git` only when you also want Fusion to create the explicit starter
-commit used by that flag.
+Project initialization is always execution-ready. When the target directory is not already a Git repository, Fusion runs `git init`, creates a verifiable baseline `HEAD` containing only the managed `.gitignore`, and verifies that task worktrees can be created. An existing committed repository keeps its history, branch, remotes, configuration, index, and user changes; missing managed ignore rules are left visible as user changes rather than committed automatically.
+
+The managed ignore entries are `.fusion/`, `.pi/`, `.worktrees/`, `fusion.db`, `fusion.db-wal`, and `fusion.db-shm`. Git readiness is required before registration or activation, so Git and filesystem failures fail the command instead of reporting a usable local project. `fn init --git` remains accepted for script compatibility and has the same behavior as the default; it is no longer a separate Git initialization path.
 
 During fresh initialization, Fusion also installs the bundled `fusion` skill into supported local agent homes when the target skill does not already exist:
 
@@ -885,9 +884,7 @@ Subcommands: `list|ls`, `add`, `remove|rm`, `show`, `info`, `set-default|default
 
 `fn project list` and `fn project show/info` report `In-Flight Agents` from live task state: in-progress executors plus triage planners whose task is in `triage` with `status === "planning"` and is not paused. The readout intentionally ignores stale persisted `projectHealth.inFlightAgentCount` bookkeeping.
 
-`fn project add` registers an existing directory with Fusion. If the directory
-does not contain a Git repository yet, Fusion runs a minimal `git init` during
-registration and fails the registration if Git is unavailable.
+`fn project add` registers an existing directory with Fusion. Registration first establishes the shared Git-readiness contract: non-Git and unborn repositories receive a baseline `HEAD`, managed Fusion-local paths are ignored, and committed repositories are preserved. If Git, ignore reconciliation, or baseline creation fails, the project is not registered or activated.
 
 ---
 
