@@ -1,7 +1,7 @@
 import type { ChatInFlightGenerationState, ChatMessage, ResolvedModelSelection, Task, TaskDetail } from "@fusion/core";
 import { isWipColumnRole } from "../utils/columnRoles";
 import { getErrorMessage } from "@fusion/core";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Check, Loader2, Maximize2, Minimize2, Pencil, Send, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ToastType } from "../hooks/useToast";
@@ -16,6 +16,10 @@ import { ProviderIcon } from "./ProviderIcon";
 import { StandardChatActionButton, StandardChatMessageItem, StandardStreamingMessage, formatModelTag } from "./StandardChatSurface";
 import { CHAT_COMMANDS, filterChatCommands, getSlashTriggerMatch, matchChatCommand, type ChatCommand } from "./chat-commands";
 import { useChatMessageLayout } from "../context/ChatMessageLayoutContext";
+import {
+  createChatInputAutosizeController,
+  type ChatInputAutosizeController,
+} from "../utils/chatInputAutosize";
 import "./TaskPlannerChatTab.css";
 
 interface TaskPlannerChatTabProps {
@@ -332,6 +336,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   const [editingPendingText, setEditingPendingText] = useState("");
   const [queueActionPending, setQueueActionPending] = useState(false);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const autosizeRef = useRef<ChatInputAutosizeController | null>(null);
   const dictation = useComposerDictation({ textareaRef: composerTextareaRef, value: draft, onChange: setDraft, projectId });
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandFilter, setCommandFilter] = useState("");
@@ -380,6 +385,24 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       : {};
   }, [planningModelId, planningModelProvider]);
   const plannerChatScopeKey = `${task.id}\u0000${projectId ?? ""}\u0000${planningModelProvider ?? ""}\u0000${planningModelId ?? ""}`;
+
+  const handleComposerRef = useCallback((textarea: HTMLTextAreaElement | null) => {
+    autosizeRef.current?.destroy();
+    autosizeRef.current = null;
+    composerTextareaRef.current = textarea;
+    if (!textarea) return;
+    autosizeRef.current = createChatInputAutosizeController(textarea);
+  }, []);
+
+  useLayoutEffect(() => {
+    autosizeRef.current?.resize({ resetManual: draft.length === 0 });
+  }, [draft]);
+
+  useLayoutEffect(() => {
+    // FNXC:ChatComposer 2026-08-19-02:00: Task and planner-session replacement starts a
+    // fresh draft target, so an intentional resize from the prior conversation is cleared.
+    autosizeRef.current?.reset();
+  }, [task.id, sessionId]);
 
   const replacePendingMessages = useCallback((nextMessages: readonly string[], resolvedSessionId = sessionIdRef.current) => {
     const normalizedMessages = normalizePendingMessages(nextMessages);
@@ -1498,7 +1521,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
       )}
       <div className="task-planner-chat-composer">
         <textarea
-          ref={composerTextareaRef}
+          ref={handleComposerRef}
           className="input task-planner-chat-input"
           aria-label={t("taskDetail.plannerChat.inputLabel", "Message planner chat")}
           placeholder={t("taskDetail.plannerChat.placeholder", "Ask the planner about this task… Type / for commands")}

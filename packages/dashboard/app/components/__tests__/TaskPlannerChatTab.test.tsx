@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { TaskPlannerChatTab } from "../TaskPlannerChatTab";
 import { ChatMessageLayoutProvider } from "../../context/ChatMessageLayoutContext";
+import { clampChatInputHeight, getChatInputAutomaticMaxHeight, getChatInputBoxMetrics } from "../../utils/chatInputAutosize";
 
 const taskPlannerChatCss = readFileSync(resolve(__dirname, "../TaskPlannerChatTab.css"), "utf8");
 const originalScrollTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop");
@@ -221,6 +222,37 @@ describe("TaskPlannerChatTab", () => {
     expect(screen.getByRole("button", { name: /Identify the next best action/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Review the plan or definition/ })).toBeInTheDocument();
     expect(screen.getAllByTestId(/task-planner-chat-starter-/)).toHaveLength(4);
+  });
+
+  it("caps the loaded planner composer, preserves deliberate expansion, and resets on clear", async () => {
+    mockFetchChatMessages.mockResolvedValueOnce({
+      messages: [{ id: "planner-history", sessionId: "chat-planner", role: "assistant", content: "Loaded planner history", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" }],
+    });
+    renderPlannerChat();
+
+    await screen.findByText("Loaded planner history");
+    const input = await screen.findByLabelText("Message planner chat") as HTMLTextAreaElement;
+    Object.defineProperty(input, "scrollHeight", {
+      configurable: true,
+      get: () => 500,
+    });
+
+    fireEvent.change(input, { target: { value: "one\ntwo\nthree\nfour\nfive\nsix" } });
+    const automaticHeight = clampChatInputHeight(500, getChatInputAutomaticMaxHeight(getChatInputBoxMetrics(input)));
+    expect(input.style.height).toBe(`${automaticHeight}px`);
+    expect(input.style.overflowY).toBe("auto");
+    expect(screen.getByTestId("task-planner-chat-transcript")).toBeInTheDocument();
+
+    input.style.height = "300px";
+    fireEvent.resize(input);
+    fireEvent.change(input, { target: { value: "one\ntwo\nthree\nfour\nfive\nsix\nmore" } });
+    expect(input.style.height).toBe("300px");
+
+    fireEvent.change(input, { target: { value: "" } });
+    await waitFor(() => {
+      expect(input).toHaveValue("");
+      expect(input.style.height).toBe(`${automaticHeight}px`);
+    });
   });
 
   it.each([
@@ -1034,14 +1066,19 @@ describe("TaskPlannerChatTab", () => {
     // the Send or Stop variant above the textarea.
     const desktopTabletHeight = "calc(var(--space-2xl) + var(--space-sm))";
     const mobileHeight = "calc(var(--space-2xl) + var(--space-lg))";
-    expect(desktopInputRule).toContain(`height: ${desktopTabletHeight};`);
+    expect(desktopInputRule).not.toMatch(/(?:^|\n)\s+height:/);
     expect(desktopInputRule).toContain(`min-height: ${desktopTabletHeight};`);
+    expect(desktopInputRule).toContain("max-height: none;");
+    expect(desktopInputRule).toContain("resize: vertical;");
+    expect(desktopInputRule).toContain("overflow-y: hidden;");
     expect(desktopSendRule).toContain(`block-size: ${desktopTabletHeight};`);
     expect(desktopSendRule).toContain(`min-block-size: ${desktopTabletHeight};`);
     expect(desktopSendRule).toContain("box-sizing: border-box;");
     expect(desktopSendRule).toContain("padding: 0;");
-    expect(mobileInputRule).toContain(`height: ${mobileHeight};`);
+    expect(mobileInputRule).not.toMatch(/(?:^|\n)\s+height:/);
     expect(mobileInputRule).toContain(`min-height: ${mobileHeight};`);
+    expect(mobileInputRule).toContain("max-height: none;");
+    expect(mobileInputRule).toContain("resize: none;");
     expect(mobileSendRule).toContain(`block-size: ${mobileHeight};`);
     expect(mobileSendRule).toContain(`min-block-size: ${mobileHeight};`);
     expect(mobileSendRule).toContain("padding: 0;");

@@ -64,6 +64,10 @@ import {
 import { buildChatReportHandoff, type ChatReportHandoff } from "./chatReportHandoff";
 import { CHAT_COMMANDS, matchChatCommand, filterChatCommands, getSlashTriggerMatch, type ChatCommand } from "./chat-commands";
 import { useChatMessageLayout } from "../context/ChatMessageLayoutContext";
+import {
+  createChatInputAutosizeController,
+  type ChatInputAutosizeController,
+} from "../utils/chatInputAutosize";
 
 /**
  * Optional task-bound context that enables the "/" command registry (e.g.
@@ -112,10 +116,6 @@ export interface ChatViewProps {
   onSendAsReport?: (handoff: ChatReportHandoff) => void;
 }
 
-// Keep a generous cap so pasted multi-paragraph text stays visible while
-// still preventing the composer from overtaking the message pane on short viewports.
-const CHAT_INPUT_MAX_HEIGHT_PX = 640;
-const TABLET_INPUT_MAX_HEIGHT_PX = 200;
 const CHAT_CONTEXT_MENU_FALLBACK_WIDTH_PX = 200;
 const CHAT_CONTEXT_MENU_VIEWPORT_MARGIN_PX = 8;
 
@@ -146,19 +146,7 @@ export function resolveChatContextMenuPosition(
 const ROOM_SKIP_SENTINEL = "__SKIP__";
 let chatViewWasPreviouslyInactive = false;
 
-export function resolveChatInputOverflowY(
-  scrollHeight: number,
-  maxHeight: number = CHAT_INPUT_MAX_HEIGHT_PX,
-): "auto" | "hidden" {
-  return scrollHeight > maxHeight ? "auto" : "hidden";
-}
-
-export function clampChatInputHeight(scrollHeight: number, maxHeight: number = CHAT_INPUT_MAX_HEIGHT_PX): number {
-  // Floor matches QuickChat (clampQuickChatInputHeight) and the CSS min-height,
-  // so a 0-scrollHeight measurement (e.g. before layout) still yields a
-  // sensible inline height instead of collapsing the composer to 0.
-  return Math.max(40, Math.min(scrollHeight, maxHeight));
-}
+export { clampChatInputHeight, resolveChatInputOverflowY } from "../utils/chatInputAutosize";
 
 function formatRelativeTime(dateStr: string, t: TFunction<"app">): string {
   const date = new Date(dateStr);
@@ -842,6 +830,8 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   const blurScrollResetTimeoutRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const roomInputRef = useRef<HTMLTextAreaElement>(null);
+  const inputAutosizeRef = useRef<ChatInputAutosizeController | null>(null);
+  const roomAutosizeRef = useRef<ChatInputAutosizeController | null>(null);
   // FNXC:VoiceInput 2026-07-24-04:10:
   // ChatView can mount direct and room composers together, so each owns a ref and dictation
   // adapter; a shared anchor would route a transcript into whichever textarea rendered last.
@@ -1744,18 +1734,15 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     setShowNewDialog(true);
   }, [chatDefaultTarget, chatSettings?.chatNewSessionMode, handleCreateSession]);
 
-  const resizeComposer = useCallback((textarea?: HTMLTextAreaElement | null) => {
-    const composer = textarea ?? inputRef.current;
-    if (!composer) {
+  const resizeComposer = useCallback((textarea?: HTMLTextAreaElement | null, options?: { resetManual?: boolean }) => {
+    if (!textarea || textarea === inputRef.current) {
+      inputAutosizeRef.current?.resize(options);
       return;
     }
-
-    const effectiveMax = mode === "tablet" ? TABLET_INPUT_MAX_HEIGHT_PX : CHAT_INPUT_MAX_HEIGHT_PX;
-
-    composer.style.height = "auto";
-    composer.style.height = `${clampChatInputHeight(composer.scrollHeight, effectiveMax)}px`;
-    composer.style.overflowY = resolveChatInputOverflowY(composer.scrollHeight, effectiveMax);
-  }, [mode]);
+    if (textarea === roomInputRef.current) {
+      roomAutosizeRef.current?.resize(options);
+    }
+  }, []);
 
   // FNXC:VoiceInput 2026-07-24-05:00: Dictation uses this same post-render resize path as
   // keyboard input, including the independently mounted room composer.
@@ -1775,25 +1762,39 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   });
 
   const handleComposerRef = useCallback((textarea: HTMLTextAreaElement | null) => {
+    inputAutosizeRef.current?.destroy();
+    inputAutosizeRef.current = null;
     inputRef.current = textarea;
     if (!textarea) return;
-    resizeComposer(textarea);
-  }, [resizeComposer]);
+    inputAutosizeRef.current = createChatInputAutosizeController(textarea);
+  }, []);
   const handleRoomComposerRef = useCallback((textarea: HTMLTextAreaElement | null) => {
+    roomAutosizeRef.current?.destroy();
+    roomAutosizeRef.current = null;
     roomInputRef.current = textarea;
     if (!textarea) return;
-    resizeComposer(textarea);
-  }, [resizeComposer]);
+    roomAutosizeRef.current = createChatInputAutosizeController(textarea);
+  }, []);
 
   useLayoutEffect(() => {
     // FNXC:VoiceInput 2026-07-24-05:00: Select the active textarea explicitly so controlled
     // programmatic updates, including dictation, resize the room composer instead of a hidden direct input.
-    resizeComposer(chatScope === "rooms" ? roomInputRef.current : inputRef.current);
+    resizeComposer(
+      chatScope === "rooms" ? roomInputRef.current : inputRef.current,
+      { resetManual: messageInput.length === 0 },
+    );
     if (focusComposerAfterPrefillRef.current) {
       focusComposerAfterPrefillRef.current = false;
       inputRef.current?.focus();
     }
   }, [chatScope, messageInput, activeSession?.id, rooms.activeRoom?.id, resizeComposer]);
+
+  useLayoutEffect(() => {
+    // FNXC:ChatComposer 2026-08-19-02:00: Session and room changes replace the mounted draft target,
+    // so a height deliberately chosen for the previous conversation must not leak into this one.
+    inputAutosizeRef.current?.reset();
+    roomAutosizeRef.current?.reset();
+  }, [chatScope, activeSession?.id, rooms.activeRoom?.id]);
 
   /*
   FNXC:ChatComposerPrefill 2026-07-30-12:00:

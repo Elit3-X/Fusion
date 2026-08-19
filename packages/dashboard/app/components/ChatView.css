@@ -1935,6 +1935,10 @@ User messages in direct (model-loop) chat carry a compact edit affordance inline
   font-size: 0.8125rem;
 }
 
+/*
+FNXC:ChatComposer 2026-08-19-02:00:
+ChatView's inline controller supplies the five-line automatic height. Desktop/tablet retain the native vertical resize affordance, while mobile disables that mouse-only affordance and keeps the same inline cap.
+*/
 .chat-input-textarea {
   /* FN-5322: this textarea sits directly inside `.chat-input-wrapper`, which
      is a column flex container (via AgentMentionPopup.css). Keep it out of
@@ -1945,21 +1949,18 @@ User messages in direct (model-loop) chat carry a compact edit affordance inline
   box-sizing: border-box;
   -webkit-appearance: none;
   appearance: none;
-  resize: none;
+  resize: vertical;
   overflow-y: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px 14px;
+  border: var(--btn-border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-family: inherit;
   line-height: 1.4;
-  max-height: 640px;
-  min-height: 40px;
-  /* Mobile keeps the desktop 640px cap because the surrounding chat-input-area
-     and thread flex bounds already prevent the composer from overtaking
-     the message pane before textarea scrolling engages. */
+  max-height: none;
+  min-height: calc(var(--space-2xl) + var(--space-sm));
   /* touch-action: manipulation allows tap-to-focus (so iOS doesn't
      auto-dismiss the keyboard between gesture frames) and blocks
      double-tap zoom + pan/zoom gestures. We previously tried `none`
@@ -1969,12 +1970,9 @@ User messages in direct (model-loop) chat carry a compact edit affordance inline
   overscroll-behavior: contain;
 }
 
-/* FN-6212: On tablet viewports (769–1024px), cap the composer to 200px
-   so it doesn't consume most of the visible thread. Desktop keeps 640px;
-   mobile is already flex-constrained by the chat-thread layout. */
-@media (min-width: 769px) and (max-width: 1024px) {
+@media (max-width: 768px) {
   .chat-input-textarea {
-    max-height: 200px;
+    resize: none;
   }
 }
 

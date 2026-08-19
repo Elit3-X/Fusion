@@ -10,6 +10,7 @@ import { isCliSessionLive, type CliSessionSummaryRecord } from "../TaskDetailMod
 import { useAgentLogs } from "../../hooks/useAgentLogs";
 import { addSteeringComment, refineTask } from "../../api";
 import { readBoardWorkflowSelection, removeBoardWorkflowSelection, writeBoardWorkflowSelection } from "../../utils/boardWorkflowSelection";
+import { clampChatInputHeight, getChatInputAutomaticMaxHeight, getChatInputBoxMetrics } from "../../utils/chatInputAutosize";
 
 vi.mock("../../hooks/useAgentLogs", () => ({
   useAgentLogs: vi.fn(),
@@ -1735,6 +1736,39 @@ describe("TaskChatTab", () => {
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton).toHaveClass("task-chat-send");
     expect(sendButton).toHaveTextContent("");
+  });
+
+  it.each([
+    ["active steering", makeTask({ column: "in-progress" })],
+    ["done-task refinement", makeTask({ column: "done" })],
+  ] as const)("caps the %s composer, preserves a deliberate expansion, and resets after clear", async (_label, task) => {
+    const user = userEvent.setup();
+    mockedAddSteeringComment.mockResolvedValue(task);
+    mockedRefineTask.mockResolvedValue(makeTask({ id: "FN-024-refinement", column: "todo" }));
+    render(<TaskChatTab task={task} projectId="project-1" active addToast={vi.fn()} />);
+
+    const input = screen.getByLabelText("Message active agent session") as HTMLTextAreaElement;
+    Object.defineProperty(input, "scrollHeight", {
+      configurable: true,
+      get: () => 500,
+    });
+
+    await user.type(input, "one\ntwo\nthree\nfour\nfive\nsix");
+    const automaticHeight = clampChatInputHeight(500, getChatInputAutomaticMaxHeight(getChatInputBoxMetrics(input)));
+    expect(input.style.height).toBe(`${automaticHeight}px`);
+    expect(input.style.overflowY).toBe("auto");
+    expect(screen.getByTestId("task-chat-transcript")).toBeInTheDocument();
+
+    input.style.height = "300px";
+    fireEvent.resize(input);
+    await user.type(input, " more");
+    expect(input.style.height).toBe("300px");
+
+    fireEvent.change(input, { target: { value: "" } });
+    await waitFor(() => {
+      expect(input).toHaveValue("");
+      expect(input.style.height).toBe(`${automaticHeight}px`);
+    });
   });
 
   it("posts composer text through addSteeringComment and clears on success", async () => {

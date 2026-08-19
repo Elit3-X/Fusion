@@ -708,6 +708,9 @@ Chat view provides project-scoped conversations with agents. The default convers
 
 Use **Settings → Appearance → Conversation layout** to choose the project-scoped message presentation for every dashboard chat surface. **Bubbles** is the default and keeps the bounded, left/right-aligned message bubbles; **Full width** lets each message use the available transcript width. The choice applies immediately to normal Chat, Quick Chat, and dock/overflow Chat hosts, as well as task-detail **Activity** and **Planner Chat**. Missing or invalid values safely use **Bubbles**.
 
+<!-- FNXC:ChatComposerDocs 2026-08-19-03:02: Primary conversation drafts must stop displacing the transcript while retaining an intentional desktop/tablet escape hatch. -->
+Primary Chat, Rooms, Activity, and Planner Chat composers grow automatically through five rendered lines, then scroll excess text inside the input. On desktop and tablet, drag the native vertical resize affordance to enlarge the current draft; that manual height is in-memory only, is not saved, and resets when the draft is cleared, sent, or the conversation/task target changes. Mobile keeps the composer compact, capped at five lines, and internally scrolling without advertising a mouse-only resize affordance.
+
 ## Mailbox archive
 
 Mailbox Inbox, Outbox, and agent lists exclude archived correspondence and unread badges ignore it. Select **Archived** to review archived messages and restore them; Archive is the default removal action and Delete remains available as an explicit destructive action.

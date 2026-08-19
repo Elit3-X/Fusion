@@ -19,7 +19,10 @@ import { PLANNER_AGENT_ROLE } from "@fusion/core";
 import { linkifyFilePaths } from "../utils/filePathLinkify";
 import { formatRelativeTimeAgo } from "../utils/relativeTimeAgo";
 import { ProviderIcon } from "./ProviderIcon";
-import { clampChatInputHeight, resolveChatInputOverflowY } from "../utils/chatInputAutosize";
+import {
+  createChatInputAutosizeController,
+  type ChatInputAutosizeController,
+} from "../utils/chatInputAutosize";
 import { formatAgentLogTimingLabels, markdownComponents } from "./AgentLogViewer";
 import { ToolCallDetails } from "./ToolCallDetails";
 import { parseRuntimeModelMarker } from "./effective-model-resolution";
@@ -693,6 +696,7 @@ export function TaskChatTab({ task, columnFlags, projectId, active, addToast, on
   const previousActiveRef = useRef(false);
   const anchorFrameRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autosizeRef = useRef<ChatInputAutosizeController | null>(null);
   const dictation = useComposerDictation({ textareaRef, value: draft, onChange: setDraft, projectId });
 
   const userMessages = useMemo(
@@ -741,19 +745,27 @@ export function TaskChatTab({ task, columnFlags, projectId, active, addToast, on
 
   const showLoadingIndicator = loadingIndicatorTaskId === task.id;
 
-  const resizeComposer = useCallback(() => {
-    const textarea = textareaRef.current;
+  const resizeComposer = useCallback((options?: { resetManual?: boolean }) => {
+    autosizeRef.current?.resize(options);
+  }, []);
+
+  const handleComposerRef = useCallback((textarea: HTMLTextAreaElement | null) => {
+    autosizeRef.current?.destroy();
+    autosizeRef.current = null;
+    textareaRef.current = textarea;
     if (!textarea) return;
-    textarea.style.height = "0";
-    const maxHeight = typeof window !== "undefined" && window.matchMedia?.("(max-width: 768px)").matches ? 200 : undefined;
-    const nextHeight = clampChatInputHeight(textarea.scrollHeight, maxHeight);
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY = resolveChatInputOverflowY(textarea.scrollHeight, maxHeight);
+    autosizeRef.current = createChatInputAutosizeController(textarea);
   }, []);
 
   useLayoutEffect(() => {
-    resizeComposer();
+    resizeComposer({ resetManual: draft.length === 0 });
   }, [draft, resizeComposer]);
+
+  useLayoutEffect(() => {
+    // FNXC:ChatComposer 2026-08-19-02:00: Reused task-detail instances must not carry a
+    // manually enlarged Activity composer into another task's draft.
+    autosizeRef.current?.reset();
+  }, [task.id]);
 
   const cancelAnchorTranscriptFrame = useCallback(() => {
     if (anchorFrameRef.current === null) return;
@@ -1129,7 +1141,7 @@ export function TaskChatTab({ task, columnFlags, projectId, active, addToast, on
       <form className="task-chat-composer" onSubmit={handleSubmit} aria-label={composerFormLabel}>
         <div className="task-chat-composer-row">
           <textarea
-            ref={textareaRef}
+            ref={handleComposerRef}
             className="input task-chat-input"
             value={draft}
             placeholder={composerPlaceholder}

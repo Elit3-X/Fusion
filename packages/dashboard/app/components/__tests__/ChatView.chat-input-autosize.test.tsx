@@ -1,18 +1,37 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { clampChatInputHeight, resolveChatInputOverflowY } from "../ChatView";
+import {
+  CHAT_INPUT_MAX_LINES,
+  CHAT_INPUT_MIN_HEIGHT_PX,
+  clampChatInputHeight,
+  createChatInputAutosizeController,
+  getChatInputAutomaticMaxHeight,
+  resolveChatInputOverflowY,
+} from "../../utils/chatInputAutosize";
 
 const chatViewCss = readFileSync(resolve(__dirname, "../ChatView.css"), "utf8");
 
+function fiveLineHeight() {
+  return getChatInputAutomaticMaxHeight({
+    lineHeightPx: 20,
+    paddingTopPx: 8,
+    paddingBottomPx: 8,
+    borderTopPx: 1,
+    borderBottomPx: 1,
+  });
+}
+
 describe("ChatView chat input autosize", () => {
-  it("keeps the textarea CSS max-height aligned with the raised autosize cap", () => {
+  it("uses the shared five-line automatic cap and keeps desktop resize available", () => {
     const textareaRule = chatViewCss.match(/\.chat-input-textarea\s*\{[^}]*\}/);
 
     expect(textareaRule).not.toBeNull();
-    expect(textareaRule?.[0]).toContain("max-height: 640px");
-    expect(textareaRule?.[0]).toContain("flex: 0 0 auto");
+    expect(textareaRule?.[0]).toContain("max-height: none");
+    expect(textareaRule?.[0]).toContain("resize: vertical");
     expect(textareaRule?.[0]).toContain("overflow-y: hidden");
+    expect(textareaRule?.[0]).toContain("min-height: calc(var(--space-2xl) + var(--space-sm))");
+    expect(chatViewCss).toMatch(/@media \(max-width: 768px\)\s*\{[\s\S]*?\.chat-input-textarea\s*\{[^}]*resize: none/);
   });
 
   it("keeps the stop button dimensions aligned with the send button and textarea minimum", () => {
@@ -26,68 +45,91 @@ describe("ChatView chat input autosize", () => {
     expect(sendRule).not.toBeNull();
     expect(stopRule).not.toBeNull();
     expect(rowRule?.[0]).toContain("--chat-input-control-size: calc(var(--space-lg) * 2.5)");
-    expect(textareaRule?.[0]).toContain("min-height: 40px");
+    expect(textareaRule?.[0]).toContain("min-height: calc(var(--space-2xl) + var(--space-sm))");
     expect(sendRule?.[0]).toContain("width: var(--chat-input-control-size)");
     expect(sendRule?.[0]).toContain("min-height: var(--chat-input-control-size)");
     expect(stopRule?.[0]).toContain("width: var(--chat-input-control-size)");
     expect(stopRule?.[0]).toContain("min-height: var(--chat-input-control-size)");
   });
 
-  it("centers attach and thinking controls with the single-line input while preserving bottom row alignment", () => {
-    const attachRule = chatViewCss.match(/\.chat-attach-btn\s*\{[^}]*\}/);
-    const thinkingRootRule = chatViewCss.match(/\.chat-thinking-level-root\s*\{[^}]*\}/);
-    const thinkingButtonRule = chatViewCss.match(/\.chat-thinking-btn\s*\{[^}]*\}/);
-    const mobileRule = chatViewCss.match(
-      /\/\* primary touch targets[\s\S]*?\.chat-attach-btn,\s*\.chat-thinking-btn\s*\{[^}]*\}/,
-    );
-
-    expect(attachRule).not.toBeNull();
-    expect(thinkingRootRule).not.toBeNull();
-    expect(thinkingButtonRule).not.toBeNull();
-    expect(mobileRule).not.toBeNull();
-
-    expect(attachRule?.[0]).toContain("min-block-size: var(--chat-input-control-size)");
-    expect(attachRule?.[0]).toContain("block-size: var(--chat-input-control-size)");
-    expect(attachRule?.[0]).toContain("align-self: flex-end");
-    expect(thinkingRootRule?.[0]).toContain("min-block-size: var(--chat-input-control-size)");
-    expect(thinkingRootRule?.[0]).toContain("block-size: var(--chat-input-control-size)");
-    expect(thinkingRootRule?.[0]).toContain("align-self: flex-end");
-    expect(thinkingButtonRule?.[0]).toContain("min-block-size: var(--chat-input-control-size)");
-    expect(thinkingButtonRule?.[0]).toContain("block-size: var(--chat-input-control-size)");
-    expect(mobileRule?.[0]).toContain("min-block-size: var(--chat-input-control-size)");
-    expect(mobileRule?.[0]).toContain("block-size: var(--chat-input-control-size)");
-    expect(attachRule?.[0]).not.toContain("min-height: calc(var(--space-lg) * 2)");
-    expect(thinkingButtonRule?.[0]).not.toContain("min-height: calc(var(--space-lg) * 2)");
-    expect(mobileRule?.[0]).not.toContain("calc(var(--space-lg) * 2.25)");
+  it("derives the automatic maximum from five rendered line boxes and box chrome", () => {
+    expect(CHAT_INPUT_MAX_LINES).toBe(5);
+    expect(getChatInputAutomaticMaxHeight({
+      lineHeightPx: 20,
+      paddingTopPx: 8,
+      paddingBottomPx: 8,
+      borderTopPx: 1,
+      borderBottomPx: 1,
+    })).toBe(118);
+    expect(getChatInputAutomaticMaxHeight({
+      lineHeightPx: 24,
+      paddingTopPx: 12,
+      paddingBottomPx: 12,
+      borderTopPx: 2,
+      borderBottomPx: 2,
+    })).toBe(148);
   });
 
-  it("caps textarea max-height at 200px on tablet viewports", () => {
-    const tabletRule = chatViewCss.match(
-      /@media \(min-width: 769px\) and \(max-width: 1024px\)\s*\{\s*\.chat-input-textarea\s*\{[^}]*\}\s*\}/,
-    );
-
-    expect(tabletRule).not.toBeNull();
-    expect(tabletRule?.[0]).toContain("max-height: 200px");
+  it("uses a safe minimum for empty and zero measurements", () => {
+    expect(clampChatInputHeight(0, fiveLineHeight())).toBe(CHAT_INPUT_MIN_HEIGHT_PX);
+    expect(clampChatInputHeight(Number.NaN, fiveLineHeight())).toBe(CHAT_INPUT_MIN_HEIGHT_PX);
+    expect(clampChatInputHeight(80, fiveLineHeight())).toBe(80);
   });
 
-  it("clamps oversized textarea growth to the new max height", () => {
-    expect(clampChatInputHeight(600)).toBe(600);
-    expect(clampChatInputHeight(800)).toBe(640);
-    expect(clampChatInputHeight(800, 200)).toBe(200);
-    expect(clampChatInputHeight(600)).not.toBe(120);
+  it("caps content at five lines and selects internal scrolling beyond the cap", () => {
+    const maxHeight = fiveLineHeight();
+    expect(clampChatInputHeight(maxHeight - 1, maxHeight)).toBe(maxHeight - 1);
+    expect(clampChatInputHeight(maxHeight + 1, maxHeight)).toBe(maxHeight);
+    expect(resolveChatInputOverflowY(maxHeight, maxHeight)).toBe("hidden");
+    expect(resolveChatInputOverflowY(maxHeight + 1, maxHeight)).toBe("auto");
   });
 
-  it("preserves smaller textarea heights below the cap", () => {
-    expect(clampChatInputHeight(80)).toBe(80);
+  it("keeps an explicit desktop height through controlled updates and resets it explicitly", () => {
+    const textarea = document.createElement("textarea");
+    document.body.append(textarea);
+    let scrollHeight = 220;
+    Object.defineProperty(textarea, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight,
+    });
+
+    const controller = createChatInputAutosizeController(textarea);
+    const automaticHeight = Number.parseInt(textarea.style.height, 10);
+    expect(automaticHeight).toBeLessThan(scrollHeight);
+
+    textarea.style.height = "300px";
+    textarea.dispatchEvent(new Event("resize"));
+    expect(textarea.style.height).toBe("300px");
+
+    scrollHeight = 240;
+    controller.resize();
+    expect(textarea.style.height).toBe("300px");
+    expect(textarea.style.overflowY).toBe("hidden");
+
+    scrollHeight = 0;
+    controller.reset();
+    expect(textarea.style.height).toBe(`${CHAT_INPUT_MIN_HEIGHT_PX}px`);
+    expect(textarea.style.overflowY).toBe("hidden");
+
+    controller.destroy();
+    textarea.remove();
   });
 
-  it("keeps overflow hidden until content exceeds the max height cap", () => {
-    expect(resolveChatInputOverflowY(80)).toBe("hidden");
-    expect(resolveChatInputOverflowY(200)).toBe("hidden");
-    expect(resolveChatInputOverflowY(201)).toBe("hidden");
-    expect(resolveChatInputOverflowY(640)).toBe("hidden");
-    expect(resolveChatInputOverflowY(641)).toBe("auto");
-    expect(resolveChatInputOverflowY(200, 200)).toBe("hidden");
-    expect(resolveChatInputOverflowY(201, 200)).toBe("auto");
+  it("does not capture its own programmatic resize as a manual override", () => {
+    const textarea = document.createElement("textarea");
+    document.body.append(textarea);
+    Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 220, writable: true });
+    const controller = createChatInputAutosizeController(textarea);
+
+    controller.resize();
+    const automaticHeight = textarea.style.height;
+    expect(automaticHeight).not.toBe("300px");
+
+    Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 0, writable: true });
+    controller.resize({ resetManual: true });
+    expect(textarea.style.height).toBe(`${CHAT_INPUT_MIN_HEIGHT_PX}px`);
+
+    controller.destroy();
+    textarea.remove();
   });
 });

@@ -292,14 +292,18 @@ Planner follow-ups need a visible management surface above the composer without 
   gap: var(--space-sm);
 }
 
+/*
+FNXC:ChatComposer 2026-08-19-02:00:
+Planner Chat uses the same five-line controller and current-draft native resize fence as Activity Chat. The inline height is the automatic cap; no fixed CSS max-height may block a deliberate desktop/tablet expansion.
+*/
 .task-planner-chat-input {
   box-sizing: border-box;
   flex: 1 1 calc(var(--space-2xl) * 8);
   min-width: min(100%, calc(var(--space-2xl) * 8));
-  height: calc(var(--space-2xl) + var(--space-sm));
   min-height: calc(var(--space-2xl) + var(--space-sm));
-  max-height: var(--task-chat-composer-max-height, 40vh);
+  max-height: none;
   padding: var(--btn-padding);
+  overflow-y: hidden;
   resize: vertical;
 }
 
@@ -358,9 +362,8 @@ height rather than relying on the global button minimum.
   .task-planner-chat-input {
     flex: 1 1 auto;
     min-width: 0;
-    height: calc(var(--space-2xl) + var(--space-lg));
     min-height: calc(var(--space-2xl) + var(--space-lg));
-    max-height: calc(var(--space-2xl) + var(--space-lg));
+    max-height: none;
     resize: none;
   }
 
