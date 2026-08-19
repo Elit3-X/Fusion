@@ -546,13 +546,13 @@ FN-7241 adds timestamps inside individual task-detail transcript blocks. Keep bl
 FNXC:TaskDetailChat 2026-07-21-23:42:
 FN-8473 requires the Activity Live steering input to share the transcript panel's --radius-lg so the composer does not look sharper than the panel above it.
 
-FNXC:ChatComposer 2026-08-19-02:00:
-The shared controller caps automatic growth at five rendered lines and keeps overflow inside the textarea. Desktop/tablet native vertical resizing is intentionally available for the current draft only; mobile removes the mouse-only affordance.
+FNXC:ChatComposer 2026-08-19-17:58:
+The shared controller caps automatic growth at five rendered lines, owns desktop/tablet top-edge pointer resizing, and keeps overflow inside the textarea. Disable native resizing so its lower-right grip cannot compete; mobile remains automatic-only.
 */
 .task-chat-input {
   min-height: calc(var(--space-2xl) + var(--space-sm));
   max-height: none;
-  resize: vertical;
+  resize: none;
   overflow-y: hidden;
   flex: 1 1 auto;
   border-radius: var(--radius-lg);

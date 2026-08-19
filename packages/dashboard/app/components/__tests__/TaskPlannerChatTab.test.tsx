@@ -296,7 +296,7 @@ describe("TaskPlannerChatTab", () => {
     expect(document.body.textContent).not.toContain("5. 6");
   });
 
-  it("caps the loaded planner composer, preserves deliberate expansion, and resets on clear", async () => {
+  it("caps the loaded planner composer, top-edge expands it, and collapses on clear", async () => {
     mockFetchChatMessages.mockResolvedValueOnce({
       messages: [{ id: "planner-history", sessionId: "chat-planner", role: "assistant", content: "Loaded planner history", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" }],
     });
@@ -306,7 +306,7 @@ describe("TaskPlannerChatTab", () => {
     const input = await screen.findByLabelText("Message task chat") as HTMLTextAreaElement;
     Object.defineProperty(input, "scrollHeight", {
       configurable: true,
-      get: () => 500,
+      get: () => input.value.length > 0 ? 500 : 24,
     });
 
     fireEvent.change(input, { target: { value: "one\ntwo\nthree\nfour\nfive\nsix" } });
@@ -315,15 +315,22 @@ describe("TaskPlannerChatTab", () => {
     expect(input.style.overflowY).toBe("auto");
     expect(screen.getByTestId("task-planner-chat-transcript")).toBeInTheDocument();
 
-    input.style.height = "300px";
-    fireEvent.resize(input);
-    fireEvent.change(input, { target: { value: "one\ntwo\nthree\nfour\nfive\nsix\nmore" } });
-    expect(input.style.height).toBe("300px");
+    vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
+      bottom: 400, height: 118, left: 0, right: 600, top: 282, width: 600, x: 0, y: 282, toJSON: () => ({}),
+    });
+    const pointer = (type: string, clientY: number) => input.dispatchEvent(Object.assign(
+      new Event(type, { bubbles: true, cancelable: true }), { clientY, pointerId: 1, pointerType: "mouse" },
+    ));
+    pointer("pointerdown", 284);
+    pointer("pointermove", 0);
+    pointer("pointerup", 0);
+    expect(Number.parseInt(input.style.height, 10)).toBeGreaterThan(automaticHeight);
 
     fireEvent.change(input, { target: { value: "" } });
     await waitFor(() => {
       expect(input).toHaveValue("");
-      expect(input.style.height).toBe(`${automaticHeight}px`);
+      expect(input.style.height).toBe(`${clampChatInputHeight(24, getChatInputAutomaticMaxHeight(getChatInputBoxMetrics(input)))}px`);
+      expect(input.style.overflowY).toBe("hidden");
     });
   });
 
@@ -1151,7 +1158,8 @@ describe("TaskPlannerChatTab", () => {
     expect(desktopInputRule).not.toMatch(/(?:^|\n)\s+height:/);
     expect(desktopInputRule).toContain(`min-height: ${desktopTabletHeight};`);
     expect(desktopInputRule).toContain("max-height: none;");
-    expect(desktopInputRule).toContain("resize: vertical;");
+    expect(desktopInputRule).toContain("resize: none;");
+    expect(desktopInputRule).not.toContain("resize: vertical;");
     expect(desktopInputRule).toContain("overflow-y: hidden;");
     expect(desktopSendRule).toContain(`block-size: ${desktopTabletHeight};`);
     expect(desktopSendRule).toContain(`min-block-size: ${desktopTabletHeight};`);

@@ -7,6 +7,7 @@ import {
   clampChatInputHeight,
   createChatInputAutosizeController,
   getChatInputAutomaticMaxHeight,
+  getChatInputBoxMetrics,
   resolveChatInputOverflowY,
 } from "../../utils/chatInputAutosize";
 
@@ -23,12 +24,13 @@ function fiveLineHeight() {
 }
 
 describe("ChatView chat input autosize", () => {
-  it("uses the shared five-line automatic cap and keeps desktop resize available", () => {
+  it("uses the shared five-line automatic cap and disables the native resize grip", () => {
     const textareaRule = chatViewCss.match(/\.chat-input-textarea\s*\{[^}]*\}/);
 
     expect(textareaRule).not.toBeNull();
     expect(textareaRule?.[0]).toContain("max-height: none");
-    expect(textareaRule?.[0]).toContain("resize: vertical");
+    expect(textareaRule?.[0]).toContain("resize: none");
+    expect(textareaRule?.[0]).not.toContain("resize: vertical");
     expect(textareaRule?.[0]).toContain("overflow-y: hidden");
     expect(textareaRule?.[0]).toContain("min-height: calc(var(--space-2xl) + var(--space-sm))");
     expect(chatViewCss).toMatch(/@media \(max-width: 768px\)\s*\{[\s\S]*?\.chat-input-textarea\s*\{[^}]*resize: none/);
@@ -84,52 +86,90 @@ describe("ChatView chat input autosize", () => {
     expect(resolveChatInputOverflowY(maxHeight + 1, maxHeight)).toBe("auto");
   });
 
-  it("keeps an explicit desktop height through controlled updates and resets it explicitly", () => {
+  it("resizes only from the top edge and releases a stale manual height after shortening", () => {
     const textarea = document.createElement("textarea");
     document.body.append(textarea);
-    let scrollHeight = 220;
+    let scrollHeight = 360;
     Object.defineProperty(textarea, "scrollHeight", {
       configurable: true,
       get: () => scrollHeight,
     });
+    vi.spyOn(textarea, "getBoundingClientRect").mockReturnValue({
+      bottom: 400,
+      height: 118,
+      left: 0,
+      right: 600,
+      top: 282,
+      width: 600,
+      x: 0,
+      y: 282,
+      toJSON: () => ({}),
+    });
+    const pointer = (type: string, clientY: number, pointerId = 1) => {
+      const event = Object.assign(new Event(type, { bubbles: true, cancelable: true }), {
+        clientY,
+        pointerId,
+        pointerType: "mouse",
+      });
+      textarea.dispatchEvent(event);
+      return event;
+    };
 
     const controller = createChatInputAutosizeController(textarea);
     const automaticHeight = Number.parseInt(textarea.style.height, 10);
     expect(automaticHeight).toBeLessThan(scrollHeight);
 
-    textarea.style.height = "300px";
-    textarea.dispatchEvent(new Event("resize"));
-    expect(textarea.style.height).toBe("300px");
+    const nonTopPointer = pointer("pointerdown", 320);
+    expect(nonTopPointer.defaultPrevented).toBe(false);
+    pointer("pointermove", 180);
+    expect(textarea.style.height).toBe(`${automaticHeight}px`);
 
-    scrollHeight = 240;
-    controller.resize();
-    expect(textarea.style.height).toBe("300px");
+    const topPointer = pointer("pointerdown", 284);
+    expect(topPointer.defaultPrevented).toBe(true);
+    pointer("pointermove", 0);
+    pointer("pointerup", 0);
+    const manualHeight = Number.parseInt(textarea.style.height, 10);
+    expect(manualHeight).toBeGreaterThan(automaticHeight);
     expect(textarea.style.overflowY).toBe("hidden");
 
-    scrollHeight = 0;
-    controller.reset();
+    scrollHeight = 24;
+    controller.resize();
     expect(textarea.style.height).toBe(`${CHAT_INPUT_MIN_HEIGHT_PX}px`);
     expect(textarea.style.overflowY).toBe("hidden");
 
+    scrollHeight = 500;
+    controller.resize();
+    const cappedHeight = clampChatInputHeight(500, getChatInputAutomaticMaxHeight(getChatInputBoxMetrics(textarea)));
+    expect(textarea.style.height).toBe(`${cappedHeight}px`);
+    expect(textarea.style.overflowY).toBe("auto");
+
     controller.destroy();
+    pointer("pointerdown", 284);
+    pointer("pointermove", 100);
+    expect(textarea.style.height).toBe(`${cappedHeight}px`);
+    expect(document.body.style.userSelect).toBe("");
     textarea.remove();
   });
 
-  it("does not capture its own programmatic resize as a manual override", () => {
+  it("keeps mobile composers automatic-only", () => {
     const textarea = document.createElement("textarea");
     document.body.append(textarea);
     Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 220, writable: true });
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
     const controller = createChatInputAutosizeController(textarea);
-
-    controller.resize();
     const automaticHeight = textarea.style.height;
-    expect(automaticHeight).not.toBe("300px");
+    const event = Object.assign(new Event("pointerdown", { cancelable: true }), {
+      clientY: 0,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
 
-    Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 0, writable: true });
-    controller.resize({ resetManual: true });
-    expect(textarea.style.height).toBe(`${CHAT_INPUT_MIN_HEIGHT_PX}px`);
+    textarea.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(textarea.style.height).toBe(automaticHeight);
 
     controller.destroy();
     textarea.remove();
+    vi.unstubAllGlobals();
   });
 });

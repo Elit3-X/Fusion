@@ -310,7 +310,7 @@ describe("ChatView composer autosize", () => {
     }
   });
 
-  it("preserves a deliberate desktop expansion through edits and clears it on send", async () => {
+  it("top-edge expands direct chat and clearing its draft restores the default height", async () => {
     const sendMessage = vi.fn();
     setup({ sendMessage });
     renderChatView();
@@ -318,22 +318,58 @@ describe("ChatView composer autosize", () => {
     const textarea = screen.getByPlaceholderText("Type a message...") as HTMLTextAreaElement;
     Object.defineProperty(textarea, "scrollHeight", {
       configurable: true,
-      get: () => 500,
+      get: () => textarea.value.length > 0 ? 500 : 24,
     });
 
     await userEvent.type(textarea, "long draft");
-    const automaticHeight = textarea.style.height;
-    textarea.style.height = "300px";
-    textarea.dispatchEvent(new Event("resize"));
-    await userEvent.type(textarea, " more");
+    const automaticHeight = Number.parseInt(textarea.style.height, 10);
+    vi.spyOn(textarea, "getBoundingClientRect").mockReturnValue({
+      bottom: 400, height: 118, left: 0, right: 600, top: 282, width: 600, x: 0, y: 282, toJSON: () => ({}),
+    });
+    const pointer = (type: string, clientY: number) => textarea.dispatchEvent(Object.assign(
+      new Event(type, { bubbles: true, cancelable: true }), { clientY, pointerId: 1, pointerType: "mouse" },
+    ));
+    pointer("pointerdown", 284);
+    pointer("pointermove", 0);
+    pointer("pointerup", 0);
 
-    expect(textarea.style.height).toBe("300px");
-    expect(textarea.style.height).not.toBe(automaticHeight);
+    expect(Number.parseInt(textarea.style.height, 10)).toBeGreaterThan(automaticHeight);
 
     await userEvent.click(screen.getAllByTestId("chat-send-btn")[0]);
     await waitFor(() => {
       expect(textarea).toHaveValue("");
-      expect(textarea.style.height).toBe(`${expectedAutomaticHeight(textarea, 500)}px`);
+      expect(textarea.style.height).toBe(`${expectedAutomaticHeight(textarea, 24)}px`);
+      expect(textarea.style.overflowY).toBe("hidden");
+    });
+  });
+
+  it("top-edge expands rooms chat and clearing its draft restores the default height", async () => {
+    localStorage.setItem("fusion:chat-scope", "rooms");
+    renderChatView();
+
+    const textarea = screen.getByTestId("chat-input") as HTMLTextAreaElement;
+    Object.defineProperty(textarea, "scrollHeight", {
+      configurable: true,
+      get: () => textarea.value.length > 0 ? 500 : 24,
+    });
+    await userEvent.type(textarea, "long room draft");
+    const automaticHeight = Number.parseInt(textarea.style.height, 10);
+    vi.spyOn(textarea, "getBoundingClientRect").mockReturnValue({
+      bottom: 400, height: 118, left: 0, right: 600, top: 282, width: 600, x: 0, y: 282, toJSON: () => ({}),
+    });
+    const pointer = (type: string, clientY: number) => textarea.dispatchEvent(Object.assign(
+      new Event(type, { bubbles: true, cancelable: true }), { clientY, pointerId: 1, pointerType: "mouse" },
+    ));
+    pointer("pointerdown", 284);
+    pointer("pointermove", 0);
+    pointer("pointerup", 0);
+    expect(Number.parseInt(textarea.style.height, 10)).toBeGreaterThan(automaticHeight);
+
+    await userEvent.clear(textarea);
+    await waitFor(() => {
+      expect(textarea).toHaveValue("");
+      expect(textarea.style.height).toBe(`${expectedAutomaticHeight(textarea, 24)}px`);
+      expect(textarea.style.overflowY).toBe("hidden");
     });
   });
 
