@@ -6,8 +6,10 @@ import {
   getPrebuildCommand,
   normalizePrebuildMode,
   parseDevWrapperArgs,
+  resolveDevTunnelPort,
   resolvePrebuildMode,
 } from "../../../../scripts/dev-with-memory-lib.mjs";
+import { extractQuickTunnelUrl } from "../../../../scripts/lib/dev-tunnel.mjs";
 import {
   createDevSourceWatcher,
   isRestartableSourceFile,
@@ -55,6 +57,8 @@ describe("dev-with-memory prebuild options", () => {
       requestedPrebuild: "none",
       watchSource: false,
       watchSourceFromFlag: false,
+      tunnel: false,
+      tunnelPort: undefined,
     });
   });
 
@@ -65,6 +69,8 @@ describe("dev-with-memory prebuild options", () => {
       requestedPrebuild: "auto",
       watchSource: true,
       watchSourceFromFlag: true,
+      tunnel: false,
+      tunnelPort: undefined,
     });
   });
 
@@ -319,5 +325,51 @@ describe("development source restart watcher", () => {
     expect(closes[0]).toHaveBeenCalledOnce();
     expect(closes[1]).toHaveBeenCalledOnce();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("close failed"));
+  });
+
+  /*
+  FNXC:DevTunnel 2026-08-18-23:40:
+  `--tunnel` exposes the dev server through a Cloudflare quick tunnel, for the case where Fusion runs
+  on a remote box (a container, a shared machine) and the operator needs to view the dev server from
+  their own browser. A quick tunnel needs no account, domain, or card BECAUSE the dev server is HTTP.
+
+  The subtle case: `--tunnel` optionally takes a port, so the parser must not swallow the next token
+  when it is a dev-command argument rather than a port — `--tunnel dashboard` means "tunnel the
+  dashboard's default port and run the dashboard", not "tunnel port NaN".
+  */
+  describe("dev tunnel flag", () => {
+    it("enables the tunnel without consuming a following non-port argument", () => {
+      expect(parseDevWrapperArgs(["--tunnel", "dashboard"], {})).toMatchObject({
+        args: ["dashboard"],
+        tunnel: true,
+        tunnelPort: undefined,
+      });
+    });
+
+    it("accepts a port as a separate token or inline", () => {
+      expect(parseDevWrapperArgs(["--tunnel", "5173"], {})).toMatchObject({ tunnel: true, tunnelPort: 5173, args: [] });
+      expect(parseDevWrapperArgs(["--tunnel=3000"], {})).toMatchObject({ tunnel: true, tunnelPort: 3000, args: [] });
+    });
+
+    it("rejects a non-numeric inline port instead of tunnelling something arbitrary", () => {
+      expect(() => parseDevWrapperArgs(["--tunnel=frontend"], {})).toThrow(/Expected a port number/);
+    });
+
+    it("stays off by default and can be enabled from the environment", () => {
+      expect(parseDevWrapperArgs(["dashboard"], {})).toMatchObject({ tunnel: false });
+      expect(parseDevWrapperArgs(["dashboard"], { FUSION_DEV_TUNNEL: "1" })).toMatchObject({ tunnel: true });
+    });
+
+    it("targets the dashboard port unless told otherwise", () => {
+      expect(resolveDevTunnelPort(undefined, {})).toBe(4040);
+      expect(resolveDevTunnelPort(undefined, { PORT: "8080" })).toBe(8080);
+      // An explicit --tunnel=PORT wins, so a Vite server can be exposed while PORT names the dashboard.
+      expect(resolveDevTunnelPort(5173, { PORT: "8080" })).toBe(5173);
+    });
+
+    it("recognises the cloudflare quick-tunnel hostname in agent output", () => {
+      expect(extractQuickTunnelUrl("INF |  https://neat-fox-tree.trycloudflare.com  |")).toBe("https://neat-fox-tree.trycloudflare.com");
+      expect(extractQuickTunnelUrl("INF Registered tunnel connection")).toBeNull();
+    });
   });
 });

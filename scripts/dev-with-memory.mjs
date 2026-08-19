@@ -14,9 +14,11 @@ import {
   createDevWatchRestartCoordinator,
   getPrebuildCommand,
   parseDevWrapperArgs,
+  resolveDevTunnelPort,
   resolvePrebuildMode,
 } from "./dev-with-memory-lib.mjs";
 import { createDevSourceWatcher } from "./lib/dev-source-watch.mjs";
+import { startDevTunnel } from "./lib/dev-tunnel.mjs";
 
 // Set increased heap size (8GB) to prevent OOM during initial build/start
 const MEMORY_MB = process.env.FUSION_DEV_MEMORY_MB || "8192";
@@ -31,7 +33,7 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
-const { inspectFlags, args, requestedPrebuild, watchSourceFromFlag } = parsedArgs;
+const { inspectFlags, args, requestedPrebuild, watchSourceFromFlag, tunnel, tunnelPort } = parsedArgs;
 let { watchSource } = parsedArgs;
 
 // NODE_OPTIONS is shared with every spawned node process (build + run +
@@ -82,6 +84,7 @@ propagates unchanged (no crash-restart loop here — `--supervise` owns that).
 */
 const RESTART_EXIT_CODE = 86;
 let appChild;
+let devTunnel;
 let sourceWatcher;
 const watchRestart = createDevWatchRestartCoordinator();
 
@@ -114,6 +117,23 @@ function runApp(extraArgs) {
     },
   });
   appChild = tsx;
+  /*
+  FNXC:DevTunnel 2026-08-18-23:40:
+  Started AFTER the dev child so the tunnel points at a port something is actually about to serve,
+  and torn down with it. Deliberately fire-and-forget: a tunnel that fails to come up logs and is
+  skipped rather than taking the dev loop down with it — losing a preview URL must never cost the
+  operator their dev server. Restarts (watch mode) reuse the existing tunnel, since the port is
+  unchanged and a fresh quick tunnel would hand out a different hostname every reload.
+  */
+  if (tunnel && !devTunnel) {
+    const port = resolveDevTunnelPort(tunnelPort);
+    devTunnel = { url: null, stop: () => {} };
+    void startDevTunnel({ port })
+      .then((started) => { devTunnel = started; })
+      .catch((error) => {
+        console.error(`[fusion:dev] tunnel error: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  }
   watchRestart.attach(tsx);
   tsx.on("message", (message) => watchRestart.onMessage(message));
   ensureSourceWatcher();
@@ -129,6 +149,7 @@ function runApp(extraArgs) {
       }
       return;
     }
+    devTunnel?.stop?.();
     process.exit(c ?? 1);
   });
 }

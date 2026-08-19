@@ -126,6 +126,14 @@ export function parseDevWrapperArgs(rawArgs, env = process.env) {
   let requestedPrebuild = env.FUSION_DEV_PREBUILD ?? "auto";
   let watchSource = env.FUSION_DEV_WATCH === "1";
   let watchSourceFromFlag = false;
+  /*
+  FNXC:DevTunnel 2026-08-18-23:40:
+  `--tunnel` exposes the dev server through a Cloudflare quick tunnel, for working inside a remote
+  Fusion (container or shared box) and needing to view the dev server from your own browser.
+  `--tunnel=PORT` targets a port other than the dashboard's (e.g. a Vite server on 5173).
+  */
+  let tunnel = env.FUSION_DEV_TUNNEL === "1";
+  let tunnelPort = env.FUSION_DEV_TUNNEL_PORT ? Number(env.FUSION_DEV_TUNNEL_PORT) : undefined;
 
   for (let i = 0; i < rawArgs.length; i += 1) {
     const arg = rawArgs[i];
@@ -160,6 +168,28 @@ export function parseDevWrapperArgs(rawArgs, env = process.env) {
       continue;
     }
 
+    if (arg === "--tunnel") {
+      tunnel = true;
+      const next = rawArgs[i + 1];
+      // Accept `--tunnel 5173` only when the next token is a port, so `--tunnel dashboard` still
+      // forwards `dashboard` to the dev command instead of swallowing it.
+      if (next && /^\d+$/.test(next)) {
+        tunnelPort = Number(next);
+        i += 1;
+      }
+      continue;
+    }
+
+    if (arg.startsWith("--tunnel=")) {
+      tunnel = true;
+      const value = arg.slice("--tunnel=".length);
+      if (!/^\d+$/.test(value)) {
+        throw new Error(`Invalid value for --tunnel: ${value}. Expected a port number.`);
+      }
+      tunnelPort = Number(value);
+      continue;
+    }
+
     args.push(arg);
   }
 
@@ -169,7 +199,22 @@ export function parseDevWrapperArgs(rawArgs, env = process.env) {
     requestedPrebuild: normalizePrebuildMode(requestedPrebuild),
     watchSource,
     watchSourceFromFlag,
+    tunnel,
+    tunnelPort,
   };
+}
+
+/**
+ * Port the tunnel should point at.
+ *
+ * FNXC:DevTunnel 2026-08-18-23:40: defaults to the dashboard's port, because `pnpm dev` with no
+ * target starts the dashboard. An explicit `--tunnel=PORT` wins so a Vite dev server (or anything
+ * else the operator started) can be exposed instead.
+ */
+export function resolveDevTunnelPort(tunnelPort, env = process.env) {
+  if (tunnelPort) return tunnelPort;
+  const fromEnv = Number(env.PORT);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 4040;
 }
 
 export function resolvePrebuildMode(requestedPrebuild, forwardedArgs) {

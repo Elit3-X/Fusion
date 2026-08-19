@@ -76,6 +76,8 @@ pnpm dev:watch         # dashboard + engine; gracefully restart runtime source a
 FUSION_DEV_PREBUILD=full pnpm dev dashboard  # production-like full workspace prebuild
 pnpm dev:ui            # dashboard dev server only
 pnpm dev:hmr           # dashboard API + Vite UI HMR + graceful runtime source restarts
+pnpm dev --tunnel      # dev server + a public Cloudflare quick-tunnel URL (see below)
+pnpm dev --tunnel=5173 # tunnel a specific port (e.g. a Vite server) instead of the dashboard
 pnpm lint              # lint all packages
 pnpm test              # merge-gate suite + changed-only affected tests (bounded; never full-suite)
 pnpm test:gate         # the merge gate: curated engine-core suite + CI-shape test
@@ -86,6 +88,42 @@ pnpm build:all         # full workspace build (includes desktop/mobile)
 pnpm verify:workspace  # deep opt-in verification: lint -> test:full -> build
 pnpm typecheck         # workspace typechecks
 ```
+
+## Sharing a dev server (`pnpm dev --tunnel`)
+
+When Fusion runs somewhere other than your laptop — a container, a shared box, a remote host — a dev
+server bound inside it is unreachable from your own browser. `--tunnel` publishes it through a
+**Cloudflare quick tunnel** and prints the URL:
+
+```bash
+pnpm dev --tunnel              # tunnels the dashboard port (PORT, default 4040)
+pnpm dev --tunnel=5173         # tunnels a specific port, e.g. a Vite dev server
+pnpm dev --tunnel dashboard    # tunnel the default port AND run the dashboard
+FUSION_DEV_TUNNEL=1 pnpm dev   # same, from the environment
+```
+
+```
+  ┌ dev server tunnel (public, unauthenticated)
+  │ https://mic-relatively-jewelry-belly.trycloudflare.com  →  http://localhost:5173
+  └ anyone with this URL can reach your dev server
+```
+
+Requires `cloudflared` on PATH (the Docker image ships it). Quick tunnels need no account, domain, or
+payment card **because a dev server is HTTP** — the TCP endpoints that something like SSH would need
+require a card (ngrok) or a domain plus Zero Trust (Cloudflare), which is why this flag exists only
+for HTTP.
+
+Behaviour worth knowing:
+
+- **The URL is public and unauthenticated.** Anyone holding it reaches the dev server. Use it for
+  sharing a preview, not for anything sensitive. Tunnelling the DASHBOARD port is different — the
+  dashboard enforces its own bearer token, so a tunnel to it still returns 401 without credentials.
+- **A failed tunnel never takes the dev server down.** If `cloudflared` is missing or no URL is
+  published, it logs and carries on; losing a preview URL must not cost you your dev loop.
+- **Restarts reuse the tunnel.** In `--watch` mode a fresh quick tunnel would hand out a different
+  hostname on every reload, invalidating the link you already shared.
+- **`--tunnel` only consumes a following token when it is numeric**, so `pnpm dev --tunnel dashboard`
+  still forwards `dashboard` to the dev command.
 
 ## Deterministic workspace verification bootstrap
 
