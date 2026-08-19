@@ -30,7 +30,7 @@ function makeApp(manager: { cancelGeneration: ReturnType<typeof vi.fn> }) {
     chatLogger: { error: vi.fn(), warn: vi.fn(), log: vi.fn() } as any,
     getProjectIdFromRequest: () => undefined,
     getScopedStore: vi.fn(),
-    getProjectContext: vi.fn(),
+    getProjectContext: vi.fn().mockResolvedValue({ store: {}, projectId: "project-a", engine: undefined }),
     getProjectPluginLoader: vi.fn(),
     prioritizeProjectsForCurrentDirectory: (projects: unknown[]) => projects,
     emitRemoteRouteDiagnostic: vi.fn(),

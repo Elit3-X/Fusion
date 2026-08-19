@@ -112,32 +112,33 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
 
   // ── Per-project store / manager resolution ───────────────────────────────────
 
-  async function resolveScopedChatStore(projectId: string | undefined) {
-    return resolveProjectChatContext({
-      projectId,
+  async function resolveScopedChatStore(req: import("express").Request) {
+    const projectContext = await getProjectContext(req);
+    const chatContext = await resolveProjectChatContext({
+      projectId: projectContext.projectId,
       defaultStore: store,
       defaultChatStore: options?.chatStore,
       engineManager: options?.engineManager,
+      requestStore: projectContext.store,
     });
+    return { ...chatContext, projectId: projectContext.projectId, engine: projectContext.engine };
   }
 
-  async function resolveScopedChatManager(projectId: string | undefined) {
+  async function resolveScopedChatManager(req: import("express").Request) {
+    const { store: scopedStore, chatStore, projectId, engine: contextEngine } = await resolveScopedChatStore(req);
     if (!projectId) {
       if (!options?.chatManager) throw new ApiError(503, "Chat manager not available");
       return options.chatManager;
     }
     /*
     FNXC:GrokAcp 2026-07-11-17:00:
-    Chat list/create use resolveProjectChatContext, which falls back to the host
-    default store when no engine is running for the project (nested dashboard /
-    lockfile-blocked engines). ChatManager must use that same store/chatStore
-    pair — getOrCreateProjectStore alone pointed at a different fusion dir, so
-    sessions visible in the UI 404'd on sendMessage ("Chat session not found").
+    Chat list/create and send resolve the request's canonical scoped store before
+    constructing the manager. This keeps engine-unavailable secondary projects on
+    their own ChatStore/TaskStore pair instead of borrowing the host default store.
     Prefer the engine plugin runner when available; otherwise the host runner
     (e.g. Grok ACP 0.2) so CLI runtimes still resolve.
     */
-    const { store: scopedStore, chatStore } = await resolveScopedChatStore(projectId);
-    const engine = options?.engineManager?.getEngine(projectId);
+    const engine = contextEngine ?? options?.engineManager?.getEngine(projectId);
     const projectPluginRunner = engine?.getPluginRunner?.();
     const pluginRunner = projectPluginRunner ?? options?.pluginRunner;
     return getOrCreateScopedChatManager(scopedStore, chatStore, pluginRunner, Boolean(projectPluginRunner), engine?.getMessageStore());
@@ -198,7 +199,13 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       const { modelProvider, modelId } = validateModelPair(req.body?.modelProvider, req.body?.modelId);
       const thinkingLevel = validateThinkingLevel(req.body?.thinkingLevel);
       const { store: scopedStore, projectId } = await getProjectContext(req);
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { chatStore } = await resolveProjectChatContext({
+        projectId,
+        defaultStore: store,
+        defaultChatStore: options?.chatStore,
+        engineManager: options?.engineManager,
+        requestStore: scopedStore,
+      });
       const task = await scopedStore.getTask(taskId).catch(() => null);
       if (!task) {
         throw notFound(`Task ${taskId} not found`);
@@ -284,7 +291,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
   router.get("/chat/tags", rateLimit(RATE_LIMITS.api), async (req, res) => {
     try {
       const { projectId } = await getProjectContext(req);
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { chatStore } = await resolveScopedChatStore(req);
       res.json({ tags: await chatStore.listTags(projectId ?? null) });
     } catch (err) { rethrowAsApiError(err, "Failed to list chat tags"); }
   });
@@ -293,7 +300,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     try {
       if (typeof req.body?.name !== "string") throw badRequest("name must be a string");
       const { projectId } = await getProjectContext(req);
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { chatStore } = await resolveScopedChatStore(req);
       const tag = await chatStore.createTag({ name: req.body.name, projectId: projectId ?? null });
       res.status(201).json({ tag });
     } catch (err) {
@@ -308,7 +315,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     try {
       if (typeof req.body?.name !== "string") throw badRequest("name must be a string");
       const { projectId } = await getProjectContext(req);
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { chatStore } = await resolveScopedChatStore(req);
       const tag = await chatStore.renameTag(String(req.params.id), projectId ?? null, { name: req.body.name });
       if (!tag) throw notFound("Chat tag not found");
       res.json({ tag });
@@ -323,7 +330,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
   router.delete("/chat/tags/:id", rateLimit(RATE_LIMITS.mutation), async (req, res) => {
     try {
       const { projectId } = await getProjectContext(req);
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { chatStore } = await resolveScopedChatStore(req);
       if (!await chatStore.deleteTag(String(req.params.id), projectId ?? null)) throw notFound("Chat tag not found");
       res.json({ success: true });
     } catch (err) { if (err instanceof ApiError) throw err; rethrowAsApiError(err, "Failed to delete chat tag"); }
@@ -361,7 +368,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         q?: string;
         titleOnly?: string;
       };
-      const { store: scopedStore, chatStore } = await resolveScopedChatStore(projectId);
+      const { store: scopedStore, chatStore } = await resolveScopedChatStore(req);
       const hasSearchQuery = typeof q === "string" && q.trim().length > 0;
       const isTitleOnly = titleOnly === "true" || !hasSearchQuery;
       const isContentSearch = hasSearchQuery && !isTitleOnly;
@@ -447,7 +454,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
 
         // Batch-gather generating session IDs to avoid N+1 calls
         const resolvedChatManager = projectId
-          ? await resolveScopedChatManager(projectId).catch(() => options?.chatManager)
+          ? await resolveScopedChatManager(req).catch(() => options?.chatManager)
           : options?.chatManager;
         const generatingIds = resolvedChatManager?.getGeneratingSessionIds?.() ?? [];
         const generatingSet = new Set(generatingIds);
@@ -493,7 +500,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     try {
       // Get project context to scope the session and resolve agent from the correct store
       const { store: scopedStore, projectId } = await getProjectContext(req);
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { chatStore } = await resolveScopedChatStore(req);
       const { AgentStore } = await import("@fusion/core");
       const agentStore = new AgentStore({ rootDir: scopedStore.getFusionDir(), asyncLayer: scopedStore.getAsyncLayer() ?? undefined });
       await agentStore.init();
@@ -581,7 +588,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    */
   router.get("/chat/sessions/:id", async (req, res) => {
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
+      const { chatStore } = await resolveScopedChatStore(req);
 
       const sessionId = String(req.params.id);
       const session = await chatStore.getSession(sessionId);
@@ -590,7 +597,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       }
 
       const enriched: EnrichedChatSession = session;
-      const chatManager = await resolveScopedChatManager(req.query.projectId as string | undefined).catch(() => options?.chatManager);
+      const chatManager = await resolveScopedChatManager(req).catch(() => options?.chatManager);
       enriched.isGenerating = chatManager?.isGenerating?.(sessionId) ?? false;
 
       res.json({ session: enriched });
@@ -636,7 +643,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    */
   router.patch("/chat/sessions/:id", rateLimit(RATE_LIMITS.mutation), async (req, res) => {
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
+      const { chatStore } = await resolveScopedChatStore(req);
 
       const sessionId = String(req.params.id);
       const {
@@ -751,7 +758,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    */
   router.delete("/chat/sessions/:id", rateLimit(RATE_LIMITS.mutation), async (req, res) => {
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
+      const { chatStore } = await resolveScopedChatStore(req);
       const sessionId = String(req.params.id);
 
       const deleted = await chatStore.deleteSession(sessionId);
@@ -775,7 +782,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    */
   router.get("/chat/sessions/:id/messages", async (req, res) => {
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
+      const { chatStore } = await resolveScopedChatStore(req);
 
       const sessionId = String(req.params.id);
 
@@ -827,7 +834,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
 
   router.post("/chat/sessions/:id/attachments", rateLimit(RATE_LIMITS.mutation), uploadChatAttachment, async (req, res) => {
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
+      const { chatStore } = await resolveScopedChatStore(req);
 
       const sessionId = String(req.params.id);
       const session = await chatStore.getSession(sessionId);
@@ -893,8 +900,8 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    */
   router.get("/chat/sessions/:id/stream", rateLimit(RATE_LIMITS.sse), async (req, res) => {
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
-      const chatManager = await resolveScopedChatManager(req.query.projectId as string | undefined);
+      const { chatStore } = await resolveScopedChatStore(req);
+      const chatManager = await resolveScopedChatManager(req);
 
       const sessionId = String(req.params.id);
       const session = await chatStore.getSession(sessionId);
@@ -987,8 +994,14 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     let chatManager: Awaited<ReturnType<typeof resolveScopedChatManager>> | undefined;
     const sessionId = String(req.params.id);
     try {
-      const projectId = req.query.projectId as string | undefined;
-      const { chatStore } = await resolveScopedChatStore(projectId);
+      const { store: scopedStore, projectId } = await getProjectContext(req);
+      const { chatStore } = await resolveProjectChatContext({
+        projectId,
+        defaultStore: store,
+        defaultChatStore: options?.chatStore,
+        engineManager: options?.engineManager,
+        requestStore: scopedStore,
+      });
 
       const body = (req.body ?? {}) as {
         content?: string;
@@ -1043,7 +1056,6 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         throw badRequest("modelProvider and modelId must both be provided or neither");
       }
 
-      const { store: scopedStore } = await getProjectContext(req);
       const uploadedAttachments = uploadedFiles.length > 0
         ? await Promise.all(uploadedFiles.map((file) => persistChatAttachment(file, scopedStore.getRootDir(), sessionId)))
         : undefined;
@@ -1053,7 +1065,15 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
 
       // Resolve per-project ChatManager before opening the SSE stream so
       // failures (e.g. project DB cannot be opened) produce a proper HTTP error.
-      chatManager = await resolveScopedChatManager(projectId);
+      const engine = projectId ? options?.engineManager?.getEngine(projectId) : undefined;
+      const projectPluginRunner = engine?.getPluginRunner?.();
+      chatManager = getOrCreateScopedChatManager(
+        scopedStore,
+        chatStore,
+        projectPluginRunner ?? options?.pluginRunner,
+        Boolean(projectPluginRunner),
+        engine?.getMessageStore(),
+      );
 
       // The internal limiter is shared with GET stream subscribers. Keep its rejection
       // before headers so a replacement cannot be accepted without a prepared send.
@@ -1168,7 +1188,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    */
   router.post("/chat/sessions/:id/cancel", rateLimit(RATE_LIMITS.mutation), async (req, res) => {
     try {
-      const chatManager = await resolveScopedChatManager(req.query.projectId as string | undefined);
+      const chatManager = await resolveScopedChatManager(req);
       const sessionId = String(req.params.id);
       // FNXC:ChatCancellation 2026-08-18-21:52:
       // Await cancellation so clients only reconcile or dequeue follow-up sends after
@@ -1189,7 +1209,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    */
   router.delete("/chat/sessions/:id/messages/:messageId", rateLimit(RATE_LIMITS.mutation), async (req, res) => {
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
+      const { chatStore } = await resolveScopedChatStore(req);
 
       const sessionId = String(req.params.id);
       const messageId = String(req.params.messageId);

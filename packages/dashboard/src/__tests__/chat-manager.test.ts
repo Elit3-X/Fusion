@@ -2117,11 +2117,13 @@ describe("ChatManager.sendMessage", () => {
   it("adds rich task context and steering tools for synthetic task planner chat sessions", async () => {
     mockChatStore.getSession.mockReturnValue({
       id: "chat-001",
-      agentId: "task-planner:FN-7310",
+      agentId: "task-planner:TEST-002",
       status: "active",
       /*
-      FNXC:TaskChatDefaultModel 2026-08-19-12:12:
-      The persisted synthetic task session carries the Direct Chat target into ChatManager. This test keeps the task context and scoped tool assertions alongside the model-loop precedence check.
+      FNXC:TaskChatProjectContext 2026-08-19-17:27:
+      The persisted synthetic task session carries the Direct Chat target into ChatManager. This
+      production send path must read TEST-002 only from its selected project store, never a
+      same-ID decoy held by the dashboard default store.
       */
       modelProvider: "openai",
       modelId: "gpt-direct",
@@ -2140,19 +2142,24 @@ describe("ChatManager.sendMessage", () => {
     __setCreateResolvedAgentSession(createResolvedSession as any);
 
     const taskStore = {
-      getTask: vi.fn().mockResolvedValue({
-        id: "FN-7310",
-        title: "Add planner chat",
-        description: "Short list description should not replace the task prompt",
-        prompt: "# PROMPT.md\n\nImplement the planner-model Chat tab from the detailed task plan.",
-        column: "todo",
-        status: "planning",
-        currentStep: 0,
-        dependencies: ["FN-7309"],
-        steps: [{ title: "Polish", status: "in-progress" }],
-        comments: [{ text: "User wants planner chat", author: "user" }],
-        steeringComments: [{ text: "Keep Activity intact", author: "user" }],
-        log: [{ level: "info", message: "Activity transcript loaded" }],
+      getTask: vi.fn(async (id: string) => {
+        if (id === "TEST-002") {
+          return {
+            id,
+            title: "Secondary project task",
+            description: "Selected-project description",
+            prompt: "# PROMPT.md\n\nUse the secondary project's authoritative task context.",
+            column: "todo",
+            status: "planning",
+            currentStep: 0,
+            dependencies: ["FN-7309"],
+            steps: [{ title: "Polish", status: "in-progress" }],
+            comments: [{ text: "User wants planner chat", author: "user" }],
+            steeringComments: [{ text: "Keep Activity intact", author: "user" }],
+            log: [{ level: "info", message: "Activity transcript loaded" }],
+          };
+        }
+        return { id, title: "Selected-project dependency", column: "done" };
       }),
       getSettings: vi.fn().mockResolvedValue({}),
     };
@@ -2173,10 +2180,12 @@ describe("ChatManager.sendMessage", () => {
     expect(createOptions.defaultModelId).toBe("gpt-direct");
     expect(createOptions.defaultThinkingLevel).toBe("high");
     expect(createOptions.systemPrompt).toContain("## Task Planner Chat Context");
-    expect(createOptions.systemPrompt).toContain("Task ID: FN-7310");
-    expect(createOptions.systemPrompt).toContain("Title: Add planner chat");
+    expect(createOptions.systemPrompt).toContain("Task ID: TEST-002");
+    expect(createOptions.systemPrompt).toContain("Title: Secondary project task");
     expect(createOptions.systemPrompt).toContain("Prompt:\n# PROMPT.md");
-    expect(createOptions.systemPrompt).toContain("Implement the planner-model Chat tab from the detailed task plan.");
+    expect(createOptions.systemPrompt).toContain("Use the secondary project's authoritative task context.");
+    expect(createOptions.systemPrompt).not.toContain("Task context could not be loaded");
+    expect(createOptions.systemPrompt).not.toContain("Default-project decoy content");
     expect(createOptions.systemPrompt).toContain("Dependencies:\n- FN-7309:");
     expect(createOptions.systemPrompt).toContain("Progress: step 1 of 1");
     expect(createOptions.systemPrompt).toContain("Current step: Polish: in-progress");
@@ -2205,7 +2214,7 @@ describe("ChatManager.sendMessage", () => {
       role: "user",
       content: expect.stringContaining("Task Planner Chat Context"),
     }));
-    expect(taskStore.getTask).toHaveBeenNthCalledWith(1, "FN-7310", { activityLogLimit: 20 });
+    expect(taskStore.getTask).toHaveBeenNthCalledWith(1, "TEST-002", { activityLogLimit: 20 });
     expect(taskStore.getTask).toHaveBeenCalledWith("FN-7309");
   });
 
