@@ -204,12 +204,32 @@ export function parseDevWrapperArgs(rawArgs, env = process.env) {
   };
 }
 
+/*
+FNXC:DevTunnel 2026-08-19-02:05:
+Mirrors DEV_SERVER_LISTENING_MESSAGE in packages/cli/src/commands/dev-source-restart.ts. The literal
+is duplicated rather than imported because this wrapper is plain JS that must not load the TS build.
+*/
+export const DEV_SERVER_LISTENING_MESSAGE = "fusion:dev-server-listening";
+
+/** Port from a dev child's listening report, or null for any other message. */
+export function readDevServerListeningPort(message) {
+  if (!message || typeof message !== "object") return null;
+  if (message.type !== DEV_SERVER_LISTENING_MESSAGE) return null;
+  const port = Number(message.port);
+  return Number.isInteger(port) && port > 0 ? port : null;
+}
+
 /**
  * Port the tunnel should point at.
  *
  * FNXC:DevTunnel 2026-08-18-23:40: defaults to the dashboard's port, because `pnpm dev` with no
  * target starts the dashboard. An explicit `--tunnel=PORT` wins so a Vite dev server (or anything
  * else the operator started) can be exposed instead.
+ *
+ * FNXC:DevTunnel 2026-08-19-02:05: this is the port the dev server is ASKED for, which is only a
+ * guess — an occupied port makes it rebind to an ephemeral one. Without an explicit --tunnel=PORT
+ * the caller must prefer the port the child reports over this value; see
+ * readDevServerListeningPort.
  */
 export function resolveDevTunnelPort(tunnelPort, env = process.env) {
   if (tunnelPort) return tunnelPort;

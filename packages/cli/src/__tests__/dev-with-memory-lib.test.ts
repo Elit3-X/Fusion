@@ -6,6 +6,7 @@ import {
   getPrebuildCommand,
   normalizePrebuildMode,
   parseDevWrapperArgs,
+  readDevServerListeningPort,
   resolveDevTunnelPort,
   resolvePrebuildMode,
 } from "../../../../scripts/dev-with-memory-lib.mjs";
@@ -407,6 +408,30 @@ describe("development source restart watcher", () => {
 
     it("defers to the dashboard banner when no token has been minted yet", () => {
       expect(auth()).toEqual({ kind: "token-pending" });
+    });
+
+    /*
+    FNXC:DevTunnel 2026-08-19-02:05:
+    The port the dev server is ASKED for is not the port it gets: an occupied port makes the
+    dashboard rebind to an ephemeral one. With a normal Fusion already on 4040 the tunnel therefore
+    pointed at THAT instance and served the wrong app under a dev-looking URL. The child's listening
+    report is the only fact about where the dev server actually is.
+    */
+    it("reads the dev server's bound port from its listening report only", () => {
+      expect(readDevServerListeningPort({ type: "fusion:dev-server-listening", port: 51234 })).toBe(51234);
+      expect(readDevServerListeningPort({ type: "fusion:dev-source-restart-armed" })).toBeNull();
+      expect(readDevServerListeningPort({ type: "fusion:dev-server-listening" })).toBeNull();
+      expect(readDevServerListeningPort({ type: "fusion:dev-server-listening", port: 0 })).toBeNull();
+      expect(readDevServerListeningPort({ type: "fusion:dev-server-listening", port: "51234" })).toBe(51234);
+      expect(readDevServerListeningPort(null)).toBeNull();
+      expect(readDevServerListeningPort("fusion:dev-server-listening")).toBeNull();
+    });
+
+    it("still treats a dev dashboard on an ephemeral port as token-gated", () => {
+      // The reported port IS the dashboard, so the banner must keep lending it the token rather
+      // than classifying it "foreign" for not matching 4040.
+      expect(auth({ port: 51234, dashboardPort: 51234, readToken: () => "fn_abc" }))
+        .toEqual({ kind: "token", token: "fn_abc" });
     });
 
     it("prints an openable URL for the token case and a warning only where it is true", () => {

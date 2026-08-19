@@ -3,6 +3,16 @@ import type { EventEmitter } from "node:events";
 export const DEV_SOURCE_CHANGE_MESSAGE = "fusion:dev-source-changed";
 export const DEV_SOURCE_RESTART_ARMED_MESSAGE = "fusion:dev-source-restart-armed";
 
+/**
+ * FNXC:DevTunnel 2026-08-19-02:05:
+ * The dev supervisor cannot know which port the dashboard ended up on: an occupied port makes the
+ * server silently rebind to an ephemeral one (`listen(0)`), so the port the supervisor ASKED for is
+ * a guess, not a fact. The child reports the bound port over the existing IPC channel so
+ * `--tunnel` targets the dev server rather than whatever else holds the configured port — which,
+ * when a normal Fusion is already running on 4040, was the other instance entirely.
+ */
+export const DEV_SERVER_LISTENING_MESSAGE = "fusion:dev-server-listening";
+
 interface DevSourceChangeMessage {
   type: typeof DEV_SOURCE_CHANGE_MESSAGE;
 }

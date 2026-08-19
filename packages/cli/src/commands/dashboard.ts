@@ -147,6 +147,7 @@ import { DashboardTUI, DashboardLogSink, isTTYAvailable, type SystemInfo, type G
 import { DASHBOARD_STARTUP_STATUS, runTuiStartupPrelude } from "./dashboard-startup-chain.js";
 import { phaseTime } from "../startup-phase.js";
 import {
+  DEV_SERVER_LISTENING_MESSAGE,
   DEV_SOURCE_RESTART_ARMED_MESSAGE,
   registerDevSourceRestart,
 } from "./dev-source-restart.js";
@@ -2962,6 +2963,10 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     if (actualPort !== selectedPort) {
       logSink.warn(`Port ${selectedPort} in use, using ${actualPort} instead`, "dashboard");
     }
+
+    // FNXC:DevTunnel 2026-08-19-02:05: report the REAL port to the dev supervisor (no-op without an
+    // IPC channel, i.e. every non-`pnpm dev` launch). See DEV_SERVER_LISTENING_MESSAGE.
+    process.send?.({ type: DEV_SERVER_LISTENING_MESSAGE, port: actualPort, host: selectedHost });
 
     // ── mDNS discovery: broadcast presence and listen for other nodes ───────
     //

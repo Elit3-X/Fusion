@@ -14,6 +14,7 @@ import {
   createDevWatchRestartCoordinator,
   getPrebuildCommand,
   parseDevWrapperArgs,
+  readDevServerListeningPort,
   resolveDevTunnelPort,
   resolvePrebuildMode,
 } from "./dev-with-memory-lib.mjs";
@@ -97,6 +98,59 @@ function ensureSourceWatcher() {
   console.log(`[fusion:dev] source watch active (${sourceWatcher.watchedPaths.join(", ")})`);
 }
 
+/*
+FNXC:DevTunnel 2026-08-19-02:05:
+Which port to tunnel is NOT knowable up front. `resolveDevTunnelPort` returns the port the dev
+server is asked for, but an occupied port makes the dashboard rebind to an ephemeral one — so with a
+normal Fusion already holding 4040, the tunnel pointed at THAT instance and served the wrong app
+under a dev-looking URL. Wait for the child's listening report and tunnel the port it actually got.
+
+An explicit `--tunnel=PORT` names a target the operator chose (a Vite server the dev child knows
+nothing about), so it is used immediately and never waits. If the report never arrives the tunnel
+still comes up on the configured port, since a mis-targeted preview beats no preview at all.
+*/
+const DEV_SERVER_PORT_REPORT_TIMEOUT_MS = 60_000;
+let reportDevServerPort;
+const devServerPortReport = new Promise((resolve) => { reportDevServerPort = resolve; });
+
+async function resolveTunnelTargetPort() {
+  if (tunnelPort) return { port: tunnelPort, source: "explicit" };
+
+  const configured = resolveDevTunnelPort(undefined);
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => resolve(null), DEV_SERVER_PORT_REPORT_TIMEOUT_MS).unref?.();
+  });
+  const reported = await Promise.race([devServerPortReport, timeout]);
+
+  if (reported == null) {
+    console.warn(`[fusion:dev] dev server never reported its port — tunnelling ${configured}, which may not be it`);
+    return { port: configured, source: "assumed" };
+  }
+  if (reported !== configured) {
+    console.log(`[fusion:dev] dev server bound ${reported} (not ${configured}) — tunnelling ${reported}`);
+  }
+  return { port: reported, source: "reported" };
+}
+
+async function openDevTunnel() {
+  const { port, source } = await resolveTunnelTargetPort();
+  /*
+  FNXC:DevTunnel 2026-08-19-02:05:
+  A port the CHILD reported is the dev dashboard by definition, whatever number it landed on — so it
+  is its own dashboardPort. Treating it as "some other port" would drop the token from the banner
+  precisely in the ephemeral-rebind case this fix exists for. An explicit --tunnel=PORT names an
+  arbitrary target, so that one is still compared against the configured dashboard port.
+  */
+  const dashboardPort = source === "explicit" ? resolveDevTunnelPort(undefined) : port;
+  /*
+  FNXC:DevTunnel 2026-08-19-01:18:
+  Resolved at print time (not at parse time) so the token the dev child mints on a first
+  authenticated run is already on disk by the time the banner needs it.
+  */
+  const auth = resolveDevTunnelAuth({ port, dashboardPort, args: forwardedArgs });
+  devTunnel = await startDevTunnel({ port, auth });
+}
+
 function runApp(extraArgs) {
   const tsx = spawn(process.execPath, buildDevNodeArgs({
     inspectFlags,
@@ -105,7 +159,9 @@ function runApp(extraArgs) {
     entry: ENTRY,
     args: extraArgs,
   }), {
-    stdio: watchSource ? ["inherit", "inherit", "inherit", "ipc"] : "inherit",
+    // FNXC:DevTunnel 2026-08-19-02:05: the tunnel needs the child's IPC channel too, to learn the
+    // port it actually bound — not only watch mode.
+    stdio: (watchSource || tunnel) ? ["inherit", "inherit", "inherit", "ipc"] : "inherit",
     // FNXC:SystemPanel 2026-07-25-10:05: stamp the supervisor pid alongside the
     // flag so the child can tell a real supervising parent from an inherited
     // copy of the variable (see hasLiveSupervisingParent in commands/dashboard.ts).
@@ -126,26 +182,17 @@ function runApp(extraArgs) {
   unchanged and a fresh quick tunnel would hand out a different hostname every reload.
   */
   if (tunnel && !devTunnel) {
-    const port = resolveDevTunnelPort(tunnelPort);
-    /*
-    FNXC:DevTunnel 2026-08-19-01:18:
-    Resolved at print time (not at parse time) so the token the dev child mints on a first
-    authenticated run is already on disk by the time the banner needs it.
-    */
-    const auth = resolveDevTunnelAuth({
-      port,
-      dashboardPort: resolveDevTunnelPort(undefined),
-      args: forwardedArgs,
-    });
     devTunnel = { url: null, stop: () => {} };
-    void startDevTunnel({ port, auth })
-      .then((started) => { devTunnel = started; })
-      .catch((error) => {
-        console.error(`[fusion:dev] tunnel error: ${error instanceof Error ? error.message : String(error)}`);
-      });
+    void openDevTunnel().catch((error) => {
+      console.error(`[fusion:dev] tunnel error: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
   watchRestart.attach(tsx);
-  tsx.on("message", (message) => watchRestart.onMessage(message));
+  tsx.on("message", (message) => {
+    const listeningPort = readDevServerListeningPort(message);
+    if (listeningPort) reportDevServerPort(listeningPort);
+    watchRestart.onMessage(message);
+  });
   ensureSourceWatcher();
   tsx.on("close", (c) => {
     const sourceRestart = watchRestart.detach(tsx);
