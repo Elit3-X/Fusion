@@ -169,6 +169,18 @@ Lock the id to the same chip-height row as .card-header-actions so the task id, 
   word-break: break-word;
 }
 
+/*
+FNXC:TaskTitleDisplay 2026-08-19-15:22:
+FN-044 bounds only the display-derived description fallback after title precedence has been resolved.
+The card remains presentation-only: it neither persists a fallback nor restores FN-036's AI-length policy.
+*/
+.card-title--bounded-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .card-branch-row {
   display: flex;
   align-items: center;

@@ -6237,3 +6237,67 @@ describe("ListView - Bulk Selection", () => {
     });
   });
 });
+
+describe("ListView titleless display fallback (FN-044)", () => {
+  const description200 = "d".repeat(200);
+  const description201 = "e".repeat(201);
+  const expectedBoundedDescription = description201.slice(0, 197) + "...";
+
+  it("uses the shared literal-dot fallback in the desktop table and preserves explicit titles", () => {
+    const viewportSpy = mockDesktopViewport();
+    try {
+      const { container, rerender } = renderListView({
+        tasks: [createMockTask({ id: "FN-044-desktop", title: undefined, description: description201 })],
+      });
+      expect(container.querySelector(".list-title-text")).toHaveTextContent(expectedBoundedDescription);
+      expect(container.querySelector(".list-title-text")?.textContent).toHaveLength(200);
+
+      const explicitTitle = "t".repeat(201);
+      rerender(<ListView
+        tasks={[createMockTask({ id: "FN-044-explicit", title: explicitTitle, description: description201 })]}
+        onMoveTask={vi.fn(async () => createMockTask())}
+        onRetryTask={vi.fn(async () => createMockTask())}
+        onDeleteTask={vi.fn(async () => createMockTask())}
+        onMergeTask={vi.fn(async () => ({ merged: false }))}
+        onResetTask={vi.fn(async () => createMockTask())}
+        onDuplicateTask={vi.fn(async () => createMockTask())}
+        onOpenDetail={vi.fn()}
+        addToast={mockAddToast}
+        globalPaused={false}
+        onNewTask={vi.fn()}
+        projectId={TEST_PROJECT_ID}
+      />);
+      expect(container.querySelector(".list-title-text")).toHaveTextContent(explicitTitle);
+    } finally {
+      viewportSpy.mockRestore();
+    }
+  });
+
+  it("uses the same fallback in mobile cards, including 200-character and whitespace-title controls", () => {
+    const viewportSpy = mockMobileViewport();
+    try {
+      const { container, rerender } = renderListView({
+        tasks: [createMockTask({ id: "FN-044-mobile", title: "   ", description: description201 })],
+      });
+      expect(container.querySelector(".list-card-title")).toHaveTextContent(expectedBoundedDescription);
+
+      rerender(<ListView
+        tasks={[createMockTask({ id: "FN-044-200", title: undefined, description: description200 })]}
+        onMoveTask={vi.fn(async () => createMockTask())}
+        onRetryTask={vi.fn(async () => createMockTask())}
+        onDeleteTask={vi.fn(async () => createMockTask())}
+        onMergeTask={vi.fn(async () => ({ merged: false }))}
+        onResetTask={vi.fn(async () => createMockTask())}
+        onDuplicateTask={vi.fn(async () => createMockTask())}
+        onOpenDetail={vi.fn()}
+        addToast={mockAddToast}
+        globalPaused={false}
+        onNewTask={vi.fn()}
+        projectId={TEST_PROJECT_ID}
+      />);
+      expect(container.querySelector(".list-card-title")).toHaveTextContent(description200);
+    } finally {
+      viewportSpy.mockRestore();
+    }
+  });
+});

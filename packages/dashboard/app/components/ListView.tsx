@@ -40,6 +40,7 @@ import { useUnmappedWorkflowRefetch } from "../hooks/useUnmappedWorkflowRefetch"
 import { TaskContextMenu, buildTaskActionMenuModel, getTaskPrAutomationLabel, type TaskContextMenuColumnMetadata, type TaskMenuActionDescriptor } from "./TaskContextMenu";
 import type { DetailTaskOpenOptions, DetailTaskTab } from "../hooks/useModalManager";
 import { isTaskReverted, partitionRevertedTasks } from "../utils/taskRevert";
+import { getTaskTitleDisplay } from "../utils/taskTitleDisplay";
 
 const COLUMN_COLOR_MAP: Record<Column, string> = {
   triage: "var(--triage)",
@@ -3282,7 +3283,7 @@ export function ListView({
                               </div>
 
                               <div className="list-card-row">
-                                <div className="list-card-title">{task.title || task.description}</div>
+                                <div className="list-card-title">{getTaskTitleDisplay(task).text}</div>
                               </div>
 
                               {(hasDependencies || hasProgress) && (
@@ -3522,7 +3523,7 @@ export function ListView({
                                             <span className="visually-hidden">{t("listView.fastMode", "Fast mode")}</span>
                                           </span>
                                         )}
-                                        <span className="list-title-text">{task.title || task.description}</span>
+                                        <span className="list-title-text">{getTaskTitleDisplay(task).text}</span>
                                       </div>
                                     </div>
                                   </td>

@@ -9021,3 +9021,46 @@ describe("TaskCard field editability resolves column traits (U12 — R8)", () =>
     expect(screen.getByRole("button", EDIT_LABEL)).toBeInTheDocument();
   });
 });
+
+describe("TaskCard titleless display fallback (FN-044)", () => {
+  const description200 = "d".repeat(200);
+  const description201 = "e".repeat(201);
+
+  function cardTitle(container: HTMLElement): HTMLDivElement {
+    return container.querySelector(".card-title") as HTMLDivElement;
+  }
+
+  it("keeps titleless descriptions through 200 characters unchanged", () => {
+    const { container } = render(<TaskCard task={makeTask({ title: undefined, description: description200 })} onOpenDetail={noop} addToast={noop} />);
+    expect(cardTitle(container)).toHaveTextContent(description200);
+    expect(cardTitle(container)).not.toHaveClass("card-title--bounded-description");
+  });
+
+  it("bounds a 201-character titleless description with literal dots while retaining its full tooltip", () => {
+    const { container } = render(<TaskCard task={makeTask({ title: undefined, description: description201 })} onOpenDetail={noop} addToast={noop} />);
+    const title = cardTitle(container);
+    expect(title).toHaveTextContent(description201.slice(0, 197) + "...");
+    expect(title.textContent).toHaveLength(200);
+    expect(title).toHaveClass("card-title--bounded-description");
+    expect(title).toHaveAttribute("title", description201);
+  });
+
+  it("uses description or task ID for whitespace-only titles and blank descriptions", () => {
+    const fallback = render(<TaskCard task={makeTask({ title: "   ", description: "Description fallback" })} onOpenDetail={noop} addToast={noop} />);
+    expect(cardTitle(fallback.container)).toHaveTextContent("Description fallback");
+    fallback.unmount();
+
+    const idFallback = render(<TaskCard task={makeTask({ id: "FN-blank", title: " ", description: "   " })} onOpenDetail={noop} addToast={noop} />);
+    expect(cardTitle(idFallback.container)).toHaveTextContent("FN-blank");
+  });
+
+  it("preserves explicit titles and their existing TaskCard truncation", () => {
+    const explicitTitle = "t".repeat(201);
+    const { container } = render(<TaskCard task={makeTask({ title: explicitTitle, description: description201 })} onOpenDetail={noop} addToast={noop} />);
+    const title = cardTitle(container);
+    expect(title).toHaveTextContent(explicitTitle.slice(0, 140) + "…");
+    expect(title).toHaveAttribute("title", explicitTitle);
+    expect(title).not.toHaveClass("card-title--bounded-description");
+    expect(title.textContent).not.toContain("...");
+  });
+});

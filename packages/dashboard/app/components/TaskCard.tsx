@@ -78,6 +78,7 @@ import { WorkflowIcon } from "./WorkflowIcon";
 import { TaskContextMenu, buildTaskActionMenuModel, getTaskPrAutomationLabel, type TaskContextMenuColumnFlags, type TaskContextMenuColumnMetadata, type TaskMenuActionDescriptor } from "./TaskContextMenu";
 import { formatCost, hasTaskCost, taskTotalCost } from "../utils/taskTokenCost";
 import { getPriorityColorVar, getPriorityIcon, getPriorityLabel } from "../utils/priorityIndicator";
+import { getTaskTitleDisplay } from "../utils/taskTitleDisplay";
 import {
   WORKFLOW_SETTING_VALUES_UPDATED_EVENT,
   getWorkflowSettingValuesKey,
@@ -4060,9 +4061,20 @@ function TaskCardComponent({
           )}
         </div>
       )}
-      <div className="card-title" title={task.title || task.description || undefined}>
-        {truncate(task.title, MAX_TITLE_LENGTH) || truncate(task.description, MAX_TITLE_LENGTH) || task.id}
-      </div>
+      {(() => {
+        const titleDisplay = getTaskTitleDisplay(task);
+        const titleText = titleDisplay.source === "title"
+          ? truncate(titleDisplay.text, MAX_TITLE_LENGTH)
+          : titleDisplay.text;
+        return (
+          <div
+            className={`card-title${titleDisplay.isBoundedDescription ? " card-title--bounded-description" : ""}`}
+            title={titleDisplay.fullText}
+          >
+            {titleText}
+          </div>
+        );
+      })()}
       {(() => {
         // Card-placed custom field badges (U13/KTD-14). Bounded to MAX_CARD_FIELDS
         // with a "+N" overflow chip. Nothing renders when no card fields are
