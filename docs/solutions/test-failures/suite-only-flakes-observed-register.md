@@ -30,7 +30,7 @@ The flat register mixed closed narratives with open records, making it unusable 
 
 ### 1. Project identity returns no stored identity
 
-- **Status:** Escalated second sighting — reproduced by FN-9126; structural-fix owner FN-9131.
+- **Status:** Active reproduced-but-unattributed observation — evidence owner FN-9146.
 
 - **File:** `packages/core/src/__tests__/postgres/project-identity.test.ts`
 - **Exact test:** `project-identity async (PostgreSQL integration) > returns null when no identity is stored`
@@ -58,9 +58,33 @@ The flat register mixed closed narratives with open records, making it unusable 
 | PostgreSQL directory, 27 workers (run 1) | subject passed; 173 files; 1335 passed / 31 failed / 4 skipped |
 | PostgreSQL directory, 27 workers (run 2) | **subject timeout reproduced**; 173 files; 942 passed / 46 failed / 382 skipped |
 
+<!--
+FNXC:PostgresFlakeDiagnosis 2026-08-19-12:25:
+FN-9146 requires every active core PostgreSQL record to retain its own complete campaign verdict. Each per-run row carries the lane shape, selected subject result, wall-clock, whole-lane outcome, and measured cluster capacity so later sightings cannot collapse evidence from a different identity or mistake an unsampled run for pressure evidence.
+-->
+
+**Campaign outcome 2026-08-19 (FN-9146):** The pre-registered A×4/B×3/C×3/D×2 campaign completed at `ed2cbd08a13f02f1fa5e19d5072c471bb972a315` on PostgreSQL 15.15. The exact null-read identity timed out at its inherited 15s budget in A02–A04. Snapshots peaked at 73, 62, and 71 backends, below the 97 ordinary slots, and showed concurrent DDL/checkpoint/object-lock/WAL waits. Those records do not name a causal lifecycle seam: connection exhaustion, template ownership, drop contention, and the deliberately-unwired budget primitive remain unproven. Entry 1 stays active and reproduced-but-unattributed under FN-9146; no structural change, timeout/retry, or core-PG quarantine was made. Complete combined output and teardown JSONL for A01–D02 are durable FN-9146 task attachments, with parsed checkpoints in its task documents.
+
+**Capacity-evidence remediation 2026-08-19 (FN-9146):** C01–C03's original green default-core logs had no activity snapshot, so they cannot substantiate a peak. One sampled replacement per affected shape (C01R–C03R) completed green with an external 250ms `pg_stat_activity` count sampler: 28/31/30 observed backends across 583/491/508 samples. The table labels retain the pre-registered C identities and disclose their sampled replacements; these are new measurements, not retroactive values for the original C logs. Each replacement retained full runner output, teardown JSONL, and sampler output in FN-9146's durable evidence checkpoint; after C03R, the dead-owner golden template was dropped and the leftover count returned to zero.
+
+| run | shape / workers | wall | subject result | whole-lane result | cluster capacity (`max`/ordinary; peak) |
+|---|---|---:|---|---|---|
+| A01 | directory / 27 | 235.8s | pass | 25 files / 45 tests red | 100/97; 73 |
+| A02 | directory / 27 | 220.2s | **captured: 15s timeout** | 60 files / 42 tests red | 100/97; 73 |
+| A03 | directory / 27 | 205.5s | **captured: 15s timeout** | 35 files / 31 tests red | 100/97; 62 |
+| A04 | directory / 27 | 224.2s | **captured: 15s timeout** | 36 files / 39 tests red | 100/97; 71 |
+| B01 | directory / 12 | 110.8s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 26 |
+| B02 | directory / 12 | 119.2s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 36 |
+| B03 | directory / 12 | 121.1s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 28 |
+| C01 / C01R | core default | 163.5s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 28 (583 samples) |
+| C02 / C02R | core default | 136.6s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 31 (491 samples) |
+| C03 / C03R | core default | 141.1s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 30 (508 samples) |
+| D01 | configured pg gate / 4 forks | 3.6s | not selected | green, 2 files / 10 pass | 100/97; not sampled |
+| D02 | configured pg gate / 4 forks | 3.7s | not selected | green, 2 files / 10 pass | 100/97; not sampled |
+
 ### 2. Schema applier retains registered dependents
 
-- **Status:** Active first sighting — owner FN-9128.
+- **Status:** Active first sighting — evidence owner FN-9146.
 
 The FN-9128 harness-isolation fix does not close this record because no reproduced failure explained the original assertion mechanism.
 
@@ -90,9 +114,28 @@ DDL microbenchmarks of the pre-fix pristine shape measured `CREATE DATABASE` 44.
 | full core ×3, 6 workers | subject passed; unrelated settings-revision-attribution failure |
 | PostgreSQL directory, 12 workers | subject passed; unrelated satellite-store ordering failure |
 
+**Campaign outcome 2026-08-19 (FN-9146):** The exact registered dependents identity passed every subject-containing lane (A×4/B×3/C×3); D01–D02 do not select this file. The historical mode remains unattributed. Entry 2 stays active under FN-9146; the next sighting follows normal escalation and core PostgreSQL quarantine remains policy-forbidden. Complete combined output and teardown JSONL for A01–D02 are durable FN-9146 task attachments, with parsed checkpoints in its task documents.
+
+**Capacity-evidence remediation 2026-08-19 (FN-9146):** C01–C03's original green default-core logs had no activity snapshot, so they cannot substantiate a peak. One sampled replacement per affected shape (C01R–C03R) completed green with an external 250ms `pg_stat_activity` count sampler: 28/31/30 observed backends across 583/491/508 samples. The table labels retain the pre-registered C identities and disclose their sampled replacements; these are new measurements, not retroactive values for the original C logs. Each replacement retained full runner output, teardown JSONL, and sampler output in FN-9146's durable evidence checkpoint; after C03R, the dead-owner golden template was dropped and the leftover count returned to zero.
+
+| run | shape / workers | wall | subject result | whole-lane result | cluster capacity (`max`/ordinary; peak) |
+|---|---|---:|---|---|---|
+| A01 | directory / 27 | 235.8s | pass | 25 files / 45 tests red | 100/97; 73 |
+| A02 | directory / 27 | 220.2s | pass | 60 files / 42 tests red | 100/97; 73 |
+| A03 | directory / 27 | 205.5s | pass | 35 files / 31 tests red | 100/97; 62 |
+| A04 | directory / 27 | 224.2s | pass | 36 files / 39 tests red | 100/97; 71 |
+| B01 | directory / 12 | 110.8s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 26 |
+| B02 | directory / 12 | 119.2s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 36 |
+| B03 | directory / 12 | 121.1s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 28 |
+| C01 / C01R | core default | 163.5s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 28 (583 samples) |
+| C02 / C02R | core default | 136.6s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 31 (491 samples) |
+| C03 / C03R | core default | 141.1s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 30 (508 samples) |
+| D01 | configured pg gate / 4 forks | 3.6s | not selected | green, 2 files / 10 pass | 100/97; not sampled |
+| D02 | configured pg gate / 4 forks | 3.7s | not selected | green, 2 files / 10 pass | 100/97; not sampled |
+
 ### 7. Mission store PostgreSQL teardown hook
 
-- **Status:** Active first sighting — owner FN-9127.
+- **Status:** Active first sighting — evidence owner FN-9146.
 
 - **File:** `packages/core/src/__tests__/postgres/mission-store.pg.test.ts`
 - **Exact test:** `MissionStore (PostgreSQL backend mode)` suite `afterAll` hook (`h.afterAll`).
@@ -125,9 +168,29 @@ The timeout occurred after all test assertions and is unrelated to FN-8979's can
 
 The 12-worker snapshots show 21 backends and concurrent template `CREATE DATABASE`/`DROP DATABASE WITH (FORCE)` work, including `IPC/CheckpointDone` and `IPC/ProcSignalBarrier`; they do not implicate this mission-store suite. FN-9130 measured advisory admission as a non-remedy: uniform pooling regressed to 49 watchdogs / 5,068ms and drop-only wiring to 27 / 3,361ms against the 4–5 / 3,284ms baseline. A bounded deferred-drop reaper also failed the end-to-end criterion: watchdogs became zero by construction, but two green runs took 117.2s and 122.4s versus the 108.1s baseline maximum, and a later run timed out in unrelated loaded setup. The reaper was reverted. FN-9136 then rejected candidate C after its golden-template gate passed: the required seven-pair 12-worker campaign left pooled `fusion_pool_*` databases owned by dead fork PIDs because the experiment lacked an awaited fork-exit flush and direct imports degraded to the shared `local` identity. The isolation failure required removing all harness wiring regardless of wall time. FN-9134 supplied a pre-registered report-only lane metric and completed its required seven-pair alternating control/candidate campaign at 12 workers. The control/candidate medians were 137.81s/146.91s, candidate pairs 02–06 were red, and every sample observed 32 or 33 surviving `fusion_test_%` databases (pair 04 increased 32 to 33). The tool's `no-improvement` verdict and the automatic non-zero-leak rejection removed the prototype and all of its wiring/tests together. The full per-run JSONL/log evidence is retained in task document `FN-9134/evidence`; this remains unresolved rather than becoming a quarantine or timeout change. No teardown behavior was changed: there is no evidence-backed cause for this entry's historical 15s afterAll abort. This first-sighting record remains retained; a second sighting follows the normal escalation. Core PostgreSQL files cannot be quarantined inline because the gate-policy assertion requires `quarantinedCoreTests` to remain empty; that is an owner-escalated decision.
 
+**Campaign outcome 2026-08-19 (FN-9146):** The registered `afterAll(h.afterAll)` hook did not fail in every lane that selected this file. A02 instead timed out in `beforeAll(h.beforeAll)`, so its registered `afterAll` did not run and is recorded as not reached rather than passed; it is explicitly not entry-7 evidence. D01–D02 do not select the file. The historical afterAll mode remains unattributed. Entry 7 stays active under FN-9146; the next sighting follows normal escalation and core PostgreSQL quarantine remains policy-forbidden. Complete combined output and teardown JSONL for A01–D02 are durable FN-9146 task attachments, with parsed checkpoints in its task documents.
+
+**Capacity-evidence remediation 2026-08-19 (FN-9146):** C01–C03's original green default-core logs had no activity snapshot, so they cannot substantiate a peak. One sampled replacement per affected shape (C01R–C03R) completed green with an external 250ms `pg_stat_activity` count sampler: 28/31/30 observed backends across 583/491/508 samples. The table labels retain the pre-registered C identities and disclose their sampled replacements; these are new measurements, not retroactive values for the original C logs. Each replacement retained full runner output, teardown JSONL, and sampler output in FN-9146's durable evidence checkpoint; after C03R, the dead-owner golden template was dropped and the leftover count returned to zero.
+
+| run | shape / workers | wall | subject result | whole-lane result | cluster capacity (`max`/ordinary; peak) |
+|---|---|---:|---|---|---|
+| A01 | directory / 27 | 235.8s | pass | 25 files / 45 tests red | 100/97; 73 |
+| A02 | directory / 27 | 220.2s | not reached: `beforeAll` timeout (not registered `afterAll`) | 60 files / 42 tests red | 100/97; 73 |
+| A03 | directory / 27 | 205.5s | pass | 35 files / 31 tests red | 100/97; 62 |
+| A04 | directory / 27 | 224.2s | pass | 36 files / 39 tests red | 100/97; 71 |
+| B01 | directory / 12 | 110.8s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 26 |
+| B02 | directory / 12 | 119.2s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 36 |
+| B03 | directory / 12 | 121.1s | pass | green, 176 files / 1385 pass / 1 skip | 100/97; 28 |
+| C01 / C01R | core default | 163.5s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 28 (583 samples) |
+| C02 / C02R | core default | 136.6s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 31 (491 samples) |
+| C03 / C03R | core default | 141.1s | pass | green, 580 files / 5686 pass / 3 skip | 100/97; 30 (508 samples) |
+| D01 | configured pg gate / 4 forks | 3.6s | not selected | green, 2 files / 10 pass | 100/97; not sampled |
+| D02 | configured pg gate / 4 forks | 3.7s | not selected | green, 2 files / 10 pass | 100/97; not sampled |
+
+
 ### Common shape and investigated result
 
-FN-9125 established that former entry 3 was not PostgreSQL-suite-adjacent: `plugin-runner.test.ts` used an in-memory mocked TaskStore and had no PostgreSQL/harness import. FN-9135 did not identify a root cause, but FN-9141's completed shuffled worker-reuse campaign reproduced and structurally fixed the logger mock-history fixture defect; the suite and its renamed-complete-lane dispatch coverage remain active. Entries 2 and 7 remain evidence-gathering-pending PostgreSQL first sightings: current full-output runs at six workers plus a twelve-worker PostgreSQL-directory run did not reproduce either subject identity, so FN-9125 cannot claim them superseded or resolved. Entry 1 instead reproduced under FN-9126 and remains escalated to FN-9131 for structural-fix ownership. The golden-template/advisory-lock lifecycle and schema-applier's inline baseline path are concrete architecture facts, not a demonstrated cause of these assertions. Core policy forbids inline PG quarantine: FN-9126 owns entry 1's reproduced evidence, FN-9131 owns its structural-fix escalation, FN-9128 exclusively owns entry 2, and FN-9127 owns entry 7 for CI/host-specific `pg_stat_activity`, lifecycle timing, and a complete loaded failure capture before any source or fan-out change. Entry 6 instead records a merge-gate eviction after a loaded-lane setup-hook timeout; `FNXC:PgTestTemplateDb 2026-07-19-17:20` and `FNXC:PgTestWorkerCap 2026-07-18-18:00` are already-landed mitigations for that mode, not new diagnoses to re-open. The Planning Mode entries are separate frontend timing observations.
+FN-9125 established that former entry 3 was not PostgreSQL-suite-adjacent: `plugin-runner.test.ts` used an in-memory mocked TaskStore and had no PostgreSQL/harness import. FN-9135 did not identify a root cause, but FN-9141's completed shuffled worker-reuse campaign reproduced and structurally fixed the logger mock-history fixture defect; the suite and its renamed-complete-lane dispatch coverage remain active. Entries 2 and 7 remain active, unreproduced PostgreSQL observations: FN-9146 completed the later A×4/B×3/C×3 campaign without either exact identity failing. Entry 1 reproduced under FN-9126 and again under FN-9146's A02–A04 lanes, but remains unattributed rather than structurally fixed. The golden-template/advisory-lock lifecycle and schema-applier's inline baseline path are concrete architecture facts, not a demonstrated cause of these assertions. Core policy forbids inline PG quarantine: FN-9146 owns the retained evidence for entries 1, 2, and 7; no source or fan-out change is justified before a diagnostic names a causal lifecycle seam. Entry 6 instead records a merge-gate eviction after a loaded-lane setup-hook timeout; `FNXC:PgTestTemplateDb 2026-07-19-17:20` and `FNXC:PgTestWorkerCap 2026-07-18-18:00` are already-landed mitigations for that mode, not new diagnoses to re-open. The Planning Mode entries are separate frontend timing observations.
 
 
 

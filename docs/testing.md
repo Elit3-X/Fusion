@@ -531,6 +531,10 @@ pnpm --filter @fusion/core test 2>&1 | tee /tmp/fn-9127-core.log
 
 Checkpoint parsed JSONL and run metadata in a durable task document after every run; `/tmp` is scratch storage, not the evidence system of record.
 
+<!-- FNXC:PostgresFlakeDiagnosis 2026-08-19-11:56: FN-9146 requires loaded-flake campaigns to make a per-identity verdict rather than treating one red lane as proof for every subject. Capacity and gate selection are recorded because a configured gate may not include the investigated files. -->
+
+For a pre-registered loaded-flake campaign, record PostgreSQL version, `max_connections`, reserved slots, baseline and peak backend counts, and each run's selected file list. Track each registered test or hook independently: a capture satisfies only that exact identity; every uncaptured identity requires the full pre-registered subject-containing run set. Preserve all runner output and JSONL as task attachments as well as checkpointing parsed counters in task documents. Do not count a configured lane that does not select a subject as negative evidence for that subject.
+
 <!-- FNXC:PgDdlLaneMetric 2026-08-17-00:59: FN-9134 requires a pre-registered end-to-end band because teardown watchdogs become structurally meaningless when cleanup leaves the hook. The parser is intentionally report-only and the alternating samples are campaign observations, never Vitest retries. -->
 
 ### PostgreSQL DDL loaded-lane acceptance metric
