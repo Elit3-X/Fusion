@@ -70,7 +70,7 @@ import { CliChatSessionRunner } from "./cli-chat.js";
 import { stopAllDevServers } from "./dev-server-routes.js";
 import type { SkillsAdapter } from "./skills-adapter.js";
 import { createAuthMiddleware, authenticateUpgradeRequest, getDaemonToken } from "./auth-middleware.js";
-import { buildRemoteSessionCookie, createRemoteSessionStore } from "./remote-session.js";
+import { buildRemoteSessionCookie, createRemoteSessionStore, resolveRemoteSessionTtlMs } from "./remote-session.js";
 import { setupCliSessionWebSocket } from "./cli-session-ws.js";
 import { createCliSessionsRouter } from "./routes/cli-sessions.js";
 import { getProjectIdFromRequest, resolveStoreForProjectId } from "./routes/context.js";
@@ -2160,28 +2160,6 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
       });
     }
   });
-
-  /*
-  FNXC:RemoteAuth 2026-08-19-00:40:
-  Session lifetime for a remote login. A SHORT-LIVED remote token must not be able to mint a session
-  that outlives it — otherwise a 15-minute share link buys a longer stay through the back door — so
-  the session is capped by whatever remains of the token. A persistent token has no expiry to
-  inherit, so it uses the configured short-lived TTL as a bounded default rather than granting an
-  unbounded session.
-  */
-  const resolveRemoteSessionTtlMs = (
-    remoteAccess: { tokenStrategy?: { shortLived?: { ttlMs?: number } } } | undefined,
-    validated: { tokenType?: string; expiresAt?: string | number | null } | undefined,
-  ): number => {
-    const configured = Number(remoteAccess?.tokenStrategy?.shortLived?.ttlMs ?? 900_000);
-    const fallback = Number.isFinite(configured) && configured > 0 ? configured : 900_000;
-    const expiresAt = validated?.expiresAt;
-    if (expiresAt !== undefined && expiresAt !== null) {
-      const remaining = new Date(expiresAt).getTime() - Date.now();
-      if (Number.isFinite(remaining) && remaining > 0) return Math.min(remaining, fallback);
-    }
-    return fallback;
-  };
 
   app.get("/remote-login", async (req, res) => {
     const remoteToken = typeof req.query.rt === "string" ? req.query.rt : undefined;

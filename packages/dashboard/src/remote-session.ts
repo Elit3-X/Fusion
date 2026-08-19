@@ -124,3 +124,44 @@ export function buildRemoteSessionCookie(session: RemoteSession, options: { secu
   if (options.secure) parts.push("Secure");
   return parts.join("; ");
 }
+
+/*
+FNXC:RemoteAuth 2026-08-19-02:10:
+SESSION LIFETIME BY TOKEN TYPE. The first cut capped every session at `shortLived.ttlMs`, which made
+a PERSISTENT link expire in 15 minutes — wrong, because persistent means "this link keeps working"
+and the operator uses it for their own devices.
+
+  short-lived token -> session expires no later than the token does. A 15-minute link must not buy a
+                       longer stay through the back door.
+  persistent token  -> a long session, because the link itself never expires. It is still a session
+                       rather than the daemon token: opaque, revocable (revokeAll on rotation), and
+                       gone on restart, so it is not the permanent credential the old redirect leaked.
+*/
+
+/** Persistent links get a long session; the store is in-memory, so a restart ends it regardless. */
+export const PERSISTENT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+const DEFAULT_SHORT_LIVED_TTL_MS = 900_000;
+
+export function resolveRemoteSessionTtlMs(
+  remoteAccess: { tokenStrategy?: { shortLived?: { ttlMs?: number } } } | undefined,
+  validated: { tokenType?: string; expiresAt?: string | number | null } | undefined,
+  now: number = Date.now(),
+): number {
+  const expiresAt = validated?.expiresAt;
+  if (expiresAt !== undefined && expiresAt !== null) {
+    const remaining = new Date(expiresAt).getTime() - now;
+    if (Number.isFinite(remaining) && remaining > 0) {
+      // Never outlive the token that authorised it.
+      return remaining;
+    }
+  }
+
+  if (validated?.tokenType === "short-lived") {
+    // A short-lived token with no usable expiry falls back to the configured TTL, never the long one.
+    const configured = Number(remoteAccess?.tokenStrategy?.shortLived?.ttlMs ?? DEFAULT_SHORT_LIVED_TTL_MS);
+    return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SHORT_LIVED_TTL_MS;
+  }
+
+  return PERSISTENT_SESSION_TTL_MS;
+}

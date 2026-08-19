@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildRemoteSessionCookie,
   createRemoteSessionStore,
+  PERSISTENT_SESSION_TTL_MS,
   readCookie,
   REMOTE_SESSION_COOKIE,
+  resolveRemoteSessionTtlMs,
 } from "../remote-session.js";
 import { createAuthMiddleware } from "../auth-middleware.js";
 import { readFileSync } from "node:fs";
@@ -130,5 +132,41 @@ describe("remote-login redirect", () => {
     expect(handler).not.toMatch(/searchParams\.set\(\s*["']token["']/);
     expect(handler, "a validated remote token must mint a session instead").toContain("remoteSessions.issue");
     expect(handler).toContain("buildRemoteSessionCookie");
+  });
+});
+
+/*
+FNXC:RemoteAuth 2026-08-19-02:10:
+Session lifetime must follow the TOKEN TYPE. The first cut capped everything at `shortLived.ttlMs`,
+so a PERSISTENT link expired in 15 minutes — wrong: persistent means the link keeps working, and it
+is what the operator uses for their own devices. A short-lived link keeps the opposite guarantee: the
+session it mints cannot outlive the link.
+*/
+describe("remote session lifetime", () => {
+  const now = 1_000_000_000;
+  const settings = { tokenStrategy: { shortLived: { ttlMs: 900_000 } } };
+
+  it("gives a persistent token a long session, not the short-lived TTL", () => {
+    expect(resolveRemoteSessionTtlMs(settings, { tokenType: "persistent" }, now)).toBe(PERSISTENT_SESSION_TTL_MS);
+    // No token type at all (older validators) must also not be treated as short-lived.
+    expect(resolveRemoteSessionTtlMs(settings, {}, now)).toBe(PERSISTENT_SESSION_TTL_MS);
+  });
+
+  it("never lets a session outlive the short-lived token that authorised it", () => {
+    const expiresAt = new Date(now + 120_000).toISOString();
+    expect(resolveRemoteSessionTtlMs(settings, { tokenType: "short-lived", expiresAt }, now)).toBe(120_000);
+  });
+
+  it("caps by the token expiry even when it is shorter than the configured TTL", () => {
+    const expiresAt = new Date(now + 5_000).toISOString();
+    expect(resolveRemoteSessionTtlMs(settings, { tokenType: "short-lived", expiresAt }, now)).toBe(5_000);
+  });
+
+  it("falls back to the configured TTL for a short-lived token with no usable expiry", () => {
+    expect(resolveRemoteSessionTtlMs(settings, { tokenType: "short-lived" }, now)).toBe(900_000);
+    expect(resolveRemoteSessionTtlMs(settings, { tokenType: "short-lived", expiresAt: "nonsense" }, now)).toBe(900_000);
+    // An already-expired token must not yield a long session by falling through.
+    const past = new Date(now - 1_000).toISOString();
+    expect(resolveRemoteSessionTtlMs(settings, { tokenType: "short-lived", expiresAt: past }, now)).toBe(900_000);
   });
 });
