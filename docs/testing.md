@@ -537,6 +537,14 @@ For a pre-registered loaded-flake campaign, record PostgreSQL version, `max_conn
 
 <!-- FNXC:PgDdlLaneMetric 2026-08-17-00:59: FN-9134 requires a pre-registered end-to-end band because teardown watchdogs become structurally meaningless when cleanup leaves the hook. The parser is intentionally report-only and the alternating samples are campaign observations, never Vitest retries. -->
 
+<!-- FNXC:PgLoadedFailureCensus 2026-08-19-12:41: FN-9148 requires a retained loaded-lane failure population to be classified without contacting PostgreSQL, so a complete green log remains evidence rather than being conflated with a truncated capture. -->
+
+### PostgreSQL loaded-failure census
+
+Use `scripts/pg-loaded-failure-census.mjs` to inspect an already-retained Vitest runner log and its optional teardown-diagnostics JSONL. The script never opens a cluster or runs tests. Supply `--log`, `--diagnostics`, and the recorded `--ordinary-slot-ceiling`; repeat `--subject` to label campaign files without dropping them. Its output contains total and failing files, lifecycle and failure-shape breakdowns, observed backend peak/headroom, wait histogram, phase-duration order statistics, and watchdog/probe-degradation counts.
+
+A run is `insufficient-data` when its runner log lacks a complete `Test Files` summary or when the reported failed-file count cannot be reconciled to parsed failure blocks. A complete passing summary instead produces `status: "measured"` with `failingFileCount: 0`; never treat that zero as missing evidence or coerce incomplete input to a healthy result.
+
 ### PostgreSQL DDL loaded-lane acceptance metric
 
 Use `scripts/pg-ddl-lane-metric.mjs` before judging a PostgreSQL DDL structural candidate. Run at least seven **interleaved** control/candidate pairs at `VITEST_MAX_WORKERS=12`; preserve one diagnostics JSONL sink and complete runner log per invocation. The exact lane is:
