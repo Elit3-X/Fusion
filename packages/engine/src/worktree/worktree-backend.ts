@@ -1032,6 +1032,7 @@ export const RemovalReason = {
   SelfHealingBranchConflict: "self-healing-branch-conflict",
   SelfHealingIdleSweep: "self-healing-idle-sweep",
   PoolPrune: "pool-prune",
+  TaskReset: "task-reset",
 } as const;
 
 export type RemovalReason = typeof RemovalReason[keyof typeof RemovalReason];

@@ -649,7 +649,15 @@ export {
   type MockScriptContext,
 } from "./providers/index.js";
 export { activeSessionRegistry } from "./agents/active-session-registry.js";
-export { WorktreePool, scanIdleWorktrees, cleanupOrphanedWorktrees, reapOrphanWorktrees } from "./worktree/worktree-pool.js";
+export {
+  WorktreePool,
+  scanIdleWorktrees,
+  cleanupOrphanedWorktrees,
+  reapOrphanWorktrees,
+  getRegisteredWorktreeBranches,
+} from "./worktree/worktree-pool.js";
+export { removeWorktree, RemovalReason, type RemovalReason as WorktreeRemovalReason, type WorktreeRemoveOutcome } from "./worktree/worktree-backend.js";
+export { isInsideConfiguredWorktreesDir, resolveWorktreesDir } from "./worktree/worktree-paths.js";
 export {
   pruneWorktreeAdminEntries,
   pruneWorktreeAdminEntriesSync,

@@ -119,6 +119,7 @@ function createDeferred<T>() {
 describe("TaskDetailModal reset confirmations", () => {
   it("routes reset through the centralized confirm seam and proceeds in skip mode", async () => {
     const onResetTask = vi.fn(async () => makeTask());
+    const addToast = vi.fn();
     mockConfirm.mockResolvedValueOnce(true);
     render(
       <TaskDetailModal
@@ -129,15 +130,38 @@ describe("TaskDetailModal reset confirmations", () => {
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
         onResetTask={onResetTask}
-        addToast={noop}
+        addToast={addToast}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
     await waitFor(() => expect(onResetTask).toHaveBeenCalledWith("FN-001"));
-    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset" }));
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset", message: expect.stringContaining("worktree") }));
+    expect(addToast).toHaveBeenCalledWith(expect.stringContaining("worktree and plan discarded"), "success");
     expect(document.querySelector(".confirm-dialog-overlay")).toBeNull();
+  });
+
+  it("shows endpoint failure instead of reset success copy", async () => {
+    const addToast = vi.fn();
+    const onResetTask = vi.fn().mockRejectedValue(new Error("partial cleanup; retry Reset"));
+    mockConfirm.mockResolvedValueOnce(true);
+    render(
+      <TaskDetailModal
+        task={makeTask({ id: "FN-002", column: "in-progress" as any })}
+        onClose={noop}
+        onMoveTask={noopMove}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        onResetTask={onResetTask}
+        addToast={addToast}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("partial cleanup; retry Reset", "error"));
+    expect(addToast).not.toHaveBeenCalledWith(expect.stringContaining("worktree and plan discarded"), "success");
   });
 });
 

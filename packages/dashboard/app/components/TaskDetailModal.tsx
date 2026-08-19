@@ -3365,11 +3365,15 @@ export function TaskDetailContent({
       });
   }, [task.id, onBypassReview, onTaskUpdated, addToast, t]);
 
+  /*
+  FNXC:TaskReset 2026-08-19-06:45:
+  Reset is destructive: confirmation explains that the owned worktree and current plan are discarded, while the success toast is emitted only after the server has fenced work, completed cleanup, and committed the fresh Planning state.
+  */
   const handleReset = useCallback(async () => {
     if (!onResetTask) return;
     const shouldReset = await confirm({
       title: t("taskDetail.reset.btn", "Reset"),
-      message: t("taskDetail.reset.confirmMessage", "This will erase all progress for {{id}} and start the task from scratch. Continue?", { id: task.id }),
+      message: t("taskDetail.reset.confirmMessage", "This permanently discards {{id}}'s task-owned worktree and current plan, then returns it to Planning. Continue?", { id: task.id }),
       confirmLabel: t("taskDetail.reset.btn", "Reset"),
       cancelLabel: t("common.cancel", "Cancel"),
       danger: true,
@@ -3378,7 +3382,7 @@ export function TaskDetailContent({
     requestClose();
     try {
       await onResetTask(task.id);
-      addToast(t("taskDetail.reset.resetSuccess", "Reset {{id}} — fresh run will be allocated", { id: task.id }), "success");
+      addToast(t("taskDetail.reset.resetSuccess", "Reset {{id}} — worktree and plan discarded; task returned to Planning", { id: task.id }), "success");
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     }

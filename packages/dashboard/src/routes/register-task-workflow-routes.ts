@@ -12,7 +12,8 @@ const severityAuditLog = createLogger("dashboard-register-task-workflow-routes")
 const AWAITING_PLANNING_ENRICH_LIMIT = 200;
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { readFile, rm, stat, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   TaskStore,
@@ -82,6 +83,9 @@ import {
   getPlannerInterventionTimeline,
   isBuiltinWorkflowId,
   resolveProjectColumnsForRoles,
+  canonicalizeWorktreePath,
+  acquireWorktreePathReservation,
+  disposeTaskBeforeReset,
   type NearDuplicateCandidate,
   type ThinkingLevel,
 } from "@fusion/core";
@@ -109,6 +113,12 @@ import {
   // FN-8004 follow-up: shared with SelfHealingManager.recoverStaleMergingStatus so the manual
   // Retry gate and the automatic sweep agree on when a merge-active stamp is orphaned.
   isStaleMergeActiveStatus,
+  removeWorktree,
+  RemovalReason,
+  getRegisteredWorktreeBranches,
+  pruneWorktreeAdminEntries,
+  isInsideConfiguredWorktreesDir,
+  resolveWorktreesDir,
   resumeApprovedPlanReviewHandoff,
   type ApprovedPlanReviewHandoffResult,
   type AiUndoTaskResult,
@@ -651,71 +661,6 @@ function extractMergeAdvanceEvent(event: RunAuditEvent): Omit<MergeAdvanceEvent,
 }
 
 export const __fingerprintCreateLocksForTests = deterministicGuardLocks;
-
-const RESET_TASK_FIELDS = {
-  worktree: null,
-  branch: null,
-  currentStep: 0,
-  status: null,
-  error: null,
-  stuckKillCount: 0,
-  taskDoneRetryCount: null,
-  worktreeSessionRetryCount: null,
-  workflowStepRetries: undefined,
-  recoveryRetryCount: null,
-  nextRecoveryAt: null,
-  postReviewFixCount: 0,
-  verificationFailureCount: 0,
-  mergeConflictBounceCount: 0,
-  checkedOutBy: null,
-  executionStartedAt: null,
-  sessionFile: null,
-} as const;
-
-/*
-FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — PR #2582 review, greptile):
-COLUMN REMOVED from the shared constant. It hardcoded `todo`, so drift correction forced
-the card there regardless of the workflow's actual rebound column — and then the final
-verification (which now compares against `resetColumn`) saw the mismatch and raised the
-very 409 "limbo" conflict this change exists to remove. Fixing the check without fixing
-the writer just moved the bug.
-
-The column is supplied per call from the resolved rebound column; everything else here is
-genuinely column-independent cleanup.
-*/
-const RESET_DRIFT_CORRECTION_FIELDS = {
-  worktree: null,
-  branch: null,
-  status: null,
-  error: null,
-  checkedOutBy: null,
-  executionStartedAt: null,
-  taskDoneRetryCount: null,
-  worktreeSessionRetryCount: null,
-  sessionFile: null,
-} as const;
-
-async function emitResetDriftAudit(
-  scopedStore: TaskStore,
-  taskId: string,
-  metadata: Record<string, unknown>,
-): Promise<void> {
-  const recordRunAuditEvent = (scopedStore as TaskStore & {
-    recordRunAuditEvent?: (input: RunAuditEventInput) => Promise<void>;
-  }).recordRunAuditEvent;
-  if (typeof recordRunAuditEvent !== "function") {
-    return;
-  }
-  await recordRunAuditEvent({
-    taskId,
-    agentId: "system",
-    runId: `synthetic-dashboard-reset-${taskId}-${Date.now()}`,
-    domain: "database",
-    mutationType: "task:auto-recover-reset-drift",
-    target: taskId,
-    metadata,
-  });
-}
 
 async function releaseExecutionAgentBindings(
   engine: { getAgentStore?: () => { listAgents: (input: { includeEphemeral?: boolean }) => Promise<Array<{ id: string; taskId?: string }>>; syncExecutionTaskLink: (agentId: string, taskId: string | undefined) => Promise<unknown>; deleteAgent: (agentId: string) => Promise<unknown>; getAgent?: (agentId: string) => Promise<unknown>; } | undefined } | undefined,
@@ -3683,104 +3628,154 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
     }
   });
 
-  // Nuclear reset — erase all progress and allocate a fresh worktree+branch on next run
+  // Reset fences runtime work, removes disposable artifacts, then publishes one fresh planning state.
   router.post("/tasks/:id/reset", async (req, res) => {
     try {
       const { store: scopedStore, engine } = await getProjectContext(req);
-
       const { confirm: confirmed } = (req.body ?? {}) as { confirm?: boolean };
       if (!confirmed) {
         throw badRequest(
-          "This operation is destructive and will erase all task progress. Pass { \"confirm\": true } in the request body to proceed.",
+          "This operation is destructive and discards the task-owned worktree and current plan. Pass { \"confirm\": true } in the request body to proceed.",
         );
       }
 
-      const task = await scopedStore.getTask(req.params.id);
-
-      engine?.clearTaskPauseAbortState?.(req.params.id);
-      await releaseExecutionAgentBindings(engine, req.params.id);
-      await clearRebuiltSpecWorkflowPins(scopedStore, req.params.id);
-
-      // Reset all steps to pending
-      for (let i = 0; i < task.steps.length; i++) {
-        if (task.steps[i].status !== "pending") {
-          await scopedStore.updateStep(req.params.id, i, "pending");
+      const updated = await scopedStore.withPlanningLifecycleLock(req.params.id, async () => {
+        const task = await scopedStore.getTask(req.params.id);
+        if (!task) throw notFound(`Task ${req.params.id} not found`);
+        if (task.workspaceWorktrees && Object.keys(task.workspaceWorktrees).length > 0) {
+          throw conflict("Reset does not support workspace tasks; no cancellation or cleanup was started");
         }
-      }
+        const intakeColumn = await resolveIntakeColumnForTask(scopedStore, task.id);
+        const settings = await scopedStore.getSettings();
+        const rootDir = scopedStore.getRootDir();
+        const worktreePath = task.worktree ? await canonicalizeWorktreePath(task.worktree) : undefined;
+        let reservation: Awaited<ReturnType<typeof acquireWorktreePathReservation>> | undefined;
 
-      await scopedStore.updateTask(req.params.id, RESET_TASK_FIELDS);
+        if (worktreePath) {
+          const canonicalRoot = await canonicalizeWorktreePath(rootDir);
+          if (
+            worktreePath === canonicalRoot
+            || !isInsideConfiguredWorktreesDir(rootDir, settings, worktreePath)
+          ) {
+            throw badRequest("Reset refuses an external, unsafe, foreign, or project-root worktree path");
+          }
+          if (existsSync(worktreePath)) {
+            const resolvedPath = await realpath(worktreePath);
+            if (!isInsideConfiguredWorktreesDir(rootDir, settings, resolvedPath)) {
+              throw badRequest("Reset refuses an unsafe worktree path outside the configured worktree root");
+            }
+          }
+          /*
+          FNXC:TaskReset 2026-08-19-07:05:
+          A path under `.worktrees` is only disposable when Git's managed registration identifies it as the task's stored branch. Directory placement and an absent competing task row are not ownership proof, so a foreign/operator checkout fails closed before cancellation, reservation, or deletion.
+          */
+          const registeredBranches = await getRegisteredWorktreeBranches(rootDir);
+          const taskBranch = typeof task.branch === "string" ? task.branch.trim() : "";
+          let registeredOwner = false;
+          if (taskBranch.length > 0) {
+            for (const entry of registeredBranches) {
+              if (entry.branch === taskBranch && await canonicalizeWorktreePath(entry.worktreePath) === worktreePath) {
+                registeredOwner = true;
+                break;
+              }
+            }
+          }
+          if (!registeredOwner) {
+            throw conflict("Reset refuses a worktree whose managed task ownership cannot be proven");
+          }
 
-      await scopedStore.logEntry(
-        req.params.id,
-        "Task reset by user — all progress cleared, fresh worktree and branch will be allocated",
-      );
-
-      const resetColumn = await resolveReboundColumnForTask(scopedStore, req.params.id);
-      await scopedStore.moveTask(req.params.id, resetColumn);
-      await clearRebuiltSpecWorkflowPins(scopedStore, req.params.id);
-      let updated = await scopedStore.getTask(req.params.id);
-      if (!updated) {
-        throw notFound(`Task ${req.params.id} not found after reset`);
-      }
-
-      /*
-      FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — R8 drift conversion):
-      Verify against the column the reset actually TARGETED. The mover two lines up already
-      resolves `resetColumn` from the task's workflow, but both post-reset checks compared
-      against the literal `todo` — so on any workflow whose rebound column is not `todo`
-      (Coding (Ideas), any custom or renamed lineage) a reset that SUCCEEDED was reported
-      as a "limbo state" conflict. The mover and its own verification disagreed about
-      where the card was supposed to land.
-      */
-      const needsDriftCorrection = updated.column !== resetColumn
-        || (updated.worktree ?? null) !== null
-        || (updated.branch ?? null) !== null
-        || (updated.checkedOutBy ?? null) !== null
-        || (updated.executionStartedAt ?? null) !== null;
-
-      if (needsDriftCorrection) {
-        const offendingSnapshot = {
-          column: updated.column,
-          worktree: updated.worktree ?? null,
-          branch: updated.branch ?? null,
-          checkedOutBy: updated.checkedOutBy ?? null,
-          executionStartedAt: updated.executionStartedAt ?? null,
-          taskDoneRetryCount: updated.taskDoneRetryCount ?? null,
-          worktreeSessionRetryCount: updated.worktreeSessionRetryCount ?? null,
-          sessionFile: updated.sessionFile ?? null,
-        };
-        /*
-        Built as a named const, not an inline literal: `updateTask`'s patch type does not
-        declare `column`, and the original code only compiled because a variable reference
-        skips excess-property checking. Keeping that shape preserves the existing runtime
-        behaviour exactly while making the column follow the resolved rebound target.
-        */
-        const driftCorrection = { ...RESET_DRIFT_CORRECTION_FIELDS, column: resetColumn };
-        await scopedStore.updateTask(req.params.id, driftCorrection);
-        await scopedStore.logEntry(
-          req.params.id,
-          `Auto-corrected reset drift after moveTask — normalized task back to ${resetColumn} with cleared worktree/branch bindings`,
-          JSON.stringify(offendingSnapshot),
-        );
-        await emitResetDriftAudit(scopedStore, req.params.id, offendingSnapshot);
-        updated = await scopedStore.getTask(req.params.id);
-        if (!updated) {
-          throw notFound(`Task ${req.params.id} not found after reset drift correction`);
+          const listTasks = (scopedStore as TaskStore & {
+            listTasks?: (options?: { includeArchived?: boolean; slim?: boolean }) => Promise<Task[]>;
+          }).listTasks;
+          if (typeof listTasks === "function") {
+            const otherOwners = await listTasks.call(scopedStore, { includeArchived: true, slim: true });
+            for (const candidate of otherOwners) {
+              if (candidate.id === task.id || !candidate.worktree) continue;
+              if (await canonicalizeWorktreePath(candidate.worktree) === worktreePath) {
+                throw conflict("Reset refuses a worktree path owned by another task");
+              }
+            }
+          }
+          const worktreesDir = resolveWorktreesDir(rootDir, settings);
+          reservation = await acquireWorktreePathReservation({
+            canonicalPath: worktreePath,
+            worktreesDir,
+            rootDir,
+          });
         }
-      }
 
-      // Same target as the drift check above: the resolved rebound column, not `todo`.
-      if (updated.column !== resetColumn || (updated.worktree ?? null) !== null || (updated.branch ?? null) !== null) {
-        throw conflict(
-          `Reset refused to return task ${req.params.id} in limbo state (${updated.column}, branch=${updated.branch ?? "null"}, worktree=${updated.worktree ?? "null"})`,
-        );
-      }
+        try {
+          /*
+          FNXC:TaskReset 2026-08-19-06:30:
+          Reset ordering is deliberately validate/reserve → await the runtime cancellation fence → confirm the stored target → remove the configured worktree or reconcile confirmed absence → delete only PROMPT.md → finalize runtime bindings → atomically publish intake/needs-replan. No durable reset field or success signal is written before both filesystem artifacts are absent.
+          */
+          await disposeTaskBeforeReset(scopedStore, task);
+          const fencedTask = await scopedStore.getTask(req.params.id);
+          if (!fencedTask) throw notFound(`Task ${req.params.id} disappeared during reset`);
+          const fencedPath = fencedTask.worktree ? await canonicalizeWorktreePath(fencedTask.worktree) : undefined;
+          if (fencedPath !== worktreePath) {
+            throw conflict("Reset target changed while cancellation was settling; retry Reset");
+          }
+
+          if (worktreePath) {
+            if (existsSync(worktreePath)) {
+              const removal = await removeWorktree({
+                worktreePath,
+                rootDir,
+                settings,
+                reason: RemovalReason.TaskReset,
+                taskId: req.params.id,
+                expectedOwnerTaskId: req.params.id,
+              });
+              if (!removal.removed && existsSync(worktreePath)) {
+                throw conflict(`Reset incomplete; worktree removal failed for ${req.params.id}`);
+              }
+            } else {
+              // The pointer is retained for retry safety, but the path is already absent.
+              await pruneWorktreeAdminEntries({ rootDir, reason: "task-reset-already-absent", target: worktreePath });
+            }
+            if (existsSync(worktreePath)) {
+              throw conflict(`Reset incomplete; worktree remains for ${req.params.id}`);
+            }
+          }
+
+          const promptPath = join(rootDir, ".fusion", "tasks", req.params.id, "PROMPT.md");
+          try {
+            await rm(promptPath, { force: true });
+            if (existsSync(promptPath)) throw new Error("PROMPT.md still exists after removal");
+          } catch (error) {
+            throw conflict(`partial cleanup; retry Reset (PROMPT.md could not be removed: ${error instanceof Error ? error.message : String(error)})`);
+          }
+
+          try {
+            await Promise.resolve(engine?.clearTaskPauseAbortState?.(req.params.id));
+            await releaseExecutionAgentBindings(engine, req.params.id);
+          } catch (error) {
+            throw conflict(`Reset incomplete; runtime finalization failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+
+          const publish = (scopedStore as TaskStore & {
+            resetTaskPublication?: (taskId: string, intake: string) => Promise<Task>;
+          }).resetTaskPublication;
+          if (typeof publish !== "function") {
+            throw new Error("Atomic task reset publication is unavailable");
+          }
+          return publish(req.params.id, intakeColumn);
+        } finally {
+          if (reservation?.state === "held") {
+            try {
+              await reservation.release();
+            } catch (error) {
+              // FNXC:TaskReset 2026-08-19-06:45: Reservation release is post-cleanup housekeeping; never turn a committed reset into a false failure.
+              severityAuditLog.warn("task-reset reservation release failed", { taskId: req.params.id, error: String(error) });
+            }
+          }
+        }
+      });
 
       res.json(updated);
     } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
+      if (err instanceof ApiError) throw err;
       rethrowTaskApiError(err, req.params.id);
     }
   });

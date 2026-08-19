@@ -755,12 +755,18 @@ export {
 } from "./db/archive-worktree-disposer.js";
 export {
   disposeTaskBeforeMove,
+  disposeTaskBeforeReset,
   getTaskMoveDisposer,
   registerTaskMoveDisposer,
   type TaskMoveDisposer,
+  type TaskResetDisposer,
   type TaskMoveDisposalInput,
   type TaskMoveSource,
 } from "./tasks/task-move-disposer.js";
+export {
+  __setResetPublicationFailureForTesting,
+  resetTaskPublicationImpl,
+} from "./task-store/reset-lifecycle.js";
 export {
   acquireWorktreePathReservation,
   withWorktreePathReservation,

@@ -66,6 +66,14 @@ Both actions are irreversible; there is no undo after confirming. The dialog clo
 
 **Excluded sections.** Some sections are not a simple settings form and are intentionally excluded from **Reset this menu** (the button is disabled with an explanatory tooltip when one of these is the active section), because each already has its own dedicated management flow: **Secrets**, **MCP Servers** (global and project), **Plugins**, **Memory**, **Authentication**, **Prompts**, **CLI Agents**, and the **Hermes**/**OpenClaw**/**Paperclip** runtime sections. Runtime pages appear only when their runtime plugin is installed; an installed but disabled runtime stays visible so it can be inspected or re-enabled. Settings hides runtime pages while its installed-plugin list is loading or unavailable, then refreshes the navigation after plugin lifecycle changes while Settings remains open. **Reset all project settings** is unaffected by this exclusion list since it resets the underlying project settings values directly, not through any of those sections' own flows.
 
+## Task Reset
+
+<!-- FNXC:TaskResetDocs 2026-08-19-06:45: Task Reset is a destructive fresh-planning boundary. The guide must explain the cancellation fence, filesystem cleanup, retained history, atomic intake publication, and retry behavior for incomplete cleanup. -->
+
+**Reset** is destructive and has no undo. After confirmation, Fusion fences active task work, removes only the task-owned standard worktree and the current `.fusion/tasks/<task-id>/PROMPT.md` plan, then atomically returns the same task to its workflow's **Planning/intake** column with pending steps and `needs-replan`. The task ID, title, description, dependencies, workflow selection, attachments, documents, logs/audit history, and branch history remain intact.
+
+Reset does not support workspace tasks or external/operator-owned, foreign, unsafe, or project-root worktrees. If cancellation, worktree removal, plan removal, runtime finalization, or durable publication fails, Fusion reports incomplete cleanup and does not claim success or expose the task to Planning; retry **Reset** after the reported problem is resolved. A plan-removal failure may leave the worktree already removed, but the stored task lifecycle state remains unchanged until a retry completes. Once the atomic publication commits, a task-file mirror problem is repaired separately and does not turn the successful reset into a false failure.
+
 ## Keyboard shortcuts
 
 <!--
