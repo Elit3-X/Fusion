@@ -820,7 +820,7 @@ describe("Automation routes", () => {
         ],
       }), { "Content-Type": "application/json" });
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("thinkingLevel must be one of off, minimal, low, medium, high, xhigh");
+      expect(res.body.error).toContain("thinkingLevel must be one of off, minimal, low, medium, high, xhigh, max");
     });
 
     it("returns 400 for missing name", async () => {
@@ -2102,7 +2102,7 @@ describe("Routine routes", () => {
         ],
       }), { "Content-Type": "application/json" });
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("thinkingLevel must be one of off, minimal, low, medium, high, xhigh");
+      expect(res.body.error).toContain("thinkingLevel must be one of off, minimal, low, medium, high, xhigh, max");
     });
 
     it("creates a routine with webhook trigger (requires secret)", async () => {

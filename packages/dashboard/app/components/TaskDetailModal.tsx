@@ -14,7 +14,7 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sharedRehypePlugins, createMermaidCodeComponent } from "./markdownPipeline";
-import type { Task, TaskDetail, TaskAttachment, Column, ColumnId, MergeResult, Settings, GlobalSettings, Agent, TaskPriority, TaskSourceIssue, WorkflowStepResult, GithubIssueAction, TaskGitLabTrackedItem, PlannerOversightLevel, PlannerOverseerRuntimeSnapshot, TaskVerificationRequest } from "@fusion/core";
+import type { Task, TaskDetail, TaskAttachment, Column, ColumnId, MergeResult, Settings, GlobalSettings, Agent, TaskPriority, TaskSourceIssue, WorkflowStepResult, GithubIssueAction, TaskGitLabTrackedItem, PlannerOversightLevel, PlannerOverseerRuntimeSnapshot, TaskVerificationRequest, ThinkingLevel } from "@fusion/core";
 import {
   DEFAULT_TASK_PRIORITY,
   REPO_OVERRIDE_RE,
@@ -2457,7 +2457,7 @@ export function TaskDetailContent({
     }
 
     const currentThinkingLevel = task.thinkingLevel ?? "";
-    if (editThinkingLevel !== currentThinkingLevel) updates.thinkingLevel = editThinkingLevel !== "" ? (editThinkingLevel as "minimal" | "low" | "medium" | "high" | "xhigh") : null;
+    if (editThinkingLevel !== currentThinkingLevel) updates.thinkingLevel = editThinkingLevel !== "" ? (editThinkingLevel as ThinkingLevel) : null;
     // FNXC:PlannerOversight 2026-07-04-00:00: "" (Inherit from workflow) clears the per-task override to null so the workflow's effective plannerOversightLevel applies.
     const currentPlannerOversightLevel = task.plannerOversightLevel ?? "";
     if (editPlannerOversightLevel !== currentPlannerOversightLevel) updates.plannerOversightLevel = editPlannerOversightLevel !== "" ? (editPlannerOversightLevel as "off" | "observe" | "steer" | "autonomous") : null;

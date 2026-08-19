@@ -4252,7 +4252,7 @@ function ConfigTab({
     skills: selectedSkills,
     model: modelValue || undefined,
     runtimeHint: runtimeMode === "runtime" ? selectedRuntimeId || undefined : undefined,
-    thinkingLevel: (formValues.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined) ?? undefined,
+    thinkingLevel: (formValues.thinkingLevel as ThinkingLevel | undefined) ?? undefined,
     maxTurns: formValues.maxTurns ? Number(formValues.maxTurns) : undefined,
     heartbeatIntervalMs: heartbeatValues.heartbeatIntervalMs ? Number(heartbeatValues.heartbeatIntervalMs) * 1000 : undefined,
     heartbeatTimeoutMs: heartbeatValues.heartbeatTimeoutMs ? Number(heartbeatValues.heartbeatTimeoutMs) * 1000 : undefined,

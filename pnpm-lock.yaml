@@ -269,6 +269,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.36.4
         version: 6.40.0
+      '@earendil-works/pi-ai':
+        specifier: 0.84.1
+        version: 0.84.1(@modelcontextprotocol/sdk@1.28.0(zod@3.25.76))(ws@8.21.1)(zod@3.25.76)
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.1
         version: 0.84.1(@modelcontextprotocol/sdk@1.28.0(zod@3.25.76))(ws@8.21.1)(zod@3.25.76)
@@ -414,9 +417,6 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
-      '@earendil-works/pi-ai':
-        specifier: 0.84.1
-        version: 0.84.1(@modelcontextprotocol/sdk@1.28.0(zod@3.25.76))(ws@8.21.1)(zod@3.25.76)
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1

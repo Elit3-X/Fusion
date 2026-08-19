@@ -21,7 +21,7 @@ function parseRoomThinkingLevel(value: unknown): string | null {
   if (typeof value === "string" && THINKING_LEVELS.includes(value as (typeof THINKING_LEVELS)[number])) {
     return value;
   }
-  throw badRequest("thinkingLevel must be one of off, minimal, low, medium, high, xhigh, or null");
+  throw badRequest(`thinkingLevel must be one of ${THINKING_LEVELS.join(", ")}, or null`);
 }
 
 interface ChatRoomRouteDeps {

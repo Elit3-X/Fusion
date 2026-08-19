@@ -49,6 +49,8 @@ export function GlobalModelsSection({ form, setForm, availableModels, modelsLoad
     const selectedValue = form.defaultProvider && form.defaultModelId
         ? `${form.defaultProvider}/${form.defaultModelId}`
         : "";
+    const selectedDefaultModel = availableModels.find((model) => model.provider === form.defaultProvider && model.id === form.defaultModelId);
+    const defaultThinkingLevels = selectedDefaultModel?.supportedThinkingLevels ?? THINKING_LEVELS;
     return (<>
 
       {/*
@@ -115,11 +117,11 @@ export function GlobalModelsSection({ form, setForm, availableModels, modelsLoad
           </div>
         </>)}
       {(() => {
-            const selectedModel = availableModels.find((m) => m.provider === form.defaultProvider && m.id === form.defaultModelId);
+            const selectedModel = selectedDefaultModel;
             if (selectedModel && !selectedModel.reasoning)
                 return null;
             return (
-            /* FNXC:Settings-ThinkingLevel 2026-06-19-14:55: This global selector renders the canonical THINKING_LEVELS list so newly added `xhigh` stays available anywhere the default reasoning effort is configured. */
+            /* FNXC:Settings-ThinkingLevel 2026-08-18-23:38: The global fallback selector renders the canonical THINKING_LEVELS list, including `max`; a selected model-bound picker narrows options separately from this broad persisted default. */
             <SettingsSelectRow
               descriptor={{
                 key: "defaultThinkingLevel",
@@ -132,7 +134,7 @@ export function GlobalModelsSection({ form, setForm, availableModels, modelsLoad
                 */
                 options: [
                   { value: "", label: t("settings.globalModels.default", "Default") },
-                  ...THINKING_LEVELS.map((level) => ({
+                  ...defaultThinkingLevels.map((level) => ({
                     value: level,
                     label: level.charAt(0).toUpperCase() + level.slice(1),
                   })),

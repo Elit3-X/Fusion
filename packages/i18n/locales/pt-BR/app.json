@@ -4126,6 +4126,7 @@
       "minimal": "Mínimo",
       "off": "Desativado",
       "xhigh": "Muito alto",
+      "max": "Máximo",
       "defaultWithLevel": "Padrão ({{level}})"
     },
     "placeholders": {

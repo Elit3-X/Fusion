@@ -115,10 +115,10 @@ function createChatManagerWithSettings(settings: {
   fallbackModelId?: string;
   defaultProvider?: string;
   defaultModelId?: string;
-  defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  defaultThinkingLevelOverride?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  executionThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  executionGlobalThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  defaultThinkingLevelOverride?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  executionThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  executionGlobalThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }): ChatManager {
   return new ChatManager(
     mockChatStore as any,

@@ -2,7 +2,7 @@ import "./NewTaskModal.css";
 import { useState, useCallback, useEffect, useRef, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { DEFAULT_TASK_PRIORITY, type Task, type TaskPriority } from "@fusion/core";
+import { DEFAULT_TASK_PRIORITY, type Task, type TaskPriority, type ThinkingLevel } from "@fusion/core";
 import { getErrorMessage } from "@fusion/core";
 import type { ToastType } from "../hooks/useToast";
 import {
@@ -662,7 +662,7 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
       planningModelProvider: planningModel && planningSlashIdx !== -1 ? planningModel.slice(0, planningSlashIdx) : undefined,
       planningModelId: planningModel && planningSlashIdx !== -1 ? planningModel.slice(planningSlashIdx + 1) : undefined,
       ...(planningCredentialInstanceId ? { planningCredentialInstanceId } : {}),
-      thinkingLevel: thinkingLevel !== "" ? thinkingLevel as "minimal" | "low" | "medium" | "high" | "xhigh" : undefined,
+      thinkingLevel: thinkingLevel !== "" ? thinkingLevel as ThinkingLevel : undefined,
       // FNXC:PlannerOversight 2026-07-04-00:00: omit when "Inherit from workflow" ("") is selected so the task falls back to the workflow's effective plannerOversightLevel.
       ...(plannerOversightLevel !== "" ? { plannerOversightLevel: plannerOversightLevel as "off" | "observe" | "steer" | "autonomous" } : {}),
       reviewLevel,

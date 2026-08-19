@@ -4217,6 +4217,7 @@ export default interface Resources {
         "defaultWithLevel": "Default ({{level}})",
         "high": "High",
         "low": "Low",
+        "max": "Max",
         "medium": "Medium",
         "minimal": "Minimal",
         "off": "Off",

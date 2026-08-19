@@ -116,6 +116,16 @@ export { __resetModelRegistryRefreshCacheForTests } from "./model-registry-refre
  * Minimal interface matching pi 0.80.8+ ModelRuntime's ModelRegistry
  * compatibility facade. Avoids a direct dependency on the pi-coding-agent package.
  */
+export interface ModelRegistryModelLike {
+  id: string;
+  name: string;
+  provider: string;
+  reasoning: boolean;
+  contextWindow: number;
+  /** Pi model-level tristate map; omitted means capability metadata is unavailable to Fusion's picker. */
+  thinkingLevelMap?: Partial<Record<string, string | null>>;
+}
+
 export interface ModelRegistryLike {
   /**
    * FNXC:ModelCatalog 2026-07-16-17:55:
@@ -132,9 +142,9 @@ export interface ModelRegistryLike {
     refresh: (options?: { allowNetwork?: boolean; signal?: AbortSignal; force?: boolean }) => Promise<unknown>;
   };
   /** Get models that have auth configured. */
-  getAvailable(): Array<{ id: string; name: string; provider: string; reasoning: boolean; contextWindow: number }>;
+  getAvailable(): ModelRegistryModelLike[];
   /** Optional pi ModelRegistry surface used for supplemental model registration. */
-  getAll?: () => Array<{ id: string; name?: string; provider: string; reasoning?: boolean; input?: string[]; cost?: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextWindow?: number; maxTokens?: number; compat?: unknown }>;
+  getAll?: () => Array<ModelRegistryModelLike & { name?: string; reasoning?: boolean; input?: string[]; cost?: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextWindow?: number; maxTokens?: number; compat?: unknown }>;
   /** Optional pi ModelRegistry surface used for supplemental model registration. */
   registerProvider?: (providerName: string, config: AnthropicProviderRegistration) => void;
 }

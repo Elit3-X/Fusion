@@ -1301,11 +1301,11 @@ describe("POST /tasks", () => {
     expect(store.createTask).not.toHaveBeenCalled();
   });
 
-  it("forwards xhigh thinkingLevel when provided", async () => {
+  it("forwards max thinkingLevel when provided", async () => {
     const createdTask = {
       ...FAKE_TASK_DETAIL,
       column: "triage",
-      thinkingLevel: "xhigh",
+      thinkingLevel: "max",
     };
     (store.createTask as ReturnType<typeof vi.fn>).mockResolvedValue(createdTask);
 
@@ -1315,7 +1315,7 @@ describe("POST /tasks", () => {
       "/api/tasks",
       JSON.stringify({
         description: "Deep reasoning task",
-        thinkingLevel: "xhigh",
+        thinkingLevel: "max",
       }),
       { "Content-Type": "application/json" },
     );
@@ -1324,7 +1324,7 @@ describe("POST /tasks", () => {
     expect(store.createTask).toHaveBeenCalledWith(
       expect.objectContaining({
         description: "Deep reasoning task",
-        thinkingLevel: "xhigh",
+        thinkingLevel: "max",
       }),
       expect.objectContaining({
         settings: { autoSummarizeTitles: undefined },

@@ -572,17 +572,17 @@ Plugin palette templates (above) can be dropped in as a starting point instead o
 ## Model Overrides for Workflow Nodes
 
 <!--
-FNXC:WorkflowModelBinding 2026-07-10-00:00:
-FN-7771 lets workflow authors bind reasoning effort per session-running node, independently from provider/model. FN-7772 adds workflow-declared primary lane thinking companions, but node-level thinking remains strongest so a custom workflow can pin a high-effort review or low-effort execution seam without changing task-wide or lane defaults.
+FNXC:WorkflowModelBinding 2026-08-18-23:38:
+FN-7771 lets workflow authors bind reasoning effort per session-running node, independently from provider/model. The canonical vocabulary now includes both opt-in `xhigh` and `max`; node-level thinking remains strongest so a custom workflow can pin a high-effort review or low-effort execution seam without changing task-wide or lane defaults. Model-bound dashboard controls narrow only when `/api/models` carries pi capability metadata; unknown metadata keeps the canonical fallback.
 -->
 
 A prompt-mode gate node can set its own model with:
 
 - `modelProvider`
 - `modelId`
-- `thinkingLevel` (`"off" | "minimal" | "low" | "medium" | "high" | "xhigh"`)
+- `thinkingLevel` (`"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`)
 
-If a node also sets `config.credentialInstanceId`, execution resolves that configured instance for the node's provider/model pair; clearing it uses the provider default credential. If both model fields are set, node execution uses that provider/model pair; otherwise it falls back to default model selection. `thinkingLevel` is stored as `config.thinkingLevel` and can be set or cleared independently from the model pair. Runtime reasoning-effort precedence is **node/step `thinkingLevel` → task `thinkingLevel` → workflow lane thinking override (`executionThinkingLevel`, `planningThinkingLevel`, or `validatorThinkingLevel`) → global lane thinking override → project default thinking override → global `defaultThinkingLevel`**. The lane settings accept `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`; unset means inherit. This applies to prompt/gate custom nodes, the `execute` and `step-execute` seams, triage/planning, and `step-review` reviewer sessions. Dashboard node summaries show unpinned provider/model state as **Default model**; the inspector's inline thinking selector shows the resolved project default (e.g. "Default (off)") when no node-level thinking value is pinned.
+If a node also sets `config.credentialInstanceId`, execution resolves that configured instance for the node's provider/model pair; clearing it uses the provider default credential. If both model fields are set, node execution uses that provider/model pair; otherwise it falls back to default model selection. `thinkingLevel` is stored as `config.thinkingLevel` and can be set or cleared independently from the model pair. Runtime reasoning-effort precedence is **node/step `thinkingLevel` → task `thinkingLevel` → workflow lane thinking override (`executionThinkingLevel`, `planningThinkingLevel`, or `validatorThinkingLevel`) → global lane thinking override → project default thinking override → global `defaultThinkingLevel`**. The lane settings accept `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; unset means inherit. Model-bound controls offer only the selected model's documented levels (`null` excludes a level and `xhigh`/`max` require a mapped string); without metadata they offer the canonical list. This applies to prompt/gate custom nodes, the `execute` and `step-execute` seams, triage/planning, and `step-review` reviewer sessions. Dashboard node summaries show unpinned provider/model state as **Default model**; the inspector's inline thinking selector shows the resolved project default (e.g. "Default (off)") when no node-level thinking value is pinned.
 
 ## Default-On Behavior for New Tasks
 

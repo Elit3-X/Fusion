@@ -295,6 +295,7 @@ vi.mock("../CustomModelDropdown", () => ({
           <option value="medium">Medium</option>
           <option value="high">High</option>
           <option value="xhigh">Very High</option>
+           <option value="max">Max</option>
         </select>
       ) : null}
       <button
@@ -2802,7 +2803,7 @@ describe("QuickEntryBox", () => {
       const select = screen.getByTestId("custom-model-dropdown-thinking") as HTMLSelectElement;
       expect(select).toBeTruthy();
       const options = Array.from(select.options).map((o) => o.value);
-      expect(options).toEqual(["", "off", "minimal", "low", "medium", "high", "xhigh"]);
+      expect(options).toEqual(["", "off", "minimal", "low", "medium", "high", "xhigh", "max"]);
       expect(screen.getByTestId("model-submenu-back")).toBeTruthy();
     });
 

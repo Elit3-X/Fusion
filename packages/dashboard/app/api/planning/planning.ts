@@ -6,6 +6,7 @@
 import type {
   PlanningQuestion,
   PlanningSummary,
+  ThinkingLevel,
 } from "@fusion/core";
 import type { SubtaskItem, PlanningSubtaskDraft } from "./ai-text.js";
 import type { AgentCapability } from "@fusion/core";
@@ -40,7 +41,7 @@ export interface AgentOnboardingSummary {
   name: string;
   role: AgentCapability | "custom";
   instructionsText: string;
-  thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  thinkingLevel: ThinkingLevel;
   maxTurns: number;
   title?: string;
   icon?: string;
@@ -62,7 +63,7 @@ export interface AgentOnboardingSummary {
 }
 
 export type OnboardingMode = "create" | "edit";
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type { ThinkingLevel };
 
 export interface ExistingAgentOnboardingConfig {
   name?: string;
