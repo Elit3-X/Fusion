@@ -213,10 +213,23 @@ export const DEV_SERVER_LISTENING_MESSAGE = "fusion:dev-server-listening";
 
 /** Port from a dev child's listening report, or null for any other message. */
 export function readDevServerListeningPort(message) {
+  return readDevServerListening(message)?.port ?? null;
+}
+
+/**
+ * The dev child's listening report: the port it actually bound and the auth token it installed.
+ *
+ * FNXC:DevTunnel 2026-08-19-03:00: the token comes from the child because the supervisor cannot
+ * derive it — reading ~/.fusion/settings.json found nothing on a real run while the dashboard had a
+ * perfectly good token in memory, so `--tunnel` printed "no token yet" next to a working banner.
+ */
+export function readDevServerListening(message) {
   if (!message || typeof message !== "object") return null;
   if (message.type !== DEV_SERVER_LISTENING_MESSAGE) return null;
   const port = Number(message.port);
-  return Number.isInteger(port) && port > 0 ? port : null;
+  if (!Number.isInteger(port) || port <= 0) return null;
+  const token = typeof message.token === "string" && message.token.length > 0 ? message.token : null;
+  return { port, token };
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   getPrebuildCommand,
   normalizePrebuildMode,
   parseDevWrapperArgs,
+  readDevServerListening,
   readDevServerListeningPort,
   resolveDevTunnelPort,
   resolvePrebuildMode,
@@ -425,6 +426,30 @@ describe("development source restart watcher", () => {
       expect(readDevServerListeningPort({ type: "fusion:dev-server-listening", port: "51234" })).toBe(51234);
       expect(readDevServerListeningPort(null)).toBeNull();
       expect(readDevServerListeningPort("fusion:dev-server-listening")).toBeNull();
+    });
+
+    /*
+    FNXC:DevTunnel 2026-08-19-03:00:
+    The token must come from the child, not be re-derived. A real run proved the derivation wrong:
+    ~/.fusion/settings.json held no daemonToken, so the tunnel banner said "no token yet" while the
+    dashboard's own banner two lines above printed a working one.
+    */
+    it("reads the port and token the dev server reports", () => {
+      expect(readDevServerListening({ type: "fusion:dev-server-listening", port: 58635, token: "fn_real" }))
+        .toEqual({ port: 58635, token: "fn_real" });
+      // A no-auth dev server reports no token; that is not a malformed report.
+      expect(readDevServerListening({ type: "fusion:dev-server-listening", port: 58635 }))
+        .toEqual({ port: 58635, token: null });
+      expect(readDevServerListening({ type: "fusion:dev-source-restart-armed", port: 1 })).toBeNull();
+      expect(readDevServerListening({ type: "fusion:dev-server-listening", port: 0 })).toBeNull();
+    });
+
+    it("prefers the reported token over anything it could derive", () => {
+      expect(auth({ reportedToken: "fn_from_child", env: { FUSION_DASHBOARD_TOKEN: "fn_env" }, readToken: () => "fn_disk" }))
+        .toEqual({ kind: "token", token: "fn_from_child" });
+      // Falls back only when nothing was reported (e.g. an explicit --tunnel=PORT never waits).
+      expect(auth({ reportedToken: null, env: { FUSION_DASHBOARD_TOKEN: "fn_env" } }))
+        .toEqual({ kind: "token", token: "fn_env" });
     });
 
     it("still treats a dev dashboard on an ephemeral port as token-gated", () => {

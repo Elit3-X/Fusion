@@ -14,7 +14,7 @@ import {
   createDevWatchRestartCoordinator,
   getPrebuildCommand,
   parseDevWrapperArgs,
-  readDevServerListeningPort,
+  readDevServerListening,
   resolveDevTunnelPort,
   resolvePrebuildMode,
 } from "./dev-with-memory-lib.mjs";
@@ -110,30 +110,30 @@ nothing about), so it is used immediately and never waits. If the report never a
 still comes up on the configured port, since a mis-targeted preview beats no preview at all.
 */
 const DEV_SERVER_PORT_REPORT_TIMEOUT_MS = 60_000;
-let reportDevServerPort;
-const devServerPortReport = new Promise((resolve) => { reportDevServerPort = resolve; });
+let reportDevServerListening;
+const devServerListeningReport = new Promise((resolve) => { reportDevServerListening = resolve; });
 
-async function resolveTunnelTargetPort() {
-  if (tunnelPort) return { port: tunnelPort, source: "explicit" };
-
+async function resolveTunnelTarget() {
   const configured = resolveDevTunnelPort(undefined);
+  if (tunnelPort) return { port: tunnelPort, token: null, source: "explicit" };
+
   const timeout = new Promise((resolve) => {
     setTimeout(() => resolve(null), DEV_SERVER_PORT_REPORT_TIMEOUT_MS).unref?.();
   });
-  const reported = await Promise.race([devServerPortReport, timeout]);
+  const reported = await Promise.race([devServerListeningReport, timeout]);
 
-  if (reported == null) {
+  if (!reported) {
     console.warn(`[fusion:dev] dev server never reported its port — tunnelling ${configured}, which may not be it`);
-    return { port: configured, source: "assumed" };
+    return { port: configured, token: null, source: "assumed" };
   }
-  if (reported !== configured) {
-    console.log(`[fusion:dev] dev server bound ${reported} (not ${configured}) — tunnelling ${reported}`);
+  if (reported.port !== configured) {
+    console.log(`[fusion:dev] dev server bound ${reported.port} (not ${configured}) — tunnelling ${reported.port}`);
   }
-  return { port: reported, source: "reported" };
+  return { port: reported.port, token: reported.token, source: "reported" };
 }
 
 async function openDevTunnel() {
-  const { port, source } = await resolveTunnelTargetPort();
+  const { port, token, source } = await resolveTunnelTarget();
   /*
   FNXC:DevTunnel 2026-08-19-02:05:
   A port the CHILD reported is the dev dashboard by definition, whatever number it landed on — so it
@@ -147,7 +147,9 @@ async function openDevTunnel() {
   Resolved at print time (not at parse time) so the token the dev child mints on a first
   authenticated run is already on disk by the time the banner needs it.
   */
-  const auth = resolveDevTunnelAuth({ port, dashboardPort, args: forwardedArgs });
+  // FNXC:DevTunnel 2026-08-19-03:00: the child's own token wins; the settings/env lookup is only a
+  // fallback for targets that never reported one (an explicit --tunnel=PORT).
+  const auth = resolveDevTunnelAuth({ port, dashboardPort, args: forwardedArgs, reportedToken: token });
   devTunnel = await startDevTunnel({ port, auth });
 }
 
@@ -189,8 +191,8 @@ function runApp(extraArgs) {
   }
   watchRestart.attach(tsx);
   tsx.on("message", (message) => {
-    const listeningPort = readDevServerListeningPort(message);
-    if (listeningPort) reportDevServerPort(listeningPort);
+    const listening = readDevServerListening(message);
+    if (listening) reportDevServerListening(listening);
     watchRestart.onMessage(message);
   });
   ensureSourceWatcher();

@@ -158,11 +158,20 @@ export function resolveDevTunnelAuth({
   env = process.env,
   settingsFile = resolveGlobalSettingsFile(),
   readToken = readStoredDaemonToken,
+  reportedToken = null,
 } = {}) {
   if (port !== dashboardPort) return { kind: "foreign" };
   if (args.includes("--no-auth")) return { kind: "no-auth" };
 
-  const token = env.FUSION_DASHBOARD_TOKEN
+  /*
+  FNXC:DevTunnel 2026-08-19-03:00:
+  `reportedToken` is the token the dev server actually installed, handed over its IPC channel. It
+  wins over every derived source because deriving was wrong: on a real run the token was not in
+  ~/.fusion/settings.json at all, so the banner claimed none existed while the dashboard printed a
+  working one directly above it. The env/file lookup remains for targets that report nothing.
+  */
+  const token = reportedToken
+    ?? env.FUSION_DASHBOARD_TOKEN
     ?? env.FUSION_DAEMON_TOKEN
     ?? readToken(settingsFile);
 

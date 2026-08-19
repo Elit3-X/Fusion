@@ -2964,9 +2964,22 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       logSink.warn(`Port ${selectedPort} in use, using ${actualPort} instead`, "dashboard");
     }
 
-    // FNXC:DevTunnel 2026-08-19-02:05: report the REAL port to the dev supervisor (no-op without an
-    // IPC channel, i.e. every non-`pnpm dev` launch). See DEV_SERVER_LISTENING_MESSAGE.
-    process.send?.({ type: DEV_SERVER_LISTENING_MESSAGE, port: actualPort, host: selectedHost });
+    /*
+    FNXC:DevTunnel 2026-08-19-02:05: report the REAL port to the dev supervisor (no-op without an
+    IPC channel, i.e. every non-`pnpm dev` launch). See DEV_SERVER_LISTENING_MESSAGE.
+
+    FNXC:DevTunnel 2026-08-19-03:00: report the resolved auth token too. The supervisor previously
+    re-derived it by reading ~/.fusion/settings.json, which is simply the wrong source — the token
+    is not necessarily stored there, so `--tunnel` printed "no token yet" while the dashboard's own
+    banner printed a working one two lines above. This value IS the token the server installed, so
+    there is nothing left to guess. IPC only, parent process only: never logged, never sent onward.
+    */
+    process.send?.({
+      type: DEV_SERVER_LISTENING_MESSAGE,
+      port: actualPort,
+      host: selectedHost,
+      token: dashboardAuthToken,
+    });
 
     // ── mDNS discovery: broadcast presence and listen for other nodes ───────
     //
