@@ -136,12 +136,26 @@ vi.mock("../merge/merger-ai.js", () => {
       this.name = "WorkspaceFinalizeBlockedError";
     }
   }
+  /*
+  FNXC:WorkspaceMerge 2026-08-19-04:00:
+  Production imports this error from merger-ai, so a factory that omits it makes the merge-queue
+  drain throw "No <export> is defined on the mock" BEFORE reaching the behaviour under test — the
+  four Phase C hardening cases then saw a resolved promise and no updateTask call, failing for a
+  reason unrelated to what they assert. Keep this list in step with merger-ai's exported errors.
+  */
+  class WorkspaceMergeDispatchSupersededError extends Error {
+    constructor(public readonly taskId: string) {
+      super(`Workspace merge dispatch lease was superseded before finalization for ${taskId}`);
+      this.name = "WorkspaceMergeDispatchSupersededError";
+    }
+  }
   return {
     runAiMerge: mocks.runAiMerge,
     landWorkspaceTask: mocks.landWorkspaceTask,
     WorkspaceRepoLandBusyError,
     WorkspacePartialLandError,
     WorkspaceFinalizeBlockedError,
+    WorkspaceMergeDispatchSupersededError,
   };
 });
 
