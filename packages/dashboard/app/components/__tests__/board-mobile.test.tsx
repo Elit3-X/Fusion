@@ -103,10 +103,12 @@ describe("mobile board magnetic column snap wiring (FN-8235)", () => {
 
     expect(boardSource).toContain('import { useColumnScrollSnap } from "../hooks/useColumnScrollSnap";');
     expect(boardSource).toContain("useColumnScrollSnap(boardElement, { mobileOnly: true });");
-    expect(boardSource).toContain('const boardMousePanClassName = `board board-workflow-columns');
     expect(boardSource.match(/ref=\{setBoardRef\}/g)).toHaveLength(2);
-    expect(boardSource.match(/className=\{boardMousePanClassName\}/g)).toHaveLength(2);
-    // The legacy `<main className="board">` render is gone; assert it stays gone.
+    expect(boardSource.match(/className="board board-workflow-columns"/g)).toHaveLength(2);
+    expect(boardSource).not.toContain("useBoardMousePan");
+    expect(boardSource).not.toContain("is-mouse-panning");
+    expect(readAppFile("components/Board.css")).not.toContain(".is-mouse-panning");
+    // FNXC:BoardNavigation 2026-08-19-19:10: The legacy live Board path stays removed; only the two stable workflow views mount the shared ref.
     expect(boardSource).not.toContain('<main className="board" id="board" ref={setBoardRef}>');
   });
 });

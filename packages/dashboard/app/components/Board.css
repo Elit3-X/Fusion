@@ -44,17 +44,6 @@ The board needs a neutral first-paint shell whenever workflow lanes are enabled 
   inline-size: 75%;
 }
 
-/*
-FNXC:BoardNavigation 2026-08-18-18:18:
-A real desktop board pan gets non-semantic feedback on the existing scroll surface only. The active
-state disables text selection while dragging, but does not add a control, change touch behavior, or
-alter the desktop free-pan/mobile snap CSS boundary.
-*/
-.board.board-workflow-columns.is-mouse-panning {
-  cursor: grabbing;
-  user-select: none;
-}
-
 @keyframes board-workflows-skeleton-pulse {
   0%, 100% {
     opacity: 0.55;
