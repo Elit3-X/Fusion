@@ -770,6 +770,57 @@ describe("SettingsModal", () => {
     expect(screen.getAllByText(/No settings sections match/).length).toBeGreaterThan(0);
   });
 
+  /*
+   * FNXC:SettingsSearch 2026-08-19-14:19:
+   * The migrated index must make the existing conversation-layout row discoverable
+   * through every Settings presentation: desktop search is open, mobile search is
+   * expanded explicitly, and embedded Settings uses the same production modal.
+   * Clicking each result verifies the real row anchor rather than a test-only stub.
+   */
+  it.each([
+    {
+      name: "desktop modal by label",
+      viewport: "desktop" as const,
+      presentation: undefined,
+      query: "conversation layout",
+      expandSearch: false,
+    },
+    {
+      name: "mobile modal by help text",
+      viewport: "mobile" as const,
+      presentation: undefined,
+      query: "full width",
+      expandSearch: true,
+    },
+    {
+      name: "embedded Settings by field key",
+      viewport: "mobile" as const,
+      presentation: "embedded" as const,
+      query: "chatMessageLayout",
+      expandSearch: true,
+    },
+  ])("discovers chat message layout in the $name", async ({ viewport, presentation, query, expandSearch }) => {
+    viewportMode = viewport;
+    renderModal({ presentation });
+    await waitForSettingsModalReady();
+
+    if (expandSearch) {
+      await settingsModalUser.click(screen.getByLabelText("Show search"));
+    }
+    const search = screen.getByTestId("settings-search-input");
+    await settingsModalUser.type(search, query);
+
+    expect(screen.getAllByTestId("settings-search-hit-chatMessageLayout")).toHaveLength(1);
+    // FNXC:SettingsSearch 2026-08-19-14:19: jsdom lacks the browser scroll API used by the production row-jump effect.
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    await settingsModalUser.click(screen.getByTestId("settings-search-hit-chatMessageLayout"));
+    expect(screen.getAllByTestId("settings-search-hit-chatMessageLayout")).toHaveLength(1);
+    expect(document.querySelectorAll('[data-settings-key="chatMessageLayout"]')).toHaveLength(1);
+  });
+
   it("keeps duplicate global and project labels searchable while preserving no-results clearing", async () => {
     renderModal();
     await waitForSettingsModalReady();
