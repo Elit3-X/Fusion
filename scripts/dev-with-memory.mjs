@@ -315,6 +315,37 @@ async function warnIfDistStale() {
   }
 }
 
+/*
+FNXC:DevWorkflow 2026-08-19-04:00:
+Stop the dev server AND the tunnel when this supervisor is signalled. Teardown used to live only in
+the child's `close` handler, so `kill <wrapper-pid>` (or any supervisor-style stop) killed the
+wrapper and left the dev server and its cloudflared running as orphans — observed twice, four
+processes surviving each time. Interactive Ctrl-C hid it because the terminal signals the whole
+process group; anything that signals only this process did not.
+
+An orphaned tunnel is the dangerous half: a public trycloudflare URL keeps serving the dev server
+after the operator believes it is down. Forward the signal, give the child a moment to exit on its
+own, then leave.
+*/
+let shuttingDown = false;
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    devTunnel?.stop?.();
+    if (appChild && !appChild.killed) {
+      appChild.kill(signal === "SIGHUP" ? "SIGTERM" : signal);
+      // The child owns a graceful shutdown path (draining agents, stopping Postgres); give it room,
+      // then stop waiting so a wedged child cannot pin the terminal open.
+      const forceExit = setTimeout(() => process.exit(0), 10_000);
+      forceExit.unref?.();
+      appChild.once("close", () => process.exit(0));
+      return;
+    }
+    process.exit(0);
+  });
+}
+
 await warnIfDistStale();
 
 if (!prebuildCommand) {

@@ -100,6 +100,7 @@ import {
   createFusionAuthStorage,
   createFusionModelRegistry,
   refreshFusionModelRegistry,
+  setLocalDashboardPort,
 } from "@fusion/engine";
 import { setHostTaskStore, clearHostTaskStores } from "../extension.js";
 import { DefaultPackageManager, SettingsManager, discoverAndLoadExtensions, createExtensionRuntime } from "@earendil-works/pi-coding-agent";
@@ -2963,6 +2964,14 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     if (actualPort !== selectedPort) {
       logSink.warn(`Port ${selectedPort} in use, using ${actualPort} instead`, "dashboard");
     }
+
+    /*
+    FNXC:RemoteAccess 2026-08-19-04:00:
+    Publish the bound port to the engine so remote tunnels target THIS dashboard. Before this they
+    pointed at a hardcoded localhost:4040, so a dashboard on any other port (explicit --port, PORT,
+    or the EADDRINUSE rebind just above) tunnelled whatever else owned 4040.
+    */
+    setLocalDashboardPort(actualPort);
 
     /*
     FNXC:DevTunnel 2026-08-19-02:05: report the REAL port to the dev supervisor (no-op without an

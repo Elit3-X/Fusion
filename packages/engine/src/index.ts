@@ -9,6 +9,12 @@ export { reloadExemptTools, addToExemptTools, getExemptToolNames, evaluateAgentA
 export type { AgentActionGateContext, AgentActionGateDecision } from "./agents/agent-action-gate.js";
 export { createFusionAuthStorage, createFusionModelRegistry } from "./auth/auth-storage.js";
 export {
+  DEFAULT_DASHBOARD_PORT,
+  getLocalDashboardPort,
+  setLocalDashboardPort,
+  resetLocalDashboardPortForTests,
+} from "./local-dashboard-port.js";
+export {
   DEFAULT_MODEL_REGISTRY_REFRESH_TIMEOUT_MS,
   boundExistingModelRegistryRefresh,
   refreshFusionModelRegistry,

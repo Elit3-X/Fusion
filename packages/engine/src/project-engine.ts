@@ -126,6 +126,7 @@ import { finalizeProvenAutoMergeTask } from "./merge/auto-merge-finalization.js"
 import { isTransientError } from "./errors/transient-error-detector.js";
 import { classifyTransientMergeError, MAX_AUTO_MERGE_TRANSIENT_RETRIES } from "./errors/transient-merge-error-classifier.js";
 import { TunnelProcessManager } from "./remote-access/tunnel-process-manager.js";
+import { getLocalDashboardPort } from "./local-dashboard-port.js";
 import {
   deliverPostgresMigrationCompleteNoticeIfNeeded,
   deliverPostgresMigrationNoticeIfNeeded,
@@ -2908,7 +2909,9 @@ export class ProjectEngine {
           provider: "cloudflare",
           quickTunnel: true,
           executablePath: "cloudflared",
-          args: ["tunnel", "--url", "http://localhost:4040"],
+          // FNXC:RemoteAccess 2026-08-19-04:00: target the port the dashboard actually bound, not a
+          // hardcoded 4040 that publishes whatever else happens to own it. See local-dashboard-port.
+          args: ["tunnel", "--url", `http://localhost:${getLocalDashboardPort()}`],
         },
       };
     }
