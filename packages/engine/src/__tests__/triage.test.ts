@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Agent, TaskStore, Task, TaskDetail, Settings } from "@fusion/core";
-import { applyOriginalDescription, builtinSeamPrompt, buildBootstrapPrompt, computePlanApprovalFingerprint, MAX_TASK_LIST_TEXT_CHARS, renderTriagePolicyPlaceholders, resolveAgentPrompt } from "@fusion/core";
+import { applyOriginalDescription, builtinSeamPrompt, buildBootstrapPrompt, computePlanApprovalFingerprint, deriveFallbackTaskTitle, MAX_TASK_LIST_TEXT_CHARS, renderTriagePolicyPlaceholders, resolveAgentPrompt } from "@fusion/core";
 import {
   TriageProcessor,
   buildSpecificationPrompt,
@@ -530,18 +530,63 @@ describe("buildSpecificationPrompt", () => {
     expect(prompt).toContain("FN-002, FN-003");
   });
 
-  it("handles task without title", () => {
-    const taskWithoutTitle: TaskDetail = {
-      ...baseTask,
-      title: undefined,
-    };
+  describe("short titleless task title fallback", () => {
+    it.each([199, 200])("uses the deterministic description title at the %i-character boundary", (length) => {
+      const description = "a".repeat(length);
+      const prompt = buildSpecificationPrompt(
+        { ...baseTask, title: undefined, description },
+        ".fusion/tasks/KB-001/PROMPT.md",
+      );
+      const fallbackTitle = deriveFallbackTaskTitle(description);
 
-    const prompt = buildSpecificationPrompt(
-      taskWithoutTitle,
-      ".fusion/tasks/KB-001/PROMPT.md",
-    );
+      expect(prompt).toContain(`- **Title:** ${fallbackTitle}`);
+      expect(prompt).not.toContain("- **Title:** (none)");
+    });
 
-    expect(prompt).toContain("(none)");
+    it("preserves an explicit nonblank title", () => {
+      const prompt = buildSpecificationPrompt(
+        { ...baseTask, title: "Operator-provided title", description: "short request" },
+        ".fusion/tasks/KB-001/PROMPT.md",
+      );
+
+      expect(prompt).toContain("- **Title:** Operator-provided title");
+      expect(prompt).not.toContain("- **Title:** Short request");
+    });
+
+    it.each([
+      ["", "empty"],
+      ["   \n\t", "whitespace-only"],
+    ])("keeps (none) for %s descriptions", (description) => {
+      const prompt = buildSpecificationPrompt(
+        { ...baseTask, title: undefined, description },
+        ".fusion/tasks/KB-001/PROMPT.md",
+      );
+
+      expect(prompt).toContain("- **Title:** (none)");
+    });
+
+    it("keeps (none) for titleless descriptions over the AI threshold", () => {
+      const description = "a".repeat(201);
+      const prompt = buildSpecificationPrompt(
+        { ...baseTask, title: undefined, description },
+        ".fusion/tasks/KB-001/PROMPT.md",
+      );
+
+      expect(prompt).toContain("- **Title:** (none)");
+    });
+
+    it("uses the helper-safe first meaningful line for markdown and multiline text", () => {
+      const description = "\n### Restore the short task title\n\nAdditional details stay in the description.";
+      const prompt = buildSpecificationPrompt(
+        { ...baseTask, title: undefined, description },
+        ".fusion/tasks/KB-001/PROMPT.md",
+      );
+      const fallbackTitle = deriveFallbackTaskTitle(description);
+
+      expect(fallbackTitle).toBe("Restore the short task title");
+      expect(prompt).toContain(`- **Title:** ${fallbackTitle}`);
+      expect(prompt).not.toContain("- **Title:** (none)");
+    });
   });
 
   it("includes proactive subtask guidance when breakdown was not explicitly requested", () => {
@@ -3618,6 +3663,54 @@ Apply the scoped implementation changes.
     expect(metadataPatch.fileScope).not.toContain("Packages/*/Package.resolved");
     expect(metadataPatch.fileScope).not.toContain(".changeset/*.md");
     expect(metadataPatch.intentSignature.filePaths).not.toContain("AtlasNotes.xcodeproj/**");
+  });
+
+  it("writes the short deterministic planning title through normal heading finalization", async () => {
+    const description = "Restore the short task title after planning";
+    const planningPrompt = buildSpecificationPrompt(
+      {
+        ...mockTaskDetail,
+        id: "FN-001",
+        title: undefined,
+        description,
+      },
+      ".fusion/tasks/FN-001/PROMPT.md",
+    );
+    const fallbackTitle = deriveFallbackTaskTitle(description);
+    expect(planningPrompt).toContain(`- **Title:** ${fallbackTitle}`);
+
+    await writeFile(
+      join(rootDir, ".fusion", "tasks", "FN-001", "PROMPT.md"),
+      `# Task: FN-001 - ${fallbackTitle}\n\n**Size:** M\n\n## Steps\n\n### Step 1: Preserve the title\n\nKeep the planned title.`,
+    );
+
+    const store = createMockStore({
+      getSettings: vi.fn().mockResolvedValue({
+        maxConcurrent: 2,
+        maxWorktrees: 4,
+        pollIntervalMs: 10000,
+        groupOverlappingFiles: false,
+        autoMerge: true,
+        requirePlanApproval: false,
+      } as Settings),
+    });
+
+    const processor = new TriageProcessor(store, rootDir);
+    const recovered = await processor.recoverApprovedTask({
+      id: "FN-001",
+      description,
+      column: "triage",
+      status: "planning",
+      dependencies: [],
+      steps: [],
+      currentStep: 0,
+      log: [{ timestamp: "2026-01-01T00:00:00.000Z", action: "Spec review: APPROVE" }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:02:00.000Z",
+    });
+
+    expect(recovered).toBe(true);
+    expect(store.updateTask).toHaveBeenCalledWith("FN-001", expect.objectContaining({ title: fallbackTitle }));
   });
 
   it("updates malformed metadata title from prompt heading when task ID matches", async () => {

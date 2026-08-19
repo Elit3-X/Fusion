@@ -58,6 +58,7 @@ import {
   isEphemeralAgent,
   resolveEffectiveAgentPermissionPolicy,
   MAX_TASK_LIST_TEXT_CHARS,
+  MIN_DESCRIPTION_LENGTH,
   deriveFallbackTaskTitle,
   detectContentLanguage,
   localeDisplayName,
@@ -5422,6 +5423,26 @@ function isMalformedTaskTitle(title: string): boolean {
   return /^created\s+(?:task\s+)?(?:fn-\d+\b|\*\*\s*fn-\d+\s*\*\*)/i.test(title.trim());
 }
 
+/**
+ * Resolve the title shown to the planner for a task that has not received a title yet.
+ *
+ * FNXC:TriageTitleFallback 2026-08-19-05:51:
+ * Short descriptions never enter AI title summarization, so planning must provide a deterministic
+ * title instead of `(none)`. Use the shared sanitized first-line helper rather than interpolating
+ * raw multiline description text, which could corrupt the prompt's `**Title:**` structure.
+ */
+function resolveSpecificationPromptTitle(task: Pick<TaskDetail, "title" | "description">): string {
+  const existingTitle = task.title?.trim();
+  if (existingTitle) return existingTitle;
+
+  const description = task.description ?? "";
+  if (description.trim() && description.length < MIN_DESCRIPTION_LENGTH) {
+    return deriveFallbackTaskTitle(description);
+  }
+
+  return "(none)";
+}
+
 function shouldReplaceTaskTitleFromPrompt(task: Task, promptDeclaredTitle: string | null): boolean {
   if (!promptDeclaredTitle) return false;
 
@@ -5788,7 +5809,7 @@ The authoritative artifact will be stored at \`${promptPath}\`. Do not use the g
 
 ## Task
 - **ID:** ${task.id}
-- **Title:** ${task.title || "(none)"}
+- **Title:** ${resolveSpecificationPromptTitle(task)}
 - **Description (current user context):** ${task.description}
 ${planInput ? `\n## Planning Mode plan.md\n\nTreat this validated lean plan as the primary specification input. Expand it into the full executor-ready PROMPT.md; plan.md is not PROMPT.md.\n\n\`\`\`markdown\n${planInput}\n\`\`\`\n` : ""}
 ## Original Request
