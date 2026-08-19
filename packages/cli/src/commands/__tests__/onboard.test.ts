@@ -163,7 +163,7 @@ describe("onboard", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runOnboard({
-      input: inputFrom(["y", "y", "4", "y", "y", "n", "y"]),
+      input: inputFrom(["y", "4", "y", "y", "n", "y"]),
     });
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Creating central DB"));
     expect(centralInitMock).toHaveBeenCalled();
@@ -187,7 +187,7 @@ describe("onboard", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runOnboard({
-      input: inputFrom(["y", "y", "3", "local", "Local server", "http://localhost:8080/v1/", "", "qwen, , qwen", "y", "y", "n", "n", "n"]),
+      input: inputFrom(["y", "3", "local", "Local server", "http://localhost:8080/v1/", "", "qwen, , qwen", "y", "y", "n", "n", "n"]),
     });
 
     const registry = JSON.parse(readFileSync(path, "utf8"));
@@ -209,7 +209,7 @@ describe("onboard", () => {
       if (message.includes("Stored API key")) expect(persisted).toBe(true);
     });
 
-    await runOnboard({ input: inputFrom(["y", "y", "1", "test-key", "y", "y", "n", "y"]) });
+    await runOnboard({ input: inputFrom(["y", "1", "test-key", "y", "y", "n", "y"]) });
     expect(providerAuth.setApiKey).toHaveBeenCalledWith("openrouter", "test-key");
     expect(logSpy).toHaveBeenCalledWith("✓ Stored API key for openrouter");
   });
@@ -219,7 +219,7 @@ describe("onboard", () => {
     mockProviderAuthFactory.mockReturnValue(providerAuth);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runOnboard({ input: inputFrom(["y", "y", "1", "test-key", "y", "y", "y", "y"]) });
+    await runOnboard({ input: inputFrom(["y", "1", "test-key", "y", "y", "y", "y"]) });
 
     expect(providerAuth.setApiKey).toHaveBeenCalledWith("openrouter", "test-key");
     expect(mockRunInit).toHaveBeenCalledTimes(1);
@@ -241,7 +241,7 @@ describe("onboard", () => {
     expect(providerAuth.setApiKey).not.toHaveBeenCalled();
     expect(mockRunInit).not.toHaveBeenCalled();
 
-    await runOnboard({ force: true, input: inputFrom(["y", "n", "n", "n", "n"]) });
+    await runOnboard({ force: true, input: inputFrom(["n", "n", "n", "n"]) });
     expect(globalSettingsState.cliOnboardingCompletedAt).not.toBe("2026-06-01T00:00:00.000Z");
   });
 
@@ -283,9 +283,15 @@ describe("onboard", () => {
     const providerAuth = makeProviderAuth();
     mockProviderAuthFactory.mockReturnValue(providerAuth);
 
-    await runOnboard({ input: inputFrom(["n", "n", "n", "n", "n"]) });
+    await runOnboard({ input: inputFrom(["n", "n", "n", "n"]) });
 
-    expect(centralInitMock).not.toHaveBeenCalled();
+    /*
+    FNXC:Onboarding 2026-08-19-03:38:
+    The central DB is no longer skippable: declining left an install Fusion cannot run on, and the
+    prompt blocked non-interactive startups outright (a `pnpm dev --tunnel` sat on it and never
+    listened). Skipping every OPTIONAL step must still leave a created database.
+    */
+    expect(centralInitMock).toHaveBeenCalled();
     expect(mockRunInit).not.toHaveBeenCalled();
     expect(globalSettingsState.testMode).toBeUndefined();
     expect(typeof globalSettingsState.cliOnboardingCompletedAt).toBe("string");
@@ -296,7 +302,7 @@ describe("onboard", () => {
     const providerAuth = makeProviderAuth();
     mockProviderAuthFactory.mockReturnValue(providerAuth);
 
-    await runOnboard({ input: inputFrom(["y", "n", "y", "y", "n", "y"]) });
+    await runOnboard({ input: inputFrom(["n", "y", "y", "n", "y"]) });
     expect(providerAuth.setApiKey).not.toHaveBeenCalled();
     expect(mockRunInit).toHaveBeenCalledTimes(1);
     expect(globalSettingsState.testMode).toBe(false);
@@ -307,7 +313,7 @@ describe("onboard", () => {
     const providerAuth = makeProviderAuth();
     mockProviderAuthFactory.mockReturnValue(providerAuth);
 
-    await runOnboard({ input: inputFrom(["y", "y", "4", "n", "y", "n", "y"]) });
+    await runOnboard({ input: inputFrom(["y", "4", "n", "y", "n", "y"]) });
     expect(mockRunInit).not.toHaveBeenCalled();
     expect(globalSettingsState.testMode).toBe(false);
     expect(typeof globalSettingsState.cliOnboardingCompletedAt).toBe("string");

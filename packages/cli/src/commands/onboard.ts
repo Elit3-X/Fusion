@@ -281,16 +281,20 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<void> {
     if (existsSync(centralDbPath)) {
       console.log(`✓ Central DB already exists: ${centralDbPath}`);
     } else {
-      const ranCentralDb = await runSkippableStep(prompts, "Central DB", async () => {
-        console.log(`Creating central DB: ${centralDbPath}`);
-        const central = new CentralCore();
-        await central.init();
-        await central.close();
-        console.log("✓ Central DB initialized");
-      });
-      if (!ranCentralDb) {
-        console.log("Central DB setup skipped; database was not created or initialized.");
-      }
+      /*
+      FNXC:Onboarding 2026-08-19-03:38:
+      The central DB is created unconditionally — no prompt. Fusion cannot run without it, so
+      declining produced an install that was broken in a way the message ("database was not created
+      or initialized") described but did not fix. It also blocked non-interactive startups: a
+      `pnpm dev --tunnel` sat on "Run central db now? (Y/n)" and never listened, so nothing was
+      served and the tunnel had no dev server to point at.
+      */
+      console.log("\nCentral DB:");
+      console.log(`Creating central DB: ${centralDbPath}`);
+      const central = new CentralCore();
+      await central.init();
+      await central.close();
+      console.log("✓ Central DB initialized");
     }
 
     const authStorage = createFusionAuthStorage();
