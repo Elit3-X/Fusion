@@ -302,32 +302,22 @@ describe("ChatView New Chat project default behavior", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("mobile session switcher New Chat shares the always-default model path", async () => {
+  it("mobile list New Chat shares the always-default model path", async () => {
     mockMobileViewport();
     const createSession = vi.fn();
     const session = makeSession();
     mockFetchSettings.mockResolvedValue({
-      chatNewSessionMode: "always-default",
-      chatDefaultKind: "model",
-      chatDefaultModelProvider: "anthropic",
-      chatDefaultModelId: "claude-sonnet-4-5",
+      chatNewSessionMode: "always-default", chatDefaultKind: "model", chatDefaultModelProvider: "anthropic", chatDefaultModelId: "claude-sonnet-4-5",
     } as Awaited<ReturnType<typeof api.fetchSettings>>);
     mockUseChat.mockReturnValue(chatState({ activeSession: session, sessions: [session], filteredSessions: [session], createSession }));
 
     await renderWithAct(<ChatView projectId="project-a" addToast={vi.fn()} />);
     await waitForSettings();
+    fireEvent.click(screen.getByTestId("chat-new-btn"));
 
-    fireEvent.click(screen.getByTestId(`chat-session-${session.id}`));
-    fireEvent.click(await screen.findByTestId("chat-mobile-session-trigger"));
-    fireEvent.click(screen.getByTestId("chat-mobile-session-new"));
-
-    expect(createSession).toHaveBeenCalledWith({
-      agentId: "__fn_agent__",
-      modelProvider: "anthropic",
-      modelId: "claude-sonnet-4-5",
-      thinkingLevel: undefined,
-    });
+    expect(createSession).toHaveBeenCalledWith({ agentId: "__fn_agent__", modelProvider: "anthropic", modelId: "claude-sonnet-4-5", thinkingLevel: undefined });
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByTestId("chat-mobile-session-trigger")).toBeNull();
   });
 
   it("switching projects clears the previous default while the new project settings load", async () => {

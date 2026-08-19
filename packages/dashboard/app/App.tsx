@@ -2165,7 +2165,7 @@ function AppInner() {
           defaultSize={{ width: 980, height: 680 }}
           /*
           FNXC:ChatModal 2026-06-23-22:14:
-          The full Chat pop-out must be resizable into a very narrow desktop utility window. ChatView already switches to its mobile one-pane layout at narrow widths, so allow the FloatingWindow to shrink below the old two-pane desktop minimum while preserving enough width for composer controls.
+          The full Chat pop-out must be resizable into a very narrow desktop utility window. ChatView uses the same full-pane list/detail flow at narrow widths, so allow the FloatingWindow to shrink below the old two-pane desktop minimum while preserving enough width for composer controls.
           */
           minSize={{ width: 300, height: 420 }}
         >
