@@ -2547,8 +2547,15 @@ export function setupTerminalWebSocket(
       });
     }
 
-    // Send scrollback buffer first
-    const scrollback = terminalService.getScrollbackAndClearPending(sessionId);
+    /*
+    FNXC:TerminalSharing 2026-08-19-03:05:
+    Terminal sessions are shared: several browsers can watch and drive the same PTY, so an attach
+    must not clear the pending-output queue. Flush it to whoever is already attached FIRST (this
+    socket has not subscribed yet, so it cannot double-receive), then send the scrollback, which now
+    contains those bytes for the newcomer.
+    */
+    terminalService.flushPendingOutput(sessionId);
+    const scrollback = terminalService.getScrollback(sessionId);
     if (scrollback) {
       ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
     }

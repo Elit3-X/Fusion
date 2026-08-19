@@ -574,6 +574,36 @@ describe("TerminalService", () => {
     });
   });
 
+  /*
+  FNXC:TerminalSharing 2026-08-19-03:05:
+  Several browsers can watch one PTY, so attaching a viewer must not consume output the already
+  attached viewers have not received. getScrollbackAndClearPending() drops the queue outright, which
+  is invisible with a single viewer and silently deletes a slice of everyone else's live stream once
+  a second one connects. flushPendingOutput() is what an attach uses instead.
+  */
+  describe("shared-viewer output handoff", () => {
+    it("delivers queued output to existing subscribers instead of discarding it", async () => {
+      const existingViewer = vi.fn();
+      service.onData(existingViewer);
+
+      const createResult = await service.createSession();
+      if (!createResult.success) throw new Error("Expected terminal session creation to succeed");
+      const session = createResult.session;
+
+      // Output arrives and is still queued behind the flush throttle when a second viewer attaches.
+      mockPtyProcess._onDataCallback?.("queued output");
+      service.flushPendingOutput(session.id);
+
+      expect(existingViewer).toHaveBeenCalledWith(session.id, "queued output");
+      // The newcomer reads it from scrollback, so it is delivered exactly once to each viewer.
+      expect(service.getScrollback(session.id)).toContain("queued output");
+    });
+
+    it("is a no-op for an unknown session", () => {
+      expect(() => service.flushPendingOutput("no-such-session")).not.toThrow();
+    });
+  });
+
   describe("event handling", () => {
     it("emits data events", async () => {
       const dataMock = vi.fn();

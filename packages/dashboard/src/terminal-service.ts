@@ -974,7 +974,37 @@ export class TerminalService extends EventEmitter {
   }
 
   /**
+   * Drain every pending output chunk to the session's subscribers, now.
+   *
+   * FNXC:TerminalSharing 2026-08-19-03:05:
+   * Attaching a viewer must not consume output that other viewers have not received yet. The
+   * throttled flush batches by OUTPUT_BATCH_SIZE and reschedules, so a single call can leave chunks
+   * queued; this loops until the queue is empty (bounded, so a pathological producer cannot spin
+   * the event loop) and is what an attach calls INSTEAD of discarding the queue. Delivering first
+   * also means the scrollback the new viewer is about to receive already contains those bytes, so
+   * it sees them exactly once and existing viewers keep their stream intact.
+   */
+  flushPendingOutput(sessionId: string): void {
+    if (!this.isValidSessionId(sessionId)) return;
+    const session = this.sessions.get(sessionId);
+    if (!session?._flushOutput) return;
+
+    const MAX_DRAIN_PASSES = 1000;
+    let passes = 0;
+    while (session.outputChunks.length > 0 && passes < MAX_DRAIN_PASSES) {
+      passes += 1;
+      session._flushOutput();
+    }
+  }
+
+  /**
    * Get scrollback and clear pending output buffer
+   *
+   * FNXC:TerminalSharing 2026-08-19-03:05:
+   * Discards queued output, so it is only safe when the caller is the session's ONLY consumer.
+   * A viewer attach must use flushPendingOutput() + getScrollback() instead: clearing here while a
+   * second browser watches the same PTY silently deletes a slice of the first browser's live
+   * stream, which is invisible in single-viewer testing.
    */
   getScrollbackAndClearPending(sessionId: string): string | null {
     if (!this.isValidSessionId(sessionId)) {

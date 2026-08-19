@@ -1491,7 +1491,8 @@ The shortcut bar (modifier keys + arrow keys) must sit on ONE line, not stack in
 }
 
 .terminal-reconnect-btn,
-.terminal-restart-btn {
+.terminal-restart-btn,
+.terminal-reopen-btn {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
@@ -1507,7 +1508,8 @@ The shortcut bar (modifier keys + arrow keys) must sit on ONE line, not stack in
 }
 
 .terminal-reconnect-btn:hover,
-.terminal-restart-btn:hover {
+.terminal-restart-btn:hover,
+.terminal-reopen-btn:hover {
   background: var(--card-hover);
   border-color: var(--text-muted);
 }
@@ -2017,4 +2019,75 @@ FN-7813 embeds the shared terminal inside Task Detail. The host must fill the pa
   .terminal-modal--embedded .terminal-actions {
     min-width: 0;
   }
+}
+
+/*
+FNXC:TerminalSharing 2026-08-19-04:10:
+The reopen list must be portaled and fixed-positioned: `.terminal-status-bar` is an overflow-x
+scroll container, so a popover anchored inside it would be clipped. Positioned from the trigger's
+rect (inline left/bottom) and stacked with nextFloatingZ so it clears pinned/popped-out terminals.
+*/
+.terminal-reopen-menu {
+  position: fixed;
+  max-width: min(calc(var(--space-xl) * 14), calc(100vw - (var(--space-md) * 2)));
+  max-height: min(calc(var(--space-xl) * 12), calc(100dvh - (var(--space-md) * 2)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+}
+
+.terminal-reopen-menu-label {
+  padding: var(--space-sm) var(--space-sm) var(--space-xs);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.terminal-reopen-menu-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.terminal-reopen-menu-option:hover {
+  background: var(--card-hover);
+}
+
+.terminal-reopen-menu-option-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.terminal-reopen-menu-option-main span,
+.terminal-reopen-menu-option-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-reopen-menu-option-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  max-width: 180px;
 }
