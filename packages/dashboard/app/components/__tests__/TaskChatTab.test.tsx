@@ -1157,7 +1157,7 @@ describe("TaskChatTab", () => {
     ["planning", "triage"],
     ["terminal", "done"],
     ["archived", "archived"],
-  ] as const)("defaults thinking blocks open for %s tasks", (_state, column) => {
+  ] as const)("defaults thinking blocks collapsed for %s tasks", (_state, column) => {
     mockLogs([
       makeEntry({ agent: "executor", type: "thinking", text: "Immediately readable reasoning" }),
     ]);
@@ -1165,31 +1165,37 @@ describe("TaskChatTab", () => {
     render(<TaskChatTab task={makeTask({ column })} active addToast={vi.fn()} />);
 
     const thinking = screen.getByTestId("task-chat-thinking");
-    expect(thinking).toHaveAttribute("open");
-    expect(screen.getByText("Immediately readable reasoning")).toBeVisible();
+    expect(thinking).not.toHaveAttribute("open");
+    expect(screen.getByText("Immediately readable reasoning")).not.toBeVisible();
   });
 
-  it("lets users collapse and reopen initially expanded thinking blocks", async () => {
+  it.each([
+    ["desktop", false],
+    ["mobile", true],
+  ] as const)("lets users dismiss and reopen thinking blocks from the body on %s", async (_viewport, matchesMobile) => {
     const user = userEvent.setup();
     mockLogs([
       makeEntry({ agent: "triage", type: "thinking", text: "I am considering options" }),
     ]);
 
+    mockMatchMedia(matchesMobile);
     render(<TaskChatTab task={makeTask({ column: "done" })} active addToast={vi.fn()} />);
 
     const thinking = screen.getByTestId("task-chat-thinking");
-    expect(thinking).toHaveAttribute("open");
+    expect(thinking).not.toHaveAttribute("open");
     expect(within(thinking).getByText("Thinking")).toBeVisible();
-    expect(screen.getByText("I am considering options")).toBeVisible();
+    expect(screen.getByText("I am considering options")).not.toBeVisible();
     expect(within(thinking).getAllByTestId("task-chat-entry-thinking")).toHaveLength(1);
 
     await user.click(within(thinking).getByText("Thinking"));
+    expect(thinking).toHaveAttribute("open");
+    expect(screen.getByText("I am considering options")).toBeVisible();
 
+    await user.click(within(thinking).getByText("I am considering options"));
     expect(thinking).not.toHaveAttribute("open");
     expect(screen.getByText("I am considering options")).not.toBeVisible();
 
     await user.click(within(thinking).getByText("Thinking"));
-
     expect(thinking).toHaveAttribute("open");
     expect(screen.getByText("I am considering options")).toBeVisible();
   });
@@ -1203,7 +1209,7 @@ describe("TaskChatTab", () => {
     render(<TaskChatTab task={makeTask()} active addToast={vi.fn()} />);
 
     const thinking = screen.getByTestId("task-chat-thinking");
-    expect(thinking).toHaveAttribute("open");
+    expect(thinking).not.toHaveAttribute("open");
     const summary = thinking.querySelector("summary");
     expect(summary).toBeTruthy();
     expect(within(summary as HTMLElement).getByText("Thinking")).toBeVisible();
@@ -1227,8 +1233,10 @@ describe("TaskChatTab", () => {
     const { rerender } = render(<TaskChatTab task={makeTask({ column: "todo" })} active addToast={vi.fn()} />);
 
     const thinking = screen.getByTestId("task-chat-thinking");
-    expect(thinking).toHaveAttribute("open");
+    expect(thinking).not.toHaveAttribute("open");
     await user.click(within(thinking).getByText("Thinking"));
+    expect(thinking).toHaveAttribute("open");
+    await user.click(within(thinking).getByText("First streamed thought"));
     expect(thinking).not.toHaveAttribute("open");
 
     mockLogs([
@@ -1241,7 +1249,7 @@ describe("TaskChatTab", () => {
     expect(screen.getByText(/Second streamed thought/)).not.toBeVisible();
   });
 
-  it("gives a genuinely new segment a fresh instance with defaultOpen applied", async () => {
+  it("gives a genuinely new thinking segment a fresh collapsed instance", async () => {
     const user = userEvent.setup();
     mockLogs([
       makeEntry({ agent: "executor", type: "thinking", text: "Original reasoning" }),
@@ -1250,8 +1258,10 @@ describe("TaskChatTab", () => {
     const { rerender } = render(<TaskChatTab task={makeTask({ column: "in-progress" })} active addToast={vi.fn()} />);
 
     const firstThinking = screen.getByTestId("task-chat-thinking");
-    expect(firstThinking).toHaveAttribute("open");
+    expect(firstThinking).not.toHaveAttribute("open");
     await user.click(within(firstThinking).getByText("Thinking"));
+    expect(firstThinking).toHaveAttribute("open");
+    await user.click(within(firstThinking).getByText("Original reasoning"));
     expect(firstThinking).not.toHaveAttribute("open");
 
     mockLogs([
@@ -1264,7 +1274,7 @@ describe("TaskChatTab", () => {
     const thinkingBlocks = screen.getAllByTestId("task-chat-thinking");
     expect(thinkingBlocks).toHaveLength(2);
     expect(thinkingBlocks[0]).not.toHaveAttribute("open");
-    expect(thinkingBlocks[1]).toHaveAttribute("open");
+    expect(thinkingBlocks[1]).not.toHaveAttribute("open");
   });
 
   it("creates distinct tool segments when text or thinking entries are interleaved", () => {
@@ -1286,7 +1296,7 @@ describe("TaskChatTab", () => {
     expect(within(toolGroups[1]).getByLabelText("Tool names")).toHaveTextContent("second tool");
     expect(screen.getAllByTestId("task-chat-entry-text")).toHaveLength(1);
     expect(screen.getByText("plain response")).toBeVisible();
-    expect(screen.getByText("thinking between tools")).toBeVisible();
+    expect(screen.getByText("thinking between tools")).not.toBeVisible();
   });
 
   it("appends newly streamed entries from the hook without auto-opening tool groups", () => {

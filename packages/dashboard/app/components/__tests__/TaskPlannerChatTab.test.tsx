@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TaskPlannerChatTab } from "../TaskPlannerChatTab";
 import { ChatMessageLayoutProvider } from "../../context/ChatMessageLayoutContext";
@@ -1248,6 +1248,53 @@ describe("TaskPlannerChatTab", () => {
     await userEvent.click(details.querySelector("summary") as HTMLElement);
     expect(details).toHaveTextContent(longCommand);
     expect(details).toHaveTextContent("PLANNER_RESULT_SUFFIX");
+  });
+
+  it.each([
+    ["desktop", false],
+    ["mobile", true],
+  ] as const)("keeps reattached planner tools and thinking collapsed on %s", async (_viewport, matchesMobile) => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: matchesMobile && query === "(max-width: 768px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    const inFlightGeneration = {
+      status: "generating",
+      streamingText: "Planner is working",
+      streamingThinking: "Planner is checking the task",
+      toolCalls: [
+        { toolName: "read", args: { path: "one.ts" }, status: "running", isError: false },
+        { toolName: "read", args: { path: "two.ts" }, status: "running", isError: false },
+      ],
+      replayFromEventId: 3,
+      updatedAt: "2026-07-01T14:00:00.000Z",
+    };
+    const plannerSession = makePlannerSession({ isGenerating: true, inFlightGeneration });
+    mockFetchTaskPlannerChatSession.mockResolvedValue({ session: plannerSession });
+    mockFetchChatSession.mockResolvedValue({ session: plannerSession });
+    mockFetchChatMessages.mockResolvedValue({ messages: [] });
+
+    const user = userEvent.setup();
+    renderPlannerChat();
+
+    const group = await screen.findByTestId("chat-tool-calls-group") as HTMLDetailsElement;
+    expect(group).not.toHaveAttribute("open");
+    const thinking = await screen.findByTestId("chat-message-__streaming__").then((message) => message.querySelector("details.chat-message-thinking") as HTMLDetailsElement);
+    expect(thinking).not.toHaveAttribute("open");
+    await user.click(within(thinking).getByText("Thinking"));
+    expect(thinking).toHaveAttribute("open");
+    await user.click(within(thinking).getByText("Planner is checking the task"));
+    expect(thinking).not.toHaveAttribute("open");
   });
 
   it("renders mixed persisted planner question tool calls with the shared answer UI outside collapsed details", async () => {

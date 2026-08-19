@@ -154,6 +154,31 @@ function formatToolResultSummary(result: unknown): string | null {
   return formatToolPreview(result, 200);
 }
 
+function isInteractiveDisclosureTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("a,button,input,textarea,select,summary,[role=\"button\"],[contenteditable=\"true\"]"));
+}
+
+/*
+FNXC:ChatDisclosure 2026-08-19-02:42:
+Streaming status is presentation-only: disclosure state belongs to the user and must not be taken over by a running tool or thinking delta. Keep the native summary interaction while allowing a click on non-interactive thinking content to dismiss an expanded block.
+*/
+function StandardThinkingDisclosure({ thinking }: { thinking: string }) {
+  const { t } = useTranslation("app");
+  const handleBodyClick = useCallback((event: React.MouseEvent<HTMLPreElement>) => {
+    if (isInteractiveDisclosureTarget(event.target)) return;
+    const details = event.currentTarget.closest("details");
+    if (details?.open) details.open = false;
+  }, []);
+
+  return (
+    <details className="chat-message-thinking">
+      <summary>{t("chat.thinking", "Thinking")}</summary>
+      <pre className="chat-message-thinking-content" onClick={handleBodyClick}>{linkifyFilePaths(thinking)}</pre>
+    </details>
+  );
+}
+
 function buildFailureReferenceHref(reference: FailureInfo["reference"]): string | null {
   if (!reference) return null;
   if (reference.kind === "mailbox" || reference.kind === "mailbox-message") {
@@ -242,7 +267,7 @@ export function renderStandardToolCalls(
       return <div key={`${toolCall.toolName}-${index}`} className={className}><div className="chat-tool-call-summary">{summary}</div></div>;
     }
     return (
-      <details key={`${toolCall.toolName}-${index}`} className={className} open={isRunning}>
+      <details key={`${toolCall.toolName}-${index}`} className={className}>
         <summary>{summary}</summary>
         <ToolCallDetails
           className="chat-tool-call-content"
@@ -284,7 +309,7 @@ export function renderStandardToolCalls(
     const statusSummary = hasRunning ? `(${runningCount} ${t("chat.toolCallStatusRunning", "running")})` : errorCount > 0 ? `(${errorCount} ${errorCount === 1 ? t("chat.toolCallStatusError", "error") : t("chat.toolCallStatusErrors", "errors")})` : null;
     return (
       <div className="chat-tool-calls" data-testid="chat-tool-calls">
-        <details className="chat-tool-calls-group" data-testid="chat-tool-calls-group" open={hasRunning}>
+        <details className="chat-tool-calls-group" data-testid="chat-tool-calls-group">
           <summary className="chat-tool-calls-group-summary">
             <span className="chat-tool-calls-header-icon" aria-hidden="true">•</span>
             <span className="chat-tool-calls-count">{t("chat.toolCallsCount", "{{count}} tool calls", { count: nonQuestionToolCalls.length })}</span>
@@ -731,7 +756,7 @@ export const StandardChatMessageItem = memo(function StandardChatMessageItem({
       )}
       {hasAssistantFooterRow && (
         <div className={`chat-message-thinking-row${hasVisibleAssistantFooterContent ? "" : " chat-message-thinking-row--collapsed"}`}>
-          {message.thinkingOutput && <details className="chat-message-thinking"><summary>{t("chat.thinking", "Thinking")}</summary><pre className="chat-message-thinking-content">{linkifyFilePaths(message.thinkingOutput)}</pre></details>}
+          {message.thinkingOutput && <StandardThinkingDisclosure thinking={message.thinkingOutput} />}
           {(copyAction || onScrollToTop) && (
             <div className="chat-message-actions">
               {copyAction}
@@ -760,7 +785,7 @@ export function StandardStreamingMessage({ streamingText, streamingThinking = ""
       {streamingText ? renderStandardAssistantContent(streamingText, forcePlain) : <div className="chat-message-content chat-message-content--waiting">{streamingThinking ? t("chat.thinkingStatus", "Thinking…") : t("chat.workingStatus", "Working…")}</div>}
       {copyAction}
       {renderStandardToolCalls(streamingToolCalls, t, { isAwaitingAnswer: true, onQuestionSubmit, toolCallRenderer })}
-      {streamingThinking && <details className="chat-message-thinking"><summary>{t("chat.thinking", "Thinking")}</summary><pre className="chat-message-thinking-content">{linkifyFilePaths(streamingThinking)}</pre></details>}
+      {streamingThinking && <StandardThinkingDisclosure thinking={streamingThinking} />}
       <div className="chat-typing-indicator"><span /><span /><span /></div>
     </div>
   );
