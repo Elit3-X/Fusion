@@ -20,12 +20,12 @@ export interface SystemInfo {
   tokenizedUrl?: string;
   /*
   FNXC:DevTunnel 2026-08-19-04:30:
-  Public URL of the dev tunnel, when `pnpm dev --tunnel` started one. The wrapper prints its banner
-  to stdout, but a TTY run hands the screen to this TUI, which paints straight over it — so the one
-  piece of information the flag exists to produce was unreadable. The wrapper forwards the URL over
-  the dev IPC channel and it renders here instead.
+  Public URL of whatever tunnel is exposing this dashboard — `pnpm dev --tunnel` (forwarded over the
+  dev IPC channel) or the operator's own remote tunnel (from the engine's tunnel manager). Either
+  way it belongs on screen: the dev wrapper prints a banner that a TTY run's TUI paints straight
+  over, and the remote tunnel never printed its URL anywhere the terminal could show it at all.
   */
-  devTunnelUrl?: string;
+  tunnelUrl?: string;
   engineMode: "no-engine" | "active" | "paused";
   fileWatcher: boolean;
   startTimeMs: number;

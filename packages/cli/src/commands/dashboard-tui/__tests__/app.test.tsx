@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "ink-testing-library";
 import { I18nextProvider } from "react-i18next";
-import { DashboardApp, stripLeadingDetailedTimestamp } from "../app.js";
+import { DashboardApp, estimateSystemContentRows, stripLeadingDetailedTimestamp } from "../app.js";
 import { initCliI18n } from "../../../i18n/index.js";
 
 const copyToClipboardMock = vi.hoisted(() => vi.fn());
@@ -253,12 +253,29 @@ describe("DashboardApp smoke", () => {
   it("renders the dev tunnel URL in the system panel when one is published", () => {
     const controller = newController();
     const { lastFrame, unmount, rerender } = render(renderDashboardAppNode(controller));
-    controller.setSystemInfo({ ...makeSystemInfo(), devTunnelUrl: "https://sign-bear-kinds-lay.trycloudflare.com" });
+    controller.setSystemInfo({ ...makeSystemInfo(), tunnelUrl: "https://sign-bear-kinds-lay.trycloudflare.com" });
     rerender(renderDashboardAppNode(controller));
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Tunnel");
     expect(frame).toContain("https://sign-bear-kinds-lay.trycloudflare.com");
     unmount();
+  });
+
+  /*
+  FNXC:DevTunnel 2026-08-19-04:45:
+  The panel sizes itself from its rows, so a row it does not measure gets squeezed out of the panel
+  it was added to. A trycloudflare hostname is long enough to wrap, which is why the tunnel row must
+  be measured like URL and Token rather than assumed to be one line.
+  */
+  it("grows the system panel to fit the tunnel row instead of collapsing it", () => {
+    const tunnelUrl = "https://elvis-background-brochures-addressing.trycloudflare.com";
+    const short = estimateSystemContentRows(makeSystemInfo(), 80, false);
+    const withTunnel = estimateSystemContentRows({ ...makeSystemInfo(), tunnelUrl }, 80, false);
+    expect(withTunnel).toBeGreaterThan(short);
+
+    // A hostname wider than the panel wraps, and the estimate must follow it.
+    const narrow = estimateSystemContentRows({ ...makeSystemInfo(), tunnelUrl }, 30, false);
+    expect(narrow).toBeGreaterThan(withTunnel);
   });
 
   it("shows no tunnel row when no tunnel is running", () => {

@@ -813,7 +813,8 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   complete in either order.
   */
   let devTunnelUrl: string | undefined;
-  let applyDevTunnelUrl: (() => void) | undefined;
+  let remoteTunnelUrl: string | undefined;
+  let applyTunnelUrl: (() => void) | undefined;
 
   // Single sink/logger pair for all dashboard command diagnostics.
   // In TTY mode this routes to DashboardTUI; in non-TTY mode it falls back to console.*.
@@ -2305,6 +2306,25 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
         )
       : undefined;
 
+    /*
+    FNXC:DevTunnel 2026-08-19-04:45:
+    Surface the operator's own remote tunnel in the system panel too. Its URL previously existed only
+    in the dashboard's Settings UI and the /remote/status route, so a terminal user running headless
+    — the exact case a tunnel is for — had no way to read the address their Fusion was reachable at.
+    Subscribing beats polling: the manager already pushes status, including the transition to null
+    when the tunnel stops, which must clear the row rather than strand a dead URL on screen.
+    */
+    for (const engine of engineManager.getAllEngines().values()) {
+      const tunnelManager = engine.getRemoteTunnelManager?.();
+      if (!tunnelManager) continue;
+      tunnelManager.subscribeStatus((status) => {
+        const url = typeof status?.url === "string" && status.url.length > 0 ? status.url : undefined;
+        if (url === remoteTunnelUrl) return;
+        remoteTunnelUrl = url;
+        applyTunnelUrl?.();
+      });
+    }
+
     // Get the trigger scheduler from any running engine
     for (const engine of engineManager.getAllEngines().values()) {
       const ts = engine.getHeartbeatTriggerScheduler();
@@ -2995,7 +3015,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       if (parsed?.type !== DEV_TUNNEL_READY_MESSAGE) return;
       if (typeof parsed.url !== "string" || parsed.url.length === 0) return;
       devTunnelUrl = parsed.url;
-      applyDevTunnelUrl?.();
+      applyTunnelUrl?.();
     });
 
     /*
@@ -3106,8 +3126,13 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       paints over it, so the public URL (the entire point of the flag) was unreadable. Render it in
       the system panel instead, whether the URL arrived before this point or arrives later.
       */
-      applyDevTunnelUrl = () => tui.setSystemInfo({ ...systemInfo, devTunnelUrl });
-      tui.setSystemInfo({ ...systemInfo, devTunnelUrl });
+      /*
+      FNXC:DevTunnel 2026-08-19-04:45:
+      A dev tunnel is the one the operator started by hand, so it wins when both exist; otherwise the
+      remote tunnel's URL shows. Either way the panel is where a terminal user can actually read it.
+      */
+      applyTunnelUrl = () => tui.setSystemInfo({ ...systemInfo, tunnelUrl: devTunnelUrl ?? remoteTunnelUrl });
+      applyTunnelUrl();
       tui.setReady(true);
       tui.setSettings({
         maxConcurrent: settings.maxConcurrent ?? 1,
