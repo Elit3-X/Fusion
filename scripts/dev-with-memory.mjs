@@ -18,7 +18,7 @@ import {
   resolvePrebuildMode,
 } from "./dev-with-memory-lib.mjs";
 import { createDevSourceWatcher } from "./lib/dev-source-watch.mjs";
-import { startDevTunnel } from "./lib/dev-tunnel.mjs";
+import { resolveDevTunnelAuth, startDevTunnel } from "./lib/dev-tunnel.mjs";
 
 // Set increased heap size (8GB) to prevent OOM during initial build/start
 const MEMORY_MB = process.env.FUSION_DEV_MEMORY_MB || "8192";
@@ -127,8 +127,18 @@ function runApp(extraArgs) {
   */
   if (tunnel && !devTunnel) {
     const port = resolveDevTunnelPort(tunnelPort);
+    /*
+    FNXC:DevTunnel 2026-08-19-01:18:
+    Resolved at print time (not at parse time) so the token the dev child mints on a first
+    authenticated run is already on disk by the time the banner needs it.
+    */
+    const auth = resolveDevTunnelAuth({
+      port,
+      dashboardPort: resolveDevTunnelPort(undefined),
+      args: forwardedArgs,
+    });
     devTunnel = { url: null, stop: () => {} };
-    void startDevTunnel({ port })
+    void startDevTunnel({ port, auth })
       .then((started) => { devTunnel = started; })
       .catch((error) => {
         console.error(`[fusion:dev] tunnel error: ${error instanceof Error ? error.message : String(error)}`);

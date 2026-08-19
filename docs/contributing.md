@@ -102,10 +102,23 @@ pnpm dev --tunnel dashboard    # tunnel the default port AND run the dashboard
 FUSION_DEV_TUNNEL=1 pnpm dev   # same, from the environment
 ```
 
+Tunnelling the dashboard (the default) prints the bearer token and a link that already carries it,
+because a tunnel URL you cannot open is not a shared dev server:
+
 ```
-  ┌ dev server tunnel (public, unauthenticated)
+  ┌ dev server tunnel
+  │ https://mic-relatively-jewelry-belly.trycloudflare.com  →  http://localhost:4040
+  │ token: fn_1a2b3c…
+  │ ready-to-open: https://mic-relatively-jewelry-belly.trycloudflare.com/?token=fn_1a2b3c…
+  └ that link carries the token — share it only with whoever should have access
+```
+
+Tunnelling any other port has no Fusion auth to lend it, and says so:
+
+```
+  ┌ dev server tunnel
   │ https://mic-relatively-jewelry-belly.trycloudflare.com  →  http://localhost:5173
-  └ anyone with this URL can reach your dev server
+  └ anyone with this URL can reach that port — Fusion adds no auth to it
 ```
 
 Requires `cloudflared` on PATH (the Docker image ships it). Quick tunnels need no account, domain, or
@@ -115,9 +128,14 @@ for HTTP.
 
 Behaviour worth knowing:
 
-- **The URL is public and unauthenticated.** Anyone holding it reaches the dev server. Use it for
-  sharing a preview, not for anything sensitive. Tunnelling the DASHBOARD port is different — the
-  dashboard enforces its own bearer token, so a tunnel to it still returns 401 without credentials.
+- **What guards the URL depends on the target.** A tunnel to the DASHBOARD port is still behind the
+  dashboard's bearer token (the banner prints it and a token-bearing link — treat that link as the
+  credential it is). A tunnel to any OTHER port is genuinely open: anyone holding the URL reaches it,
+  so use it for sharing a preview, not for anything sensitive. `--no-auth` opens the dashboard too,
+  and the banner says so.
+- **The token comes from the same place the dashboard's does** — `FUSION_DASHBOARD_TOKEN`,
+  `FUSION_DAEMON_TOKEN`, then `~/.fusion/settings.json`. On a first authenticated run the token may
+  not exist yet when the tunnel comes up; the banner then points at the dashboard's own startup line.
 - **A failed tunnel never takes the dev server down.** If `cloudflared` is missing or no URL is
   published, it logs and carries on; losing a preview URL must not cost you your dev loop.
 - **Restarts reuse the tunnel.** In `--watch` mode a fresh quick tunnel would hand out a different

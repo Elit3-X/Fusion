@@ -11,11 +11,15 @@ Cloudflare QUICK tunnels are the right tool precisely because a dev server is HT
 account, no domain, and no card (the TCP endpoints that SSH would have required need all three).
 The trade is that the hostname is random and lives only as long as the process.
 
-NOT a production exposure path: a quick tunnel is unauthenticated, so anyone with the URL reaches the
-dev server. It is printed loudly for that reason.
+NOT a production exposure path: the quick tunnel itself authenticates nobody. When it points at the
+dashboard the dashboard's own bearer token is still the gate (see the banner note below); when it
+points at any other port there is no gate at all, and the banner says so.
 */
 
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /** Cloudflare prints the assigned hostname once the edge accepts the tunnel. */
 const QUICK_TUNNEL_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
@@ -36,6 +40,7 @@ export function extractQuickTunnelUrl(text) {
  */
 export async function startDevTunnel({
   port,
+  auth,
   log = console,
   spawnFn = spawn,
   timeoutMs = DEFAULT_URL_TIMEOUT_MS,
@@ -99,12 +104,97 @@ export async function startDevTunnel({
   await urlPromise;
 
   if (url) {
-    log.log?.("");
-    log.log?.(`  ┌ dev server tunnel (public, unauthenticated)`);
-    log.log?.(`  │ ${url}  →  http://localhost:${port}`);
-    log.log?.(`  └ anyone with this URL can reach your dev server`);
-    log.log?.("");
+    printDevTunnelBanner({ url, port, auth, log });
   }
 
   return { url, stop, child };
+}
+
+/*
+FNXC:DevTunnel 2026-08-19-01:18:
+A tunnel URL alone is not usable when it points at the dashboard: the dashboard is bearer-token
+gated, so the recipient lands on an auth wall with no token and the old banner's
+"public, unauthenticated" line was actively wrong for the DEFAULT target. The banner now resolves
+which of three states the tunnel is actually in and prints the matching thing:
+
+  token       — dashboard with auth on: print the token AND a token-bearing URL, because handing
+                someone a URL they cannot open is the whole failure this flag existed to avoid.
+                The URL embeds the token deliberately (same shape as the local `fn serve` banner);
+                that is safe for a link you hand to one person and is NOT the `/remote-login`
+                redirect case, which leaked the daemon token to every recipient of a shared link.
+  no-auth     — `--no-auth` was passed: the tunnel really is open, say so loudly.
+  foreign     — the tunnel points at some other port (a Vite server, say). Fusion has no auth to
+                lend it, so the unauthenticated warning is correct there and only there.
+*/
+
+/** Where the daemon token lives, mirroring core's resolveGlobalDir preference order. */
+export function resolveGlobalSettingsFile(home = homedir(), exists = existsSync) {
+  for (const dir of [join(home, ".fusion"), join(home, ".pi", "fusion"), join(home, ".pi", "kb")]) {
+    if (exists(dir)) return join(dir, "settings.json");
+  }
+  return join(home, ".fusion", "settings.json");
+}
+
+function readStoredDaemonToken(settingsFile, read = readFileSync) {
+  try {
+    const parsed = JSON.parse(read(settingsFile, "utf8"));
+    const token = parsed?.daemonToken;
+    return typeof token === "string" && token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide what auth (if any) the tunnel's target is behind.
+ *
+ * Pure apart from the injected readers so the three states are testable without a real dashboard,
+ * a real `~/.fusion`, or a real cloudflared.
+ */
+export function resolveDevTunnelAuth({
+  port,
+  dashboardPort,
+  args = [],
+  env = process.env,
+  settingsFile = resolveGlobalSettingsFile(),
+  readToken = readStoredDaemonToken,
+} = {}) {
+  if (port !== dashboardPort) return { kind: "foreign" };
+  if (args.includes("--no-auth")) return { kind: "no-auth" };
+
+  const token = env.FUSION_DASHBOARD_TOKEN
+    ?? env.FUSION_DAEMON_TOKEN
+    ?? readToken(settingsFile);
+
+  // No token on disk yet means the dev child is minting one right now (first authenticated run).
+  // Predicting it is impossible, so point at the banner that will print it rather than guess.
+  return token ? { kind: "token", token } : { kind: "token-pending" };
+}
+
+export function formatDevTunnelBanner({ url, port, auth }) {
+  const lines = [`  ┌ dev server tunnel`, `  │ ${url}  →  http://localhost:${port}`];
+
+  switch (auth?.kind) {
+    case "token":
+      lines.push(`  │ token: ${auth.token}`);
+      lines.push(`  │ ready-to-open: ${url}/?token=${encodeURIComponent(auth.token)}`);
+      lines.push(`  └ that link carries the token — share it only with whoever should have access`);
+      break;
+    case "token-pending":
+      lines.push(`  └ append the ?token=… from the dashboard's own startup banner to open it`);
+      break;
+    case "no-auth":
+      lines.push(`  └ --no-auth is on: anyone with this URL gets your dashboard, unauthenticated`);
+      break;
+    default:
+      lines.push(`  └ anyone with this URL can reach that port — Fusion adds no auth to it`);
+  }
+
+  return lines;
+}
+
+function printDevTunnelBanner({ url, port, auth, log }) {
+  log.log?.("");
+  for (const line of formatDevTunnelBanner({ url, port, auth })) log.log?.(line);
+  log.log?.("");
 }

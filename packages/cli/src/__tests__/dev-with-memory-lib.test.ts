@@ -9,7 +9,11 @@ import {
   resolveDevTunnelPort,
   resolvePrebuildMode,
 } from "../../../../scripts/dev-with-memory-lib.mjs";
-import { extractQuickTunnelUrl } from "../../../../scripts/lib/dev-tunnel.mjs";
+import {
+  extractQuickTunnelUrl,
+  formatDevTunnelBanner,
+  resolveDevTunnelAuth,
+} from "../../../../scripts/lib/dev-tunnel.mjs";
 import {
   createDevSourceWatcher,
   isRestartableSourceFile,
@@ -370,6 +374,54 @@ describe("development source restart watcher", () => {
     it("recognises the cloudflare quick-tunnel hostname in agent output", () => {
       expect(extractQuickTunnelUrl("INF |  https://neat-fox-tree.trycloudflare.com  |")).toBe("https://neat-fox-tree.trycloudflare.com");
       expect(extractQuickTunnelUrl("INF Registered tunnel connection")).toBeNull();
+    });
+
+    /*
+    FNXC:DevTunnel 2026-08-19-01:18:
+    The banner must state the target's ACTUAL auth. The default target is the dashboard, which is
+    bearer-token gated, so a bare URL is unusable by the person it was shared with — and the old
+    "public, unauthenticated" wording was wrong for exactly that default. Only a foreign port (a
+    Vite server, say) is genuinely ungated, because Fusion has no auth to lend it.
+    */
+    const auth = (over: Record<string, unknown> = {}) => resolveDevTunnelAuth({
+      port: 4040,
+      dashboardPort: 4040,
+      env: {},
+      settingsFile: "/nonexistent/settings.json",
+      readToken: () => null,
+      ...over,
+    });
+
+    it("lends the dashboard token to a tunnel aimed at the dashboard", () => {
+      expect(auth({ readToken: () => "fn_abc" })).toEqual({ kind: "token", token: "fn_abc" });
+      expect(auth({ env: { FUSION_DASHBOARD_TOKEN: "fn_env" }, readToken: () => "fn_disk" }))
+        .toEqual({ kind: "token", token: "fn_env" });
+      expect(auth({ env: { FUSION_DAEMON_TOKEN: "fn_daemon" } }))
+        .toEqual({ kind: "token", token: "fn_daemon" });
+    });
+
+    it("does not claim a foreign port or --no-auth is token-gated", () => {
+      expect(auth({ port: 5173, readToken: () => "fn_abc" })).toEqual({ kind: "foreign" });
+      expect(auth({ args: ["dashboard", "--no-auth"], readToken: () => "fn_abc" })).toEqual({ kind: "no-auth" });
+    });
+
+    it("defers to the dashboard banner when no token has been minted yet", () => {
+      expect(auth()).toEqual({ kind: "token-pending" });
+    });
+
+    it("prints an openable URL for the token case and a warning only where it is true", () => {
+      const url = "https://neat-fox-tree.trycloudflare.com";
+      const tokenLines = formatDevTunnelBanner({ url, port: 4040, auth: { kind: "token", token: "fn_abc" } }).join("\n");
+      expect(tokenLines).toContain("token: fn_abc");
+      expect(tokenLines).toContain(`${url}/?token=fn_abc`);
+      expect(tokenLines).not.toContain("unauthenticated");
+
+      expect(formatDevTunnelBanner({ url, port: 5173, auth: { kind: "foreign" } }).join("\n"))
+        .toContain("Fusion adds no auth");
+      expect(formatDevTunnelBanner({ url, port: 4040, auth: { kind: "no-auth" } }).join("\n"))
+        .toContain("unauthenticated");
+      expect(formatDevTunnelBanner({ url, port: 4040, auth: { kind: "token-pending" } }).join("\n"))
+        .toContain("?token=");
     });
   });
 });
