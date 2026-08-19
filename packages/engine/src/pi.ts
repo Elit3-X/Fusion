@@ -1147,15 +1147,22 @@ export interface AgentOptions {
  * provider register but threw "No API provider registered for api: anthropic"
  * the moment a task tried to stream.
  *
+ * FNXC:CustomProviders 2026-08-19-15:28:
+ * Google-compatible custom providers keep the registered Google dialect. This path and dashboard
+ * registration must agree so pi performs the same thinking-level translation for every custom model.
+ *
  * @param apiType - the custom provider's declared compatibility type.
  * @returns the registered pi-ai api key to stream against.
  */
-function resolveCustomProviderApiType(apiType: string): "anthropic-messages" | "openai-responses" | "openai-completions" {
+function resolveCustomProviderApiType(apiType: string): "anthropic-messages" | "openai-responses" | "google-generative-ai" | "openai-completions" {
   if (apiType === "anthropic-compatible") {
     return "anthropic-messages";
   }
   if (apiType === "openai-responses") {
     return "openai-responses";
+  }
+  if (apiType === "google-generative-ai") {
+    return "google-generative-ai";
   }
   return "openai-completions";
 }

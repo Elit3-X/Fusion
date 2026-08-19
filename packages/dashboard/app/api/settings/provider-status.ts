@@ -703,7 +703,6 @@ export function refreshProviderModels(id: string): Promise<RefreshProviderModels
 export interface CustomProviderModelInput {
   id: string;
   name?: string;
-  reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;
 }

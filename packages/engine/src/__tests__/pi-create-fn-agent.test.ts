@@ -2041,6 +2041,14 @@ describe("createFnAgent", () => {
         anthropicPromptCaching: true,
         models: [{ id: "anthropic-model", name: "Anthropic Model" }],
       },
+      {
+        id: "880e8400-e29b-41d4-a716-446655440003",
+        name: "Custom Google Provider",
+        apiType: "google-generative-ai",
+        baseUrl: "https://google.example",
+        apiKey: "GOOGLE_API_KEY",
+        models: [{ id: "google-model", name: "Google Model" }],
+      },
     ] as any);
 
     const { createPiAgentSessionRaw: createFnAgent } = await import("../pi.js");
@@ -2058,6 +2066,8 @@ describe("createFnAgent", () => {
       api: "openai-completions",
       models: [expect.objectContaining({
         id: "custom-model",
+        reasoning: true,
+        thinkingLevelMap: { xhigh: "xhigh", max: "max" },
         compat: expect.objectContaining({ cacheControlFormat: "anthropic" }),
       })],
     }));
@@ -2065,16 +2075,33 @@ describe("createFnAgent", () => {
     // Opted-out (default) openai-compatible provider: no forced cache_control marker.
     const noCacheCall = registerProviderMock.mock.calls.find(([key]: [string]) => key === "custom-openai-no-caching");
     expect(noCacheCall).toBeDefined();
-    const [, noCacheConfig] = noCacheCall as [string, { models: Array<{ compat?: Record<string, unknown> }> }];
+    const [, noCacheConfig] = noCacheCall as [string, { models: Array<{ reasoning: boolean; thinkingLevelMap: Record<string, string>; compat?: Record<string, unknown> }> }];
+    expect(noCacheConfig.models[0]).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+    });
     expect(noCacheConfig.models[0].compat).not.toHaveProperty("cacheControlFormat");
 
     // anthropic-compatible provider: opt-in is a documented no-op — pi-ai's anthropic path already
     // auto-caches without this compat flag, and openai-completions-only compat must not leak in.
     const anthropicCall = registerProviderMock.mock.calls.find(([key]: [string]) => key === "custom-anthropic-caching-opt-in");
     expect(anthropicCall).toBeDefined();
-    const [, anthropicConfig] = anthropicCall as [string, { api: string; models: Array<{ compat?: Record<string, unknown> }> }];
+    const [, anthropicConfig] = anthropicCall as [string, { api: string; models: Array<{ reasoning: boolean; thinkingLevelMap: Record<string, string>; compat?: Record<string, unknown> }> }];
     expect(anthropicConfig.api).toBe("anthropic-messages");
+    expect(anthropicConfig.models[0]).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+    });
     expect(anthropicConfig.models[0].compat).toBeUndefined();
+
+    const googleCall = registerProviderMock.mock.calls.find(([key]: [string]) => key === "custom-google-provider");
+    expect(googleCall).toBeDefined();
+    const [, googleConfig] = googleCall as [string, { api: string; models: Array<{ reasoning: boolean; thinkingLevelMap: Record<string, string> }> }];
+    expect(googleConfig.api).toBe("google-generative-ai");
+    expect(googleConfig.models[0]).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+    });
   });
 
   it("avoids lock-based SettingsManager.create when loading extension providers", async () => {
