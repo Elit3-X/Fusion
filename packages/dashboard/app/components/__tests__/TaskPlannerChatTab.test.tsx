@@ -13,7 +13,7 @@ const originalScrollTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.
 const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
 const originalClientHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
 
-const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockStreamChatResponse, mockAttachChatStream, mockCancelChatResponse, mockEditChatMessage, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
+const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockStreamChatResponse, mockAttachChatStream, mockCancelChatResponse, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
   const translations = new Map<string, string>();
   return {
     mockEnsureTaskPlannerChatSession: vi.fn(),
@@ -24,7 +24,6 @@ const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockF
     mockStreamChatResponse: vi.fn(),
     mockAttachChatStream: vi.fn(),
     mockCancelChatResponse: vi.fn(),
-    mockEditChatMessage: vi.fn(),
     mockAddSteeringComment: vi.fn(),
     mockTranslations: translations,
     mockT: (key: string, fallback: string) => translations.get(key) ?? fallback,
@@ -49,7 +48,6 @@ vi.mock("../../api", async (importOriginal) => {
     streamChatResponse: mockStreamChatResponse,
     attachChatStream: mockAttachChatStream,
     cancelChatResponse: mockCancelChatResponse,
-    editChatMessage: mockEditChatMessage,
     addSteeringComment: mockAddSteeringComment,
   };
 });
@@ -184,7 +182,6 @@ describe("TaskPlannerChatTab", () => {
     mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
     mockAttachChatStream.mockReturnValue({ close: vi.fn(), isConnected: () => true });
     mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: false });
-    mockEditChatMessage.mockResolvedValue({ retained: [] });
     mockAddSteeringComment.mockResolvedValue(makeTask("FN-7310"));
   });
 
@@ -1790,7 +1787,7 @@ describe("TaskPlannerChatTab", () => {
    * FNXC:TaskDetailPlannerChat 2026-07-07-10:15:
    * Covers the FN-7639 edit-and-resend affordance across the enumerated surfaces: renders only
    * for persisted user rows, absent on assistant/optimistic/streaming rows and while sending,
-   * truncates-then-resends in order, reloads truthful history and toasts on PATCH failure without
+   * waits for replacement acceptance, reloads truthful history and toasts on pre-acceptance failure without
    * resending, preserves planner-question dedup across an edited answer, and refreshes task detail
    * with a discard notice (but no reversal) when the discarded range held a steering/refinement
    * confirmation.
@@ -1835,16 +1832,18 @@ describe("TaskPlannerChatTab", () => {
       deferredStream.resolve();
     });
 
-    it("truncates locally, calls editChatMessage, then resends through the normal streaming send in order", async () => {
+    it("sends one replacement-aware stream and keeps the range until acceptance", async () => {
       mockFetchChatMessages.mockResolvedValue({
         messages: [
           { id: "m1", sessionId: "chat-planner", role: "user", content: "Hello", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" },
           { id: "m2", sessionId: "chat-planner", role: "assistant", content: "Hi there", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:02:00.000Z" },
         ],
       });
-      const deferredEdit = createDeferred<{ retained: unknown[] }>();
-      mockEditChatMessage.mockReturnValue(deferredEdit.promise);
-      mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+      const deferredAccepted = createDeferred<void>();
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        void deferredAccepted.promise.then(() => handlers.onAccepted?.());
+        return { close: vi.fn(), isConnected: () => true };
+      });
 
       const user = userEvent.setup();
       renderPlannerChat();
@@ -1853,16 +1852,8 @@ describe("TaskPlannerChatTab", () => {
       await user.click(screen.getByTestId("chat-message-edit-m1"));
       const editor = screen.getByTestId("chat-message-edit-editor-m1");
       const textarea = editor.querySelector("textarea") as HTMLTextAreaElement;
-      fireEvent.change(textarea, { target: { value: "Hello, edited" } });
+      fireEvent.change(textarea, { target: { value: "  Hello, edited  " } });
       fireEvent.click(screen.getByText("Save"));
-
-      await waitFor(() => expect(mockEditChatMessage).toHaveBeenCalledWith("chat-planner", "m1", "Hello, edited", undefined));
-      // The edited row stays mounted until PATCH success so a rejected save can retain its correction.
-      expect(screen.getByTestId("chat-message-edit-editor-m1")).toBeInTheDocument();
-      expect(screen.getByText("Hi there")).toBeInTheDocument();
-      expect(mockStreamChatResponse).not.toHaveBeenCalled();
-
-      deferredEdit.resolve({ retained: [] });
 
       await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledWith(
         "chat-planner",
@@ -1870,14 +1861,18 @@ describe("TaskPlannerChatTab", () => {
         expect.any(Object),
         undefined,
         undefined,
-        { taskId: "FN-7310" },
+        { taskId: "FN-7310", replacementMessageId: "m1" },
       ));
-      const editCallOrder = mockEditChatMessage.mock.invocationCallOrder[0];
-      const sendCallOrder = mockStreamChatResponse.mock.invocationCallOrder[mockStreamChatResponse.mock.calls.length - 1];
-      expect(editCallOrder).toBeLessThan(sendCallOrder);
+      expect(screen.getByText("Hi there")).toBeInTheDocument();
+      expect(screen.getByTestId("chat-message-edit-editor-m1")).toBeInTheDocument();
+
+      deferredAccepted.resolve();
+      await waitFor(() => expect(screen.queryByTestId("chat-message-edit-editor-m1")).toBeNull());
+      expect(screen.queryByText("Hi there")).toBeNull();
+      expect(screen.getByText("Hello, edited")).toBeInTheDocument();
     });
 
-    it("reloads truthful history and toasts on PATCH failure without resending", async () => {
+    it("reloads truthful history and toasts on pre-acceptance failure without resending", async () => {
       mockFetchChatMessages.mockResolvedValueOnce({
         messages: [
           { id: "m1", sessionId: "chat-planner", role: "user", content: "Hello", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" },
@@ -1888,7 +1883,10 @@ describe("TaskPlannerChatTab", () => {
           { id: "m1", sessionId: "chat-planner", role: "user", content: "Hello", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" },
         ],
       });
-      mockEditChatMessage.mockRejectedValueOnce(new Error("edit failed"));
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        handlers.onError?.("edit failed", { requestAccepted: false, receivedStreamEvent: false });
+        return { close: vi.fn(), isConnected: () => true };
+      });
       const addToast = vi.fn();
 
       renderPlannerChat({ addToast });
@@ -1901,8 +1899,15 @@ describe("TaskPlannerChatTab", () => {
 
       await waitFor(() => expect(addToast).toHaveBeenCalledWith("edit failed", "error"));
       await waitFor(() => expect(mockFetchChatMessages).toHaveBeenCalledTimes(2));
-      expect(mockStreamChatResponse).not.toHaveBeenCalled();
-      // A rejected PATCH must leave the inline correction available for retry instead of closing it.
+      expect(mockStreamChatResponse).toHaveBeenCalledWith(
+        "chat-planner",
+        "Hello, edited",
+        expect.any(Object),
+        undefined,
+        undefined,
+        { taskId: "FN-7310", replacementMessageId: "m1" },
+      );
+      // A rejected replacement must leave the inline correction available for retry instead of closing it.
       expect(screen.getByTestId("chat-message-edit-editor-m1")).toBeInTheDocument();
       expect(textarea).toHaveValue("Hello, edited");
     });
@@ -1927,7 +1932,8 @@ describe("TaskPlannerChatTab", () => {
       await user.click(screen.getByRole("button", { name: "Send" }));
 
       await waitFor(() => expect(screen.queryByTestId("chat-message-edit-m1")).toBeNull());
-      expect(mockEditChatMessage).not.toHaveBeenCalled();
+      expect(mockStreamChatResponse).toHaveBeenCalledTimes(1);
+      expect(mockStreamChatResponse.mock.calls[0]?.[5]).toEqual({ taskId: "FN-7310" });
 
       deferredStream.resolve();
     });
@@ -1939,8 +1945,10 @@ describe("TaskPlannerChatTab", () => {
           { id: "answer-1", sessionId: "chat-planner", role: "user", content: "> Q: Pick a path\nConservative", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:02:00.000Z" },
         ],
       });
-      mockEditChatMessage.mockResolvedValue({ retained: [] });
-      mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        handlers.onAccepted?.();
+        return { close: vi.fn(), isConnected: () => true };
+      });
 
       renderPlannerChat();
       await screen.findByTestId("chat-question-response");
@@ -1952,7 +1960,14 @@ describe("TaskPlannerChatTab", () => {
       fireEvent.change(textarea, { target: { value: "> Q: Pick a path\nAggressive" } });
       fireEvent.click(screen.getByText("Save"));
 
-      await waitFor(() => expect(mockEditChatMessage).toHaveBeenCalledWith("chat-planner", "answer-1", "> Q: Pick a path\nAggressive", undefined));
+      await waitFor(() => expect(mockStreamChatResponse).toHaveBeenCalledWith(
+        "chat-planner",
+        "> Q: Pick a path\nAggressive",
+        expect.any(Object),
+        undefined,
+        undefined,
+        { taskId: "FN-7310", replacementMessageId: "answer-1" },
+      ));
       // The prior answer is discarded and the edited content is resent as the new answer: the
       // question card stays a single card (no duplicate/corrupted dedup state) and reflects the
       // resent answer as the current answered state.
@@ -1984,8 +1999,10 @@ describe("TaskPlannerChatTab", () => {
           },
         ],
       });
-      mockEditChatMessage.mockResolvedValue({ retained: [] });
-      mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        handlers.onAccepted?.();
+        return { close: vi.fn(), isConnected: () => true };
+      });
       const onTaskUpdated = vi.fn();
       const addToast = vi.fn();
 

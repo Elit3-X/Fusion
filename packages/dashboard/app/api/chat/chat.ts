@@ -271,28 +271,6 @@ export function deleteChatMessage(
   );
 }
 
-/**
- * FNXC:ChatMessageEdit 2026-07-07-09:00:
- * Edit an earlier user message in a direct (model-loop) chat session. Truncates the persisted
- * transcript from (and including) the target message onward AND rewinds the pi session context
- * server-side, so the returned `retained` list is the surviving pre-edit history. Does NOT
- * trigger regeneration — the caller resends the edited content via the existing streaming send.
- */
-export function editChatMessage(
-  sessionId: string,
-  messageId: string,
-  content: string,
-  projectId?: string,
-): Promise<{ retained: ChatMessage[] }> {
-  return api<{ retained: ChatMessage[] }>(
-    withProjectId(`/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`, projectId),
-    {
-      method: "PATCH",
-      body: JSON.stringify({ content }),
-    },
-  );
-}
-
 export function fetchChatRooms(
   options: { status?: string; agentId?: string } = {},
   projectId?: string,
@@ -544,6 +522,10 @@ export interface ChatStreamErrorMeta {
   receivedStreamEvent: boolean;
 }
 
+export interface ChatReplacementIdentity {
+  messageId: string;
+}
+
 export interface ChatStreamHandlers {
   /** Fires once when the server accepts this new turn after multipart upload and before stream events. */
   onAccepted?: () => void;
@@ -563,9 +545,16 @@ export function streamChatResponse(
   handlers: ChatStreamHandlers,
   attachments?: File[],
   projectId?: string,
-  options?: { maxReconnectAttempts?: number; firstEventTimeoutMs?: number; taskId?: string },
+  options?: {
+    maxReconnectAttempts?: number;
+    firstEventTimeoutMs?: number;
+    taskId?: string;
+    replacementMessageId?: string;
+    replacement?: ChatReplacementIdentity;
+  },
 ): { close: () => void; isConnected: () => boolean } {
   const url = buildApiUrl(withProjectId(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`, projectId));
+  const replacementMessageId = options?.replacement?.messageId ?? options?.replacementMessageId;
 
   const abortController = new AbortController();
   let closedByUser = false;
@@ -661,10 +650,15 @@ export function streamChatResponse(
             const formData = new FormData();
             formData.append("content", content);
             if (options?.taskId) formData.append("taskId", options.taskId);
+            if (replacementMessageId) formData.append("replacementMessageId", replacementMessageId);
             attachments.forEach((file) => formData.append("attachments", file));
             return formData;
           })()
-        : JSON.stringify({ content, ...(options?.taskId ? { taskId: options.taskId } : {}) });
+        : JSON.stringify({
+            content,
+            ...(options?.taskId ? { taskId: options.taskId } : {}),
+            ...(replacementMessageId ? { replacementMessageId } : {}),
+          });
 
       const res = await fetch(url, {
         method: "POST",

@@ -238,6 +238,14 @@ Content views such as Artifacts, Research, Insights, Skills, Memory, Evals, Goal
 
 On mobile viewports, the Right Dock never renders. The compact Header actions and bottom `MobileNavBar` keep their existing mobile behavior even when the experiment is enabled.
 
+## Chat message editing and rewind
+
+Direct Chat and task-detail Planner Chat let you edit a persisted user message with the inline **Edit message** control. Rooms and CLI-backed chat sessions do not expose this control. Saving sends one replacement-aware SSE request with the trimmed correction and the target message identity; the server validates the project/session/role and rejects edits during an active generation.
+
+The server accepts the replacement only after it has discarded the target and every later persisted turn and repointed reachable pi session history to the retained prefix. The Direct and Planner transcript keeps the old range visible until that acceptance callback, then shows the trimmed replacement and its new response. A pre-acceptance validation, transport, or fencing failure reloads the authoritative old transcript and leaves the correction editable; it never issues a second send. A provider failure after acceptance remains a normal SSE/fetch reconciliation path: discarded history is not restored and no duplicate response is started.
+
+Planner Chat refreshes task detail after an accepted replacement. Steering comments and refinement tasks created by discarded planner turns are durable side effects and are not rolled back; when applicable, Planner Chat shows the existing informational notice. The edit behavior is shared across desktop, popup/dock/host, mobile/touch, and task-detail surfaces.
+
 ## Automations
 
 <!-- FNXC:AutomationTools 2026-06-26-00:00: Automation AI-prompt steps now default to the full coding tool set and expose per-step restrictions so operators can intentionally narrow tool access without breaking legacy schedules. -->

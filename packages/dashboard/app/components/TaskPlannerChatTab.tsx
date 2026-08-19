@@ -9,7 +9,7 @@ import { useComposerDictation } from "../hooks/useComposerDictation";
 import { getPersistedPendingChatMessages, setPersistedPendingChatMessages } from "../hooks/chatPendingMessageStorage";
 import { MicButton } from "./MicButton";
 import type { ChatMessageInfo, ToolCallInfo } from "../hooks/chatTypes";
-import { attachChatStream, cancelChatResponse, editChatMessage, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
+import { attachChatStream, cancelChatResponse, ensureTaskPlannerChatSession, fetchChatMessages, fetchChatSession, fetchTaskDetail, fetchTaskPlannerChatSession, streamChatResponse, type ChatFailureInfo, type ChatStreamErrorMeta } from "../api";
 import { parseQuestionToolCall, type ParsedQuestionToolCall } from "../utils/parseQuestionToolCall";
 import { ChatQuestionResponse } from "./ChatQuestionResponse";
 import { ProviderIcon } from "./ProviderIcon";
@@ -486,8 +486,25 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     requestId: number;
     attach: boolean;
     queueReservation?: PendingQueueReservation;
+    replacementMessageId?: string;
+    replacementTargetIndex?: number;
+    replacementMessage?: ChatMessage;
+    onAccepted?: () => void;
+    onRejected?: (message: string) => void;
   }) => {
-    const { resolvedSessionId, content = "", inFlightGeneration, requestId, attach, queueReservation } = options;
+    const {
+      resolvedSessionId,
+      content = "",
+      inFlightGeneration,
+      requestId,
+      attach,
+      queueReservation,
+      replacementMessageId,
+      replacementTargetIndex,
+      replacementMessage,
+      onAccepted,
+      onRejected,
+    } = options;
     const isCurrentStreamRequest = () => streamRequestRef.current === requestId;
     const inFlightSnapshot = attach ? inFlightGeneration : null;
     let accumulated = inFlightSnapshot?.streamingText ?? "";
@@ -525,6 +542,15 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     applyStreamingSnapshot(resolvedSessionId, accumulated, accumulatedThinking, streamingToolCalls);
 
     const handlers = {
+      onAccepted: () => {
+        if (replacementMessageId && replacementTargetIndex !== undefined && replacementMessage) {
+          setMessages((current) => [
+            ...current.filter((message) => message.id !== replacementMessage.id).slice(0, replacementTargetIndex),
+            replacementMessage,
+          ]);
+        }
+        onAccepted?.();
+      },
       onText: (delta: string) => {
         if (!isCurrentStreamRequest()) return;
         accumulated += delta;
@@ -597,6 +623,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
         });
         if (meta?.requestAccepted === false) {
           if (queueReservation) restorePendingQueueReservation(queueReservation);
+          onRejected?.(message);
           return;
         }
         void refreshMessagesForSession(resolvedSessionId, isCurrentStreamRequest, { mergeOptimistic: Boolean(content) });
@@ -619,7 +646,10 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
           handlers,
           undefined,
           projectId,
-          { taskId: task.id },
+          {
+            taskId: task.id,
+            ...(replacementMessageId ? { replacementMessageId } : {}),
+          },
         );
   }, [applyStreamingSnapshot, projectId, refreshMessagesForSession, refreshTaskAfterSteering, restorePendingQueueReservation, task.id, t]);
 
@@ -874,18 +904,11 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
   }, [projectId, t, task.id]);
 
   /*
-   * FNXC:TaskDetailPlannerChat 2026-07-07-10:15:
-   * Editing an earlier Planner Chat message resumes the conversation from that point and forgets
-   * everything after it — both the persisted rows (via editChatMessage's server-side truncation)
-   * and the pi session context (via ChatManager.rewindSessionForEdit, reused unmodified from
-   * FN-7628). Product decision for already-applied task-scoped side effects: discarded turns may
-   * have already run fn_task_planner_add_steering (persisted a steering comment) or
-   * fn_task_planner_create_refinement (created a real task). Reverting those is destructive and
-   * out of scope here, so this task deliberately does NOT attempt to undo them — the steering
-   * comment stays on the task and the refinement task stays open. Instead, after a successful
-   * edit-and-resend we refresh task detail (so Activity/steering reflects reality) and, only when
-   * the discarded range contained a steering/refinement tool result, surface an informational
-   * toast so the user is not misled into thinking those changes were reverted.
+   * FNXC:TaskDetailPlannerChat 2026-08-19-03:34:
+   * Planner edits share Direct Chat's replacement-aware POST. The target/later range remains
+   * visible until SSE acceptance; the server owns deletion and pi rewind, while task refresh and
+   * the existing side-effect notice happen only after that accepted replacement begins.
+   * Discarded steering comments/refinement tasks remain durable and are never rolled back.
    */
   const editMessageAndResend = useCallback(async (messageId: string, newContent: string) => {
     if (composerStateRef.current === "sending" || !sessionId) return;
@@ -896,36 +919,42 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
     const resolvedSessionId = sessionId;
     const targetIndex = messages.findIndex((candidate) => candidate.id === messageId);
     if (targetIndex === -1) return;
-
     const discardedRange = messages.slice(targetIndex);
     const hadDiscardedSideEffect = discardedRange.some((candidate) =>
       extractToolCalls(candidate).some((toolCall) =>
         extractPlannerSteeringResult(toolCall) !== null || extractPlannerRefinementResult(toolCall) !== null,
       ),
     );
+    const replacementMessage = makeOptimisticUserMessage(resolvedSessionId, trimmed);
+    const streamRequestId = streamRequestRef.current + 1;
+    streamRequestRef.current = streamRequestId;
+    composerStateRef.current = "sending";
+    setComposerState("sending");
+    setError(null);
+    // Keep the old range mounted; this temporary row is removed/replaced on acceptance.
+    setMessages((current) => [...current, replacementMessage]);
 
-    try {
-      await editChatMessage(resolvedSessionId, messageId, trimmed, projectId);
-      // Keep the edited row mounted until PATCH success so failure leaves its correction editable.
-      setMessages((current) => current.slice(0, targetIndex));
-    } catch (err) {
-      const message = getErrorMessage(err) || t("taskDetail.plannerChat.editFailed", "Failed to edit planner chat message");
-      setError(message);
-      addToastRef.current(message, "error");
-      // Restore truthful state from the server rather than trusting the optimistic truncation.
-      void refreshMessagesForSession(resolvedSessionId, () => true);
-      /*
-       * FNXC:TaskDetailPlannerChat 2026-07-19-00:00:
-       * Preserve an edited correction after a Planner Chat PATCH failure: StandardChatMessageItem
-       * interprets rejection as failed save and retains its editor, while this surface still owns
-       * the error toast and truthful transcript refresh.
-       */
-      throw err;
-    }
+    await new Promise<void>((resolve, reject) => {
+      startPlannerStream({
+        resolvedSessionId,
+        content: trimmed,
+        requestId: streamRequestId,
+        attach: false,
+        replacementMessageId: messageId,
+        replacementTargetIndex: targetIndex,
+        replacementMessage,
+        onAccepted: resolve,
+        onRejected: (message) => {
+          const failureMessage = message || t("taskDetail.plannerChat.editFailed", "Failed to edit planner chat message");
+          setError(failureMessage);
+          addToastRef.current(failureMessage, "error");
+          void refreshMessagesForSession(resolvedSessionId, () => true).finally(() => reject(new Error(failureMessage)));
+        },
+      });
+    });
 
-    await sendMessageContent(trimmed);
     await refreshTaskAfterEdit(hadDiscardedSideEffect);
-  }, [messages, projectId, refreshMessagesForSession, refreshTaskAfterEdit, sendMessageContent, sessionId, t]);
+  }, [messages, refreshMessagesForSession, refreshTaskAfterEdit, sessionId, startPlannerStream, t]);
 
   const dispatchSlashCommand = useCallback(async (command: ChatCommand, remainder: string) => {
     if (!agentRunning) {

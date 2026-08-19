@@ -22,7 +22,7 @@ import { getOrCreateScopedChatManager, resolveProjectChatContext } from "../chat
 import { CHAT_ALLOWED_MIME_TYPES, CHAT_MAX_VIDEO_ATTACHMENT_SIZE, getChatAttachmentMaxSize } from "./chat-attachment-config.js";
 import { rateLimit, RATE_LIMITS } from "../rate-limit.js";
 import { writeSSEEvent, type SessionBufferedEvent } from "../sse-buffer.js";
-import { TASK_PLANNER_CHAT_AGENT_ID_PREFIX } from "../chat.js";
+import { ChatReplacementError, TASK_PLANNER_CHAT_AGENT_ID_PREFIX } from "../chat.js";
 import type { ApiRoutesContext } from "./types.js";
 
 interface ChatRouteDeps {
@@ -949,8 +949,12 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
    * - error: Error message
    */
   router.post("/chat/sessions/:id/messages", rateLimit(RATE_LIMITS.sse), uploadChatMessageAttachments, async (req, res) => {
+    let preparedGenerationId: number | undefined;
+    let chatManager: Awaited<ReturnType<typeof resolveScopedChatManager>> | undefined;
+    const sessionId = String(req.params.id);
     try {
-      const { chatStore } = await resolveScopedChatStore(req.query.projectId as string | undefined);
+      const projectId = req.query.projectId as string | undefined;
+      const { chatStore } = await resolveScopedChatStore(projectId);
 
       const body = (req.body ?? {}) as {
         content?: string;
@@ -958,9 +962,9 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         modelId?: string;
         attachments?: ChatAttachment[];
         taskId?: string;
+        replacementMessageId?: string;
       };
-      const { content, modelProvider, modelId, attachments, taskId } = body;
-      const sessionId = String(req.params.id);
+      const { content, modelProvider, modelId, attachments, taskId, replacementMessageId: rawReplacementMessageId } = body;
       const uploadedFiles = Array.isArray(req.files) ? (req.files as Express.Multer.File[]) : [];
       const referencedAttachments = Array.isArray(attachments) ? attachments : undefined;
       const hasAttachments = uploadedFiles.length > 0 || (referencedAttachments?.length ?? 0) > 0;
@@ -968,6 +972,13 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         throw badRequest("content is required and must be a non-empty string");
       }
       const trimmedContent = content?.trim() ?? "";
+      if (rawReplacementMessageId !== undefined && typeof rawReplacementMessageId !== "string") {
+        throw badRequest("replacementMessageId must be a string");
+      }
+      const replacementMessageId = rawReplacementMessageId?.trim() ?? "";
+      if (replacementMessageId && !trimmedContent) {
+        throw badRequest("Replacement content must be a non-empty string");
+      }
       /**
        * FNXC:Chat 2026-06-17-02:12:
        * Attachment-only chat sends are valid user messages. Reject only payloads that have neither text nor uploaded/referenced attachments so Quick Chat and Main Chat can submit files without filler text.
@@ -990,6 +1001,14 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         }
       }
 
+      // Validate all rejection-prone request fields before opening SSE. A replacement
+      // must not discard history until the request can reach its matching generation.
+      const normalizedProvider = validateOptionalModelField(modelProvider, "modelProvider");
+      const normalizedModelId = validateOptionalModelField(modelId, "modelId");
+      if ((normalizedProvider && !normalizedModelId) || (!normalizedProvider && normalizedModelId)) {
+        throw badRequest("modelProvider and modelId must both be provided or neither");
+      }
+
       const { store: scopedStore } = await getProjectContext(req);
       const uploadedAttachments = uploadedFiles.length > 0
         ? await Promise.all(uploadedFiles.map((file) => persistChatAttachment(file, scopedStore.getRootDir(), sessionId)))
@@ -1000,9 +1019,22 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
 
       // Resolve per-project ChatManager before opening the SSE stream so
       // failures (e.g. project DB cannot be opened) produce a proper HTTP error.
-      const chatManager = await resolveScopedChatManager(req.query.projectId as string | undefined);
+      chatManager = await resolveScopedChatManager(projectId);
 
-      // Set SSE headers
+      // The internal limiter is shared with GET stream subscribers. Keep its rejection
+      // before headers so a replacement cannot be accepted without a prepared send.
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      const { chatStreamManager, checkRateLimit: checkChatRateLimit, getRateLimitResetTime: getChatRateLimitResetTime } = await import("../chat.js");
+      if (!checkChatRateLimit(ip)) {
+        const resetTime = getChatRateLimitResetTime(ip);
+        throw new ApiError(429, `Rate limit exceeded. Reset at ${resetTime?.toISOString() || "unknown"}`);
+      }
+
+      if (replacementMessageId) {
+        preparedGenerationId = (await chatManager!.prepareReplacement(sessionId, replacementMessageId)).generationId;
+      }
+
+      // Set SSE headers only after replacement validation/rewind and generation fencing.
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
@@ -1012,22 +1044,10 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       // Send initial connection confirmation
       res.write(": connected\n\n");
 
-      // Import chat modules
-      const { chatStreamManager, checkRateLimit: checkChatRateLimit, getRateLimitResetTime: getChatRateLimitResetTime } = await import("../chat.js");
-
-      // Check rate limit
-      const ip = req.ip || req.socket.remoteAddress || "unknown";
-      if (!checkChatRateLimit(ip)) {
-        const resetTime = getChatRateLimitResetTime(ip);
-        writeSSEEvent(res, "error", JSON.stringify({
-          message: `Rate limit exceeded. Reset at ${resetTime?.toISOString() || "unknown"}`,
-        }));
-        res.end();
-        return;
-      }
-
-      // Replay buffered events if client sent Last-Event-ID
-      const lastEventId = parseLastEventId(req);
+      // Replay is retained for ordinary reconnectable sends. A replacement starts a
+      // new fenced transcript and must not replay terminal events from its discarded
+      // generation into the new SSE response.
+      const lastEventId = replacementMessageId ? undefined : parseLastEventId(req);
       if (lastEventId !== undefined) {
         const buffered = chatStreamManager.getBufferedEvents(sessionId, lastEventId);
         for (const bufferedEvent of buffered) {
@@ -1038,11 +1058,9 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         }
       }
 
-      // Allocate a generation up front so subscription and sendMessage broadcasts
-      // share the same id. This filters out stragglers from a prior, just-cancelled
-      // generation that would otherwise hit this fresh subscriber and falsely look
-      // like an error/done for this request.
-      const { generationId } = chatManager.beginGeneration(sessionId);
+      // Replacement preparation allocates its generation before headers. Ordinary
+      // sends retain the existing allocation path.
+      const generationId = preparedGenerationId ?? chatManager!.beginGeneration(sessionId).generationId;
 
       // Subscribe to session events for this generation only.
       const unsubscribe = chatStreamManager.subscribe(sessionId, (event, eventId) => {
@@ -1077,22 +1095,9 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         clearInterval(heartbeat);
       });
 
-      // Send message in background (non-blocking)
-      // Validate optional model pair consistency
-      const normalizedProvider = validateOptionalModelField(modelProvider, "modelProvider");
-      const normalizedModelId = validateOptionalModelField(modelId, "modelId");
-      if ((normalizedProvider && !normalizedModelId) || (!normalizedProvider && normalizedModelId)) {
-        chatStreamManager.broadcast(sessionId, {
-          type: "error",
-          data: "modelProvider and modelId must both be provided or neither",
-        }, { generationId });
-        unsubscribe();
-        res.end();
-        return;
-      }
-
-      // Fire and forget - streaming happens via callbacks
-      chatManager.sendMessage(
+      // Fire and forget - streaming happens via callbacks. The matching generation
+      // consumes the replacement reservation and cannot be preempted by an ordinary send.
+      chatManager!.sendMessage(
         sessionId,
         trimmedContent,
         normalizedProvider,
@@ -1109,8 +1114,15 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         }, { generationId });
       });
     } catch (err: unknown) {
+      if (preparedGenerationId !== undefined) {
+        chatManager?.releasePreparedReplacement(sessionId, preparedGenerationId);
+      }
       if (err instanceof ApiError) {
         throw err;
+      }
+      if (err instanceof ChatReplacementError) {
+        if (err.statusCode === 404) throw notFound(err.message);
+        throw new ApiError(err.statusCode, err.message);
       }
       rethrowAsApiError(err, "Failed to send chat message");
     }
@@ -1174,57 +1186,6 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     }
   });
 
-  /**
-   * PATCH /api/chat/sessions/:id/messages/:messageId
-   *
-   * FNXC:ChatMessageEdit 2026-07-07-09:00:
-   * Edit a user's earlier message: truncates the persisted transcript from (and including)
-   * the target message onward AND rewinds the pi session context so the model forgets the
-   * discarded turns (see ChatManager.rewindSessionForEdit). Does NOT stream a regeneration —
-   * the client resends the edited content through the existing streaming POST send after this
-   * call returns the retained (pre-edit) history.
-   */
-  router.patch("/chat/sessions/:id/messages/:messageId", rateLimit(RATE_LIMITS.mutation), async (req, res) => {
-    try {
-      const projectId = req.query.projectId as string | undefined;
-      const { chatStore } = await resolveScopedChatStore(projectId);
-      const chatManager = await resolveScopedChatManager(projectId);
-
-      const sessionId = String(req.params.id);
-      const messageId = String(req.params.messageId);
-      const content = (req.body as { content?: unknown } | undefined)?.content;
-
-      if (typeof content !== "string" || content.trim().length === 0) {
-        throw badRequest("content must be a non-empty string");
-      }
-
-      const session = await chatStore.getSession(sessionId);
-      if (!session) {
-        throw notFound(`Chat session ${sessionId} not found`);
-      }
-
-      const message = await chatStore.getMessage(messageId);
-      if (!message || message.sessionId !== sessionId) {
-        throw notFound(`Message ${messageId} not found`);
-      }
-      if (message.role !== "user") {
-        throw badRequest("Only user messages can be edited");
-      }
-
-      if (chatManager.isGenerating(sessionId)) {
-        throw badRequest("Cannot edit a message while a generation is in progress");
-      }
-
-      const { retained } = await chatManager.rewindSessionForEdit(sessionId, messageId);
-      res.json({ retained });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err, "Failed to edit chat message");
-    }
-  });
-
   if (process.env.FUSION_DEBUG_CHAT_ROUTES === "1") {
     const chatRoutes = [
       "GET /chat/sessions",
@@ -1240,7 +1201,6 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       "POST /chat/sessions/:id/messages",
       "POST /chat/sessions/:id/cancel",
       "DELETE /chat/sessions/:id/messages/:messageId",
-      "PATCH /chat/sessions/:id/messages/:messageId",
     ];
     chatLogger.info("routes registered", { chatRoutes });
   }

@@ -7,7 +7,6 @@ import {
   fetchChatMessages,
   updateChatSession,
   deleteChatSession,
-  editChatMessage,
   attachChatStream,
   streamChatResponse,
   cancelChatResponse,
@@ -172,11 +171,9 @@ export interface UseChatReturn {
     callbacks?: { onAccepted?: () => void; onDelivered?: () => void; onFailed?: () => void },
   ) => void;
   /**
-   * FNXC:ChatMessageEdit 2026-07-07-09:00:
-   * Edit an earlier user message: truncates local + persisted history from that message onward
-   * (server also rewinds the pi session context so the model forgets discarded turns), then
-   * resends the edited content through the normal `sendMessage` streaming path. No-ops while a
-   * generation is streaming or when there is no active session.
+   * FNXC:ChatMessageEdit 2026-08-19-03:34:
+   * Send one replacement-aware SSE request for an earlier persisted user turn. The server
+   * fences and rewinds before acceptance; the hook changes its local range only on acceptance.
    */
   editMessageAndResend: (messageId: string, newContent: string) => Promise<void>;
   stopStreaming: () => void;
@@ -506,6 +503,7 @@ export function useChat(
   const activeSessionRef = useRef(activeSession);
   const messagesRef = useRef(messages);
   const isStreamingRef = useRef(isStreaming);
+  const pendingReplacementRef = useRef<{ sessionId: string; messageId: string } | null>(null);
   // Incremented for every selection, including A → B → A. Session ids alone cannot
   // distinguish an old A refresh from the newly re-entered A thread.
   const activeSessionSelectionRef = useRef(0);
@@ -1522,6 +1520,7 @@ export function useChat(
     content: string,
     attachments?: File[],
     callbacks?: { onAccepted?: () => void; onDelivered?: () => void; onFailed?: () => void },
+    options?: { replacementMessageId?: string; replacementTargetIndex?: number },
   ) => void>(() => {
     // no-op until sendMessage is defined
   });
@@ -1569,6 +1568,7 @@ export function useChat(
       content: string,
       attachments?: File[],
       callbacks?: { onAccepted?: () => void; onDelivered?: () => void; onFailed?: () => void },
+      streamOptions?: { replacementMessageId?: string; replacementTargetIndex?: number },
     ) => {
       if (!activeSession) {
         callbacks?.onFailed?.();
@@ -1755,10 +1755,23 @@ export function useChat(
         },
       });
 
-      streamRef.current = streamChatResponse(activeSession.id, content, {
+      const streamHandlers = {
         ...handlers,
-        onAccepted: () => callbacks?.onAccepted?.(),
-      }, attachments, projectId);
+        onAccepted: () => {
+          if (streamOptions?.replacementMessageId && streamOptions.replacementTargetIndex !== undefined) {
+            setMessages((current) => [
+              ...current.filter((message) => message.id !== tempId).slice(0, streamOptions.replacementTargetIndex),
+              userMessage,
+            ]);
+          }
+          callbacks?.onAccepted?.();
+        },
+      };
+      streamRef.current = streamOptions?.replacementMessageId
+        ? streamChatResponse(activeSession.id, content, streamHandlers, attachments, projectId, {
+            replacementMessageId: streamOptions.replacementMessageId,
+          })
+        : streamChatResponse(activeSession.id, content, streamHandlers, attachments, projectId);
     },
     [activeSession, projectId, refreshSessions, addToast, attachIfGenerating, reconnectSessionSilently, flushPendingMessage, updateStreamingText, updateStreamingThinking, updateStreamingToolCalls],
   );
@@ -1766,58 +1779,45 @@ export function useChat(
   sendMessageRef.current = sendMessage;
 
   /*
-   * FNXC:ChatMessageEdit 2026-07-07-09:00:
-   * Editing an earlier message must resume the conversation from that point, forgetting
-   * everything after it, so future responses are not biased by discarded turns. The optimistic
-   * local truncation happens first (immediate UI feedback), then the server truncates its
-   * persisted rows AND rewinds the pi session context (ChatManager.rewindSessionForEdit) before
-   * we resend the edited content through the normal streaming sendMessage path. Blocked while
-   * streaming so an edit cannot race a live generation.
+   * FNXC:ChatMessageEdit 2026-08-19-03:34:
+   * Editing is one replacement-aware SSE request. Keep the original transcript mounted
+   * until the server accepts the prepared rewind; a rejected request reloads the old
+   * authoritative rows and rejects the save so the inline correction remains editable.
    */
   const editMessageAndResend = useCallback(
     async (messageId: string, newContent: string) => {
-      if (isStreamingRef.current || !activeSession) {
-        return;
-      }
+      if (isStreamingRef.current || !activeSession) return;
 
       const trimmed = newContent.trim();
-      if (!trimmed) {
-        return;
-      }
+      if (!trimmed) return;
 
       const sessionId = activeSession.id;
       const previousMessages = messagesRef.current;
-      const targetIndex = previousMessages.findIndex((m) => m.id === messageId);
-      if (targetIndex === -1) {
-        return;
-      }
+      const targetIndex = previousMessages.findIndex((message) => message.id === messageId);
+      if (targetIndex === -1) return;
 
-      try {
-        await editChatMessage(sessionId, messageId, trimmed, projectId);
-        // Keep the editor's message mounted until the PATCH succeeds so a rejected save retains its correction.
-        setMessages(previousMessages.slice(0, targetIndex));
-      } catch (error) {
-        console.error("[useChat] Failed to edit message:", error);
-        addToast?.("Failed to edit message", "error");
-        // Restore truthful state from the server rather than trusting the optimistic truncation.
-        await loadMessages(sessionId);
-        /*
-         * FNXC:ChatMessageEdit 2026-07-19-00:00:
-         * The inline editor closes only when its async handler fulfills. Rethrow a failed PATCH
-         * after recovery so Direct Chat keeps the user's correction available instead of treating
-         * a toast-only failure as a successful save.
-         */
-        throw error;
-      }
-
-      const cacheKey = getChatMessagesCacheKey(projectId, sessionId);
-      if (cacheKey) {
-        clearCache(cacheKey);
-      }
-
-      sendMessage(trimmed);
+      pendingReplacementRef.current = { sessionId, messageId };
+      await new Promise<void>((resolve, reject) => {
+        sendMessage(
+          trimmed,
+          undefined,
+          {
+            onAccepted: () => {
+              pendingReplacementRef.current = null;
+              resolve();
+            },
+            onFailed: () => {
+              void loadMessages(sessionId).finally(() => {
+                pendingReplacementRef.current = null;
+                reject(new Error("Failed to edit message"));
+              });
+            },
+          },
+          { replacementMessageId: messageId, replacementTargetIndex: targetIndex },
+        );
+      });
     },
-    [activeSession, projectId, addToast, loadMessages, getChatMessagesCacheKey, sendMessage],
+    [activeSession, loadMessages, sendMessage],
   );
 
   /*
@@ -2183,6 +2183,10 @@ export function useChat(
     const handleChatMessageDeleted = (e: MessageEvent) => {
       if (isStale()) return;
       const { id: messageId }: { id: string } = JSON.parse(e.data);
+      // Replacement preparation deletes the persisted range before SSE acceptance.
+      // Keep the local range intact until the replacement stream confirms acceptance;
+      // the acceptance callback performs the authoritative local transition.
+      if (pendingReplacementRef.current?.sessionId === activeSessionRef.current?.id) return;
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
     };
 

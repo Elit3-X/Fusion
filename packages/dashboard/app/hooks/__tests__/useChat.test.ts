@@ -20,7 +20,6 @@ vi.mock("../../api", () => ({
   fetchChatMessages: vi.fn(),
   updateChatSession: vi.fn(),
   deleteChatSession: vi.fn(),
-  editChatMessage: vi.fn(),
   streamChatResponse: vi.fn(),
   attachChatStream: vi.fn(),
   cancelChatResponse: vi.fn(),
@@ -56,7 +55,6 @@ const mockCreateChatSession = vi.mocked(apiModule.createChatSession);
 const mockFetchChatMessages = vi.mocked(apiModule.fetchChatMessages);
 const mockUpdateChatSession = vi.mocked(apiModule.updateChatSession);
 const mockDeleteChatSession = vi.mocked(apiModule.deleteChatSession);
-const mockEditChatMessage = vi.mocked(apiModule.editChatMessage);
 const mockStreamChatResponse = vi.mocked(apiModule.streamChatResponse);
 const mockAttachChatStream = vi.mocked(apiModule.attachChatStream);
 const mockCancelChatResponse = vi.mocked(apiModule.cancelChatResponse);
@@ -453,31 +451,37 @@ describe("useChat", () => {
       return result;
     }
 
-    it("optimistically truncates from the edited message and resends via sendMessage", async () => {
+    it("keeps the transcript until replacement SSE acceptance, then keeps only the prefix and replacement", async () => {
       const m1 = makeMessage({ id: "msg-1", sessionId: "session-001", role: "user", content: "one" });
       const m2 = makeMessage({ id: "msg-2", sessionId: "session-001", role: "assistant", content: "two" });
       const m3 = makeMessage({ id: "msg-3", sessionId: "session-001", role: "user", content: "three" });
       const result = await setupWithMessages([m1, m2, m3]);
 
-      mockEditChatMessage.mockResolvedValueOnce({ retained: [m1, m2] });
       const closeFn = vi.fn();
-      mockStreamChatResponse.mockImplementation(() => ({ close: closeFn, isConnected: () => true }));
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        handlers.onAccepted?.();
+        return { close: closeFn, isConnected: () => true };
+      });
 
       await act(async () => {
         await result.current.editMessageAndResend("msg-3", "three (edited)");
       });
 
-      expect(mockEditChatMessage).toHaveBeenCalledWith("session-001", "msg-3", "three (edited)", "proj-123");
       await waitFor(() => {
-        // Optimistic truncation drops msg-3, then sendMessage appends a fresh optimistic user bubble
-        // with the edited content — so retained [m1, m2] plus the new turn is 3 messages.
         expect(result.current.messages).toHaveLength(3);
         expect(result.current.messages[0]?.id).toBe("msg-1");
         expect(result.current.messages[1]?.id).toBe("msg-2");
         expect(result.current.messages[2]?.role).toBe("user");
         expect(result.current.messages[2]?.content).toBe("three (edited)");
       });
-      expect(mockStreamChatResponse).toHaveBeenCalledWith("session-001", "three (edited)", expect.anything(), undefined, "proj-123");
+      expect(mockStreamChatResponse).toHaveBeenCalledWith(
+        "session-001",
+        "three (edited)",
+        expect.anything(),
+        undefined,
+        "proj-123",
+        { replacementMessageId: "msg-3" },
+      );
     });
 
     it("is a no-op while streaming", async () => {
@@ -492,32 +496,41 @@ describe("useChat", () => {
         expect(result.current.isStreaming).toBe(true);
       });
 
-      mockEditChatMessage.mockClear();
+      mockStreamChatResponse.mockClear();
       await act(async () => {
         await result.current.editMessageAndResend("msg-1", "edited");
       });
 
-      expect(mockEditChatMessage).not.toHaveBeenCalled();
+      expect(mockStreamChatResponse).not.toHaveBeenCalled();
     });
 
-    it("reloads messages and does not resend on PATCH failure", async () => {
+    it("reloads messages and does not resend on pre-acceptance replacement failure", async () => {
       const m1 = makeMessage({ id: "msg-1", sessionId: "session-001", role: "user", content: "one" });
       const m2 = makeMessage({ id: "msg-2", sessionId: "session-001", role: "assistant", content: "two" });
       const result = await setupWithMessages([m1, m2]);
 
-      mockEditChatMessage.mockRejectedValueOnce(new Error("boom"));
       // fetchChatMessages returns newest-first; the reload path reverses it back to [m1, m2].
       mockFetchChatMessages.mockResolvedValueOnce({ messages: [m2, m1] });
-      mockStreamChatResponse.mockClear();
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        handlers.onError?.("boom", { requestAccepted: false, receivedStreamEvent: false });
+        return { close: vi.fn(), isConnected: () => true };
+      });
 
       await expect(act(async () => {
         await result.current.editMessageAndResend("msg-1", "edited");
-      })).rejects.toThrow("boom");
+      })).rejects.toThrow("Failed to edit message");
 
       await waitFor(() => {
         expect(result.current.messages.map((m) => m.id)).toEqual(["msg-1", "msg-2"]);
       });
-      expect(mockStreamChatResponse).not.toHaveBeenCalled();
+      expect(mockStreamChatResponse).toHaveBeenCalledWith(
+        "session-001",
+        "edited",
+        expect.anything(),
+        undefined,
+        "proj-123",
+        { replacementMessageId: "msg-1" },
+      );
     });
   });
 

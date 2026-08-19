@@ -1237,7 +1237,6 @@ export {
   deleteChatRoom,
   deleteChatRoomMessage,
   deleteChatSession,
-  editChatMessage,
   ensureTaskPlannerChatSession,
   fetchChatMessages,
   fetchChatRoom,
@@ -1258,6 +1257,7 @@ export {
 export type {
   ChatFailureInfo,
   ChatFailureReference,
+  ChatReplacementIdentity,
   ChatMessageListResponse,
   ChatRoomListResponse,
   ChatRoomMembersResponse,

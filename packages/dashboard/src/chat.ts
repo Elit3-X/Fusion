@@ -1431,12 +1431,29 @@ interface ActiveChatGeneration {
   resolveSettled: () => void;
 }
 
+interface ChatReplacementPreparation {
+  promise: Promise<{ generationId: number; retained: ChatMessage[] }>;
+  generationId?: number;
+}
+
+/** A replacement request was rejected before the SSE response was accepted. */
+export class ChatReplacementError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: 400 | 404 | 409 = 400,
+  ) {
+    super(message);
+    this.name = "ChatReplacementError";
+  }
+}
+
 export class ChatManager {
   private agentStoreReady?: Promise<void>;
   private generationCounter = 0;
   private inFlightPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private inFlightPersistChains = new Map<string, Promise<void>>();
   private activeGenerations = new Map<string, ActiveChatGeneration>();
+  private replacementPreparations = new Map<string, ChatReplacementPreparation>();
 
   constructor(
     private chatStore: ChatStore,
@@ -1695,7 +1712,14 @@ export class ChatManager {
    * Routes that subscribe to SSE before invoking `sendMessage` should call this
    * first so subscription and broadcast generationIds are tied together.
    */
-  beginGeneration(sessionId: string): { generationId: number; abortController: AbortController } {
+  beginGeneration(
+    sessionId: string,
+    options?: { allowReplacementPreparation?: boolean },
+  ): { generationId: number; abortController: AbortController } {
+    if (this.replacementPreparations.has(sessionId) && !options?.allowReplacementPreparation) {
+      throw new ChatReplacementError(`A message replacement is already being prepared for session ${sessionId}`, 409);
+    }
+
     // If a previous generation is still tracked (e.g. its browser disconnected
     // mid-stream and its agent loop hasn't reached `finally` yet), abort its
     // controller so it stops issuing further prompts/tool calls that would
@@ -2355,6 +2379,12 @@ export class ChatManager {
       const allocated = this.beginGeneration(sessionId);
       generationId = allocated.generationId;
       abortController = allocated.abortController;
+    }
+    const replacementPreparation = this.replacementPreparations.get(sessionId);
+    if (replacementPreparation?.generationId === generationId) {
+      // The matching send now owns this generation. Consuming the reservation here
+      // lets its normal generation-finally cleanup own the active slot.
+      this.replacementPreparations.delete(sessionId);
     }
     const broadcastOptions = { generationId };
     const generationState = this.activeGenerations.get(sessionId);
@@ -3192,6 +3222,80 @@ export class ChatManager {
           diagnostics.error(`Error disposing agent session:`, err);
         }
       }
+    }
+  }
+
+  /*
+   * FNXC:ChatMessageEdit 2026-08-19-03:34:
+   * A saved edit is a single fenced operation: validate the persisted user target,
+   * rewind PostgreSQL and reachable pi history before SSE acceptance, then allocate
+   * the generation that the replacement POST will subscribe to. The reservation
+   * prevents an ordinary send from aborting the rewind window or a second edit from
+   * deleting a different transcript range.
+   */
+  async prepareReplacement(
+    sessionId: string,
+    fromMessageId: string,
+  ): Promise<{ generationId: number; retained: ChatMessage[] }> {
+    if (this.replacementPreparations.has(sessionId)) {
+      throw new ChatReplacementError(`A message replacement is already being prepared for session ${sessionId}`, 409);
+    }
+
+    const preparation: ChatReplacementPreparation = { promise: Promise.resolve({ generationId: 0, retained: [] }) };
+    preparation.promise = (async () => {
+      const session = await this.chatStore.getSession(sessionId);
+      if (!session) {
+        throw new ChatReplacementError(`Chat session ${sessionId} not found`, 404);
+      }
+      if (session.cliExecutorAdapterId) {
+        throw new ChatReplacementError("Message replacement is not supported for CLI-backed chat sessions");
+      }
+
+      const target = await this.chatStore.getMessage(fromMessageId);
+      if (!target || target.sessionId !== sessionId) {
+        throw new ChatReplacementError(`Message ${fromMessageId} not found in session ${sessionId}`, 404);
+      }
+      if (target.role !== "user") {
+        throw new ChatReplacementError(`Message ${fromMessageId} is not a user message and cannot be edited`);
+      }
+      if (this.activeGenerations.has(sessionId)) {
+        throw new ChatReplacementError(`Cannot edit message ${fromMessageId}: a generation is currently in progress for session ${sessionId}`);
+      }
+
+      const { retained } = await this.rewindSessionForEdit(sessionId, fromMessageId);
+      const allocated = this.beginGeneration(sessionId, { allowReplacementPreparation: true });
+      preparation.generationId = allocated.generationId;
+      return { generationId: allocated.generationId, retained };
+    })();
+    this.replacementPreparations.set(sessionId, preparation);
+
+    try {
+      return await preparation.promise;
+    } catch (error) {
+      const current = this.replacementPreparations.get(sessionId);
+      if (current === preparation) {
+        this.replacementPreparations.delete(sessionId);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Release a prepared replacement when the route cannot wire its SSE response.
+   * This is intentionally narrow: a send that reached the accepted response owns
+   * cleanup through its normal generation-finally path.
+   */
+  releasePreparedReplacement(sessionId: string, generationId: number): void {
+    const preparation = this.replacementPreparations.get(sessionId);
+    if (preparation?.generationId !== generationId) {
+      return;
+    }
+    this.replacementPreparations.delete(sessionId);
+    const active = this.activeGenerations.get(sessionId);
+    if (active?.generationId === generationId) {
+      active.abortController.abort();
+      this.activeGenerations.delete(sessionId);
+      active.resolveSettled();
     }
   }
 
