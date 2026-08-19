@@ -451,10 +451,16 @@ function renderMarkdownBlockWithNativeStructurePreviews(
   return blocks.length === 1 ? blocks[0] : <>{blocks}</>;
 }
 
+/*
+FNXC:ChatStreaming 2026-08-19-13:52:
+Ordinary Chat Markdown links must preserve ReactMarkdown's sanitized href while opening in a separate tab with an explicit reverse-tabnabbing policy. Native structure references remain previews instead of becoming ordinary anchors.
+*/
 function NativeStructureMarkdownAnchor({ children, href, ...props }: React.ComponentProps<"a">) {
   const structureRef = href ? parseNativeStructureChatRef(href) : null;
   if (structureRef) return <NativeStructurePreview ref={structureRef} onOpen={openNativeStructure} />;
-  return <a href={href} {...props}>{children}</a>;
+  /* FNXC:ChatStreaming 2026-08-19-13:52: ReactMarkdown clears unsafe hrefs; do not leave an empty interactive shell. */
+  if (!href) return <span>{children}</span>;
+  return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
 }
 
 function NativeStructureMarkdownCode({ children, ...props }: React.ComponentProps<"code">) {

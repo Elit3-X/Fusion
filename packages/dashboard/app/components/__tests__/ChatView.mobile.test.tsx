@@ -1137,6 +1137,44 @@ describe("ChatView mobile behavior", () => {
     }
   });
 
+  /*
+  FNXC:ChatStreaming 2026-08-19-13:52:
+  A narrow Direct Chat host must render the same complete source destinations and security attributes as desktop; responsive containment must not replace the shared Chat Markdown treatment.
+  */
+  it("mobile mode: keeps streamed source links complete and safely target a new tab", async () => {
+    const restoreMatchMedia = mockMobileViewport();
+    try {
+      const sourceMarkdown = [
+        "Sources officielles:",
+        "",
+        "[GPT‑5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)",
+        "[GPT‑5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)",
+        "[GPT‑5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)",
+      ].join("\\n");
+      setupMockChat({
+        activeSession: activeSessionFixture,
+        messages: [{ id: "mobile-source", sessionId: activeSessionFixture.id, role: "assistant", content: sourceMarkdown, createdAt: "2026-04-08T00:00:00.000Z" }],
+        isStreaming: true,
+        streamingText: sourceMarkdown,
+      });
+
+      await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+      const persistedBubble = screen.getByTestId("chat-message-mobile-source");
+      const streamingBubble = document.querySelector(".chat-message--streaming") as HTMLElement;
+      for (const bubble of [persistedBubble, streamingBubble]) {
+        const links = Array.from(bubble.querySelectorAll(".chat-message-content--markdown a"));
+        expect(links).toHaveLength(3);
+        expect(links.every((link) => link.getAttribute("href")?.includes("gpt-5.6-"))).toBe(true);
+        expect(links.every((link) => link.getAttribute("target") === "_blank")).toBe(true);
+        expect(links.every((link) => link.getAttribute("rel") === "noopener noreferrer")).toBe(true);
+        expect(bubble.textContent).not.toContain("5. 6");
+      }
+    } finally {
+      restoreMatchMedia.mockRestore();
+    }
+  });
+
   it("mobile mode: keeps populated streaming direct composer above iOS accessory chrome", async () => {
     const restoreMatchMedia = mockMobileViewport();
     const isIOSSpy = vi.spyOn(mobileScrollLock, "isIOS").mockReturnValue(true);
@@ -1987,15 +2025,19 @@ describe("ChatView mobile behavior", () => {
     const restoreMatchMedia = mockViewportMode("mobile");
     const originalResizeObserver = globalThis.ResizeObserver;
     localStorage.setItem("fusion:chat-scope", "rooms");
-    const resizeObserverCtor = vi.fn();
+    const observedElements: Element[] = [];
 
+    /*
+    FNXC:ChatStreaming 2026-08-19-13:52:
+    Chat input autosizing legitimately owns a ResizeObserver in Rooms scope. The regression invariant is narrower: no observer may follow the `.chat-messages` direct-thread viewport while the Room transcript is active.
+    */
     vi.stubGlobal(
       "ResizeObserver",
       class {
-        constructor(callback: ResizeObserverCallback) {
-          resizeObserverCtor(callback);
-        }
-        observe = vi.fn();
+        constructor(_callback: ResizeObserverCallback) {}
+        observe = vi.fn((element: Element) => {
+          observedElements.push(element);
+        });
         disconnect = vi.fn();
         unobserve = vi.fn();
       },
@@ -2026,7 +2068,7 @@ describe("ChatView mobile behavior", () => {
       await waitFor(() => {
         expect(screen.getByTestId("chat-sidebar-rooms")).toBeInTheDocument();
       });
-      expect(resizeObserverCtor).not.toHaveBeenCalled();
+      expect(observedElements.some((element) => element.classList.contains("chat-messages"))).toBe(false);
     } finally {
       restoreMatchMedia.mockRestore();
       if (originalResizeObserver) {
@@ -2451,6 +2493,22 @@ describe("ChatView mobile CSS contract", () => {
     expect(css).toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*?\.chat-message-copy-action\s*\{[^}]*opacity:\s*1/);
     expect(css).not.toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*?\.chat-message-copy-action\s*\{[^}]*min-width:\s*calc\(var\(--space-lg\)\s*\*\s*2\.25\)/);
     expect(css).not.toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*?\.chat-message-copy-action\s*\{[^}]*min-height:\s*calc\(var\(--space-lg\)\s*\*\s*2\.25\)/);
+  });
+
+  /*
+  FNXC:ChatStreaming 2026-08-19-13:52:
+  Keep Chat links readable and visibly interactive in narrow hosts without allowing a mobile rule or unrelated global anchor rule to replace the shared tokenized treatment.
+  */
+  it("keeps Chat Markdown anchors contrast-safe and underlined on every host width", () => {
+    const normalRule = css.match(/\.chat-message-content--markdown a,\s*\.chat-message-content--markdown a:visited\s*\{([^}]*)\}/)?.[1] ?? "";
+    const interactiveRule = css.match(/\.chat-message-content--markdown a:hover,\s*\.chat-message-content--markdown a:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(normalRule).toContain("color: var(--text);");
+    expect(normalRule).toContain("text-decoration-line: underline;");
+    expect(normalRule).toContain("text-decoration-color: var(--text);");
+    expect(normalRule).toContain("transition: color var(--transition-fast)");
+    expect(interactiveRule).toContain("color: var(--text);");
+    expect(css).toMatch(/\.chat-message-content--markdown a:focus-visible\s*\{[^}]*box-shadow:\s*var\(--focus-ring-strong\);[^}]*\}/s);
+    expect(css).not.toMatch(/@media[^{}]*max-width:\s*768px[^{}]*\{[^}]*chat-message-content--markdown a[^}]*color:\s*(?!var\(--text\))/s);
   });
 });
 

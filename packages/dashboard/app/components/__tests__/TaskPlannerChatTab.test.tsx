@@ -248,6 +248,54 @@ describe("TaskPlannerChatTab", () => {
     );
   });
 
+  /*
+  FNXC:ChatStreaming 2026-08-19-13:52:
+  Task-detail Planner Chat must use the same shared Markdown anchor contract for both loaded history and an in-flight reattached response; this catches a renderer fork that would regress only task-bound Chat.
+  */
+  it("renders complete source links in persisted and streaming Planner Chat", async () => {
+    const sourceMarkdown = [
+      "Sources officielles:",
+      "",
+      "[GPT‑5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)",
+      "[GPT‑5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)",
+      "[GPT‑5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)",
+    ].join("\\n");
+    const inFlightGeneration = {
+      status: "generating",
+      streamingText: sourceMarkdown,
+      streamingThinking: "",
+      toolCalls: [],
+      replayFromEventId: 1,
+      updatedAt: "2026-07-01T14:00:00.000Z",
+    };
+    const session = makePlannerSession({ isGenerating: true, inFlightGeneration });
+    mockFetchTaskPlannerChatSession.mockResolvedValue({ session });
+    mockFetchChatSession.mockResolvedValue({ session });
+    mockFetchChatMessages.mockResolvedValue({
+      messages: [{ id: "planner-source", sessionId: "chat-planner", role: "assistant", content: sourceMarkdown, thinkingOutput: null, metadata: null, createdAt: "2026-07-01T13:59:00.000Z" }],
+    });
+    mockAttachChatStream.mockReturnValue({ close: vi.fn(), isConnected: () => true });
+
+    renderPlannerChat();
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".chat-message-content--markdown a")).toHaveLength(6);
+    });
+    const links = Array.from(document.querySelectorAll(".chat-message-content--markdown a"));
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+    ]);
+    expect(links.every((link) => link.getAttribute("target") === "_blank")).toBe(true);
+    expect(links.every((link) => link.getAttribute("rel") === "noopener noreferrer")).toBe(true);
+    expect(document.body.textContent).toContain("GPT‑5.6");
+    expect(document.body.textContent).not.toContain("5. 6");
+  });
+
   it("caps the loaded planner composer, preserves deliberate expansion, and resets on clear", async () => {
     mockFetchChatMessages.mockResolvedValueOnce({
       messages: [{ id: "planner-history", sessionId: "chat-planner", role: "assistant", content: "Loaded planner history", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" }],

@@ -339,6 +339,55 @@ describe("Direct/Rooms scope toggle", () => {
     expect(screen.getByTestId("chat-sidebar-rooms")).toBeInTheDocument();
   });
 
+  /*
+  FNXC:ChatStreaming 2026-08-19-13:52:
+  Room transcripts reuse StandardChatSurface rather than a second Markdown renderer. Assert the same complete source destinations and new-tab security policy after selecting a populated room.
+  */
+  it("renders complete source links in a Chat Room transcript", async () => {
+    const room = createRoomFixture("sources");
+    const sourceMarkdown = [
+      "Sources officielles:",
+      "",
+      "[GPT‑5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)",
+      "[GPT‑5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)",
+      "[GPT‑5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)",
+    ].join("\\n");
+    setupMockChat({ sessions: [], filteredSessions: [] });
+    setupMockRooms({
+      rooms: [room],
+      activeRoom: room,
+      messages: [{
+        id: "room-source-message",
+        roomId: room.id,
+        role: "assistant",
+        content: sourceMarkdown,
+        createdAt: "2026-04-08T00:00:00.000Z",
+        senderAgentId: null,
+        thinkingOutput: null,
+        metadata: null,
+        mentions: [],
+      }],
+    });
+    localStorage.setItem("fusion:chat-scope", "rooms");
+
+    await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} experimentalFeatures={{ chatRooms: true }} />);
+
+    const bubble = await waitFor(() => {
+      const node = screen.getByTestId("chat-message-room-source-message");
+      expect(node).toBeInTheDocument();
+      return node;
+    });
+    const links = Array.from(bubble.querySelectorAll(".chat-message-content--markdown a"));
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+    ]);
+    expect(links.every((link) => link.getAttribute("target") === "_blank")).toBe(true);
+    expect(links.every((link) => link.getAttribute("rel") === "noopener noreferrer")).toBe(true);
+    expect(bubble.textContent).not.toContain("5. 6");
+  });
+
   it("shows rooms placeholder and hides direct search/list in Rooms scope", async () => {
     setupMockChat({
       sessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" }],

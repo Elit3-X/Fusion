@@ -469,6 +469,44 @@ describe("ChatView", () => {
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
   });
 
+  /*
+  FNXC:ChatStreaming 2026-08-19-13:52:
+  Exercise Direct Chat's persisted and live bubbles with the exact reported source response. The caller test proves the shared renderer receives complete numeric tokens and applies the secure new-tab policy on the production ChatView surface.
+  */
+  it("renders complete source links in persisted and streaming Direct Chat", async () => {
+    const sourceMarkdown = [
+      "Sources officielles:",
+      "",
+      "[GPT‑5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)",
+      "[GPT‑5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)",
+      "[GPT‑5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)",
+    ].join("\\n");
+    const expectedHrefs = [
+      "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+    ];
+    setupMockChat({
+      activeSession: activeSessionFixture,
+      messages: [{ id: "msg-source", sessionId: "session-001", role: "assistant", content: sourceMarkdown, createdAt: "2026-04-08T00:00:00.000Z" }],
+      isStreaming: true,
+      streamingText: sourceMarkdown,
+    });
+
+    await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    const persisted = screen.getByTestId("chat-message-msg-source");
+    const streaming = document.querySelector(".chat-message--streaming") as HTMLElement;
+    for (const bubble of [persisted, streaming]) {
+      const links = Array.from(bubble.querySelectorAll(".chat-message-content--markdown a"));
+      expect(links.map((link) => link.getAttribute("href"))).toEqual(expectedHrefs);
+      expect(links.every((link) => link.getAttribute("target") === "_blank")).toBe(true);
+      expect(links.every((link) => link.getAttribute("rel") === "noopener noreferrer")).toBe(true);
+      expect(bubble.textContent).toContain("GPT‑5.6");
+      expect(bubble.textContent).not.toContain("5. 6");
+    }
+  });
+
   it("renders file paths in assistant inline code as clickable links while preserving the code wrapper", async () => {
     const openFile = vi.fn();
     setupMockChat({

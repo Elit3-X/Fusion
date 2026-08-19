@@ -1216,6 +1216,30 @@ Narrow chat hosts need full-width bubbles for prose, code, tool output, failures
   overflow-wrap: anywhere;
 }
 
+/*
+FNXC:ChatStreaming 2026-08-19-13:52:
+Shared Chat Markdown links need page-text contrast against assistant bubbles and a persistent affordance in desktop, compact, and mobile hosts. Scope the treatment here so terminal-only and unrelated Markdown renderers keep their own contracts.
+*/
+.chat-message-content--markdown a,
+.chat-message-content--markdown a:visited {
+  color: var(--text);
+  text-decoration-line: underline;
+  text-decoration-color: var(--text);
+  transition: color var(--transition-fast), text-decoration-color var(--transition-fast);
+}
+
+.chat-message-content--markdown a:hover,
+.chat-message-content--markdown a:focus-visible {
+  color: var(--text);
+  text-decoration-color: var(--text);
+}
+
+.chat-message-content--markdown a:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring-strong);
+}
+
 .chat-message-content--failure {
   display: flex;
   flex-direction: column;
