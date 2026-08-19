@@ -114,8 +114,12 @@ vi.mock("../ScheduledTasksModal", () => ({
   },
 }));
 
+const mockNewTaskModalProps = vi.fn();
 vi.mock("../NewTaskModal", () => ({
-  NewTaskModal: () => null,
+  NewTaskModal: (props: any) => {
+    mockNewTaskModalProps(props);
+    return null;
+  },
 }));
 
 const mockActivityLogModalProps = vi.fn();
@@ -373,7 +377,34 @@ describe("AppModals", () => {
     mockModelOnboardingModalProps.mockClear();
     mockActivityLogModalProps.mockClear();
     mockSettingsModalProps.mockClear();
+    mockNewTaskModalProps.mockClear();
     restoreDesktopViewport();
+  });
+
+  it("bridges the production move handler into NewTaskModal Start", async () => {
+    const moveTask = vi.fn();
+    render(
+      <AppModals
+        projectId="project-a"
+        tasks={[]}
+        projects={[]}
+        currentProject={null}
+        addToast={vi.fn()}
+        toasts={mockToasts}
+        removeToast={vi.fn()}
+        modalManager={{ ...mockModalManager, newTaskModalOpen: true }}
+        projectActions={{ handleAddProject: vi.fn(), handleSetupComplete: vi.fn(), handleModelOnboardingComplete: vi.fn() }}
+        taskHandlers={{ handleModalCreate: vi.fn(), handlePlanningTaskCreated: vi.fn(), handlePlanningTasksCreated: vi.fn(), handleSubtaskTasksCreated: vi.fn(), handleGitHubImport: vi.fn() }}
+        taskOperations={{ moveTask, deleteTask: vi.fn(), mergeTask: vi.fn(), retryTask: vi.fn(), duplicateTask: vi.fn() }}
+        deepLink={{ handleDetailClose: vi.fn() }}
+        settings={mockSettings}
+      />,
+    );
+
+    const modalProps = mockNewTaskModalProps.mock.calls[0]?.[0];
+    expect(modalProps?.onMoveTask).toEqual(expect.any(Function));
+    await modalProps.onMoveTask("FN-START", "building");
+    expect(moveTask).toHaveBeenCalledWith("FN-START", "building");
   });
 
   it("renders without crashing", () => {

@@ -483,6 +483,7 @@ export function AppModals({
           onClose={closeNewTaskWithNav}
           tasks={tasks}
           onCreateTask={handleModalCreateWithOnboardingTracking}
+          onMoveTask={(taskId, column) => taskOperations.moveTask(taskId, column as Column)}
           addToast={addToast}
           projectId={projectId}
           initialDescription={modalManager.newTaskInitialDescription ?? ""}

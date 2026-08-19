@@ -176,10 +176,19 @@ export interface TaskFormProps {
   onClose?: () => void;
 
   // Create-mode primary submission. NewTaskModal owns duplicate checks and payload shaping;
-  // TaskForm only places the visible Create affordance in the quick-action row.
+  // TaskForm only places the visible Create/Start affordances in the quick-action row.
   onCreateSubmit?: () => void;
   createSubmitLabel?: string;
   createSubmitDisabled?: boolean;
+  /*
+   * FNXC:NewTaskWorkflowStart 2026-08-19-00:17:
+   * Start is supplied only by a host that has validated server-derived manual-intake metadata and
+   * a safe destination. Keeping this optional prevents an ineligible workflow from leaving an
+   * empty button shell in either the desktop modal or mobile sheet.
+   */
+  onStartSubmit?: () => void;
+  startSubmitLabel?: string;
+  startSubmitDisabled?: boolean;
 
   /** Optional content to render between the primary section and the "More options" toggle. */
   renderBelowPrimary?: React.ReactNode;
@@ -259,6 +268,9 @@ export function TaskForm({
   onCreateSubmit,
   createSubmitLabel,
   createSubmitDisabled,
+  onStartSubmit,
+  startSubmitLabel,
+  startSubmitDisabled,
   renderBelowPrimary,
   renderBelowModelConfiguration,
   hideDependencies,
@@ -1030,6 +1042,20 @@ export function TaskForm({
               data-testid="task-form-inline-create"
             >
               {createSubmitLabel ?? t("taskForm.createTask", "Create")}
+            </button>
+          )}
+          {onStartSubmit && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={onStartSubmit}
+              disabled={disabled || startSubmitDisabled}
+              data-testid="task-form-inline-start"
+              aria-label={startSubmitLabel ?? t("taskForm.startTask", "Start")}
+              title={startSubmitLabel ?? t("taskForm.startTask", "Start")}
+            >
+              <Zap size={12} className="task-form-action-icon" aria-hidden="true" />
+              {startSubmitLabel ?? t("taskForm.startTask", "Start")}
             </button>
           )}
           {onPlanningMode && (
