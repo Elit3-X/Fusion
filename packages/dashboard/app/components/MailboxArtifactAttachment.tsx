@@ -2,6 +2,7 @@ import { memo, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ArtifactType } from "@fusion/core";
 import { artifactMediaUrlWithToken } from "../api";
+import { ArtifactImage, ArtifactImageViewer } from "./ArtifactImageViewer";
 
 export interface MailboxArtifactAttachmentProps {
   artifactId?: unknown;
@@ -49,18 +50,17 @@ export const MailboxArtifactAttachment = memo(function MailboxArtifactAttachment
   const mediaMimeType = readString(mimeType);
   const task = readString(taskId);
   const [imageFailed, setImageFailed] = useState(false);
-  const mediaUrl = useMemo(() => id ? artifactMediaUrlWithToken(id, projectId) : "", [id, projectId]);
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const mediaUrl = useMemo(() => id && type !== "image" ? artifactMediaUrlWithToken(id, projectId) : "", [id, projectId, type]);
 
   if (!id) return null;
 
-  const openLink = (
-    <a
-      className="mailbox-artifact-attachment__link btn"
-      href={mediaUrl}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={t("mailbox.openArtifactAria", "Open artifact: {{label}}", { label })}
-    >
+  const openLink = type === "image" ? (
+    <button type="button" className="mailbox-artifact-attachment__link btn" onClick={() => setImageViewerOpen(true)} aria-label={t("mailbox.openArtifactAria", "Open artifact: {{label}}", { label })}>
+      {t("mailbox.openArtifact", "Open artifact")}
+    </button>
+  ) : (
+    <a className="mailbox-artifact-attachment__link btn" href={mediaUrl} target="_blank" rel="noreferrer" aria-label={t("mailbox.openArtifactAria", "Open artifact: {{label}}", { label })}>
       {t("mailbox.openArtifact", "Open artifact")}
     </a>
   );
@@ -79,13 +79,9 @@ export const MailboxArtifactAttachment = memo(function MailboxArtifactAttachment
   let preview: ReactNode = null;
   if (type === "image" && !imageFailed) {
     preview = (
-      <img
-        className="mailbox-artifact-attachment__media mailbox-artifact-attachment__image"
-        src={mediaUrl}
-        alt={label}
-        loading="lazy"
-        onError={() => setImageFailed(true)}
-      />
+      <button type="button" className="mailbox-artifact-attachment__image-button" onClick={() => setImageViewerOpen(true)} aria-label={t("mailbox.openArtifactAria", "Open artifact: {{label}}", { label })}>
+        <ArtifactImage className="mailbox-artifact-attachment__media mailbox-artifact-attachment__image" artifactId={id} projectId={projectId} title={label} onError={() => setImageFailed(true)} />
+      </button>
     );
   } else if (type === "video") {
     preview = (
@@ -123,6 +119,7 @@ export const MailboxArtifactAttachment = memo(function MailboxArtifactAttachment
         {openLink}
         {taskLink}
       </div>
+      {imageViewerOpen && type === "image" && <ArtifactImageViewer artifactId={id} projectId={projectId} title={label} onClose={() => setImageViewerOpen(false)} />}
     </div>
   );
 });
