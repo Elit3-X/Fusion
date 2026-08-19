@@ -279,6 +279,31 @@ describe("onboard", () => {
     acceptSession.close();
   });
 
+  /*
+  FNXC:Onboarding 2026-08-19-03:38:
+  Auto-launch fires while the operator is starting something ELSE — a dashboard, a `pnpm dev
+  --tunnel`. Its questions interrupt work nobody asked to interrupt, and a dev server stopped on
+  "Run ai provider setup now?" never listens, so nothing is served and no tunnel can point at it.
+  The non-interactive path prepares the install and asks nothing.
+  */
+  it("asks nothing when not interactive, but still prepares the install", async () => {
+    const providerAuth = makeProviderAuth();
+    mockProviderAuthFactory.mockReturnValue(providerAuth);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    // No input at all: any prompt would hang or cancel rather than pass.
+    await runOnboard({ interactive: false });
+
+    expect(centralInitMock).toHaveBeenCalled();
+    expect(typeof globalSettingsState.cliOnboardingCompletedAt).toBe("string");
+    // The interactive-only steps must not have run.
+    expect(mockRunInit).not.toHaveBeenCalled();
+    expect(providerAuth.setApiKey).not.toHaveBeenCalled();
+    const printed = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(printed).not.toMatch(/Run ai provider setup now/i);
+    expect(printed).toMatch(/dashboard|fn onboard/i);
+  });
+
   it("allows fully skipping onboarding steps while still persisting completion marker", async () => {
     const providerAuth = makeProviderAuth();
     mockProviderAuthFactory.mockReturnValue(providerAuth);
