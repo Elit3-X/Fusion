@@ -581,6 +581,56 @@ describe("TerminalService", () => {
   is invisible with a single viewer and silently deletes a slice of everyone else's live stream once
   a second one connects. flushPendingOutput() is what an attach uses instead.
   */
+  /*
+  FNXC:TerminalSharing 2026-08-19-02:45:
+  Every attach used to replay the whole scrollback. A reconnecting client (backgrounded tab, sleep,
+  heartbeat timeout) still displays that history, so the replay appended a second copy — the
+  duplicated-prompt-on-return symptom. A client reports the offset it rendered and gets only the gap.
+  */
+  describe("scrollback resume", () => {
+    it("returns only the bytes a reattaching client missed", async () => {
+      const createResult = await service.createSession();
+      if (!createResult.success) throw new Error("Expected terminal session creation to succeed");
+      const id = createResult.session.id;
+
+      mockPtyProcess._onDataCallback?.("first output\n");
+      const initial = service.getScrollbackSince(id);
+      expect(initial).toEqual({ data: "first output\n", seq: 13, reset: true });
+
+      mockPtyProcess._onDataCallback?.("second output\n");
+      const resumed = service.getScrollbackSince(id, initial!.seq);
+      // Only the delta, and no reset — the client keeps the screen it already has.
+      expect(resumed).toEqual({ data: "second output\n", seq: 27, reset: false });
+    });
+
+    it("asks the client to reset when it is caught up (nothing to append)", async () => {
+      const createResult = await service.createSession();
+      if (!createResult.success) throw new Error("Expected terminal session creation to succeed");
+      const id = createResult.session.id;
+
+      mockPtyProcess._onDataCallback?.("output\n");
+      const at = service.getScrollbackSince(id)!.seq;
+      expect(service.getScrollbackSince(id, at)).toEqual({ data: "", seq: at, reset: false });
+    });
+
+    it("falls back to a full replay with reset for a first attach or a bogus offset", async () => {
+      const createResult = await service.createSession();
+      if (!createResult.success) throw new Error("Expected terminal session creation to succeed");
+      const id = createResult.session.id;
+
+      mockPtyProcess._onDataCallback?.("output\n");
+      // First attach (no offset), an offset from the future, and a negative one all reset.
+      expect(service.getScrollbackSince(id)?.reset).toBe(true);
+      expect(service.getScrollbackSince(id, 9999)?.reset).toBe(true);
+      expect(service.getScrollbackSince(id, -5)?.reset).toBe(true);
+      expect(service.getScrollbackSince(id, Number.NaN)?.reset).toBe(true);
+    });
+
+    it("returns null for an unknown session", () => {
+      expect(service.getScrollbackSince("no-such-session", 0)).toBeNull();
+    });
+  });
+
   describe("shared-viewer output handoff", () => {
     it("delivers queued output to existing subscribers instead of discarding it", async () => {
       const existingViewer = vi.fn();

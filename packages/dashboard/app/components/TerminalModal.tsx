@@ -1852,7 +1852,17 @@ export function TerminalModal({ isOpen, onClose, initialCommand, initialCommandG
       writeToExpectedSession(data);
     });
 
-    const unsubScrollback = onScrollback((data) => {
+    /*
+    FNXC:TerminalSharing 2026-08-19-02:45:
+    A scrollback frame is either a RESUME (only the bytes this terminal missed — append them) or a
+    full replay (reset first). Appending a full replay to a terminal that still shows that history is
+    what duplicated the screen — visibly, the last prompt twice — every time a backgrounded tab
+    reconnected.
+    */
+    const unsubScrollback = onScrollback((data, reset) => {
+      if (reset && xtermInitializedRef.current === expectedSessionId) {
+        xtermRef.current?.reset();
+      }
       writeToExpectedSession(data);
     });
 

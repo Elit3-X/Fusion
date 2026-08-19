@@ -33,6 +33,7 @@ import {
   setOnProjectFirstCreated,
 } from "./project-store-resolver.js";
 import { getOrCreateScopedChatStore } from "./chat-project-services.js";
+import { TerminalViewportRegistry } from "./terminal-viewport.js";
 import { getTerminalService, STALE_SESSION_THRESHOLD_MS } from "./terminal-service.js";
 import { WebSocketServer, type WebSocket } from "ws";
 import { terminalSessionManager } from "./terminal.js";
@@ -2442,6 +2443,13 @@ export function setupTerminalWebSocket(
   store: TaskStore,
   options?: ServerOptions,
 ): void {
+  /*
+  FNXC:TerminalSharing 2026-08-19-02:45:
+  Per-session viewer sizes for the shared-PTY min-sizing rule. Server-scoped, matching the terminal
+  session registry's lifetime.
+  */
+  const terminalViewports = new TerminalViewportRegistry();
+
   const wss = new WebSocketServer({ noServer: true });
 
   // Default terminal service for stale eviction (uses default store's root dir)
@@ -2553,11 +2561,19 @@ export function setupTerminalWebSocket(
     must not clear the pending-output queue. Flush it to whoever is already attached FIRST (this
     socket has not subscribed yet, so it cannot double-receive), then send the scrollback, which now
     contains those bytes for the newcomer.
+
+    FNXC:TerminalSharing 2026-08-19-02:45:
+    `sinceSeq` lets a RE-attaching client (tab backgrounded, laptop asleep, heartbeat timeout) ask
+    for only what it missed. Replaying the whole buffer into a terminal that still shows it appended
+    a duplicate copy of history on every reconnect; `reset` tells the client when it must clear
+    first because the delta could not be served from the retained window.
     */
     terminalService.flushPendingOutput(sessionId);
-    const scrollback = terminalService.getScrollback(sessionId);
-    if (scrollback) {
-      ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
+    const sinceSeqRaw = url.searchParams.get("sinceSeq");
+    const sinceSeq = sinceSeqRaw === null ? undefined : Number(sinceSeqRaw);
+    const resume = terminalService.getScrollbackSince(sessionId, sinceSeq);
+    if (resume && (resume.data || resume.reset)) {
+      ws.send(JSON.stringify({ type: "scrollback", data: resume.data, seq: resume.seq, reset: resume.reset }));
     }
 
     // Send connection info
@@ -2566,6 +2582,17 @@ export function setupTerminalWebSocket(
       shell: session.shell,
       cwd: session.cwd,
     }));
+
+    /*
+    FNXC:TerminalSharing 2026-08-19-02:45:
+    One PTY, one size, many viewers. Register this viewer so resizes agree on the SMALLEST attached
+    window instead of last-writer-wins, which left every other viewer rendering a stale column count.
+    */
+    const viewerId = `${sessionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const applyEffectiveViewport = () => {
+      const effective = terminalViewports.effectiveSize(sessionId);
+      if (effective) terminalService.resize(sessionId, effective.cols, effective.rows);
+    };
 
     // Subscribe to data events
     dataUnsub = terminalService.onData((id, data) => {
@@ -2640,7 +2667,8 @@ export function setupTerminalWebSocket(
             break;
           case "resize":
             if (typeof msg.cols === "number" && typeof msg.rows === "number") {
-              terminalService.resize(sessionId, msg.cols, msg.rows);
+              terminalViewports.set(sessionId, viewerId, { cols: msg.cols, rows: msg.rows });
+              applyEffectiveViewport();
             }
             break;
           case "ping":
@@ -2661,6 +2689,10 @@ export function setupTerminalWebSocket(
       clearInterval(pingInterval);
       if (dataUnsub) dataUnsub();
       if (exitUnsub) exitUnsub();
+      // FNXC:TerminalSharing 2026-08-19-02:45: a departing viewer no longer constrains the size, so
+      // the remaining viewers get their room back.
+      terminalViewports.remove(sessionId, viewerId);
+      applyEffectiveViewport();
       // Do NOT kill the PTY session on WebSocket close — the session should
       // survive transient disconnects and modal close/reopen cycles.  Sessions
       // are cleaned up through explicit kill paths (tab close, restart, shell
