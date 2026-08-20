@@ -1,4 +1,4 @@
-import { getScopedItem, removeScopedItem, setScopedItem } from "../utils/projectStorage";
+import { getScopedItem, MAX_PERSISTED_DRAFT_BYTES, removeScopedItem, setScopedItem } from "../utils/projectStorage";
 
 // Storage keys — each modal type has independent storage
 export const STORED_PLANNING_KEY = "kb-planning-last-description";
@@ -12,27 +12,16 @@ export const STORED_GITHUB_IMPORT_KEY = "kb-dashboard-github-import-state";
 /*
 FNXC:PlanningStorage 2026-08-06-14:56:
 Planning storage is optional restoration state, never a prerequisite for durable draft creation or streaming. On a write failure, evict only this exact project-scoped key, retry once, then swallow cleanup or retry failures so planning continues from React and server state.
-*/
-function savePlanningItem(baseKey: string, value: string, projectId?: string): void {
-  try {
-    setScopedItem(baseKey, value, projectId);
-  } catch {
-    try {
-      removeScopedItem(baseKey, projectId);
-    } catch {
-      // Best-effort eviction; ignore cleanup failures so planning continues.
-    }
 
-    try {
-      setScopedItem(baseKey, value, projectId);
-    } catch {
-      // Best-effort retry; ignore storage failures so planning continues.
-    }
-  }
+FNXC:PlanningStorage 2026-08-20-00:43:
+FN-9160 moves that retry ladder into the shared scoped-storage seam, which also reclaims stale volatile entries after repeated quota failures. Free-text modal drafts pass its byte cap; small session identifiers and JSON view state retain their existing behavior.
+*/
+function savePlanningItem(baseKey: string, value: string, projectId?: string, maxBytes?: number): void {
+  setScopedItem(baseKey, value, projectId, maxBytes === undefined ? undefined : { maxBytes });
 }
 
 export function savePlanningDescription(description: string, projectId?: string): void {
-  savePlanningItem(STORED_PLANNING_KEY, description, projectId);
+  savePlanningItem(STORED_PLANNING_KEY, description, projectId, MAX_PERSISTED_DRAFT_BYTES);
 }
 
 export function getPlanningDescription(projectId?: string): string {
@@ -62,7 +51,7 @@ export function clearPlanningActiveSession(projectId?: string): void {
 // Subtask persistence
 
 export function saveSubtaskDescription(description: string, projectId?: string): void {
-  setScopedItem(STORED_SUBTASK_KEY, description, projectId);
+  setScopedItem(STORED_SUBTASK_KEY, description, projectId, { maxBytes: MAX_PERSISTED_DRAFT_BYTES });
 }
 
 export function getSubtaskDescription(projectId?: string): string {
@@ -76,7 +65,7 @@ export function clearSubtaskDescription(projectId?: string): void {
 // Mission persistence
 
 export function saveMissionGoal(goal: string, projectId?: string): void {
-  setScopedItem(STORED_MISSION_KEY, goal, projectId);
+  setScopedItem(STORED_MISSION_KEY, goal, projectId, { maxBytes: MAX_PERSISTED_DRAFT_BYTES });
 }
 
 export function getMissionGoal(projectId?: string): string {

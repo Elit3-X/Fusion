@@ -1898,6 +1898,26 @@ describe("InlineCreateCard workflow selection at create time (FN-7591)", () => {
     await waitFor(() => expect(props.onSubmit).toHaveBeenCalled());
     expect(selectTaskWorkflow).not.toHaveBeenCalled();
   });
+
+  it("keeps the inline composer submit-ready when its scoped draft storage throws", async () => {
+    const projectId = "proj-9160";
+    const key = `kb:${projectId}:kb-inline-create-text`;
+    const onSubmit = vi.fn().mockResolvedValue({ id: "FN-9160" } as Task);
+    const addToast = vi.fn();
+    vi.spyOn(localStorage, "setItem").mockImplementation((storageKey) => {
+      if (storageKey === key) throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+    renderCard([], { projectId, onSubmit, addToast });
+    expandCard();
+    const textarea = screen.getByPlaceholderText("What needs to be done?");
+
+    expect(() => fireEvent.change(textarea, { target: { value: "inline task survives quota" } })).not.toThrow();
+    expect(textarea).toHaveValue("inline task survives quota");
+    expect(addToast).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("save-button"));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ description: "inline task survives quota" })));
+  });
 });
 
 });

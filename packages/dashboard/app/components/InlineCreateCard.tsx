@@ -14,7 +14,7 @@ import { NodeHealthDot } from "./NodeHealthDot";
 import { DuplicateWarningModal } from "./DuplicateWarningModal";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { applyPresetToSelection } from "../utils/modelPresets";
-import { getScopedItem, removeScopedItem, setScopedItem } from "../utils/projectStorage";
+import { getScopedItem, MAX_PERSISTED_DRAFT_BYTES, removeScopedItem, setScopedItem } from "../utils/projectStorage";
 import { WorkflowSelector } from "./WorkflowSelector";
 import { WorkflowOptionalStepsDropdown } from "./WorkflowOptionalStepsDropdown";
 import { PendingAttachmentPreviews } from "./PendingAttachmentPreviews";
@@ -153,6 +153,7 @@ export function InlineCreateCard({
   const [duplicateMatches, setDuplicateMatches] = useState<DuplicateMatch[] | null>(null);
   const [pendingSubmit, setPendingSubmit] = useState<CreateTaskInput | null>(null);
   const justResetRef = useRef(false);
+  const draftPersistenceWarningShownRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
@@ -162,12 +163,26 @@ export function InlineCreateCard({
     setDescription(getScopedItem(STORAGE_KEY, projectId) || "");
   }, [projectId]);
 
-  // Persist description to localStorage whenever it changes
+  /*
+  FNXC:QuickAddDraftPersistence 2026-08-20-00:43:
+  Inline Create keeps its React draft authoritative for submission. The localStorage restore mirror is capped and optional so a large paste never exhausts browser quota or interrupts the composer (Runfusion/Fusion#3477).
+  */
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setScopedItem(STORAGE_KEY, description, projectId);
+    if (description.length === 0) {
+      removeScopedItem(STORAGE_KEY, projectId);
+      return;
     }
-  }, [description, projectId]);
+
+    const persisted = setScopedItem(STORAGE_KEY, description, projectId, {
+      maxBytes: MAX_PERSISTED_DRAFT_BYTES,
+    });
+    if (persisted) {
+      draftPersistenceWarningShownRef.current = false;
+    } else if (!draftPersistenceWarningShownRef.current) {
+      draftPersistenceWarningShownRef.current = true;
+      addToast(t("tasks.draftTooLargeToSave", "Draft is too large to save in this browser — it will not be restored after a reload."), "warning");
+    }
+  }, [addToast, description, projectId, t]);
 
   // Clear agents cache when projectId changes to prevent stale agents from leaking across projects
   useEffect(() => {

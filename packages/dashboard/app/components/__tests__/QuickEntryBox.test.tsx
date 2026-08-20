@@ -6,7 +6,7 @@ import { expectStableTyping } from "./typingStability.test-helpers";
 import { TASK_PRIORITIES, type Task, type TaskPriority } from "@fusion/core";
 import { checkDuplicateTasks, fetchSettings, fetchAgents, uploadAttachment, fetchWorkflowOptionalSteps } from "../../api";
 import { useNodes } from "../../hooks/useNodes";
-import { scopedKey } from "../../utils/projectStorage";
+import { MAX_PERSISTED_DRAFT_BYTES, scopedKey } from "../../utils/projectStorage";
 import { getPriorityColorVar } from "../../utils/priorityIndicator";
 import { loadAllAppCss } from "../../test/cssFixture";
 import { readAppFile } from "../../test/cssFixture";
@@ -5457,6 +5457,40 @@ describe("QuickEntryBox", () => {
         unmount();
       }
 
+    });
+  });
+
+  describe("quota-safe draft persistence (FN-9160)", () => {
+    it("evicts an over-cap Quick Add draft and warns only once", () => {
+      const addToast = vi.fn();
+      localStorage.setItem(QUICK_ENTRY_STORAGE_KEY, "prior draft");
+      renderQuickEntryBox({ addToast });
+
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "x".repeat(MAX_PERSISTED_DRAFT_BYTES + 1) } });
+
+      expect(screen.getByTestId("quick-entry-input")).toHaveValue("x".repeat(MAX_PERSISTED_DRAFT_BYTES + 1));
+      expect(localStorage.getItem(QUICK_ENTRY_STORAGE_KEY)).toBeNull();
+      expect(addToast).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the reported scoped Quick Add draft usable and submit-ready when storage throws", async () => {
+      const onCreate = vi.fn().mockResolvedValue(undefined);
+      const addToast = vi.fn();
+      const setItem = vi.spyOn(localStorage, "setItem").mockImplementation((key) => {
+        if (key === QUICK_ENTRY_STORAGE_KEY) {
+          throw new DOMException("Quota exceeded", "QuotaExceededError");
+        }
+      });
+      renderQuickEntryBox({ onCreate, addToast });
+      const textarea = screen.getByTestId("quick-entry-input") as HTMLTextAreaElement;
+
+      expect(() => fireEvent.change(textarea, { target: { value: "still creates despite quota" } })).not.toThrow();
+      expect(textarea).toHaveValue("still creates despite quota");
+      expect(addToast).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByTestId("quick-entry-save"));
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ description: "still creates despite quota" })));
+      expect(setItem).toHaveBeenCalledWith(QUICK_ENTRY_STORAGE_KEY, "still creates despite quota");
     });
   });
 

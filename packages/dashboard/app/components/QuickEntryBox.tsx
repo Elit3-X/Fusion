@@ -11,7 +11,7 @@ import { DuplicateWarningModal } from "./DuplicateWarningModal";
 import { Link, Paperclip, Brain, Lightbulb, ListTree, Sparkles, Save, ChevronDown, ChevronUp, ChevronRight, Bot, Server, Zap, Eye, EyeOff, Play } from "lucide-react";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { LoadingSpinner } from "./LoadingSpinner";
-import { getScopedItem, removeScopedItem, setScopedItem } from "../utils/projectStorage";
+import { getScopedItem, MAX_PERSISTED_DRAFT_BYTES, removeScopedItem, setScopedItem } from "../utils/projectStorage";
 import { useNodes } from "../hooks/useNodes";
 import { useComposerDictation } from "../hooks/useComposerDictation";
 import { MicButton } from "./MicButton";
@@ -184,6 +184,7 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
   const touchButtonRef = useRef<HTMLButtonElement | null>(null);
   const startIntentRef = useRef<ValidatedQuickAddWorkflow | null>(null);
   const justResetRef = useRef(false);
+  const draftPersistenceWarningShownRef = useRef(false);
   const previousProjectIdRef = useRef(projectId);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
@@ -502,12 +503,26 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
     setDescription(getScopedItem(STORAGE_KEY, projectId) || "");
   }, [projectId]);
 
-  // Persist description to localStorage whenever it changes
+  /*
+  FNXC:QuickAddDraftPersistence 2026-08-20-00:43:
+  Quick Add's in-memory draft remains authoritative for task creation. Browser restoration is best-effort and capped so a pasted description cannot exhaust localStorage or interrupt typing (Runfusion/Fusion#3477).
+  */
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setScopedItem(STORAGE_KEY, description, projectId);
+    if (description.length === 0) {
+      removeScopedItem(STORAGE_KEY, projectId);
+      return;
     }
-  }, [description, projectId]);
+
+    const persisted = setScopedItem(STORAGE_KEY, description, projectId, {
+      maxBytes: MAX_PERSISTED_DRAFT_BYTES,
+    });
+    if (persisted) {
+      draftPersistenceWarningShownRef.current = false;
+    } else if (!draftPersistenceWarningShownRef.current) {
+      draftPersistenceWarningShownRef.current = true;
+      addToast(t("tasks.draftTooLargeToSave", "Draft is too large to save in this browser — it will not be restored after a reload."), "warning");
+    }
+  }, [addToast, description, projectId, t]);
 
   // Clear agents cache when projectId changes to prevent stale agents from leaking across projects
   useEffect(() => {

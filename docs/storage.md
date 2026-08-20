@@ -322,18 +322,18 @@ High-level finding: the dashboard currently uses localStorage extensively for UX
 | `kb-dashboard-current-project` | `hooks/useCurrentProject.ts` | JSON `ProjectInfo` object (includes id/name/path/status/etc.) | project/identity | **Medium** |
 | `kb-terminal-tabs` | `hooks/useTerminalSessions.ts` | JSON array of tab objects (`id`, `sessionId`, `title`, active state, timestamp) | UI preference (operational session state) | **High** |
 | `fn-agent-tree-expanded` | `hooks/useAgentHierarchy.ts` | JSON string[] of expanded agent ids | UI preference | Low |
-| `kb-planning-last-description` | `hooks/modalPersistence.ts` (used by `PlanningModeModal`) | free-text draft | user draft | Medium |
-| `kb-subtask-last-description` | `hooks/modalPersistence.ts` (used by `SubtaskBreakdownModal`) | free-text draft | user draft | Medium |
-| `kb-mission-last-goal` | `hooks/modalPersistence.ts` (used by `MissionInterviewModal`) | free-text draft | user draft | Medium |
+| `kb-planning-last-description` | `hooks/modalPersistence.ts` (used by `PlanningModeModal`) | free-text draft (best-effort; 64,000-byte cap) | user draft | Medium |
+| `kb-subtask-last-description` | `hooks/modalPersistence.ts` (used by `SubtaskBreakdownModal`) | free-text draft (best-effort; 64,000-byte cap) | user draft | Medium |
+| `kb-mission-last-goal` | `hooks/modalPersistence.ts` (used by `MissionInterviewModal`) | free-text draft (best-effort; 64,000-byte cap) | user draft | Medium |
 | `kb-dashboard-view-mode` | `App.tsx` | enum string (`overview`/`project`) | UI preference | Low |
 | `kb-dashboard-task-view` | `App.tsx` | enum string (`board`/`list`/`agents`) | UI preference | Low |
 | `kb-dashboard-list-columns` | `components/ListView.tsx` | JSON array of visible list columns | UI preference | Low |
 | `kb-dashboard-hide-done` | `components/ListView.tsx` | boolean string (`"true"`/`"false"`) | UI preference | Low |
 | `kb-dashboard-list-collapsed` | `components/ListView.tsx` | JSON array of collapsed column ids | UI preference | Low |
 | `kb-dashboard-selected-tasks` | `components/ListView.tsx` | JSON array of selected task IDs | UI preference | **Medium** |
-| `kb-quick-entry-text` | `components/QuickEntryBox.tsx` | free-text task draft | user draft | Medium |
+| `kb-quick-entry-text` | `components/QuickEntryBox.tsx` | free-text task draft (best-effort; 64,000-byte cap) | user draft | Medium |
 | `kb-quick-entry-expanded` | `components/QuickEntryBox.tsx` (legacy cleanup via `removeItem`) | legacy bool key (no longer used) | UI preference | Low |
-| `kb-inline-create-text` | `components/InlineCreateCard.tsx` | free-text task draft | user draft | Medium |
+| `kb-inline-create-text` | `components/InlineCreateCard.tsx` | free-text task draft (best-effort; 64,000-byte cap) | user draft | Medium |
 | `fn-agent-view` | `components/AgentsView.tsx`, `components/AgentListModal.tsx` | enum string (`board`/`list`/`tree` in view; modal supports board/list) | UI preference | Medium |
 | `kb-usage-view-mode` | `components/UsageIndicator.tsx` | enum string (`used`/`remaining`) | UI preference | Low |
 | `kb-dashboard-recent-projects` | `components/ProjectOverview.tsx` | JSON array of recent project IDs | project/identity | Low |
@@ -611,49 +611,54 @@ The PostgreSQL-era runtime writes `.fusion/project.json`. Startup reads this leg
    - **Problem:** Theme is persisted in both localStorage (`kb-dashboard-theme-mode`, `kb-dashboard-color-theme`) and backend global settings (`themeMode`, `colorTheme`), but app bootstrap uses localStorage-only theme hydration. If backend and browser cache diverge, cross-device consistency breaks.  
    - **Recommended fix:** Make backend global settings the source of truth (or explicitly define local cache precedence + bidirectional sync strategy and conflict resolution).
 
-2. **Project-unscoped localStorage keys in multi-project UX state**  
+2. **Draft persistence quota exhaustion (#3477) — resolved**
+   - **Severity:** Medium
+   - **Affected:** `kb-quick-entry-text`, `kb-inline-create-text`, `kb-planning-last-description`, `kb-subtask-last-description`, `kb-mission-last-goal`
+   - **Resolution:** Scoped writes are throw-safe and retry after exact-key eviction; repeated quota failures reclaim stale other-project volatile drafts and stale dashboard SWR envelopes. Free-text drafts are capped at 64,000 bytes and remain in memory when they cannot be restored, so **Clear local data** is no longer a workaround for draft-driven saturation.
+
+3. **Project-unscoped localStorage keys in multi-project UX state**
    - **Severity:** High  
    - **Affected:** `App.tsx`, `ListView.tsx`, `QuickEntryBox.tsx`, `InlineCreateCard.tsx`, `AgentsView.tsx`, `useTerminalSessions.ts`, `useAgentHierarchy.ts`, `UsageIndicator.tsx`  
    - **Problem:** Many keys are global (`kb-dashboard-task-view`, `kb-dashboard-list-*`, `kb-dashboard-selected-tasks`, `kb-quick-entry-text`, `kb-inline-create-text`, `kb-terminal-tabs`, etc.) and are reused across projects. This can leak preferences/drafts/selections between projects unexpectedly.  
    - **Recommended fix:** Namespace project-specific keys with `projectId` (e.g., `kb:{projectId}:dashboard-list-columns`). Keep only true global prefs unscoped.
 
-3. **`kb-dashboard-selected-tasks` can carry stale selections across projects**  
+4. **`kb-dashboard-selected-tasks` can carry stale selections across projects**
    - **Severity:** Medium  
    - **Affected:** `components/ListView.tsx`  
    - **Problem:** Selected task IDs persist globally. In multi-project setups with overlapping ID patterns, stale selections can reappear and affect bulk operations unexpectedly.  
    - **Recommended fix:** Project-scope this key, and/or treat selection as in-memory/session-only state.
 
-4. **Terminal session persistence stores operational identifiers in localStorage**  
+5. **Terminal session persistence stores operational identifiers in localStorage**
    - **Severity:** Medium  
    - **Affected:** `hooks/useTerminalSessions.ts` (`kb-terminal-tabs`)  
    - **Problem:** Session IDs and tab metadata persist client-side and are not project-scoped. This is operational state better owned by backend/session layer; stale tabs also survive cache until cleanup logic runs.  
    - **Recommended fix:** Move terminal tab/session state to server persistence (or at minimum sessionStorage + project scoping + TTL/versioning).
 
-5. **Current project persistence stores full `ProjectInfo` object (includes filesystem path)**  
+6. **Current project persistence stores full `ProjectInfo` object (includes filesystem path)**
    - **Severity:** Medium  
    - **Affected:** `hooks/useCurrentProject.ts` (`kb-dashboard-current-project`)  
    - **Problem:** Storing full project objects increases drift risk and stores more data than needed (including local path).  
    - **Recommended fix:** Persist only stable `projectId`; resolve current object from backend project list each load.
 
-6. **Draft persistence is local-only (device/browser-bound)**  
+7. **Draft persistence is local-only (device/browser-bound)**
    - **Severity:** Medium  
    - **Affected:** `modalPersistence.ts`, `QuickEntryBox.tsx`, `InlineCreateCard.tsx`  
    - **Problem:** Planning/subtask/mission/task-entry drafts are lost on storage clear or browser/device switch.  
    - **Recommended fix:** Keep local quick-draft behavior, but add optional server-backed drafts (short TTL) for continuity.
 
-7. **Settings scope key lists drift from interfaces**  
+8. **Settings scope key lists drift from interfaces**
    - **Severity:** Medium  
    - **Affected:** `packages/core/src/types.ts`, `store.ts`, `routes.ts`, `SettingsModal.tsx`  
    - **Problem:** `GLOBAL_SETTINGS_KEYS` (14) omits `setupComplete`, `favoriteProviders`, `favoriteModels`; `PROJECT_SETTINGS_KEYS` (52) omits 9 project interface keys (`strictScopeEnforcement`, `buildRetryCount`, `buildTimeoutMs`, `autoUnpause*`, `maintenanceIntervalMs`, `scripts`, `setupScript`). This creates scope-classification and patch-filter inconsistencies.  
    - **Recommended fix:** Generate key lists from schema/interface source (or enforce parity tests) to prevent drift.
 
-8. **`fn-agent-view` shared by two UIs with different supported modes**  
+9. **`fn-agent-view` shared by two UIs with different supported modes**
    - **Severity:** Low  
    - **Affected:** `AgentsView.tsx`, `AgentListModal.tsx`  
    - **Problem:** Both share the same key, but one surface supports `tree` and the modal supports only `board/list`; behavior remains valid but coupling is implicit.  
    - **Recommended fix:** Decide intentional shared behavior and document it; otherwise split keys by surface.
 
-9. **Workflow steps still persisted in config JSON compatibility path (known in-progress work)**  
+10. **Workflow steps still persisted in config JSON compatibility path (known in-progress work)**
    - **Severity:** Low  
    - **Affected:** `config.settings/workflowSteps`, `db.ts` config table  
    - **Problem (historical audit):** Workflow step storage was tied to config blob structure; **FN-1201** moved it to a dedicated table before the PostgreSQL cutover.
