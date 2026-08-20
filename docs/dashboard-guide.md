@@ -326,8 +326,8 @@ Features:
 
 <!-- FNXC:TaskCardMovement 2026-08-19-18:52: Board and List task relocation is intentionally menu-only, so native card dragging cannot bypass the same explicit Move to choice on desktop, keyboard, and touch surfaces. -->
 - Move a task from its context menu: right-click on desktop, use the overflow button or keyboard Context Menu/Shift+F10, or long-press on touch. When several legal destinations exist, open the grouped **Move to** submenu; a single destination remains a direct action. This changes task movement only—subtasks still use drag-to-reorder.
-<!-- FNXC:BoardNavigation 2026-08-19-19:10: Board mouse press-drag must remain available for ordinary text selection and never script horizontal scrolling; desktop navigation stays browser-owned while phone touch retains its separate magnetic settle. -->
-- On desktop, use native wheel, trackpad, scrollbar, and keyboard scrolling to traverse Board columns. Dragging Board text or whitespace does not pan the column strip. Phones continue to use native touch scrolling and mobile-only column snapping.
+<!-- FNXC:BoardNavigation 2026-08-20-02:44: Desktop Board background dragging is intentional only when the primary mouse starts directly on the bare overflowing Board root; text, cards, and controls stay native, and edge proximity can never start or continue scrolling. -->
+- On desktop, click-hold and drag the bare Board background to pan columns by actual pointer movement. Text, task cards, and controls retain their normal selection and interaction behavior; approaching an edge never auto-scrolls. Native wheel, trackpad, scrollbar, and keyboard scrolling remain available. Phones continue to use native touch scrolling and mobile-only column snapping.
 - Search/filter tasks (including working-branch and base-branch dropdown filters with explicit **No working branch** / **No base branch** options)
 - Working-branch and base-branch filter selections are persisted per project and restored across refresh/navigation
 - Column visibility controls

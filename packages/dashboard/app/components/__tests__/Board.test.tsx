@@ -2041,7 +2041,34 @@ describe("Board", () => {
       ]);
     });
 
-    it("does not pan selected or All-workflows Boards when dragging empty-column text or safe whitespace", async () => {
+    it("pans selected and All-workflows Board roots only while the pointer moves", async () => {
+      enableFlag(
+        { "FN-1": "builtin:coding", "FN-2": "wf-custom" },
+        [DEFAULT_WORKFLOW, CUSTOM_WORKFLOW],
+      );
+      renderBoard({ tasks: [mkTask({ id: "FN-1" }), mkTask({ id: "FN-2", column: "intake" })] });
+
+      const selectedBoard = screen.getByRole("main") as HTMLElement;
+      makeBoardHorizontallyScrollable(selectedBoard);
+      fireEvent.pointerDown(selectedBoard, { button: 0, clientX: 100, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerMove(selectedBoard, { clientX: 40, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      expect(selectedBoard.scrollLeft).toBe(160);
+      expect(selectedBoard).toHaveClass("is-mouse-panning");
+      fireEvent.pointerUp(selectedBoard, { pointerId: 1, pointerType: "mouse" });
+      expect(selectedBoard).not.toHaveClass("is-mouse-panning");
+      expect(selectedBoard.scrollLeft).toBe(160);
+
+      await selectWorkflow(ALL_WORKFLOWS_BOARD_VIEW_ID);
+      const aggregateBoard = screen.getByRole("main") as HTMLElement;
+      makeBoardHorizontallyScrollable(aggregateBoard);
+      fireEvent.pointerDown(aggregateBoard, { button: 0, clientX: 100, clientY: 50, pointerId: 2, pointerType: "mouse" });
+      fireEvent.pointerMove(aggregateBoard, { clientX: 40, clientY: 50, pointerId: 2, pointerType: "mouse" });
+      expect(aggregateBoard.scrollLeft).toBe(160);
+      fireEvent.pointerUp(aggregateBoard, { pointerId: 2, pointerType: "mouse" });
+      expect(aggregateBoard.scrollLeft).toBe(160);
+    });
+
+    it("keeps empty text and non-overflow Board surfaces outside mouse panning", async () => {
       enableFlag(
         { "FN-1": "builtin:coding", "FN-2": "wf-custom" },
         [DEFAULT_WORKFLOW, CUSTOM_WORKFLOW],
@@ -2052,17 +2079,16 @@ describe("Board", () => {
       makeBoardHorizontallyScrollable(selectedBoard);
       dispatchMouseDrag(within(selectedBoard).getAllByText("No tasks")[0]);
       expect(selectedBoard.scrollLeft).toBe(100);
-      expect(selectedBoard.className).toBe("board board-workflow-columns");
+
+      Object.defineProperty(selectedBoard, "scrollWidth", { configurable: true, value: 200 });
+      dispatchMouseDrag(selectedBoard, 2);
+      expect(selectedBoard.scrollLeft).toBe(100);
 
       await selectWorkflow(ALL_WORKFLOWS_BOARD_VIEW_ID);
       const aggregateBoard = screen.getByRole("main") as HTMLElement;
       makeBoardHorizontallyScrollable(aggregateBoard);
-      dispatchMouseDrag(within(aggregateBoard).getAllByText("No tasks")[0], 2);
+      dispatchMouseDrag(within(aggregateBoard).getAllByText("No tasks")[0], 3);
       expect(aggregateBoard.scrollLeft).toBe(100);
-      // A populated Board's own safe whitespace must likewise remain browser-owned.
-      dispatchMouseDrag(aggregateBoard, 3);
-      expect(aggregateBoard.scrollLeft).toBe(100);
-      expect(aggregateBoard.className).toBe("board board-workflow-columns");
     });
 
     it("keeps touch and task-card interactions native", async () => {

@@ -98,17 +98,18 @@ describe("mobile board magnetic column snap wiring (FN-8235)", () => {
   remain are the selected and aggregate workflow-column renders, and the point of this guard is that
   BOTH share the one scroll-snap hook, which still holds.
   */
-  it("shares the mobile scroll-end hook across the selected and aggregate live board renders", () => {
+  it("shares mobile snap and bounded mouse-pan wiring across the selected and aggregate live boards", () => {
     const boardSource = readAppFile("components/Board.tsx");
 
     expect(boardSource).toContain('import { useColumnScrollSnap } from "../hooks/useColumnScrollSnap";');
+    expect(boardSource).toContain('import { useBoardMousePan } from "../hooks/useBoardMousePan";');
     expect(boardSource).toContain("useColumnScrollSnap(boardElement, { mobileOnly: true });");
+    expect(boardSource).toContain("useBoardMousePan(boardElement)");
     expect(boardSource.match(/ref=\{setBoardRef\}/g)).toHaveLength(2);
-    expect(boardSource.match(/className="board board-workflow-columns"/g)).toHaveLength(2);
-    expect(boardSource).not.toContain("useBoardMousePan");
-    expect(boardSource).not.toContain("is-mouse-panning");
-    expect(readAppFile("components/Board.css")).not.toContain(".is-mouse-panning");
-    // FNXC:BoardNavigation 2026-08-19-19:10: The legacy live Board path stays removed; only the two stable workflow views mount the shared ref.
+    expect(boardSource.match(/\{\.\.\.boardMousePanBindings\}/g)).toHaveLength(2);
+    expect(boardSource.match(/className=\{boardClassName\}/g)).toHaveLength(2);
+    expect(readAppFile("components/Board.css")).toContain(".board.board-workflow-columns.is-mouse-panning");
+    // FNXC:BoardNavigation 2026-08-20-02:44: The skeleton stays outside both live interaction owners.
     expect(boardSource).not.toContain('<main className="board" id="board" ref={setBoardRef}>');
   });
 });

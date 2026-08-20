@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { promoteTask, type ModelInfo, type BoardWorkflowsPayload, type BoardWorkflowColumn, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { useBlockerFanout, type BlockerFanoutColumnFlags } from "../hooks/useBlockerFanout";
 import { useColumnScrollSnap } from "../hooks/useColumnScrollSnap";
+import { useBoardMousePan } from "../hooks/useBoardMousePan";
 import { MOBILE_MEDIA_QUERY, useViewportMode } from "../hooks/useViewportMode";
 import { recordResumeEvent } from "../utils/resumeInstrumentation";
 import { WorkflowSwitcher } from "./WorkflowSwitcher";
@@ -226,11 +227,13 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
   }, []);
   useColumnScrollSnap(boardElement, { mobileOnly: true });
   /*
-  FNXC:BoardNavigation 2026-08-19-19:10:
-  Mouse press-drag must not pan the Board: it can begin text selection on empty-column content and
-  must leave desktop scrolling browser-owned. Both live workflow views retain this callback ref so
-  the mobile-only touch magnetism hook still attaches after either Board variant mounts.
+  FNXC:BoardNavigation 2026-08-20-02:44:
+  Selected and All-workflows Board roots share one bounded mouse-pan hook, while the loading
+  skeleton remains unbound and mobile touch remains owned by the separate snap hook. Direct-root
+  drags alone can pan; this wiring must not turn cards, text, or controls into navigation surfaces.
   */
+  const { isPanning: isBoardMousePanning, ...boardMousePanBindings } = useBoardMousePan(boardElement);
+  const boardClassName = `board board-workflow-columns${isBoardMousePanning ? " is-mouse-panning" : ""}`;
   const [headerWorkflowSlot, setHeaderWorkflowSlot] = useState<HTMLElement | null>(() => {
     if (typeof document === "undefined") return null;
     return document.getElementById("header-workflow-slot");
@@ -940,9 +943,10 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
         <div className="board-workflow-view">
           {renderedWorkflowToolbar}
           <main
-            className="board board-workflow-columns"
+            className={boardClassName}
             id="board"
             ref={setBoardRef}
+            {...boardMousePanBindings}
           >
             {aggregateRenderedBoardColumns.map((columnDef) => {
               const isCreateColumn = aggregateQuickCreateTarget?.columnId === columnDef.id;
@@ -1036,9 +1040,10 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
       <div className="board-workflow-view">
         {renderedWorkflowToolbar}
         <main
-          className="board board-workflow-columns"
+          className={boardClassName}
           id="board"
           ref={setBoardRef}
+          {...boardMousePanBindings}
         >
           {selectedWorkflowColumns.map((columnDef) => {
             const isCreateColumn = columnDef.id === selectedWorkflowCreateColumnId;
