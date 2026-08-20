@@ -3765,13 +3765,19 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             throw conflict(`Reset incomplete; runtime finalization failed: ${error instanceof Error ? error.message : String(error)}`);
           }
 
-          const publish = (scopedStore as TaskStore & {
+          const storeWithPublisher = scopedStore as TaskStore & {
             resetTaskPublication?: (taskId: string, intake: string) => Promise<Task>;
-          }).resetTaskPublication;
-          if (typeof publish !== "function") {
+          };
+          if (typeof storeWithPublisher.resetTaskPublication !== "function") {
             throw new Error("Atomic task reset publication is unavailable");
           }
-          return publish(req.params.id, intakeColumn);
+          /*
+          FNXC:TaskReset 2026-08-20-05:53:
+          Reset publication is a TaskStore instance method whose PostgreSQL implementation reads
+          `this.asyncLayer`. Invoke it through the scoped store so the atomic publisher retains its
+          project-scoped receiver after cleanup and runtime finalization.
+          */
+          return storeWithPublisher.resetTaskPublication(req.params.id, intakeColumn);
         } finally {
           if (reservation?.state === "held") {
             try {
