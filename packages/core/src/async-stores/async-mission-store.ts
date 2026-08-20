@@ -3021,6 +3021,7 @@ export class AsyncMissionStore extends EventEmitter<MissionStoreEvents> {
           title: taskTitle || feature.title,
           description,
           branch: branchAssignment.workingBranch,
+          ...(branchAssignment.workingBranch ? {branchWriteOrigin: branchAssignment.branchWriteOrigin ?? "engine" as const} : {}),
           baseBranch: resolvedBaseBranch,
           ...(missionId
             ? {

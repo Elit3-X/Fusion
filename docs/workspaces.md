@@ -65,6 +65,12 @@ The tool accepts only a configured repository name and returns an isolated, task
 
 Fusion adds acquired member paths to the task's active-worktree set, so liveness and ownership checks see the root plus every active member worktree. A live remembered worktree is reused across a resumed task or executor restart. If another task is acquiring the same member, the tool returns a temporary busy error asking the agent to retry `fn_acquire_repo_worktree` shortly; acquire a different member or retry rather than editing the original repository checkout.
 
+### Custom working branches
+
+In the task form's **Advanced** branch controls, an operator can enter one branch name for a workspace task. Fusion validates the name as a safe Git branch/ref name: it rejects empty or whitespace-padded names, spaces or control characters, `..`, `@{`, a leading `-`, empty path segments, dot-prefixed segments, and trailing `.` or `.lock` segments. Fusion applies the exact valid name in every acquired sub-repository. If the branch already exists in a member repository, Fusion attaches to it without recreating it; it still refuses a branch that is checked out by another live worktree.
+
+Fusion records whether a branch was written by an operator or by Fusion. An operator-supplied branch is retained after merge, teardown, and recovery, including a name under the `fusion/` namespace, and PR creation uses it as the head branch. Fusion continues to clean up branches it created itself, including canonical `fusion/<task-id>` branches and entry-point-derived branch-group branches. Ownership follows recorded write provenance, not a branch-name prefix: editing a branch-group task transfers the selected branch to the operator; a later Fusion group reassignment takes ownership back. Shared-group members still work on their canonical task branch. Older tasks without a provenance marker retain their existing behavior.
+
 ## Choosing the base branch
 
 Set a task's `baseBranch` in the New Task form or Task Detail to choose the base for a workspace task. At acquisition, Fusion verifies that ref independently in every sub-repository. Where it resolves, it is that worktree's start point, base-SHA anchor, land target, and revert target. Where it does not resolve, Fusion safely falls back to that repository's own integration branch rather than failing acquisition; the requested and selected refs are recorded in the task log and Task Detail, while run audit stores only the task/repository identifiers and fixed decision outcome.

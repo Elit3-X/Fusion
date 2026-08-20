@@ -364,6 +364,18 @@ export type TaskBranchAssignmentMode = "shared" | "per-task-derived";
 
 export interface TaskBranchContext {
   /**
+   * FNXC:BranchNaming 2026-08-20-03:40:
+   * A branch override records operator ownership at the same write boundary as
+   * `Task.branch`. It intentionally survives without branch-group fields: an
+   * operator-owned `fusion/...` name must never be mistaken for Fusion-owned.
+   */
+  branchOverride?: {
+    by: "operator";
+    at: string;
+    branch: string;
+    previousBranch?: string;
+  };
+  /**
    * The owning BranchGroup id (`BG-…`). Only set for shared-mode members that
    * were actually assigned to an ensured branch group. Non-shared members
    * (per-task-derived) carry branch context (source/assignmentMode) without a
@@ -371,8 +383,10 @@ export interface TaskBranchContext {
    * synthetic-groupId membership fallback (see filterTasksByBranchGroup).
    */
   groupId?: string;
-  source: TaskBranchGroupSource;
-  assignmentMode: TaskBranchAssignmentMode;
+  /** Omitted for a provenance-only operator override payload. */
+  source?: TaskBranchGroupSource;
+  /** Omitted for a provenance-only operator override payload. */
+  assignmentMode?: TaskBranchAssignmentMode;
   inheritedBaseBranch?: string;
 }
 
@@ -1491,6 +1505,8 @@ export interface TaskCreateInput {
   baseBranch?: string;
   /** Actual git working branch name used for this task's worktree. */
   branch?: string;
+  /** Required with `branch` so durable ownership never has to guess the writer. */
+  branchWriteOrigin?: "operator" | "engine";
   /** Optional planning/mission branch-group metadata carried across related tasks. */
   branchContext?: TaskBranchContext;
   /**

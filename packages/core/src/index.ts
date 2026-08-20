@@ -65,12 +65,19 @@ export {
   deriveAutoTaskBranchName,
   isValidBranchGroupBranchName,
   validateBranchGroupBranchName,
+  isValidTaskBranchName,
+  validateTaskBranchName,
+  classifyTaskBranchOrigin,
+  isFusionDeletableBranch,
+  isOperatorAttachEligibleBranch,
+  resolveTaskPrHeadBranch,
   filterTasksByBranchGroup,
 } from "./branch/branch-assignment.js";
 export type {
   EntryPointAssignmentMode,
   EntryPointBranchAssignmentInput,
   EntryPointBranchAssignment,
+  TaskBranchOrigin,
 } from "./branch/branch-assignment.js";
 export { customProviderRegistryKey } from "./ai/custom-provider-key.js";
 export {

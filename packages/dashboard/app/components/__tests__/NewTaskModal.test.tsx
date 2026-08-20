@@ -1216,6 +1216,18 @@ describe("NewTaskModal", () => {
     expect(props.onCreateTask).not.toHaveBeenCalled();
   });
 
+  it("rejects an invalid custom branch name before submitting", () => {
+    const { props } = renderNewTaskModal();
+
+    fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), { target: { value: "Task with malformed branch" } });
+    fireEvent.change(screen.getByLabelText("Branch strategy"), { target: { value: "custom-new" } });
+    fireEvent.change(screen.getByLabelText("Branch name"), { target: { value: "feature/has space" } });
+
+    expect(screen.getByRole("button", { name: "Create Task" })).toBeDisabled();
+    expect(screen.getAllByText("Enter a valid Git branch name (no spaces or ref punctuation).").length).toBeGreaterThan(0);
+    expect(props.onCreateTask).not.toHaveBeenCalled();
+  });
+
   it("submits custom-new branch selection when branch name exists", async () => {
     const { props } = renderNewTaskModal();
 

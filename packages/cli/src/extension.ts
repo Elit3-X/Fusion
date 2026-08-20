@@ -2584,7 +2584,7 @@ export default function kbExtension(pi: ExtensionAPI) {
           status: null,
           error: null,
           worktree: null,
-          branch: null,
+          branch: null, branchWriteOrigin: "engine" as const,
           sessionFile: null,
           ...autoPauseClearPatch,
           ...buildManualRetryResetPatch({ resetMergeRetries: true }),

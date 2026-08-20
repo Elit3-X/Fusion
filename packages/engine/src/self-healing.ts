@@ -41,6 +41,7 @@ import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_
   resolveAgentActivityAttribution,
   resolveEngineIncarnationId,
   resolveEngineNodeId,
+  isFusionDeletableBranch,
 } from "@fusion/core";
 import { finalizePlanningSegment } from "@fusion/core";
 import type { WorkspaceLandIntent } from "@fusion/core";
@@ -1275,7 +1276,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         : { ok: false, classification: cls.classification, reason: cls.reason };
       worktreeUnusable = !cls.ok;
     } else {
-      const expected = canonicalFusionBranchName(task.id);
+      const expected = resolveTaskWorkingBranch(task);
       const registeredPaths = await getRegisteredWorktreePaths(this.options.rootDir);
       const registeredBranchMap = await getRegisteredWorktreeBranchMap(this.options.rootDir);
       const matchingRegisteredPaths = [...registeredPaths].filter((path) => {
@@ -2702,6 +2703,10 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     }
 
     const branch = resolveTaskWorkingBranch(task);
+    if (!isFusionDeletableBranch(task, branch)) {
+      log.log(`Kept operator-supplied branch ${branch} for ${task.id}`);
+      return;
+    }
     try {
       await execAsync(`git branch -D ${shellQuote(branch)}`, {
         cwd: this.options.rootDir,
@@ -4074,7 +4079,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         return withPerPr({ outcome: "skipped", reason: "stale" });
       }
       if (inspection.kind === "stale-resolved") {
-        await this.store.updateTask(task.id, { worktree: null, branch: null, baseCommitSha: null });
+        await this.store.updateTask(task.id, { worktree: null, branch: null, branchWriteOrigin: "engine" as const, baseCommitSha: null });
         await auditor.database({ type: "task:pr-conflict-reclaim", target: task.id, metadata: { outcome: "stale-resolved" } });
         return withPerPr({ outcome: "stale-resolved" });
       }
@@ -4117,8 +4122,10 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         if (canAutoReclaimLiveZero) {
           await removeWorktree({ rootDir: this.options.rootDir, worktreePath: inspection.livePath, settings, taskId: task.id, reason: RemovalReason.SelfHealingBranchConflict });
           await execAsync("git worktree prune", { cwd: this.options.rootDir, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
-          await execAsync(`git branch -D ${JSON.stringify(task.branch)}`, { cwd: this.options.rootDir, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
-          await this.store.updateTask(task.id, { worktree: null, branch: null, paused: false, pausedReason: undefined, status: null, error: null });
+          if (isFusionDeletableBranch(task, task.branch)) {
+            await execAsync(`git branch -D ${JSON.stringify(task.branch)}`, { cwd: this.options.rootDir, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
+          }
+          await this.store.updateTask(task.id, { worktree: null, branch: null, branchWriteOrigin: "engine" as const, paused: false, pausedReason: undefined, status: null, error: null });
           await auditor.database({ type: "task:pr-conflict-reclaim", target: task.id, metadata: { outcome: "reclaimed", mode: "fully-subsumed", recoveredFromPaused: wasPausedBranchConflict } });
           return withPerPr({ outcome: "reclaimed" });
         }
@@ -4500,7 +4507,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           if (inspection.kind === "stale-resolved") {
             await this.store.updateTask(task.id, {
               worktree: null,
-              branch: null,
+              branch: null, branchWriteOrigin: "engine" as const,
               baseCommitSha: null,
             });
             await this.store.logEntry(
@@ -4589,15 +4596,17 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
                 timeout: 120_000,
                 maxBuffer: 10 * 1024 * 1024,
               });
-              await execAsync(`git branch -D ${JSON.stringify(branchName)}`, {
-                cwd: this.options.rootDir,
+              if (isFusionDeletableBranch(task, branchName)) {
+                await execAsync(`git branch -D ${JSON.stringify(branchName)}`, {
+                  cwd: this.options.rootDir,
                 timeout: 120_000,
-                maxBuffer: 10 * 1024 * 1024,
-              });
+                  maxBuffer: 10 * 1024 * 1024,
+                });
+              }
 
               await this.store.updateTask(task.id, {
                 worktree: null,
-                branch: null,
+                branch: null, branchWriteOrigin: "engine" as const,
                 baseCommitSha: null,
                 paused: false,
                 pausedReason: undefined,
@@ -4719,15 +4728,17 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
                   timeout: 120_000,
                   maxBuffer: 10 * 1024 * 1024,
                 });
-                await execAsync(`git branch -D ${JSON.stringify(task.branch)}`, {
-                  cwd: this.options.rootDir,
+                if (isFusionDeletableBranch(task, task.branch)) {
+                  await execAsync(`git branch -D ${JSON.stringify(task.branch)}`, {
+                    cwd: this.options.rootDir,
                   timeout: 120_000,
-                  maxBuffer: 10 * 1024 * 1024,
-                });
+                    maxBuffer: 10 * 1024 * 1024,
+                  });
+                }
 
                 await this.store.updateTask(task.id, {
                   worktree: null,
-                  branch: null,
+                  branch: null, branchWriteOrigin: "engine" as const,
                   paused: false,
                   pausedReason: undefined,
                   status: null,
@@ -5156,6 +5167,10 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           ? "complete-column-unique-commits-force"
           : "zero-unique-commits-no-worktree";
 
+        if (!isFusionDeletableBranch(task, branch)) {
+          log.log(`[self-healing] kept operator-supplied branch ${branch} for ${task.id}`);
+          continue;
+        }
         await execAsync(`git branch -D ${JSON.stringify(branch)}`, {
           cwd: this.options.rootDir,
           timeout: 120_000,
@@ -5172,7 +5187,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
 
         await this.store.updateTask(task.id, {
           worktree: null,
-          branch: null,
+          branch: null, branchWriteOrigin: "engine" as const,
           baseCommitSha: null,
         });
         await this.store.logEntry(
@@ -5246,6 +5261,11 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         timeout: 30_000,
       });
     } catch {
+      return false;
+    }
+
+    if (!isFusionDeletableBranch(task, branchName)) {
+      log.log(`[self-healing] reconcileCompletedTask ${task.id}: kept operator-supplied branch ${branchName}`);
       return false;
     }
 
@@ -5485,7 +5505,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           if (task) {
             const patch = {
               worktree: null as string | null,
-              ...(task.branch === branchName ? { branch: null as string | null } : {}),
+              ...(task.branch === branchName ? { branch: null as string | null, branchWriteOrigin: "engine" as const } : {}),
             };
             await this.store.updateTask(task.id, patch as Partial<Task>);
           }
@@ -5893,7 +5913,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         if (executingIds.has(task.id)) continue;
         if (activeSessionRegistry.isPathActive(task.worktree)) continue;
 
-        const normalizedBranch = canonicalFusionBranchName(task.id);
+        const normalizedBranch = resolveTaskWorkingBranch(task);
         const resolvedTaskWorktree = resolve(task.worktree);
         const realpathTaskWorktree = safeRealpath(resolvedTaskWorktree);
         const stale = !existsSync(task.worktree) || !registeredRealpaths.has(realpathTaskWorktree);
@@ -5904,7 +5924,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         const liveWorktree = branchMap.get(normalizedBranch);
 
         if (liveWorktree) {
-          await this.store.updateTask(task.id, { worktree: liveWorktree, branch: normalizedBranch });
+          await this.store.updateTask(task.id, { worktree: liveWorktree });
           await this.emitWorktreeMetadataAuditEvent({
             taskId: task.id,
             mutationType: "task:auto-recover-worktree-metadata-rebound",
@@ -5932,7 +5952,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
 
           FNXC:MissingWorktreeRecovery 2026-07-10 (code review): the FN-5256 guard immediately below exists precisely because column==="in-progress"/"in-review" tasks can be live even when this heuristic's existsSync/registered-path check calls them stale (that's the guard's own stated rationale). Restrict this scopeOverride bypass to the narrow #1992 bug shape reproduced in the task report — in-review AND a merge-active sub-status (merging/merging-pr/merging-fix) — so a scopeOverride task that is genuinely in-progress, or in-review mid-step (status: null) with a live but momentarily undetected session, still falls through to the FN-5256 protection instead of having its worktree/branch/sessionFile yanked out from under it.
           */
-          await this.store.updateTask(task.id, { worktree: null, branch: null, sessionFile: null });
+          await this.store.updateTask(task.id, { worktree: null, branch: null, branchWriteOrigin: "engine" as const, sessionFile: null });
           await this.emitWorktreeMetadataAuditEvent({
             taskId: task.id,
             mutationType: "task:auto-recover-worktree-metadata-cleared",
@@ -5967,7 +5987,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           continue;
         }
 
-        await this.store.updateTask(task.id, { worktree: null, branch: null });
+        await this.store.updateTask(task.id, { worktree: null, branch: null, branchWriteOrigin: "engine" });
         await this.emitWorktreeMetadataAuditEvent({
           taskId: task.id,
           mutationType: "task:auto-recover-worktree-metadata-cleared",
@@ -10520,7 +10540,10 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
 
           if (unrecoverableRepos.length > 0) {
             // FORK-A: at least one repo is proven branch-gone and not landed → park failed.
-            const error = `Workspace partial-land unrecoverable: sub-repo(s) ${unrecoverableRepos.join(", ")} have no fusion/${task.id.toLowerCase()} branch and no landedSha — manual intervention required.`;
+            const missingBranches = unrecoverableRepos
+              .map((repoRel) => workspaceWorktrees[repoRel]?.branch ?? resolveTaskWorkingBranch(task))
+              .join(", ");
+            const error = `Workspace partial-land unrecoverable: sub-repo(s) ${unrecoverableRepos.join(", ")} have no branch (${missingBranches}) and no landedSha — manual intervention required.`;
             /*
             FNXC:Workspace 2026-08-15-07:17:
             This is the third and final writer of the display-only failure breadcrumb. Persist each
@@ -10985,7 +11008,12 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             pruned = true;
             this.prunedWorkspaceWorktreeTeardowns.add(entryKey);
           }
-          if (branch && branch === canonicalFusionBranchName(task.id) && worktreeGone) {
+          /*
+          FNXC:WorkspaceBranchDeletion 2026-08-20-03:39:
+          Workspace teardown remains conservative: canonical spelling is not provenance proof,
+          so delete only when the core classifier accepts this task branch.
+          */
+          if (branch && isFusionDeletableBranch(task, branch) && worktreeGone) {
             if (branchClaimCount > 1) branchOutcome = "retained-duplicate-claim";
             else {
               /*
@@ -11675,7 +11703,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
               error: null,
               mergeRetries: 0,
               worktree: null,
-              branch: null,
+              branch: null, branchWriteOrigin: "engine" as const,
               mergeDetails,
             });
             await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-stuck-merge-deadlocks");
@@ -12817,7 +12845,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
 
           await this.store.updateTask(task.id, {
             mergeDetails,
-            branch: null,
+            branch: null, branchWriteOrigin: "engine" as const,
             worktree: null,
             status: null,
             error: null,
@@ -13941,7 +13969,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             status: null,
             error: null,
             worktree: null,
-            branch: null,
+            branch: null, branchWriteOrigin: "engine" as const,
             checkedOutBy: null,
             executionStartedAt: null,
             worktreeSessionRetryCount: null,
@@ -15117,7 +15145,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           await this.store.updateTask(task.id, {
             status: "stuck-killed",
             worktree: null,
-            branch: null,
+            branch: null, branchWriteOrigin: "engine" as const,
           });
           await this.store.logEntry(
             task.id,

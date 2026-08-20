@@ -2,8 +2,15 @@ import "./NewTaskModal.css";
 import { useState, useCallback, useEffect, useRef, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { DEFAULT_TASK_PRIORITY, type ColumnId, type Task, type TaskPriority, type ThinkingLevel } from "@fusion/core";
-import { getErrorMessage } from "@fusion/core";
+import {
+  DEFAULT_TASK_PRIORITY,
+  getErrorMessage,
+  isValidTaskBranchName,
+  type ColumnId,
+  type Task,
+  type TaskPriority,
+  type ThinkingLevel,
+} from "@fusion/core";
 import type { ToastType } from "../hooks/useToast";
 import {
   apiFetchGitHubIssues,
@@ -564,7 +571,13 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
   const githubRepoOverrideTrimmed = githubRepoOverride.trim();
   const githubRepoOverrideInvalid = githubRepoOverrideTrimmed.length > 0 && !REPO_OVERRIDE_RE.test(githubRepoOverrideTrimmed);
   const isBranchNameRequired = branchMode === "existing" || branchMode === "custom-new" || branchMode === "shared-group";
-  const hasInvalidBranchSelection = isBranchNameRequired && !branch.trim();
+  /*
+  FNXC:WorkspaceBranchInput 2026-08-20-03:38:
+  FN-9161 accepts an operator branch for workspace reuse, but the dashboard must
+  reject malformed refs before it submits the create request. Match core's write
+  boundary predicate so the client help and server outcome cannot drift.
+  */
+  const hasInvalidBranchSelection = isBranchNameRequired && (!branch.trim() || !isValidTaskBranchName(branch.trim()));
 
   const resolvedStartWorkflowId = selectedWorkflowId === null
     ? null
@@ -1243,7 +1256,11 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
         </div>
 
         {hasInvalidBranchSelection && (
-      <div className="form-error new-task-branch-error">{t("newTaskModal.branchRequired", "Branch name is required for this branch strategy.")}</div>
+      <div className="form-error new-task-branch-error">
+        {!branch.trim()
+          ? t("newTaskModal.branchRequired", "Branch name is required for this branch strategy.")
+          : t("newTaskModal.branchInvalid", "Enter a valid Git branch name (no spaces or ref punctuation).")}
+      </div>
         )}
 
       <div className="modal-actions">

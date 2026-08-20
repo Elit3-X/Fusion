@@ -941,7 +941,7 @@ export async function runImplementation(
             status: "queued",
             error: null,
             worktree: null,
-            branch: null,
+            branch: null, branchWriteOrigin: "engine" as const,
             sessionFile: null,
             taskDoneRetryCount: nextRequeueCount,
             paused: false,
@@ -961,7 +961,7 @@ export async function runImplementation(
             status: "failed",
             error: failureMessage,
             worktree: null,
-            branch: null,
+            branch: null, branchWriteOrigin: "engine" as const,
             sessionFile: null,
             paused: false,
             pausedByAgentId: null,
@@ -1585,7 +1585,7 @@ export async function runImplementation(
                 recoveryRetryCount: decision.nextState.recoveryRetryCount,
                 nextRecoveryAt: decision.nextState.nextRecoveryAt,
                 worktree: null,
-                branch: null,
+                branch: null, branchWriteOrigin: "engine" as const,
               });
               deps.markGraphExecuteSelfRequeued(task.id);
               await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true });
@@ -1698,7 +1698,7 @@ export async function runImplementation(
                   status: "queued",
                   error: null,
                   worktree: null,
-                  branch: null,
+                  branch: null, branchWriteOrigin: "engine" as const,
                 });
                 const reboundColumn = await resolveReboundColumnFor(deps.store, task.id);
                 if (latestTask.column !== reboundColumn) {
@@ -2865,7 +2865,7 @@ export async function runImplementation(
               // Clear any stale binding so the next pickup creates a fresh worktree.
               // baseCommitSha is also cleared because it pinned to the now-reclaimed worktree;
               // the next pickup will re-anchor it on the fresh checkout.
-              await deps.store.updateTask(task.id, { worktree: null, branch: null, baseCommitSha: null });
+              await deps.store.updateTask(task.id, { worktree: null, branch: null, branchWriteOrigin: "engine" as const, baseCommitSha: null });
               await deps.persistTokenUsage(task.id);
               deps.markGraphExecuteSelfRequeued(task.id);
               await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true });
@@ -3716,7 +3716,7 @@ export async function runImplementation(
               recoveryRetryCount: decision.nextState.recoveryRetryCount,
               nextRecoveryAt: decision.nextState.nextRecoveryAt,
               worktree: null,
-              branch: null,
+              branch: null, branchWriteOrigin: "engine" as const,
             });
             deps.markGraphExecuteSelfRequeued(task.id);
             await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true });
@@ -3922,7 +3922,7 @@ export async function runImplementation(
               status: "queued",
               error: null,
               worktree: null,
-              branch: null,
+              branch: null, branchWriteOrigin: "engine" as const,
             });
             // Only move to todo if not already there. Use the freshly-read
             // latestTask.column rather than the stale captured task.column —

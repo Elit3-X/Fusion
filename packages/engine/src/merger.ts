@@ -125,6 +125,7 @@ import {
   resolveCompleteColumn,
   resolveMergeOrchestrationColumn,
   resolveTaskLifecycleColumns,
+  isFusionDeletableBranch,
   type WorkflowIr, resolveReviewColumns
 } from "@fusion/core";
 import { evaluateAutoMergeFactProviders } from "./merge/auto-merge-fact-providers.js";
@@ -6627,7 +6628,7 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
       }
     }
   }
-  if (ownedBranchOnEntry) {
+  if (ownedBranchOnEntry && isFusionDeletableBranch(task, ownedBranchOnEntry)) {
     try {
       // Branch must be deleted from the project root, not from inside a
       // worktree that may still be checked out to it.
@@ -9705,19 +9706,23 @@ export async function aiMergeTask(
     }
   }
 
-  // 6. Delete branch
-  try {
-    await execAsync(`git branch -d "${branch}"`, { cwd: rootDir });
-    result.branchDeleted = true;
-    // Audit trail: record branch deletion (FN-1404)
-    await audit.git({ type: "branch:delete", target: branch });
-  } catch {
+  // 6. Delete only a Fusion-proven branch; a skipped delete has no audit event.
+  if (isFusionDeletableBranch(task, branch)) {
     try {
-      await execAsync(`git branch -D "${branch}"`, { cwd: rootDir });
+      await execAsync(`git branch -d "${branch}"`, { cwd: rootDir });
       result.branchDeleted = true;
-      // Audit trail: record branch deletion (force) (FN-1404)
-      await audit.git({ type: "branch:delete", target: branch, metadata: { force: true } });
-    } catch { /* non-fatal */ }
+      // Audit trail: record branch deletion (FN-1404)
+      await audit.git({ type: "branch:delete", target: branch });
+    } catch {
+      try {
+        await execAsync(`git branch -D "${branch}"`, { cwd: rootDir });
+        result.branchDeleted = true;
+        // Audit trail: record branch deletion (force) (FN-1404)
+        await audit.git({ type: "branch:delete", target: branch, metadata: { force: true } });
+      } catch { /* non-fatal */ }
+    }
+  } else {
+    mergerLog.log(`${taskId}: kept operator-supplied branch ${branch}`);
   }
 
   if (result.branchDeleted) {
@@ -9772,7 +9777,7 @@ export async function aiMergeTask(
           mergerLog.warn(`${taskId}: failed to detach pooled worktree before release: ${msg}`);
         }
         try {
-          await store.updateTask(taskId, { worktree: null, branch: null });
+          await store.updateTask(taskId, { worktree: null, branch: null, branchWriteOrigin: "engine" });
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           mergerLog.warn(`${taskId}: failed to clear worktree pointer before pool release: ${msg}`);
@@ -9805,7 +9810,7 @@ export async function aiMergeTask(
         }
         if (result.worktreeRemoved) {
           try {
-            await store.updateTask(taskId, { worktree: null, branch: null });
+            await store.updateTask(taskId, { worktree: null, branch: null, branchWriteOrigin: "engine" });
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             mergerLog.warn(`${taskId}: failed to clear worktree pointer after removal: ${msg}`);

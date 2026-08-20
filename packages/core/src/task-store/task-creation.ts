@@ -42,11 +42,38 @@ import * as schema from "../postgres/schema/index.js";
 import type {DbTransaction} from "../postgres/data-layer.js";
 import { resolveTaskPrefix } from "./task-prefix.js";
 import {assertValidProviderInstanceId} from "../provider-instance.js";
+import {validateTaskBranchName} from "../branch/branch-assignment.js";
 import {
   getInternalIntakeOwnershipExemptionReason,
   resolveTaskIntakeOwner,
   type IntakeOwnershipExemption,
 } from "../tasks/task-intake-owner-resolver.js";
+
+/*
+FNXC:BranchNaming 2026-08-20-03:40:
+Creation is a branch-write boundary too: require an explicit origin so ownership is
+never inferred from a prefix, and preserve an operator's `fusion/...` branch marker.
+*/
+function normalizeCreateBranchProvenance(input: TaskCreateInput): TaskCreateInput {
+  if (input.branch === undefined) return input;
+  if (input.branchWriteOrigin !== "operator" && input.branchWriteOrigin !== "engine") {
+    throw new Error("branchWriteOrigin is required when branch is provided");
+  }
+  validateTaskBranchName(input.branch);
+  if (input.branchWriteOrigin === "operator") {
+    const existing = input.branchContext?.branchOverride;
+    if (existing?.branch === input.branch) return input;
+    return {
+      ...input,
+      branchContext: {
+        ...(input.branchContext ?? {}),
+        branchOverride: {by: "operator", at: new Date().toISOString(), branch: input.branch},
+      },
+    };
+  }
+  const {branchOverride: _override, ...branchContext} = input.branchContext ?? {};
+  return {...input, branchContext: Object.keys(branchContext).length > 0 ? branchContext : undefined};
+}
 
 type CreateTaskWithAfterInsert = TaskCreateInput & {
   /** Internal transaction hook; never persisted in task source metadata. */
@@ -201,6 +228,7 @@ async function persistDeferredTaskTitleIfUntitled(
 export async function createTaskBackendImpl(store: TaskStore, input: TaskCreateInput, options?: {
  onSummarize?: (description: string) => Promise<string | null>; settings?: { autoSummarizeTitles?: boolean }; invokeTaskCreatedHook?: boolean; onProposalClaimConflict?: (task: Task) => void; ownershipExemption?: IntakeOwnershipExemption; },): Promise<Task> {
   /* FNXC:CredentialInstanceSelection 2026-08-01-05:43: validate task authoring input before persistence; ids are stored but runtime credential resolution remains unchanged. */
+  input = normalizeCreateBranchProvenance(input);
   for (const key of ["credentialInstanceId", "validatorCredentialInstanceId", "planningCredentialInstanceId", "mergerCredentialInstanceId"] as const) {
     const value = (input as unknown as Record<string, unknown>)[key];
     if (value !== undefined && value !== null) assertValidProviderInstanceId(value);
@@ -547,6 +575,7 @@ export class TaskIntakeOwnerResolutionError extends Error {
 }
 
 export async function _createTaskInternalBackendImpl(store: TaskStore, input: TaskCreateInput, title: string | undefined, resolvedWorkflowSteps: string[] | undefined, id: string, options?: { createdAt?: string; updatedAt?: string; promptOverride?: string; invokeTaskCreatedHook?: boolean; resolvedEntryColumn?: string; resolvedWorkflowIdForOwnership?: string; onProposalClaimConflict?: (task: Task) => void; deferTaskCreatedEvent?: boolean; onTaskInserted?: (task: Task) => void; ownershipExemption?: IntakeOwnershipExemption; },): Promise<Task> {
+    input = normalizeCreateBranchProvenance(input);
     const layer = store.asyncLayer!;
     const now = options?.createdAt ?? new Date().toISOString();
     /*
@@ -1145,6 +1174,7 @@ export async function createTaskWithReservedIdImpl(store: TaskStore, input: Task
   }
 
 export async function _createTaskInternalImpl(store: TaskStore, input: TaskCreateInput, title: string | undefined, resolvedWorkflowSteps: string[] | undefined, id: string, options?: { createdAt?: string; updatedAt?: string; promptOverride?: string; invokeTaskCreatedHook?: boolean; resolvedEntryColumn?: string; onProposalClaimConflict?: (task: Task) => void; },): Promise<Task> {
+    input = normalizeCreateBranchProvenance(input);
     const now = options?.createdAt ?? new Date().toISOString();
     // FN-5077: null normalized titles are treated as "no title" and allow standard fallback/summarization behavior.
     const normalizedTitle = normalizeTitleForTaskId(title, id);

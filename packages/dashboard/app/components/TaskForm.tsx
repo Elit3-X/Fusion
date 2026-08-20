@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useComposerDictation } from "../hooks/useComposerDictation";
 import { MicButton } from "./MicButton";
-import { DEFAULT_TASK_PRIORITY, TASK_PRIORITIES, type GlobalSettings, type Task, type TaskPriority, type Settings, type WorkflowDefinition, type ResolvedWorkflowOptionalStep } from "@fusion/core";
+import { DEFAULT_TASK_PRIORITY, TASK_PRIORITIES, isValidTaskBranchName, type GlobalSettings, type Task, type TaskPriority, type Settings, type WorkflowDefinition, type ResolvedWorkflowOptionalStep } from "@fusion/core";
 import type { ToastType } from "../hooks/useToast";
 import { fetchModels, fetchSettings, fetchWorkflows, fetchWorkflowOptionalSteps, refineText, getRefineErrorMessage, updateGlobalSettings, fetchGlobalSettings, fetchGitBranches, type RefinementType, type ModelInfo, type NodeInfo } from "../api";
 import { WorkflowOptionalStepsDropdown } from "./WorkflowOptionalStepsDropdown";
@@ -288,6 +288,15 @@ export function TaskForm({
   onGithubRepoOverrideChange,
 }: TaskFormProps) {
   const { t } = useTranslation("app");
+  const branchNameRequired = branchMode === "existing" || branchMode === "custom-new" || branchMode === "shared-group";
+  /*
+  FNXC:WorkspaceBranchInput 2026-08-20-03:38:
+  FN-9161 exposes a reusable workspace branch in this shared form. Show the
+  core-validity result beside the field so operators can correct a ref before
+  New Task blocks submission at its matching client-side validation boundary.
+  */
+  const trimmedBranchName = (branch ?? "").trim();
+  const branchNameInvalid = branchNameRequired && trimmedBranchName !== "" && !isValidTaskBranchName(trimmedBranchName);
   const hasInitialMoreOptions =
     (hideDependencies ? false : dependencies.length > 0) ||
     pendingImages.length > 0 ||
@@ -1425,8 +1434,15 @@ export function TaskForm({
                 value={branch || ""}
                 onChange={(e) => onBranchChange(e.target.value)}
                 placeholder={branchMode === "shared-group" ? t("taskForm.sharedBranchPlaceholder", "e.g. clionboarding") : t("taskForm.branchPlaceholder", "e.g. feature/my-task")}
+                aria-invalid={branchNameInvalid || undefined}
+                aria-describedby={branchNameInvalid ? "task-working-branch-help" : undefined}
                 disabled={disabled}
               />
+              {branchNameInvalid && (
+                <div id="task-working-branch-help" className="form-error">
+                  {t("taskForm.branchNameInvalid", "Enter a valid Git branch name (no spaces or ref punctuation).")}
+                </div>
+              )}
             </>
           )}
           {onBaseBranchChange && (

@@ -229,7 +229,7 @@ export class RestartRecoveryCoordinator {
     await this.store.updateTask(task.id, {
       status: "stuck-killed",
       worktree: null,
-      branch: null,
+      branch: null, branchWriteOrigin: "engine" as const,
       sessionFile: null,
       error: null,
     });

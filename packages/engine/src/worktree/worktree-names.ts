@@ -1,5 +1,6 @@
 import { readdirSync } from "node:fs";
 import { existsSync } from "node:fs";
+import { classifyTaskBranchOrigin } from "@fusion/core";
 import type { Settings, Task, WorkspaceWorktreeContext } from "@fusion/core";
 import { resolveTaskWorktreePath, resolveWorktreesDir } from "./worktree-paths.js";
 
@@ -49,6 +50,18 @@ export function resolveTaskWorkingBranch(task: Pick<Task, "id" | "branch" | "bra
     return canonicalFusionBranchName(task.id);
   }
   return task.branch || canonicalFusionBranchName(task.id);
+}
+
+/**
+ * FNXC:WorkspaceBranches 2026-08-20-03:38:
+ * FN-9161 requires recorded provenance rather than name shape: an operator
+ * branch may intentionally use Fusion's namespace.
+ */
+export function resolveTaskWorkingBranchWithOrigin(
+  task: Pick<Task, "id" | "branch" | "branchContext">,
+): { branch: string; origin: ReturnType<typeof classifyTaskBranchOrigin> } {
+  const branch = resolveTaskWorkingBranch(task);
+  return { branch, origin: classifyTaskBranchOrigin(task, branch) };
 }
 
 /**

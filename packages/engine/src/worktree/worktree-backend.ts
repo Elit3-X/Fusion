@@ -201,6 +201,8 @@ export interface WorktreeCreateInput {
   worktreePath: string;
   startPoint?: string;
   taskId: string;
+  /** FNXC:WorkspaceBranches 2026-08-20-03:38: provenance controls safe existing-branch attachment. */
+  branchOrigin?: "engine-canonical" | "group-derived" | "operator-supplied";
   allowSiblingBranchRename?: boolean;
 }
 
@@ -347,11 +349,13 @@ export class NativeWorktreeBackend implements WorktreeBackend {
 
   async create(input: WorktreeCreateInput): Promise<WorktreeCreateResult> {
     const startArg = input.startPoint ? ` ${quoteShellArg(input.startPoint)}` : "";
-    const installGuardOrCleanup = async (worktreePath: string) => {
+    const installGuardOrCleanup = async (worktreePath: string, expectedBranch: string) => {
       try {
         await installTaskWorktreeIdentityGuard({
           worktreePath,
           taskId: input.taskId,
+          // The hook must follow the branch Git actually checked out: sibling collision recovery can rename it.
+          expectedBranch,
           commitMsgHookEnabled: this.deps.settings?.commitMsgHookEnabled,
           taskPrefix: this.deps.settings?.taskPrefix,
           taskAttributionTrailerName: this.deps.settings?.taskAttributionTrailerNames?.[0],
@@ -417,7 +421,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
     let staleRegistrationRecoveryAttempted = false;
     try {
       const created = await createWithBranch(input.branch);
-      await installGuardOrCleanup(created.path);
+      await installGuardOrCleanup(created.path, created.branch);
       return created;
     } catch (error) {
       const lockPath = parseIndexLockPath(`${(error as { message?: string })?.message ?? ""}\n${getErrorStderr(error) ?? ""}`);
@@ -449,7 +453,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
                 metadata: { lockPath },
               });
               const created = await createWithBranch(input.branch);
-              await installGuardOrCleanup(created.path);
+              await installGuardOrCleanup(created.path, created.branch);
               return created;
             }
             await this.deps.audit?.git({
@@ -507,7 +511,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
               target: input.worktreePath,
               metadata: { actions: recovery.actions },
             });
-            await installGuardOrCleanup(created.path);
+            await installGuardOrCleanup(created.path, created.branch);
             return created;
           } catch (retryError) {
             const actionsWithForce = [...recovery.actions, "add-force-retry"];
@@ -518,7 +522,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
                 target: input.worktreePath,
                 metadata: { actions: actionsWithForce },
               });
-              await installGuardOrCleanup(created.path);
+              await installGuardOrCleanup(created.path, created.branch);
               return created;
             } catch (forceError) {
               await this.deps.audit?.git({
@@ -542,6 +546,27 @@ export class NativeWorktreeBackend implements WorktreeBackend {
 
       const isBareBranchCollision = /(?:a\s+)?branch named ["']?.+["']? already exists|branch ["']?.+["']? already exists/i.test(combinedErrorOutput);
       if (isBareBranchCollision) {
+          /*
+           * FNXC:WorkspaceBranches 2026-08-20-03:38:
+           * FN-9161 preserves explicit operator branch ownership, including
+           * Fusion-shaped names. Attach its existing bare branch directly;
+           * Git still rejects a branch checked out by another live worktree.
+           */
+          if (input.branchOrigin === "operator-supplied") {
+            try {
+              const created = await attachExistingBranch();
+              await installGuardOrCleanup(created.path, created.branch);
+              await this.deps.audit?.git({
+                type: "worktree:branch-collision-recovery",
+                target: input.worktreePath,
+                metadata: { taskId: input.taskId, disposition: "attach-operator-branch" },
+              });
+              return created;
+            } catch (attachError) {
+              await cleanupPartialCollisionRecovery();
+              throw attachError;
+            }
+          }
           /*
            * FNXC:WorktreeAcquisition 2026-07-16-00:00:
            * FN-8132 / #2232 recovers only a bare branch-name collision after the
@@ -578,7 +603,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
           if (inspection.kind === "reclaimable") {
             try {
               const created = await attachExistingBranch();
-              await installGuardOrCleanup(created.path);
+              await installGuardOrCleanup(created.path, created.branch);
               await this.deps.audit?.git({
                 type: "worktree:branch-collision-recovery",
                 target: input.worktreePath,
@@ -599,7 +624,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
                 maxBuffer: MAX_BUFFER,
               });
               const created = await createWithBranch(input.branch);
-              await installGuardOrCleanup(created.path);
+              await installGuardOrCleanup(created.path, created.branch);
               await this.deps.audit?.git({
                 type: "worktree:branch-collision-recovery",
                 target: input.worktreePath,
@@ -621,7 +646,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
         const candidateBranch = `${input.branch}-${suffix}`;
         try {
           const created = await createWithBranch(candidateBranch);
-          await installGuardOrCleanup(created.path);
+          await installGuardOrCleanup(created.path, created.branch);
           return created;
         } catch {
           // continue probing suffixes
@@ -851,6 +876,7 @@ export class WorktrunkWorktreeBackend implements WorktreeBackend {
       await installTaskWorktreeIdentityGuard({
         worktreePath: resolvedPath,
         taskId: input.taskId,
+        expectedBranch: input.branch,
         commitMsgHookEnabled: this.deps.settings?.commitMsgHookEnabled,
         taskPrefix: this.deps.settings?.taskPrefix,
         taskAttributionTrailerName: this.deps.settings?.taskAttributionTrailerNames?.[0],

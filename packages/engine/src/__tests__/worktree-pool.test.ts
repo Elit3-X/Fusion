@@ -277,6 +277,14 @@ describe("WorktreePool", () => {
       expect(cleanupOrder).toBeLessThan(detachCallOrder);
     });
 
+    it("attaches an existing operator branch without force-resetting it", async () => {
+      await pool.prepareForTask("/tmp/wt", "feature/PRD-1234-my-slug", undefined, { branchOrigin: "operator-supplied" });
+
+      const calls = mockedExecSync.mock.calls.map(([command]) => command);
+      expect(calls).toContain('git checkout "feature/PRD-1234-my-slug"');
+      expect(calls).not.toContain('git checkout -B "feature/PRD-1234-my-slug" main');
+    });
+
     it("creates branch from main with force-reset", async () => {
       await pool.prepareForTask("/tmp/wt", "fusion/fn-042");
 

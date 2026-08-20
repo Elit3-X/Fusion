@@ -5,7 +5,7 @@ import { exec } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { acquireWorktreePathReservation, assertWorkspaceRepoRelPath, canonicalizeWorktreePath, resolveEngineIncarnationId, resolveEngineNodeId, workspaceWorktreeGroupSegment, WORKSPACE_GROUP_MARKER_FILENAME, type RunMutationContext, type Settings, type Task, type TaskStore, type SecretsStore, type WorkspaceConfig, type WorkspaceLeaseHandle, type WorkspaceWorktreeContext } from "@fusion/core";
-import { generateWorktreeName, resolveTaskWorkingBranch, slugify } from "./worktree-names.js";
+import { generateWorktreeName, resolveTaskWorkingBranchWithOrigin, slugify } from "./worktree-names.js";
 import { resolveTaskWorktreePathForBackend, resolveWorktreesDir, WORKTREE_RECOVERY_DIRNAME } from "./worktree-paths.js";
 import { hydrateWorktreeDb } from "./worktree-db-hydrate.js";
 import { formatError } from "../logger.js";
@@ -485,7 +485,8 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     throw error;
   }
   await ensureWorkspaceGroupOwnership(workspaceContext, settings);
-  const branchName = resolveTaskWorkingBranch(task);
+  const workingBranch = resolveTaskWorkingBranchWithOrigin(task);
+  const branchName = workingBranch.branch;
   const resolveExistingWorktreeBackendKind = async (path: string): Promise<WorktreeBackend["kind"]> =>
     (await readPersistedWorktreeBackendKind(path)) ?? opts.createWorktreeBackendKind ?? backend.kind;
   const naming = settings.worktreeNaming || "random";
@@ -539,7 +540,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
       });
       logger?.log(`${task.id}: assigned worktree is not usable; creating a fresh worktree instead: ${worktreePath}`);
       await store.logEntry(task.id, "Assigned worktree is not a registered, usable git worktree; creating a fresh worktree instead", worktreePath, runContext);
-      await persistWorktreeAssignment({ worktree: null, branch: null, sessionFile: null });
+      await persistWorktreeAssignment({ worktree: null, branch: null, branchWriteOrigin: "engine" as const, sessionFile: null });
       const fallbackName = generateWorktreeName(rootDir, settings, workspaceContext);
       worktreePath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName, workspaceContext);
       isResume = false;
@@ -580,6 +581,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     createTaskId: string,
     startPoint?: string,
     allowRename?: boolean,
+    branchOrigin?: "engine-canonical" | "group-derived" | "operator-supplied",
   ): Promise<{ path: string; branch: string; backendKind: WorktreeBackend["kind"] }> => {
     try {
       const created = await backend.create({
@@ -588,6 +590,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
         worktreePath: createPath,
         startPoint,
         taskId: createTaskId,
+        branchOrigin,
         allowSiblingBranchRename: allowRename,
       });
       if (backend.kind === "worktrunk") {
@@ -609,6 +612,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
         worktreePath: createPath,
         startPoint,
         taskId: createTaskId,
+        branchOrigin,
         allowSiblingBranchRename: allowRename,
       });
       const created = await handleWorktrunkFailure("create", error, fallback) as { path: string; branch: string };
@@ -624,12 +628,13 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     startPoint?: string,
     allowRename?: boolean,
     reservationHeld = false,
+    branchOrigin?: "engine-canonical" | "group-derived" | "operator-supplied",
   ): Promise<{ path: string; branch: string; backendKind: WorktreeBackend["kind"] }> => {
     if (createWorktree) {
       const created = await createWorktree(createBranch, createPath, createTaskId, startPoint, allowRename);
       return { ...created, backendKind: opts.createWorktreeBackendKind ?? backend.kind };
     }
-    if (reservationHeld) return createWorktreeWithoutReservation(createBranch, createPath, createTaskId, startPoint, allowRename);
+    if (reservationHeld) return createWorktreeWithoutReservation(createBranch, createPath, createTaskId, startPoint, allowRename, branchOrigin);
     const reservation = await acquireWorktreePathReservation({
       canonicalPath: await canonicalizeWorktreePath(createPath),
       worktreesDir: resolveWorktreesDir(rootDir, settings, workspaceContext),
@@ -652,7 +657,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
       },
     });
     try {
-      return await createWorktreeWithoutReservation(createBranch, createPath, createTaskId, startPoint, allowRename);
+      return await createWorktreeWithoutReservation(createBranch, createPath, createTaskId, startPoint, allowRename, branchOrigin);
     } finally {
       if (reservation.state === "held") await reservation.release();
     }
@@ -709,7 +714,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
      */
     if (isRepoRootPath(rootDir, created.path)) {
       await emitRepoRootReturnGuardAudit(created.path, source);
-      await persistWorktreeAssignment({ worktree: null, branch: null, sessionFile: null });
+      await persistWorktreeAssignment({ worktree: null, branch: null, branchWriteOrigin: "engine" as const, sessionFile: null });
       throw new RepoRootWorktreeError(task.id, rootDir, created.path, `fresh-create:${logOrigin}`);
     }
 
@@ -791,10 +796,10 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     await emitRepoRootReturnGuardAudit(guardedPath, source);
     logger?.warn(`${task.id}: acquisition ${source} returned repo root; clearing assignment and creating a fresh worktree`);
     await store.logEntry(task.id, "Acquisition attempted to return the project root as a task worktree; creating a fresh worktree instead", guardedPath, runContext);
-    await persistWorktreeAssignment({ worktree: null, branch: null, sessionFile: null });
+    await persistWorktreeAssignment({ worktree: null, branch: null, branchWriteOrigin: "engine" as const, sessionFile: null });
     const fallbackName = generateWorktreeName(rootDir, settings, workspaceContext);
     const fallbackPath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName, workspaceContext);
-    const created = await createWorktreeImpl(branchName, fallbackPath, task.id, freshStartPoint, allowSiblingBranchRename);
+    const created = await createWorktreeImpl(branchName, fallbackPath, task.id, freshStartPoint, allowSiblingBranchRename, false, workingBranch.origin);
     return finalizeCreatedWorktree(created, "fresh", "return-guard");
   };
 
@@ -1015,7 +1020,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
       await store.updateTask(task.id, { sessionFile: null });
     }
 
-      const created = await createWorktreeImpl(branchName, pinnedPath, task.id, freshStartPoint, allowSiblingBranchRename, true);
+      const created = await createWorktreeImpl(branchName, pinnedPath, task.id, freshStartPoint, allowSiblingBranchRename, true, workingBranch.origin);
       return await finalizeCreatedWorktree(created, "fresh", "normal");
     } finally {
       if (reservation.state === "held") await reservation.release();
@@ -1069,6 +1074,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
           allowSiblingBranchRename,
           repoDir: rootDir,
           requestingTaskId: task.id,
+          branchOrigin: workingBranch.origin,
         });
         const prepared = typeof preparedRaw === "string"
           ? { branch: preparedRaw, worktreePath: pooled, reclaimed: false as const }
@@ -1118,6 +1124,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
           await installTaskWorktreeIdentityGuard({
             worktreePath,
             taskId: task.id,
+            expectedBranch: branch,
             commitMsgHookEnabled: settings.commitMsgHookEnabled,
             taskPrefix: settings.taskPrefix,
             taskAttributionTrailerName: settings.taskAttributionTrailerNames?.[0],
@@ -1186,7 +1193,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
         if (poolErr instanceof WorktreeBaseRefreshError) {
           // FNXC:WorktreeBaseRefresh 2026-08-09-03:30: Clear every durable resume binding before returning the
           // checkout to the pool. If persistence fails, retain the lease so no other task can mutate it.
-          await persistWorktreeAssignment({ worktree: null, branch: null, sessionFile: null });
+          await persistWorktreeAssignment({ worktree: null, branch: null, branchWriteOrigin: "engine" as const, sessionFile: null });
           pool.release(pooled, task.id);
           throw poolErr;
         }
@@ -1206,7 +1213,15 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
   // Worktree removal in merger.ts, worktree-pool.ts, and self-healing.ts is now
   // backend-mediated via WorktreeBackend.remove(). executor.ts and
   // step-session-executor.ts remain native-only paths (tracked separately).
-  const created = await createWorktreeImpl(branchName, worktreePath, task.id, freshStartPoint, allowSiblingBranchRename);
+  const created = await createWorktreeImpl(
+    branchName,
+    worktreePath,
+    task.id,
+    freshStartPoint,
+    allowSiblingBranchRename,
+    false,
+    workingBranch.origin,
+  );
   return finalizeCreatedWorktree(created, acquiredFromPool ? "pool" : "fresh", "normal");
 }
 
@@ -1519,8 +1534,20 @@ export async function acquireWorkspaceRepoWorktree(
       settings,
       logger,
     });
+    /*
+    FNXC:WorkspaceBranches 2026-08-20-03:38:
+    FN-9161 uses one explicit operator branch in every workspace repository.
+    Keep only that branch through the singular-worktree isolation copy; derived
+    and canonical assignments retain the existing per-repository behavior.
+    */
+    const workspaceWorkingBranch = resolveTaskWorkingBranchWithOrigin(task);
     const result = await acquireTaskWorktree({
-      task: { ...task, worktree: undefined, branch: undefined, executionStartBranch: baseResolution.branch },
+      task: {
+        ...task,
+        worktree: undefined,
+        branch: workspaceWorkingBranch.origin === "operator-supplied" ? workspaceWorkingBranch.branch : undefined,
+        executionStartBranch: baseResolution.branch,
+      },
       suppressSingularWorktreePersist: true,
       workspaceContext: { workspaceRootDir, repoRelPath },
       rootDir: repoAbsPath,
@@ -1566,6 +1593,7 @@ export async function acquireWorkspaceRepoWorktree(
       await installTaskWorktreeIdentityGuard({
         worktreePath: result.worktreePath,
         taskId: task.id,
+        expectedBranch: result.branch,
         commitMsgHookEnabled: settings.commitMsgHookEnabled,
         taskPrefix: settings.taskPrefix,
         taskAttributionTrailerName: settings.taskAttributionTrailerNames?.[0],

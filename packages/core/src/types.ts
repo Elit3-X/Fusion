@@ -22,6 +22,11 @@ export type { TaskAgeStalenessLevel, TaskAgeStalenessSignal } from "./tasks/task
 // dashboard code (whose "@fusion/core" vite alias resolves to types.ts, not the
 // package barrel) can name the update channel union.
 export type { UpdateChannel } from "./i18n/app-version.js";
+/*
+FNXC:BranchNaming 2026-08-20-03:54:
+TaskForm needs the same browser-safe validator as the task store so operator feedback matches the shell-adjacent write boundary.
+*/
+export { isValidTaskBranchName } from "./branch/branch-assignment.js";
 
 export {
   computeCapacityRisk,

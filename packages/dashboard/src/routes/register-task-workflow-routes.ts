@@ -131,7 +131,7 @@ import { buildBoardWorkflowsPayload } from "./board-workflows.js";
 import { resolveNativeStructurePreview } from "../native-structure-preview.js";
 import { isBackwardMoveBlockedByOpenPr, PR_OPEN_BLOCKS_MOVE_BACK_MESSAGE } from "./register-pull-requests-routes.js";
 import { computePlanApprovalFingerprint, isTaskAwaitingPlanning, isWorkspaceTask, type RunAuditEventInput } from "@fusion/core";
-import { FUSION_CLIENT_HEADER, resolveHttpDeleteCallerKind } from "@fusion/core";
+import { FUSION_CLIENT_HEADER, resolveHttpDeleteCallerKind, isValidTaskBranchName } from "@fusion/core";
 import { ApiError, badRequest, conflict, notFound } from "../api-error.js";
 // FNXC:TaskLookup404 2026-07-26-11:40: shared task-miss -> 404 mapping seam.
 import { isTaskLookupMiss, rethrowTaskApiError } from "./task-lookup-error.js";
@@ -2137,6 +2137,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           },
         },
         branch: normalizedBranch,
+        ...(normalizedBranch ? { branchWriteOrigin: "operator" as const } : {}),
         baseBranch: normalizedBaseBranch,
         ...(typeof nodeId === "string" && nodeId.trim().length > 0 ? { nodeId: nodeId.trim() } : {}),
         ...(validatedGithubTracking ? { githubTracking: validatedGithubTracking } : {}),
@@ -2188,6 +2189,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               task.id,
               (((task.title ?? "").trim() || task.description).slice(0, 60)),
             ),
+            branchWriteOrigin: "engine",
           })
         : task;
 
@@ -2198,7 +2200,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             await scopedStore.setTaskBranchGroup(taskWithAutoBranch.id, group.id);
             const taskSegment = ((taskWithAutoBranch.title ?? "").trim() || taskWithAutoBranch.description).slice(0, 60);
             const workingBranch = derivePerTaskBranch(sharedFeatureBranch, taskSegment);
-            return scopedStore.updateTask(taskWithAutoBranch.id, { branch: workingBranch });
+            return scopedStore.updateTask(taskWithAutoBranch.id, { branch: workingBranch, branchWriteOrigin: "engine" });
           })()
         : taskWithAutoBranch;
 
@@ -3464,6 +3466,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           error: null,
           worktree: null,
           branch: null,
+          branchWriteOrigin: "engine",
           sessionFile: null,
           ...autoPauseClearPatch,
           ...buildManualRetryResetPatch({ resetMergeRetries: true }),
@@ -3523,6 +3526,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         error: null,
         worktree: null,
         branch: null,
+        branchWriteOrigin: "engine",
         baseBranch: null,
         baseCommitSha: null,
         ...autoPauseClearPatch,
@@ -6124,6 +6128,9 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           throw new Error(`${fieldName} must be a string or null`);
         }
         const trimmed = value.trim();
+        if (trimmed.length > 0 && !isValidTaskBranchName(trimmed)) {
+          throw badRequest(`Invalid branch name: ${JSON.stringify(value)}`);
+        }
         return trimmed.length > 0 ? trimmed : null;
       };
 
@@ -6331,7 +6338,11 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       }
       if (hasBodyField("sourceIssue")) updates.sourceIssue = validatedSourceIssue === undefined ? undefined : validatedSourceIssue;
       if (hasBodyField("nodeId")) updates.nodeId = validatedNodeId;
-      if (hasBodyField("branch")) updates.branch = normalizedBranch;
+      if (hasBodyField("branch")) {
+        updates.branch = normalizedBranch;
+        // A clear is an operator branch mutation too; the store requires explicit provenance for every branch write.
+        updates.branchWriteOrigin = "operator";
+      }
       if (hasBodyField("baseBranch")) updates.baseBranch = normalizedBaseBranch;
       if (hasBodyField("githubTracking")) {
         (updates as Record<string, unknown>).githubTracking = validatedGithubTracking;

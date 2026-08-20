@@ -708,7 +708,7 @@ export class WorktreePool {
     worktreePath: string,
     branchName: string,
     startPoint?: string,
-    options?: { allowSiblingBranchRename?: boolean; repoDir?: string; requestingTaskId?: string },
+    options?: { allowSiblingBranchRename?: boolean; repoDir?: string; requestingTaskId?: string; branchOrigin?: "engine-canonical" | "group-derived" | "operator-supplied" },
   ): Promise<PrepareForTaskResult> {
     // Clean tracked modifications
     try {
@@ -761,6 +761,21 @@ export class WorktreePool {
       }
     }
     const taskId = deriveTaskIdFromBranch(branchName);
+    /*
+    FNXC:WorkspaceBranches 2026-08-20-04:18:
+    Recycling must not turn an operator's requested branch into a new branch at the base. When the
+    branch already exists, attach it intact; Git continues to refuse a live checkout in another worktree.
+    */
+    if (options?.branchOrigin === "operator-supplied") {
+      const branchExists = await execAsync(`git show-ref --verify --quiet "refs/heads/${branchName}"`, { cwd: worktreePath })
+        .then(() => true)
+        .catch(() => false);
+      if (branchExists) {
+        // A checkout failure here is intentional: Git preserves its live-worktree refusal.
+        await execAsync(`git checkout "${branchName}"`, { cwd: worktreePath });
+        return { branch: branchName, worktreePath, reclaimed: false };
+      }
+    }
     try {
       await execAsync(checkoutCmd, {
         cwd: worktreePath,

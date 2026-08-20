@@ -36,6 +36,8 @@ import {hasOwnDeclaredSymbols, normalizeDeclaredSymbols, extractDeclaredSymbolsF
 import {assertValidProviderInstanceId} from "../provider-instance.js";
 import {supersedePlanReviewResults} from "../planner/plan-approval.js";
 import {PLAN_REVIEW_GROUP_ID} from "../workflows/builtin-plan-review-group.js";
+import {validateTaskBranchName} from "../branch/branch-assignment.js";
+import {withTaskBranchContextInSourceMetadata} from "./branch-context.js";
 
 /*
 FNXC:TaskRecommendations 2026-08-08-07:06:
@@ -84,6 +86,12 @@ function assertValidRecommendations(value: unknown): asserts value is TaskRecomm
 export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updates: Parameters<TaskStore["updateTask"]>[1], runContext?: RunMutationContext,): Promise<Task> {
   /* FNXC:TaskRecommendations 2026-08-08-05:02: every writer, including the recommendation route, shares this authoritative malformed/duplicate-id rejection boundary. */
   if (updates.recommendations !== undefined) assertValidRecommendations(updates.recommendations);
+  if (updates.branch !== undefined) {
+    if (updates.branchWriteOrigin !== "operator" && updates.branchWriteOrigin !== "engine") {
+      throw new Error("branchWriteOrigin is required when branch is provided");
+    }
+    if (updates.branch !== null) validateTaskBranchName(updates.branch);
+  }
   /* FNXC:CredentialInstanceSelection 2026-08-01-05:43: validate task authoring input before persistence; ids are stored but runtime credential resolution remains unchanged. */
   for (const key of ["credentialInstanceId", "validatorCredentialInstanceId", "planningCredentialInstanceId", "mergerCredentialInstanceId"] as const) {
     const value = (updates as Record<string, unknown>)[key];
@@ -610,10 +618,54 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
         task.autoMerge = updates.autoMerge;
         task.autoMergeProvenance = "user";
       }
-      if (updates.branch === null) {
-        task.branch = undefined;
-      } else if (updates.branch !== undefined) {
-        task.branch = updates.branch;
+      /*
+      FNXC:BranchNaming 2026-08-20-03:40:
+      Branch ownership follows this recorded write origin, never name shape. An operator
+      owns even a `fusion/...` override on a group task; a later engine assignment clears it.
+      */
+      if (updates.branch !== undefined) {
+        const origin = updates.branchWriteOrigin!;
+        const nextBranch = updates.branch ?? undefined;
+        const previousBranch = task.branch;
+        const changed = nextBranch !== previousBranch;
+        task.branch = nextBranch;
+        const nextContext = updates.branchContext === null
+          ? undefined
+          : updates.branchContext ?? task.branchContext;
+        const existingOverride = nextContext?.branchOverride;
+        const hasMatchingOperatorOverride = existingOverride?.by === "operator" && existingOverride.branch === nextBranch;
+        if (origin === "operator" && nextBranch && !hasMatchingOperatorOverride) {
+          task.branchContext = {
+            ...(nextContext ?? {}),
+            branchOverride: {
+              by: "operator",
+              at: new Date().toISOString(),
+              branch: nextBranch,
+              ...(previousBranch && changed ? { previousBranch } : {}),
+            },
+          };
+        } else if (origin === "engine") {
+          const {branchOverride: _override, ...withoutOverride} = nextContext ?? {};
+          task.branchContext = Object.keys(withoutOverride).length > 0 ? withoutOverride : undefined;
+        } else if (updates.branchContext !== undefined) {
+          task.branchContext = nextContext;
+        }
+        task.sourceMetadata = task.branchContext
+          ? withTaskBranchContextInSourceMetadata(task.sourceMetadata, task.branchContext)
+          : (() => {
+              const metadata = {...(task.sourceMetadata ?? {})};
+              delete metadata.fusionBranchContext;
+              return Object.keys(metadata).length > 0 ? metadata : undefined;
+            })();
+      } else if (updates.branchContext !== undefined) {
+        task.branchContext = updates.branchContext ?? undefined;
+        task.sourceMetadata = task.branchContext
+          ? withTaskBranchContextInSourceMetadata(task.sourceMetadata, task.branchContext)
+          : (() => {
+              const metadata = {...(task.sourceMetadata ?? {})};
+              delete metadata.fusionBranchContext;
+              return Object.keys(metadata).length > 0 ? metadata : undefined;
+            })();
       }
       // Keep in sync with the first autoMerge block above; both legacy update
       // paths may run before persistence.

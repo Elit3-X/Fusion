@@ -28,6 +28,7 @@ import {resolveSameAgentDuplicateIntake} from "./task-creation.js";
 import {type TaskRow, TASK_COLUMN_DESCRIPTORS} from "../task-store/persistence.js";
 import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
 import {assertSafeGitBranchName} from "../task-store/shell-safety.js";
+import {isFusionDeletableBranch} from "../branch/branch-assignment.js";
 import {readTaskRow as readTaskRowAsync, readTaskRowInTransaction, resolveActiveTaskWedgeEpisodeRow} from "../task-store/async/async-persistence.js";
 import {upsertArchivedTaskEntry} from "./async/async-archive-lineage.js";
 import {purgeTaskWorkflowSelectionRowsAsyncImpl} from "./workflow-definitions.js";
@@ -546,7 +547,13 @@ export async function mergeWorkspaceWorktreeEntryImpl(
         .set({
           workspaceWorktrees: { ...workspaceWorktrees, [repoRelPath]: { ...existing, ...patch } },
           ...(options.clearSingularWorktree
-            ? { worktree: null, branch: null, executionStartBranch: null, baseCommitSha: null }
+            ? {
+                worktree: null,
+                branch: null,
+                branchWriteOrigin: "engine" as const,
+                executionStartBranch: null,
+                baseCommitSha: null,
+              }
             : {}),
           updatedAt,
         })
@@ -972,6 +979,15 @@ export async function cleanupBranchForTaskImpl(store: TaskStore, task: Task): Pr
       } catch {
         // Skip branches whose names would be unsafe to pass through a shell.
         // A malformed stored value should not become a command-injection vector.
+        continue;
+      }
+      /*
+      FNXC:BranchDeletionProvenance 2026-08-20-03:39:
+      A task branch written by an operator remains operator data even when its spelling
+      resembles Fusion's namespace. Keep the generated fallback only when the shared
+      provenance classifier proves this candidate is Fusion-owned.
+      */
+      if (!isFusionDeletableBranch(task, branch)) {
         continue;
       }
       const verify = await store.runGitCommand(`git rev-parse --verify "${branch}"`);

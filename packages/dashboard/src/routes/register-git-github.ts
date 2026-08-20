@@ -1,4 +1,4 @@
-import { createLogger, createIngestedCheckResolver, resolveRequiredCheckNames, resolveWorkflowIrForTask, resolveReviewColumns, resolveReboundTarget } from "@fusion/core";
+import { createLogger, createIngestedCheckResolver, resolveRequiredCheckNames, resolveWorkflowIrForTask, resolveReviewColumns, resolveReboundTarget, resolveTaskPrHeadBranch } from "@fusion/core";
 
 const severityAuditLog = createLogger("dashboard-register-git-github");
 import { type NextFunction, type Request, type Response } from "express";
@@ -414,7 +414,13 @@ async function computePrPreflight(task: Task, repoRoot: string, requestedBase?: 
   const defaultBaseBranch = requestedBase?.trim()
     ? ensureSafeGitRef(requestedBase, "base branch")
     : await resolveDefaultPrBaseBranch(task, repoRoot);
-  const head = `fusion/${task.id.toLowerCase()}`;
+  /*
+  FNXC:WorkspacePrHead 2026-08-20-03:38:
+  FN-9161 lets workspace tasks use one operator-supplied branch in every repository.
+  PR preflight must inspect that persisted working branch rather than inventing the
+  legacy task-derived ref, or a valid workspace branch appears absent.
+  */
+  const head = resolveTaskPrHeadBranch(task);
   const safeHead = ensureSafeGitRef(head, "head branch");
   const response: PrPreflightResponse = {
     branchOnRemote: false,
@@ -5477,8 +5483,8 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
 
       const existingPrs = getTaskPrList(task);
 
-      // Determine branch name from task
-      const branchName = `fusion/${task.id.toLowerCase()}`;
+      // FNXC:WorkspacePrHead 2026-08-20-03:38: PR creation follows the task's persisted working branch, including an operator-supplied workspace branch.
+      const branchName = resolveTaskPrHeadBranch(task);
 
       // Get owner/repo from git remote or GITHUB_REPOSITORY env
       let owner: string;
@@ -5580,7 +5586,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       const requestedBase = typeof req.body?.base === "string" ? req.body.base.trim() : "";
       const defaultBaseBranch = requestedBase || await resolveDefaultPrBaseBranch(task, repoRoot);
       const baseBranch = ensureSafeGitRef(defaultBaseBranch, "base branch");
-      const head = ensureSafeGitRef(`fusion/${task.id.toLowerCase()}`, "head branch");
+      const head = ensureSafeGitRef(resolveTaskPrHeadBranch(task), "head branch");
       const headRef = `refs/heads/${head}`;
       const baseRef = await resolvePrBaseRef(repoRoot, baseBranch).catch(() => baseBranch);
 
@@ -5661,7 +5667,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       const requestedBase = typeof req.body?.base === "string" ? req.body.base.trim() : "";
       const defaultBaseBranch = requestedBase || await resolveDefaultPrBaseBranch(task, repoRoot);
       const baseBranch = ensureSafeGitRef(defaultBaseBranch, "base branch");
-      const head = ensureSafeGitRef(`fusion/${task.id.toLowerCase()}`, "head branch");
+      const head = ensureSafeGitRef(resolveTaskPrHeadBranch(task), "head branch");
       const baseRef = await resolvePrBaseRef(repoRoot, baseBranch).catch(() => baseBranch);
 
       /*
