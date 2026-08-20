@@ -735,8 +735,6 @@ export interface Task {
   /** Source column captured when this task is archived; used to restore sensibly. */
   preArchiveColumn?: Column;
   dependencies: string[];
-  /** User-requested hint for triage: prefer splitting into child tasks when appropriate. */
-  breakIntoSubtasks?: boolean;
   /** When true, this decision-only task is expected to complete without creating git commits. */
   noCommitsExpected?: boolean;
   worktree?: string;
@@ -1539,7 +1537,6 @@ export interface TaskCreateInput {
    *  task can be replicated/created; flag-OFF creation only ever uses legacy ids. */
   column?: ColumnId;
   dependencies?: string[];
-  breakIntoSubtasks?: boolean;
   /** When true, this task is expected to complete without creating git commits. */
   noCommitsExpected?: boolean;
   /** IDs of workflow steps to enable for this task */

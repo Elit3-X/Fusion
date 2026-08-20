@@ -715,7 +715,6 @@ export async function _createTaskInternalBackendImpl(store: TaskStore, input: Ta
       // no explicit column is given (main FN-7591 parity).
       column: input.column || options?.resolvedEntryColumn || fallbackIntakeColumn || "triage",
       dependencies: input.dependencies || [],
-      breakIntoSubtasks: input.breakIntoSubtasks === true ? true : undefined,
       noCommitsExpected: input.noCommitsExpected === true ? true : undefined,
       enabledWorkflowSteps: resolvedWorkflowSteps,
       modelPresetId: input.modelPresetId,
@@ -1267,7 +1266,6 @@ export async function _createTaskInternalImpl(store: TaskStore, input: TaskCreat
       // no explicit column is given (main FN-7591 parity).
       column: input.column || options?.resolvedEntryColumn || fallbackIntakeColumn || "triage",
       dependencies: input.dependencies || [],
-      breakIntoSubtasks: input.breakIntoSubtasks === true ? true : undefined,
       noCommitsExpected: input.noCommitsExpected === true ? true : undefined,
       enabledWorkflowSteps: resolvedWorkflowSteps,
       modelPresetId: input.modelPresetId,

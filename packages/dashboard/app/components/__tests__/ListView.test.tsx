@@ -52,7 +52,6 @@ vi.mock("../QuickEntryBox", () => ({
     onCreate,
     addToast,
     onPlanningMode,
-    onSubtaskBreakdown,
     workflowId,
     workflowOptions,
     defaultWorkflowId,
@@ -61,7 +60,6 @@ vi.mock("../QuickEntryBox", () => ({
     onCreate?: (input: { description: string; workflowId?: string | null; column?: string }) => Promise<unknown>;
     addToast: (message: string, type?: "error" | "success" | "info" | "warning") => void;
     onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
-    onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
     workflowId?: string | null;
     workflowOptions?: { id: string; name: string; columns?: Array<{ flags?: { manualIntake?: boolean } }> }[];
     defaultWorkflowId?: string | null;
@@ -140,9 +138,6 @@ vi.mock("../QuickEntryBox", () => ({
           <button type="button" data-testid="quick-entry-deps">Deps</button>
           <button type="button" data-testid="quick-entry-plan" onClick={() => handoff(onPlanningMode)}>
             Plan
-          </button>
-          <button type="button" data-testid="quick-entry-subtask" onClick={() => handoff(onSubtaskBreakdown)}>
-            Subtask
           </button>
           {workflowOptions && workflowOptions.length > 1 ? (
             <button type="button" data-testid="quick-entry-workflow-option-wf-custom" onClick={() => setSelectedWorkflowId("wf-custom")}>
@@ -4438,39 +4433,6 @@ describe("ListView Quick Entry", () => {
       workflowId: "wf-custom",
       column: "backlog",
     })));
-  });
-
-  it("passes the selected workflow id to list quick-entry Plan and Subtask handoffs", async () => {
-    const onPlanningMode = vi.fn();
-    const onSubtaskBreakdown = vi.fn();
-    vi.mocked(fetchBoardWorkflows).mockResolvedValue({
-      flagEnabled: true,
-      defaultWorkflowId: "builtin:default",
-      workflows: [
-        {
-          id: "builtin:default",
-          name: "Default",
-          columns: [{ id: "triage", name: "Triage", flags: { intake: true } }],
-        },
-        {
-          id: "wf-list-active",
-          name: "List Active",
-          columns: [{ id: "triage", name: "Triage", flags: { intake: true } }],
-        },
-      ],
-      taskWorkflowIds: {},
-    });
-    renderListView({ onPlanningMode, onSubtaskBreakdown });
-
-    await selectWorkflow("wf-list-active");
-    const input = screen.getByTestId("quick-entry-input");
-    fireEvent.change(input, { target: { value: "Plan on selected list workflow" } });
-    fireEvent.click(screen.getByTestId("quick-entry-toggle"));
-    fireEvent.click(screen.getByTestId("quick-entry-plan"));
-    fireEvent.click(screen.getByTestId("quick-entry-subtask"));
-
-    expect(onPlanningMode).toHaveBeenCalledWith("Plan on selected list workflow", "wf-list-active");
-    expect(onSubtaskBreakdown).toHaveBeenCalledWith("Plan on selected list workflow", "wf-list-active");
   });
 
   it("shows error toast when onQuickCreate fails and keeps input content", async () => {

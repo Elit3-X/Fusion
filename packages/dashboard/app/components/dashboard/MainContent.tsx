@@ -148,8 +148,6 @@ export function MainContent({
   openGroupModalWithNav,
   handleBoardQuickCreate,
   openNewTaskWithNav,
-  subtaskBreakdownEnabled,
-  openSubtaskBreakdownWithNav,
   toggleAutoMerge,
   togglePlanAutoApprove,
   globalPaused,
@@ -897,7 +895,6 @@ export function MainContent({
             onQuickCreate={handleBoardQuickCreate}
             onNewTask={openNewTaskWithNav}
             onPlanningMode={openPlanningWithInitialPlanWithNav}
-            onSubtaskBreakdown={subtaskBreakdownEnabled ? openSubtaskBreakdownWithNav : undefined}
             autoMerge={autoMerge}
             mergeStrategy={mergeStrategy}
             onToggleAutoMerge={toggleAutoMerge}
@@ -1018,7 +1015,6 @@ export function MainContent({
           onQuickCreate={handleBoardQuickCreate}
           onNewTask={openNewTaskWithNav}
           onPlanningMode={openPlanningWithInitialPlanWithNav}
-          onSubtaskBreakdown={subtaskBreakdownEnabled ? openSubtaskBreakdownWithNav : undefined}
           autoMerge={autoMerge}
           mergeStrategy={mergeStrategy}
           onToggleAutoMerge={toggleAutoMerge}
@@ -1086,7 +1082,6 @@ export function MainContent({
         onNewTask={openNewTaskWithNav}
         onQuickCreate={handleBoardQuickCreate}
         onPlanningMode={openPlanningWithInitialPlanWithNav}
-        onSubtaskBreakdown={subtaskBreakdownEnabled ? openSubtaskBreakdownWithNav : undefined}
         availableModels={availableModels}
         favoriteProviders={favoriteProviders}
         favoriteModels={favoriteModels}

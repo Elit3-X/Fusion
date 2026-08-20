@@ -11,7 +11,7 @@ import { evaluateSpecDrift, hasPriorLockDivergence, type DriftReport } from "./p
 import * as schema from "./postgres/schema/index.js";
 import { type FSWatcher } from "node:fs";
 import { readFile } from "node:fs/promises";
-import type { Task, TaskDetail, TaskCreateInput, TaskAttachment, AgentLogEntry, BoardConfig, Column, ColumnId, CheckoutClaimPrecondition, MergeResult, Settings, GlobalSettings, ProjectSettings, ActivityLogEntry, ActivityEventType, TaskDocument, TaskDocumentRevision, TaskDocumentCreateInput, ArchivedTaskDocumentAdditionInput, ArchivedTaskDocumentAdditionResult, TaskDocumentWithTask, Artifact, ArtifactCreateInput, ArtifactType, ArtifactWithTask, InboxTask, TaskLogEntry, RunMutationContext, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, ArchivedTaskEntry, ArchiveAgentLogMode, TaskPriority, WorkflowStepTemplate, Agent, AutostashOrphanRecord, TaskCommitAssociation, CommitAssociationDiffBackfillReport, GithubIssueAction, TaskDeleteClosureContext, MergeQueueEntry, MergeQueueEnqueueOptions, MergeQueueAcquireOptions, MergeQueueReleaseOutcome, HandoffToReviewOptions, GoalCitation, GoalCitationFilter, GoalCitationInput, GoalCitationSurface, BranchGroup, BranchGroupCreateInput, BranchGroupUpdate, TaskBranchAssignmentMode, MergeRequestRecord, MergeRequestState, MergeRequestWorkflowProjectionOptions, CompletionHandoffMarker, WorkflowWorkItem, WorkflowWorkItemDueFilter, WorkflowWorkItemKind, WorkflowWorkItemState, WorkflowWorkItemTransitionPatch, WorkflowWorkItemUpsertInput, PrEntity, PrEntityCreateInput, PrEntityUpdate, PrThreadState, PrThreadOutcome, PluginActivation, PluginActivationInput } from "./types.js";
+import type { Task, TaskDetail, TaskCreateInput, TaskAttachment, AgentLogEntry, BoardConfig, Column, ColumnId, CheckoutClaimPrecondition, MergeResult, Settings, GlobalSettings, ProjectSettings, ActivityLogEntry, ActivityEventType, TaskDocument, TaskDocumentRevision, TaskDocumentCreateInput, ArchivedTaskDocumentAdditionInput, ArchivedTaskDocumentAdditionResult, TaskDocumentWithTask, Artifact, ArtifactCreateInput, ArtifactType, ArtifactWithTask, InboxTask, TaskLogEntry, RunMutationContext, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, ArchivedTaskEntry, ArchiveAgentLogMode, TaskPriority, WorkflowStepTemplate, Agent, AutostashOrphanRecord, TaskCommitAssociation, CommitAssociationDiffBackfillReport, GithubIssueAction, MergeQueueEntry, MergeQueueEnqueueOptions, MergeQueueAcquireOptions, MergeQueueReleaseOutcome, HandoffToReviewOptions, GoalCitation, GoalCitationFilter, GoalCitationInput, GoalCitationSurface, BranchGroup, BranchGroupCreateInput, BranchGroupUpdate, TaskBranchAssignmentMode, MergeRequestRecord, MergeRequestState, MergeRequestWorkflowProjectionOptions, CompletionHandoffMarker, WorkflowWorkItem, WorkflowWorkItemDueFilter, WorkflowWorkItemKind, WorkflowWorkItemState, WorkflowWorkItemTransitionPatch, WorkflowWorkItemUpsertInput, PrEntity, PrEntityCreateInput, PrEntityUpdate, PrThreadState, PrThreadOutcome, PluginActivation, PluginActivationInput } from "./types.js";
 
 /*
 FNXC:SpecLock 2026-08-09-21:01:
@@ -212,7 +212,7 @@ export interface TaskStoreEvents {
   marker lets listener paths suppress writer-owned accumulating effects while bridge/cache work
   remains idempotent; event identity makes duplicate provenance inspectable without payload prose.
   */
-  "task:deleted": [task: Task, meta?: { githubIssueAction?: GithubIssueAction; closureContext?: TaskDeleteClosureContext; observed?: boolean; outboxEventId?: string }];
+  "task:deleted": [task: Task, meta?: { githubIssueAction?: GithubIssueAction; observed?: boolean; outboxEventId?: string }];
   "task:merged": [result: MergeResult];
   "settings:updated": [data: { settings: Settings; previous: Settings }];
   "workflow:setting-values-updated": [data: {
@@ -629,7 +629,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   public emitObservedTaskDeleted(
     task: Task,
     outboxEventId: string,
-    metadata: Pick<NonNullable<TaskStoreEvents["task:deleted"][1]>, "githubIssueAction" | "closureContext"> = {},
+    metadata: Pick<NonNullable<TaskStoreEvents["task:deleted"][1]>, "githubIssueAction"> = {},
   ): boolean {
     /*
     FNXC:CrossProcessDeleteObservation 2026-08-01-13:03:
@@ -3040,7 +3040,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   /**
    * FNXC:RuntimeLifecycleAsync 2026-06-24-12:05:
    */
-  public async deleteTaskBackend( id: string, options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; closureContext?: TaskDeleteClosureContext; auditContext?: TaskDeleteAuditContext; }, ): Promise<Task> {
+  public async deleteTaskBackend( id: string, options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; auditContext?: TaskDeleteAuditContext; }, ): Promise<Task> {
     return deleteTaskBackendImpl(this, id, options);
   }
 
@@ -3051,7 +3051,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
    */
   public async recordRunAuditEventBackend( tx: DbTransaction, event: { domain: string; mutationType: string; target: string; taskId: string; agentId: string; runId: string; metadata: Record<string, unknown>; }, ): Promise<void> {    return recordRunAuditEventBackendImpl(this, tx, event);
   }
-  async deleteTask( id: string, options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; closureContext?: TaskDeleteClosureContext; auditContext?: TaskDeleteAuditContext; }, ): Promise<Task> {
+  async deleteTask( id: string, options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; auditContext?: TaskDeleteAuditContext; }, ): Promise<Task> {
     // FNXC:TaskWedgeNotifications 2026-08-10-20:30: The backend delete transaction clears
     // a terminal-failure budget only after it wins the soft-delete claim; never pre-clear here.
     return deleteTaskImpl(this, id, options);
@@ -3059,7 +3059,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   async deleteTaskIf(
     id: string,
     predicate: (live: Task) => boolean | Promise<boolean>,
-    options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; closureContext?: TaskDeleteClosureContext; auditContext?: TaskDeleteAuditContext },
+    options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; auditContext?: TaskDeleteAuditContext },
   ): Promise<DeleteTaskIfResult> {
     /*
     FNXC:SqliteDualPathCleanup 2026-07-26-14:05:

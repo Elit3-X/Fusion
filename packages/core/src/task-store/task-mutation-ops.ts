@@ -69,7 +69,7 @@ export function getTaskSelectClauseWithActivityLogLimitImpl(store: TaskStore, li
       "createdAt", "updatedAt", "columnMovedAt", "firstExecutionAt", "cumulativeActiveMs", "cumulativePlanningMs", "planningStartedAt", "executionStartedAt", "executionCompletedAt",
       "dependencies", "steps", "customFields", "attachments", "steeringComments",
       "comments", "review", "reviewState", "workflowStepResults", "prInfo", "prInfos", "issueInfo", "githubTracking", "sourceIssueProvider", "sourceIssueRepository", "sourceIssueExternalIssueId", "sourceIssueNumber", "sourceIssueUrl", "sourceIssueClosedAt", "mergeDetails", "workspaceWorktrees",
-      "breakIntoSubtasks", "noCommitsExpected", "enabledWorkflowSteps", "modifiedFiles", "declaredSymbols",
+      "noCommitsExpected", "enabledWorkflowSteps", "modifiedFiles", "declaredSymbols",
       "missionId", "sliceId", "scopeOverride", "scopeOverrideReason", "scopeAutoWiden", "assignedAgentId", "pausedByAgentId", "assigneeUserId", "nodeId", "effectiveNodeId", "effectiveNodeSource",
       "sourceType", "sourceAgentId", "sourceRunId", "sourceSessionId", "sourceMessageId", "sourceParentTaskId", "sourceMetadata",
       "checkedOutBy", "checkedOutAt", "checkoutNodeId", "checkoutRunId", "checkoutLeaseRenewedAt", "checkoutLeaseEpoch", "deletedAt", "allowResurrection",

@@ -139,7 +139,7 @@ describe("schema-applier: immutable migration identities", () => {
     expect(TASK_SOURCE_AGENT_INDEX_VERSION).toBe("0059");
     expect(WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION).toBe("0060");
     expect(ACTIVITY_LOG_TASK_ID_INDEX_VERSION).toBe("0061");
-    expect(SCHEMA_BASELINE_VERSION).toBe("0061");
+    expect(SCHEMA_BASELINE_VERSION).toBe("0062");
   });
 
   it("keeps monitor and approval isolation assigned to version 0003", () => {

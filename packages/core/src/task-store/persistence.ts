@@ -145,7 +145,6 @@ export interface TaskRow {
   sourceIssueClosedAt: string | null;
   mergeDetails: string | null;
   workspaceWorktrees: string | null;
-  breakIntoSubtasks: number | null;
   noCommitsExpected: number | null;
   enabledWorkflowSteps: string | null;
   modifiedFiles: string | null;
@@ -396,7 +395,6 @@ export const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("sourceIssueClosedAt", (task) => task.sourceIssue?.closedAt ?? null),
   defineTaskColumn("mergeDetails", (task) => toJsonNullable(task.mergeDetails)),
   defineTaskColumn("workspaceWorktrees", (task) => toJsonNullable(task.workspaceWorktrees)),
-  defineTaskColumn("breakIntoSubtasks", (task) => task.breakIntoSubtasks ? 1 : 0),
   defineTaskColumn("noCommitsExpected", (task) => task.noCommitsExpected ? 1 : 0),
   defineTaskColumn("enabledWorkflowSteps", (task) => toJson(task.enabledWorkflowSteps || [])),
   defineTaskColumn("modifiedFiles", (task) => toJson(task.modifiedFiles || [])),

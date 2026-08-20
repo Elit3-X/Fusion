@@ -16,8 +16,8 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {and, eq, inArray, sql} from "drizzle-orm";
 import * as schema from "../postgres/schema/index.js";
-import type {Task, Column, ArchivedTaskEntry, GithubIssueAction, TaskDeleteClosureContext} from "../types.js";
-import {buildDeleteCallerAuditFields, buildDeleteClosureAuditFields, type TaskDeleteAuditContext} from "../task-delete-attribution.js";
+import type {Task, Column, ArchivedTaskEntry, GithubIssueAction} from "../types.js";
+import {buildDeleteCallerAuditFields, type TaskDeleteAuditContext} from "../task-delete-attribution.js";
 import {notifyOperatorOfNonOperatorDelete} from "../task-delete-notice.js";
 import "../builtin-traits.js";
 import {normalizeTaskPriority} from "../tasks/task-priority.js";
@@ -126,7 +126,6 @@ export async function taskToArchiveEntryImpl(store: TaskStore, task: Task, archi
       mergerCredentialInstanceId: task.mergerCredentialInstanceId,
       mergerModelId: task.mergerModelId,
       mergerThinkingLevel: task.mergerThinkingLevel,
-      breakIntoSubtasks: task.breakIntoSubtasks,
       noCommitsExpected: task.noCommitsExpected,
       baseBranch: task.baseBranch,
       branch: task.branch,
@@ -144,7 +143,7 @@ export async function taskToArchiveEntryImpl(store: TaskStore, task: Task, archi
     };
   }
 
-type DeleteTaskBackendOptions = { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; closureContext?: TaskDeleteClosureContext; auditContext?: TaskDeleteAuditContext; };
+type DeleteTaskBackendOptions = { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; auditContext?: TaskDeleteAuditContext; };
 type DeleteTaskClaimResult = { task: Task; claimed: boolean };
 
 /*
@@ -329,7 +328,6 @@ async function deleteTaskBackendWithClaimResultImpl(store: TaskStore, id: string
           // FNXC:TaskDeleteAttribution 2026-07-26-14:30: caller class + calling
           // task id; `taskId` reached this function but was never persisted.
           ...buildDeleteCallerAuditFields(options?.auditContext),
-          ...buildDeleteClosureAuditFields(options?.closureContext),
         },
       });
       /*
@@ -349,7 +347,6 @@ async function deleteTaskBackendWithClaimResultImpl(store: TaskStore, id: string
           deletedAt,
           allowResurrection,
           githubIssueAction: options?.githubIssueAction ?? null,
-          closureContext: options?.closureContext ?? null,
           deletedBy: options?.auditContext?.agentId ?? null,
         },
       });
@@ -397,7 +394,6 @@ async function deleteTaskBackendWithClaimResultImpl(store: TaskStore, id: string
     store.laneCache.invalidate(task.id);
     store.emit("task:deleted", task, {
       githubIssueAction: options?.githubIssueAction ?? "auto",
-      ...(options?.closureContext ? { closureContext: options.closureContext } : {}),
     });
     /*
     FNXC:TaskDeleteNotice 2026-07-26-16:10:
@@ -424,7 +420,7 @@ export async function deleteTaskIfBackendImpl(
   store: TaskStore,
   id: string,
   predicate: (live: Task) => boolean | Promise<boolean>,
-  options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; closureContext?: TaskDeleteClosureContext; auditContext?: TaskDeleteAuditContext },
+  options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; allowResurrection?: boolean; githubIssueAction?: GithubIssueAction; auditContext?: TaskDeleteAuditContext },
 ): Promise<{ task: Task; deleted: boolean }> {
   if (options?.auditContext?.taskId === id) throw new TaskSelfDeleteError(id);
   return store.withTaskLock(id, async () => {
@@ -816,7 +812,6 @@ export async function restoreFromArchiveImpl(store: TaskStore, entry: import("..
       mergerCredentialInstanceId: entry.mergerCredentialInstanceId,
       mergerModelId: entry.mergerModelId,
       mergerThinkingLevel: entry.mergerThinkingLevel,
-      breakIntoSubtasks: entry.breakIntoSubtasks,
       noCommitsExpected: entry.noCommitsExpected,
       modifiedFiles: entry.modifiedFiles,
       declaredSymbols: entry.declaredSymbols,

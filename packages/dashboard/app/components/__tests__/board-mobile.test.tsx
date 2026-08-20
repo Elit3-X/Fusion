@@ -732,26 +732,6 @@ describe("InlineCreateCard mobile", () => {
     expectRuleToContain(mobileSection, ".inline-create-priority-select", "min-height: 36px;");
   });
 
-  it("renders Subtask but no Plan button when expanded", () => {
-    render(
-      <InlineCreateCard
-        tasks={[]}
-        onSubmit={vi.fn().mockResolvedValue(createTask({ id: "FN-300" }))}
-        onCancel={vi.fn()}
-        addToast={vi.fn()}
-        availableModels={[]}
-        onPlanningMode={vi.fn()}
-        onSubtaskBreakdown={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("inline-create-toggle"));
-
-    expect(screen.queryByTestId("plan-button")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Plan" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Subtask" })).toBeTruthy();
-  });
-
   it("renders dependency dropdown when Deps button is clicked", () => {
     render(
       <InlineCreateCard

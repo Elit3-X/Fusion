@@ -297,10 +297,6 @@ interface ListViewProps {
    */
   onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
   /**
-   * Called when the user clicks the "Subtask" button in the quick entry box.
-   */
-  onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
-  /**
    * Called when tasks are updated (e.g., after bulk model update).
    * Allows parent to refresh task list or handle optimistically.
    */
@@ -387,7 +383,6 @@ export function ListView({
   onToggleFavorite,
   onToggleModelFavorite,
   onPlanningMode,
-  onSubtaskBreakdown,
   onTasksUpdated,
   projectId,
   projectName: _projectName,
@@ -1096,7 +1091,7 @@ export function ListView({
 
   /*
   FNXC:ListWorkflowSelection 2026-06-29-00:00:
-  List quick-add Plan/Subtask handoffs must inherit the same active workflow as direct quick-create. Passing null only while workflow mode has no selected workflow preserves stale-id fallback behavior without reverting to the project default lane.
+  List quick-add Plan handoffs must inherit the same active workflow as direct quick-create. Passing null only while workflow mode has no selected workflow preserves stale-id fallback behavior without reverting to the project default lane.
   */
   const listQuickEntryWorkflowId = workflowMode ? createTargetWorkflowId : undefined;
 
@@ -2947,8 +2942,7 @@ export function ListView({
                 tasks={tasks}
                 availableModels={availableModels}
                 onPlanningMode={onPlanningMode}
-                onSubtaskBreakdown={onSubtaskBreakdown}
-                workflowId={listQuickEntryWorkflowId}
+                                workflowId={listQuickEntryWorkflowId}
                 workflowOptions={workflowMode ? workflowOptions : undefined}
                 defaultWorkflowId={workflowMode ? createTargetWorkflowId ?? boardWorkflows?.defaultWorkflowId ?? null : undefined}
                 projectId={projectId}

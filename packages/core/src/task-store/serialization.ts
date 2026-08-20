@@ -266,7 +266,6 @@ export function rowToTask(row: TaskRow): Task {
       const w = fromJson<import("../types.js").Task["workspaceWorktrees"]>(row.workspaceWorktrees);
       return w && Object.keys(w).length > 0 ? w : undefined;
     })(),
-    breakIntoSubtasks: row.breakIntoSubtasks ? true : undefined,
     noCommitsExpected: row.noCommitsExpected ? true : undefined,
     // FNXC:WorkflowOptionalSteps 2026-06-29-02:55: an explicit empty optional-step
     // selection must hydrate back as [], not undefined — "all disabled" and "not
@@ -407,7 +406,6 @@ export function archiveEntryToTask(
     mergerModelProvider: entry.mergerModelProvider,
     mergerModelId: entry.mergerModelId,
     mergerThinkingLevel: entry.mergerThinkingLevel,
-    breakIntoSubtasks: entry.breakIntoSubtasks,
     noCommitsExpected: entry.noCommitsExpected,
     branchContext: entry.branchContext,
     autoMerge: entry.autoMerge,

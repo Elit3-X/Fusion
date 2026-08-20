@@ -514,8 +514,6 @@ const KNOWN_EXPERIMENTAL_FEATURES: Record<string, string> = {
   ideationView: "Ideation View",
   qualityPlugin: "Quality Plugin",
   goalsView: "Goals View",
-  /* FNXC:QuickAddSubtaskFlag 2026-06-21-00:00: The AI subtask-breakdown quick-add affordance is exposed only through this default-off experimental flag so missing settings keep every quick-add Subtask button hidden. */
-  subtaskBreakdown: "Subtask Breakdown",
   leftSidebarNav: "Left Sidebar Navigation",
   sandbox: "Sandbox (command isolation)",
   chatRooms: "Chat Rooms",

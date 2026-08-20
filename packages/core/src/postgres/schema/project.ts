@@ -228,7 +228,6 @@ export const tasks = projectSchema.table("tasks", {
   sourceIssueClosedAt: text("source_issue_closed_at"),
   mergeDetails: jsonb("merge_details"),
   workspaceWorktrees: jsonb("workspace_worktrees"),
-  breakIntoSubtasks: integer("break_into_subtasks").default(0),
   noCommitsExpected: integer("no_commits_expected").default(0),
   enabledWorkflowSteps: jsonb("enabled_workflow_steps").default([]),
   modifiedFiles: jsonb("modified_files").default([]),

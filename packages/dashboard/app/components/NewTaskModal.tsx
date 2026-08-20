@@ -61,7 +61,6 @@ interface NewTaskModalProps {
   initialDescription?: string;
   initialWorkflowId?: string | null;
   onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
-  onSubtaskBreakdown?: (description: string, workflowId?: string | null) => void;
 }
 
 /*
@@ -342,7 +341,7 @@ function NewTaskGitHubReferencePicker({ isOpen, projectId, disabled = false, onS
   );
 }
 
-export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, onMoveTask, addToast, initialDescription = "", initialWorkflowId, onPlanningMode, onSubtaskBreakdown }: NewTaskModalProps) {
+export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, onMoveTask, addToast, initialDescription = "", initialWorkflowId, onPlanningMode }: NewTaskModalProps) {
   const { t } = useTranslation("app");
   const { confirm } = useConfirm();
   const viewportMode = useViewportMode();
@@ -699,7 +698,7 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
 
   /**
    * FNXC:NewTaskDialogAffordances 2026-06-21-17:50:
-   * The New Task dialog must expose the same Plan and Subtask quick-add handoff affordances as QuickEntryBox. Close without the dirty-state discard confirmation because the typed description is intentionally handed off to the planning/subtask modal instead of discarded.
+   * The New Task dialog must expose the Plan quick-add handoff affordance as QuickEntryBox. Close without the dirty-state discard confirmation because the typed description is intentionally handed off to the planning modal instead of discarded.
    */
   const handleAiAssistClose = useCallback(() => {
     resetForm();
@@ -1212,8 +1211,7 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
         isActive={isOpen}
         onClose={handleAiAssistClose}
         onPlanningMode={onPlanningMode}
-        onSubtaskBreakdown={onSubtaskBreakdown}
-        planningModel={planningModel}
+                planningModel={planningModel}
         onPlanningModelChange={(value) => { setPlanningCredentialInstanceId(undefined); setPlanningModel(value); }}
         planningCredentialInstanceId={planningCredentialInstanceId}
         onPlanningCredentialInstanceIdChange={(instanceId) => setPlanningCredentialInstanceId(instanceId || undefined)}

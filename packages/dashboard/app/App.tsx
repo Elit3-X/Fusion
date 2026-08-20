@@ -942,8 +942,6 @@ function AppInner() {
   const researchEnabled = experimentalFeatures.researchView === true;
   const evalsEnabled = experimentalFeatures.evalsView === true;
   const ideationEnabled = experimentalFeatures.ideationView === true;
-  /* FNXC:QuickAddSubtaskFlag 2026-06-21-00:00: Missing or false `subtaskBreakdown` settings must hide the AI Subtask quick-add handoff across List, Board, and New Task Modal surfaces; only an explicit true wires the callback. */
-  const subtaskBreakdownEnabled = experimentalFeatures.subtaskBreakdown === true;
   /*
   FNXC:Navigation 2026-06-19-00:00:
   Experimental left sidebar navigation replaces the Header view shortcuts with a persistent sidebar on non-mobile project screens, while mobile continues to use the bottom navigation bar as the only primary navigation surface.
@@ -1114,14 +1112,12 @@ function AppInner() {
     handleModalCreate,
     handlePlanningTaskCreated,
     handlePlanningTasksCreated,
-    handleSubtaskTasksCreated,
     handleGitHubImport,
   } = useTaskHandlers({
     createTask,
     ingestCreatedTasks,
     onPlanningTaskCreated: modalManager.onPlanningTaskCreated,
     onPlanningTasksCreated: modalManager.onPlanningTasksCreated,
-    onSubtaskTasksCreated: modalManager.onSubtaskTasksCreated,
     addToast,
   });
 
@@ -1291,10 +1287,6 @@ function AppInner() {
     handleTaskViewChange("planning");
   }, [handleTaskViewChange, modalManager]);
 
-  const openSubtaskBreakdownWithNav = useCallback((description: string, workflowId?: string | null) => {
-    modalManager.openSubtaskBreakdown(description, workflowId);
-    pushNav({ type: "modal", close: modalManager.closeSubtask });
-  }, [modalManager, pushNav]);
 
   const openGroupModalWithNav = useCallback((groupId: string) => {
     modalManager.openGroupModal(groupId);
@@ -1346,7 +1338,6 @@ function AppInner() {
           [modalManager.settingsOpen, modalManager.closeSettings],
           [Boolean(modalManager.detailTask), modalManager.closeDetailTask],
           [Boolean(modalManager.groupModalGroupId), modalManager.closeGroupModal],
-          [modalManager.isSubtaskOpen, modalManager.closeSubtask],
           [modalManager.isPlanningOpen, modalManager.closePlanning],
           [modalManager.newTaskModalOpen, modalManager.closeNewTask],
           [modalManager.setupWizardOpen, modalManager.closeSetupWizard],
@@ -1471,8 +1462,6 @@ function AppInner() {
       */
       modalManager.openPlanningWithSession(session.id);
       handleChangeTaskView("planning");
-    } else if (session.type === "subtask") {
-      modalManager.openSubtaskWithSession(session.id);
     } else if (session.type === "mission_interview") {
       setMissionTargetId(undefined);
       setMissionResumeSessionId(session.id);
@@ -1759,8 +1748,6 @@ function AppInner() {
     openGroupModalWithNav,
     handleBoardQuickCreate,
     openNewTaskWithNav,
-    subtaskBreakdownEnabled,
-    openSubtaskBreakdownWithNav,
     toggleAutoMerge,
     togglePlanAutoApprove,
     globalPaused,
@@ -2272,12 +2259,10 @@ function AppInner() {
           handleModalCreate,
           handlePlanningTaskCreated,
           handlePlanningTasksCreated,
-          handleSubtaskTasksCreated,
           handleGitHubImport,
         }}
         onPlanningMode={openPlanningWithInitialPlanWithNav}
         onOpenChatWithPrefill={openChatWithPrefill}
-        onSubtaskBreakdown={subtaskBreakdownEnabled ? openSubtaskBreakdownWithNav : undefined}
         taskOperations={{ moveTask, deleteTask, mergeTask, archiveTask, revertTask, retryTask, pauseTask, unpauseTask, bypassReview, resetTask, duplicateTask }}
         deepLink={{ handleDetailClose }}
         settings={{ prAuthAvailable, autoMerge, openTasksInRightSidebar, openMobileTasksInPopup, taskPopupsBoardListOnly, showCostBadgeOnCards, taskDetailChatFirst, chatMessageLayout, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors, resolvedThemeMode, setThemeMode, setColorTheme, setDashboardFontScalePct, setShadcnCustomColors, setQuickChatButtonModeImmediate, setChatMessageLayoutImmediate, setOpenTasksInRightSidebarImmediate, setOpenMobileTasksInPopupImmediate, setTaskPopupsBoardListOnlyImmediate, setShowCostBadgeOnCardsImmediate, setTaskDetailChatFirstImmediate, setMobileNavPrimaryItemsImmediate }}

@@ -413,9 +413,6 @@ These groups moved out of project settings and into workflow settings (built-in
 FNXC:WorkflowRouting 2026-06-22-12:00:
 Triage workflow defaults are policy inputs, not permission to reroute tasks autonomously. Prompt guidance allows workflow selection only for explicit user requests or tasks the agent created.
 
-FNXC:TriagePolicy 2026-07-04-00:00:
-`triageProactiveSubtaskSplittingEnabled` is workflow/project-scoped so operators can disable automatic oversized-task splitting without disabling explicit per-task `breakIntoSubtasks: true` requests.
-
 FNXC:HeartbeatPatrol 2026-07-15-03:05:
 `plannerHeartbeatPatrolEnabled` is documented beside planner oversight because operators need a separate workflow-native switch for idle/no-task task-creation patrol. It must not be described as disabling stuck-task observation, steering, or recovery for tasks already in flight.
 -->
@@ -424,16 +421,9 @@ The built-in workflows also declare triage/spec policy settings that were **not*
 
 | Setting | Default | Purpose |
 |---|---:|---|
-| `triageProactiveSubtaskSplittingEnabled` | `true` | Enables automatic large-task splitting guidance for oversized M/L tasks. Set to `false` to keep tasks whole unless `breakIntoSubtasks: true` is explicitly requested. |
 | `triageSizeSmallMaxHours` | `2` | Size S upper hour boundary (`S (<2h)`). |
 | `triageSizeMediumMaxHours` | `4` | Size M upper hour boundary (`M (2-4h)`). |
 | `triageSizeLargeMaxHours` | `8` | Size L upper hour boundary; XL starts at `8h+`. |
-| `triageSubtaskStepThreshold` | `7` | Canonical “MORE THAN 7 implementation steps” split-consideration threshold. |
-| `triageSubtaskLargeStepSignal` | `9` | Broad-scope signal for large tasks whose plan reaches 9+ steps. |
-| `triageSubtaskAdditiveStepSignal` | `12` | Additive partitioning signal for 12+ implementation steps. |
-| `triageSubtaskPackageThreshold` | `3` | Canonical package/module breadth threshold (“MORE THAN 3 different packages/modules”). |
-| `triageSubtaskFileScopeThreshold` | `20` | File Scope entry count that signals broad work. |
-| `triageSubtaskRemediationBatchThreshold` | `30` | Large remediation batch threshold. |
 | `triageNoCommitsDecisionVerbs` | all seven built-ins | Decision-only verbs: Decide, Evaluate, Verify, Confirm, Audit, Review whether, Investigate and report. |
 | `triageDecisionOnlyWorkflowId` | `builtin:quick-fix` | Preferred built-in or custom workflow for decision-only/no-commit tasks when the user explicitly requests that routing or the agent is creating the task. |
 | `triageDefaultWorkflowId` | empty (inherits project default) | Accepts any valid built-in or custom workflow id as a triage override. Empty (and legacy `builtin:coding`) inherits `config.settings.defaultWorkflowId`; the triage prompt falls back to `builtin:coding` only when neither is configured. |
@@ -453,7 +443,7 @@ The built-in workflows also declare triage/spec policy settings that were **not*
 | `plannerHeartbeatPatrolEnabled` | `true` | Workflow-native idle-heartbeat patrol switch (FN-7963). `true` preserves the existing no-task heartbeat/triage guidance that lets idle agents scan for gaps and create focused follow-up tasks. Set to `false` to remove proactive patrol task-creation guidance from idle/no-task heartbeat prompts; agents should then handle assigned work, direct messages, explicit operator requests, and safe read-only/logging coordination instead of opening new patrol tasks. This is separate from `plannerOversightLevel`: disabling heartbeat patrol does **not** disable stuck-task observation, steering, retry, or targeted-fix recovery for tasks already in flight. No-task heartbeats resolve this value from the project default workflow, falling back to `builtin:coding` when no default workflow is set. |
 | `memoryConsolidationEnabled` | `true` | Workflow-native Memory Keeper switch (FN-8932), shown in the Workflow Settings Panel's **Oversight** group. No-task heartbeats resolve it from the project default workflow (or `builtin:coding` fallback); set it to `false` to stop deterministic knowledge-graph, recall, and recall-to-graph cross-reference consolidation without deleting the agent or stored memory. `knowledgeGraphDir` remains a separate project setting owned by the knowledge-graph feature and is only read by this tick. |
 
-When `triageProactiveSubtaskSplittingEnabled` is `true` (the default), triage may proactively replace a large task with 2-5 child tasks when the size, step-count, package breadth, file-scope, or remediation-batch signals justify the coordination overhead. When it is `false`, those automatic oversized-task signals are advisory only for writing a realistic single-task spec; triage must not split solely because the task is large. The per-task `breakIntoSubtasks: true` flag is separate and remains mandatory: if a user explicitly asks for subtask breakdown, triage still evaluates and creates child tasks when the work is meaningfully decomposable.
+Large requests remain one planned task. Triage writes a complete plan with defined implementation steps rather than creating child tasks or replacing the original task.
 
 In the dashboard Settings modal, Project Models exposes project-baseline
 Plan/Triage, Executor, Reviewer, and declared fallback dropdown controls. The
@@ -713,7 +703,7 @@ Default notes:
 | `dependencyBlockedTodoStaleAgeMs` | `number` | `14400000` | Blocker-age threshold at/above which dependency-blocked Todo groups are bucketed as `stale` (4 hours). |
 | `dependencyBlockedTodoMinCount` | `number` | `1` | Minimum blocked Todo count required for a blocker group to be included in reporting. |
 | `dependencyBlockedTodoReportCooldownMs` | `number` | `21600000` | Minimum cooldown between dependency-blocked Todo insight emissions (6 hours). |
-| `aiSessionTtlMs` | `number` | `604800000` | TTL in ms for persisted planning/subtask/mission sessions (7 days). |
+| `aiSessionTtlMs` | `number` | `604800000` | TTL in ms for persisted planning, mission, and interview sessions (7 days). |
 | `aiSessionCleanupIntervalMs` | `number` | `3600000` | Interval in ms for AI session cleanup sweeps (1 hour). |
 | `autoUnpauseEnabled` | `boolean` | `true` | Auto-unpause after rate-limit-triggered pauses; manual pauses stay paused until explicitly unpaused by the user. |
 | `autoUnpauseBaseDelayMs` | `number` | `300000` | Base unpause delay in ms (5 min). |
@@ -735,7 +725,7 @@ Default notes:
 | `autoUpdatePrStatus` | `boolean` | `false` | Auto-refresh PR status badges. |
 | `githubCommentOnDone` | `boolean` | `false` | When enabled, tasks imported from GitHub issues post a completion comment to the source issue when the task moves to `done`. Suppressed when the source issue is also the task's *tracked* issue (`githubTracking.enabled` with the same `owner/repo#number`): the GitHub tracking comment already reports completion there, with commit/branch/PR/files details, so the issue would otherwise receive two comments. In that case `githubCommentTemplate` is not used and the task log records `Skipped GitHub issue completion comment`. When tracking points at a *different* issue, both issues are commented as before. |
 | `githubCommentTemplate` | `string` | `undefined` | Optional issue comment template used by `githubCommentOnDone`. Supports `{taskId}` and `{taskTitle}` placeholders. If unset, Fusion uses a default completion message. When the linked source issue's repository is the Fusion self-repo (`runfusion/fusion`, case-insensitive), Fusion appends a `Current version: v<current>` line and a `Target release: v<nextMinor>` line (next-minor bump, patch reset to 0, e.g. `0.55.0` → `0.56.0`), resolved via the published `@runfusion/fusion` CLI package version. If that version is unresolved/unparseable, the base comment is posted with no version lines. Comments on every other repository are byte-for-byte unchanged. |
-| `githubCloseSourceIssueOnDone` | `boolean` | `false` | When enabled, source-imported GitHub issues are automatically closed with `state_reason: completed` when the Fusion task moves to `done`. A startup reconciliation sweep also closes missed open source issues on boot. Separately, a triage split-close comments with the child task IDs immediately before closing its imported issue; the same source/tracking issue is handled once by its owning path. |
+| `githubCloseSourceIssueOnDone` | `boolean` | `false` | When enabled, source-imported GitHub issues are automatically closed with `state_reason: completed` when the Fusion task moves to `done`. A startup reconciliation sweep also closes missed open source issues on boot. |
 | `githubTrackingEnabledByDefault` | `boolean` | `false` | Project-level default for enabling issue tracking on ordinary new tasks. When this is false, the Quick Entry GitHub toggle is disabled until tracking is enabled in Settings. Imported GitHub issues still follow this default unless `githubLinkImportedIssuesToTracking` is enabled. |
 | `sessionAdvisorEnabledByDefault` | `boolean` | `false` | Project-level default for the session advisor (LLM overseer agent that reviews live executor transcripts). Off by default (opt-in). Quick Add exposes an eye toggle next to GitHub that inherits this default; each task can override via `sessionAdvisorEnabled`. Provider and model ids still come from workflow settings (`plannerOverseerAdvisorProvider` / `plannerOverseerAdvisorModelId`). Dashboard location: **Settings → Project → General → Session advisor (overseer agent)**. |
 | `githubLinkImportedIssuesToTracking` | `boolean` | `false` | Project-scoped imported-issue option. When enabled, direct GitHub imports and Planning Mode tasks seeded from a GitHub issue persist `githubTracking: { enabled: true }` so Fusion adopts the source issue as the tracking issue without turning tracking on for ordinary new tasks. A duplicate planned task still records source provenance but suppresses its second tracking link. |

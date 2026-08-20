@@ -346,18 +346,6 @@ export type {
   TaskSourceIssue,
 };
 
-/*
-FNXC:GitHubSourceIssueSplitClose 2026-08-01-09:24:
-When triage closes an imported parent after splitting it into child tasks, the authoritative
-in-process `task:deleted` event carries only this typed, ids-only reason so the GitHub owner can
-explain the close. PostgreSQL cannot observe the SQLite polling replica path, so this context is
-intentionally delivered only by the deleting store instance; cross-process delivery needs a separate
-outbox or event bridge.
-*/
-export interface TaskDeleteClosureContext {
-  kind: "split-into-subtasks";
-  childTaskIds: string[];
-}
 
 export interface BatchStatusRequest {
   taskIds: string[];

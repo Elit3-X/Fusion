@@ -1632,7 +1632,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         description,
         column,
         dependencies,
-        breakIntoSubtasks,
         enabledWorkflowSteps,
         workflowId,
         agentId,
@@ -1678,8 +1677,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       if (bypassDuplicateCheck !== undefined && typeof bypassDuplicateCheck !== "boolean") {
         throw badRequest("bypassDuplicateCheck must be a boolean");
       }
-      if (breakIntoSubtasks !== undefined && typeof breakIntoSubtasks !== "boolean") {
-        throw badRequest("breakIntoSubtasks must be a boolean");
+      if (Object.hasOwn(req.body as object, "breakIntoSubtasks")) {
+        throw badRequest("breakIntoSubtasks is no longer supported; create one detailed task instead");
       }
 
       const validatedModelProvider = validateOptionalModelField(modelProvider, "modelProvider");
@@ -2096,7 +2095,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         description: normalizedDescription,
         column,
         dependencies,
-        breakIntoSubtasks,
         enabledWorkflowSteps,
         // U6/R3: forward only when the client set it (string | null). Leaving it
         // absent preserves the project-default inheritance behavior.

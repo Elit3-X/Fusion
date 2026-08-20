@@ -55,10 +55,6 @@ import {
   rehydrateFromStore as rehydratePlanningSessions,
 } from "./planning.js";
 import {
-  setAiSessionStore as setSubtaskAiSessionStore,
-  rehydrateFromStore as rehydrateSubtaskSessions,
-} from "./subtask-breakdown.js";
-import {
   setAiSessionStore as setMissionAiSessionStore,
   rehydrateFromStore as rehydrateMissionSessions,
 } from "./mission-interview.js";
@@ -1558,19 +1554,16 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
     // drains microtasks before I/O), and is best-effort regardless.
     void aiSessionStore.recoverStaleSessions();
     setPlanningAiSessionStore(aiSessionStore);
-    setSubtaskAiSessionStore(aiSessionStore);
     setMissionAiSessionStore(aiSessionStore);
     setMilestoneSliceAiSessionStore(aiSessionStore);
   }
 
   // Fire-and-forget rehydration; store references for logging.
   let planningRehydratedCount = 0;
-  let subtaskRehydratedCount = 0;
   let missionRehydratedCount = 0;
   let milestoneSliceRehydratedCount = 0;
   if (aiSessionStore) {
     void rehydratePlanningSessions(aiSessionStore).then((c) => { planningRehydratedCount = c; });
-    void rehydrateSubtaskSessions(aiSessionStore).then((c) => { subtaskRehydratedCount = c; });
     void rehydrateMissionSessions(aiSessionStore).then((c) => { missionRehydratedCount = c; });
     void rehydrateMilestoneSliceSessions(aiSessionStore).then((c) => { milestoneSliceRehydratedCount = c; });
   }
@@ -1584,7 +1577,6 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
     runtimeLogger.info("AI session rehydrate summary", {
       message: "Rehydrated AI sessions from PostgreSQL",
       planningRehydratedCount,
-      subtaskRehydratedCount,
       missionRehydratedCount,
       milestoneSliceRehydratedCount,
       totalRehydrated,
