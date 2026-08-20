@@ -76,4 +76,6 @@ Adding a new catalogued run-audit event requires updating **both** the typed cat
 
 ### Emit-seam policy
 
-Executor telemetry must use `emitBoundedRunAudit`. It is best-effort and never load-bearing for lifecycle correctness: absent/non-function, synchronously throwing, rejecting, never-settling, and late-settling sinks are absorbed without altering the owning branch. The seam swallow-logs and bounds each write; it intentionally adds no retry, backoff, or queueing.
+All engine telemetry must use `emitBoundedRunAudit` from `packages/engine/src/util/emit-bounded-run-audit.ts`. It is best-effort and never load-bearing for lifecycle correctness: absent/non-function, synchronously throwing, rejecting, never-settling, and late-settling sinks are absorbed without altering the owning branch. The seam swallow-logs and bounds each write; it intentionally adds no retry, backoff, or queueing.
+
+This applies to executor, run-auditor, self-healing, merger, PR reconciliation, scheduler, project-engine, plugin, and mission-loop emitters. `merge-write-fence.ts` retains its bespoke non-`RunAuditEventInput` recorder; deferred emitters outside those modules remain separate follow-up work. New engine emitters must ship with a behavioral sink-health regression covering hostile sink states, not only a source-routing assertion.

@@ -105,6 +105,7 @@ import {
   unregisterProjectVerificationLimit,
 } from "./concurrency/verification-concurrency.js";
 import { runtimeLog } from "./logger.js";
+import { emitBoundedRunAudit, type RunAuditSinkHost } from "./util/emit-bounded-run-audit.js";
 
 class WorkspaceMergeDispatchBusyError extends Error {
   readonly retryable = true;
@@ -140,6 +141,28 @@ import type {
   TunnelRestoreReasonCode,
   TunnelStatusSnapshot,
 } from "./remote-access/types.js";
+
+/**
+ * FNXC:RunAudit 2026-08-20-05:22:
+ * FN-9175 keeps shadow-dequeue telemetry synchronous and isolated from queue ownership. Exporting
+ * this production helper lets its no-throw contract be exercised without fabricating a class host.
+ */
+export function emitMergeRequestShadowDequeueParityAudit(
+  store: RunAuditSinkHost,
+  legacyTaskId: string,
+  shadowTaskId: string | null,
+): void {
+  const agree = shadowTaskId === legacyTaskId;
+  void emitBoundedRunAudit(store, {
+    taskId: legacyTaskId,
+    agentId: "merger",
+    runId: generateSyntheticRunId("merger-shadow-dequeue", legacyTaskId),
+    domain: "database",
+    mutationType: "merge:request-dequeued-shadow",
+    target: legacyTaskId,
+    metadata: { legacyTaskId, shadowTaskId, agree },
+  }, { log: runtimeLog });
+}
 
 /**
  * Callback for processing pull-request merge strategy.
@@ -2559,12 +2582,12 @@ export class ProjectEngine {
       settings: promotionSettings,
       createGroupPr: this.options.createGroupPr,
       recordAudit: async (event) => {
-        await store.recordRunAuditEvent({
+        await emitBoundedRunAudit(store, {
           domain: event.domain as any,
           mutationType: event.mutationType,
           target: event.target,
           metadata: event.metadata,
-        } as any);
+        } as any, { log: runtimeLog });
       },
     });
   }
@@ -3129,21 +3152,7 @@ export class ProjectEngine {
   }
 
   private emitMergeRequestShadowDequeueParity(legacyTaskId: string, shadowTaskId: string | null): void {
-    const agree = shadowTaskId === legacyTaskId;
-    const store = this.runtime.getTaskStore();
-    void store.recordRunAuditEvent?.({
-      taskId: legacyTaskId,
-      agentId: "merger",
-      runId: generateSyntheticRunId("merger-shadow-dequeue", legacyTaskId),
-      domain: "database",
-      mutationType: "merge:request-dequeued-shadow",
-      target: legacyTaskId,
-      metadata: {
-        legacyTaskId,
-        shadowTaskId,
-        agree,
-      },
-    });
+    emitMergeRequestShadowDequeueParityAudit(this.runtime.getTaskStore(), legacyTaskId, shadowTaskId);
   }
 
   /*
@@ -3280,7 +3289,7 @@ export class ProjectEngine {
       runtimeLog.warn(
         `Global auto-merge was turned off, but ${taskIds.length} legacy in-review task(s) still have task.autoMerge=true without user provenance and may continue to auto-merge: ${taskIds.join(", ")}. Run reconcileLegacyAutoMergeStamps({ apply: true }) to clear these legacy stamps after review.`,
       );
-      void store.recordRunAuditEvent({
+      void emitBoundedRunAudit(store, {
         agentId: "system",
         runId: `legacy-auto-merge-stamp-advisory-${Date.now()}`,
         domain: "database",
@@ -3292,7 +3301,7 @@ export class ProjectEngine {
           recommendation: "Run reconcileLegacyAutoMergeStamps({ apply: true }) to clear legacy stamps after operator review.",
           changedTaskState: false,
         },
-      });
+      }, { log: runtimeLog });
     } catch (err: unknown) {
       runtimeLog.warn(
         `Legacy auto-merge stamp advisory failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -4196,12 +4205,12 @@ export class ProjectEngine {
                 createGroupPr: this.options.createGroupPr,
                 signal,
                 recordAudit: async (event) => {
-                  await store.recordRunAuditEvent({
+                  await emitBoundedRunAudit(store, {
                     domain: event.domain as any,
                     mutationType: event.mutationType,
                     target: event.target,
                     metadata: event.metadata,
-                  } as any);
+                  } as any, { log: runtimeLog });
                 },
               });
             } catch (promotionError) {
@@ -4216,7 +4225,7 @@ export class ProjectEngine {
               // explicit re-promote. Record an audit event so the failure is
               // observable and operators/the dashboard can drive recovery.
               try {
-                await store.recordRunAuditEvent({
+                await emitBoundedRunAudit(store, {
                   taskId,
                   agentId: "merger",
                   runId: `merge-${taskId}`,
@@ -4228,7 +4237,7 @@ export class ProjectEngine {
                     taskId,
                     error: message,
                   },
-                });
+                }, { log: runtimeLog });
               } catch {
                 // best-effort audit
               }

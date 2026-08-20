@@ -2298,6 +2298,7 @@ describe("SelfHealingManager", () => {
         status: "stuck-killed",
         worktree: null,
         branch: null,
+        branchWriteOrigin: "engine",
       });
       expect(store.logEntry).toHaveBeenCalledWith(
         "FN-1473",
@@ -4233,7 +4234,7 @@ describe("SelfHealingManager", () => {
       const result = await managerWithRecovery.reconcileTaskWorktreeMetadata();
 
       expect(result).toBe(1);
-      expect(store.updateTask).toHaveBeenCalledWith("FN-7802-SCOPE", { worktree: null, branch: null, sessionFile: null });
+      expect(store.updateTask).toHaveBeenCalledWith("FN-7802-SCOPE", { worktree: null, branch: null, branchWriteOrigin: "engine", sessionFile: null });
       expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ mutationType: "task:auto-recover-worktree-metadata-cleared" }));
       managerWithRecovery.stop();
     });
@@ -12169,7 +12170,7 @@ describe("SelfHealingManager reclaimStaleActiveBranches (FN-4546)", () => {
     expect(recovered).toBe(1);
     expect(mockedExecSync).toHaveBeenCalledWith(expect.stringContaining("git branch -D \"fusion/fn-1001\""), expect.anything());
     expect(mockedExecSync).toHaveBeenCalledWith(expect.stringContaining("git worktree prune"), expect.anything());
-    expect(store.updateTask).toHaveBeenCalledWith("FN-1001", { worktree: null, branch: null, baseCommitSha: null });
+    expect(store.updateTask).toHaveBeenCalledWith("FN-1001", { worktree: null, branch: null, branchWriteOrigin: "engine", baseCommitSha: null });
     expect((store as any).recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
       domain: "git",
       mutationType: "branch:stale-active-reclaim",
@@ -12260,7 +12261,7 @@ describe("SelfHealingManager reclaimStaleActiveBranches (FN-4546)", () => {
     expect(recovered).toBe(1);
     expect(mockedExecSync).toHaveBeenCalledWith(expect.stringContaining("git branch -D \"fusion/fn-1001\""), expect.anything());
     expect(getSelfHealingLogger().warn).not.toHaveBeenCalledWith(expect.stringContaining("stale-active-branch-rescue-needed FN-1001"));
-    expect(store.updateTask).toHaveBeenCalledWith("FN-1001", { worktree: null, branch: null, baseCommitSha: null });
+    expect(store.updateTask).toHaveBeenCalledWith("FN-1001", { worktree: null, branch: null, branchWriteOrigin: "engine", baseCommitSha: null });
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-1001",
       expect.stringContaining("reason=complete-column-unique-commits-force"),

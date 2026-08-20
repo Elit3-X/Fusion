@@ -42,6 +42,7 @@
  */
 
 import type { TaskStore, RunAuditEventInput } from "@fusion/core";
+import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 
 /** Structured context for a run correlation ID. */
 export interface EngineRunContext {
@@ -1184,7 +1185,7 @@ export function createRunAuditor(store: TaskStore, context: EngineRunContext | n
           ...input.metadata,
         },
       };
-      await store.recordRunAuditEvent(eventInput);
+      await emitBoundedRunAudit(store, eventInput);
     },
 
     database: async (input: DatabaseAuditInput) => {
@@ -1209,7 +1210,7 @@ export function createRunAuditor(store: TaskStore, context: EngineRunContext | n
           ...input.metadata,
         },
       };
-      await store.recordRunAuditEvent(eventInput);
+      await emitBoundedRunAudit(store, eventInput);
     },
 
     filesystem: async (input: FilesystemAuditInput) => {
@@ -1227,7 +1228,7 @@ export function createRunAuditor(store: TaskStore, context: EngineRunContext | n
           ...input.metadata,
         },
       };
-      await store.recordRunAuditEvent(eventInput);
+      await emitBoundedRunAudit(store, eventInput);
     },
 
     sandbox: async (input: SandboxAuditInput) => {
@@ -1245,7 +1246,7 @@ export function createRunAuditor(store: TaskStore, context: EngineRunContext | n
           ...input.metadata,
         },
       };
-      await store.recordRunAuditEvent(eventInput);
+      await emitBoundedRunAudit(store, eventInput);
     },
   };
 }

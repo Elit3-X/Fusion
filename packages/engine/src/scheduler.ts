@@ -28,6 +28,7 @@ import {
 } from "./concurrency/concurrency.js";
 import { planTaskWorktreePath, resolveTaskWorkingBranch } from "./worktree/worktree-names.js";
 import { schedulerLog } from "./logger.js";
+import { emitBoundedRunAudit } from "./util/emit-bounded-run-audit.js";
 import { createRepeatSuppressedLog } from "./util/repeat-suppressed-log.js";
 import { type PrMonitor, type PrComment } from "./merge/pr-monitor.js";
 import { reconcileMissionState, type MissionReconcileSource } from "./missions/mission-state-reconcile.js";
@@ -1714,7 +1715,7 @@ export class Scheduler {
   }
 
   private emitDependencyParityDiff(diff: SchedulingDependencyParityDiff): void {
-    void this.store.recordRunAuditEvent?.({
+    void emitBoundedRunAudit(this.store, {
       taskId: diff.taskId,
       agentId: "scheduler",
       runId: generateSyntheticRunId("scheduler", diff.taskId),
@@ -1726,7 +1727,7 @@ export class Scheduler {
         legacyResult: diff.legacySatisfied,
         markerResult: diff.markerSatisfied,
       },
-    });
+    }, { log: schedulerLog });
   }
 
   private async emitNodeUnreachableRecoveryAudit(
@@ -2752,7 +2753,7 @@ export class Scheduler {
                   schedulerLog.log(`Task ${task.id} dispatch blocked — ${reason}`);
                   await this.store.logEntry(task.id, reason);
                   try {
-                    await this.store.recordRunAuditEvent?.({
+                    await emitBoundedRunAudit(this.store, {
                       taskId: freshTask.id,
                       agentId: "scheduler",
                       runId: generateSyntheticRunId("scheduler", freshTask.id),
@@ -2771,7 +2772,7 @@ export class Scheduler {
                         decisionReason: handoffDecision.reason,
                         source: "scheduler.dispatch",
                       },
-                    });
+                    }, { log: schedulerLog });
                   } catch (error) {
                     schedulerLog.warn(`Task ${task.id} failed to emit node:handoff:parked audit: ${error instanceof Error ? error.message : String(error)}`);
                   }
@@ -2781,7 +2782,7 @@ export class Scheduler {
 
               await this.store.logEntry(task.id, `Owning-node handoff applied: ${handoffDecision.reason}`);
               try {
-                await this.store.recordRunAuditEvent?.({
+                await emitBoundedRunAudit(this.store, {
                   taskId: freshTask.id,
                   agentId: "scheduler",
                   runId: generateSyntheticRunId("scheduler", freshTask.id),
@@ -2800,7 +2801,7 @@ export class Scheduler {
                     decisionReason: handoffDecision.reason,
                     source: "scheduler.dispatch",
                   },
-                });
+                }, { log: schedulerLog });
               } catch (error) {
                 schedulerLog.warn(`Task ${task.id} failed to emit node:handoff audit: ${error instanceof Error ? error.message : String(error)}`);
               }
@@ -2905,7 +2906,7 @@ export class Scheduler {
               "text",
               `cycleCount=${nextDispatchStormCount} windowMs=${dispatchOscillationWindowMs}`,
             );
-            await this.store.recordRunAuditEvent?.({
+            await emitBoundedRunAudit(this.store, {
               taskId: task.id,
               agentId: "scheduler",
               runId: generateSyntheticRunId("scheduler-dispatch-oscillation", task.id),
@@ -2918,7 +2919,7 @@ export class Scheduler {
                 windowMs: dispatchOscillationWindowMs,
                 lastMoveSource: recentEngineTodoMovedAt ? "engine" : "scheduler",
               },
-            });
+            }, { log: schedulerLog });
             schedulerLog.warn(`Task ${task.id} auto-paused after dispatch oscillation threshold ${dispatchOscillationThreshold} was exceeded (${nextDispatchStormCount} cycles)`);
             return null;
           }

@@ -280,8 +280,13 @@ FNXC:RunAudit 2026-08-20-03:12:
 FN-9172 makes executor telemetry optional even when PostgreSQL or an extension sink stalls. Direct
 `store.recordRunAuditEvent` calls under `packages/engine/src/executor/` are an anti-pattern: use
 `emitBoundedRunAudit` so audit visibility never becomes a lifecycle dependency.
+
+FNXC:RunAudit 2026-08-20-04:15:
+FN-9175 promotes this to every engine lane. Direct engine `store.recordRunAuditEvent` calls are an
+anti-pattern: use `packages/engine/src/util/emit-bounded-run-audit.ts` and prove hostile sink
+isolation through a behavioral regression.
 -->
-- FN-9172: New executor run-audit emitters must use `emitBoundedRunAudit`; it absorbs absent, throwing, rejecting, hanging, and late-settling sinks without changing the owning branch.
+- FN-9175: New engine run-audit emitters must use `emitBoundedRunAudit` from `packages/engine/src/util/emit-bounded-run-audit.ts`; it absorbs absent, throwing, rejecting, hanging, and late-settling sinks without changing the owning branch, and requires behavioral sink-health coverage.
 - FN-9109: `session:cross-runtime-fallback-engaged` records a single retryable-failure handoff from a primary runtime to a deferred CLI runtime. Metadata is ids/outcomes-only (`sessionPurpose`, primary/fallback provider and model IDs, trigger point, failure category, `contextTransferred`); never record error prose or transferred transcript text.
 
 - FN-8958: `merge:orphan-write-fenced` is emitted once per orphan merge body at its fence's first interaction. Metadata is ids/counts/outcomes-only: `{ taskId, category, interaction, suppressedCount }`; `suppressedCount` is the emit-time count (`1` for `interaction:"suppressed"`, `0` for `interaction:"rejected"`), never a cumulative body total.

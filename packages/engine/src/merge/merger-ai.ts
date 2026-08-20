@@ -88,6 +88,7 @@ import { withRateLimitRetry } from "../errors/rate-limit-retry.js";
 import { checkSessionError } from "../errors/usage-limit-detector.js";
 import { accumulateSessionTokenUsage } from "../execution/session-token-usage.js";
 import { createRunAuditor, generateSyntheticRunId, type RunAuditor } from "../util/run-audit.js";
+import { emitBoundedRunAudit, type RunAuditSinkHost } from "../util/emit-bounded-run-audit.js";
 import { deriveExecutorSignalMemory, evaluateNoOpFinalizeExecutorVeto } from "../overseer/overseer-noop-finalize-veto.js";
 import { createLogger } from "../logger.js";
 import {
@@ -136,6 +137,30 @@ import {
 
 const execFileAsync = promisify(execFile);
 const aiMergeLog = createLogger("merger-ai");
+
+/**
+ * FNXC:RunAudit 2026-08-20-05:22:
+ * FN-9175 requires an aborted merge to retain its original terminal signal before optional PR
+ * sync telemetry is considered. This production helper makes that ordering independently
+ * executable while retaining the fire-and-forget audit contract for ordinary sync failures.
+ */
+export function recordBranchGroupPrSyncFailureAudit(
+  store: RunAuditSinkHost,
+  taskId: string,
+  groupId: string,
+  error: unknown,
+): void {
+  if (isMergeAbortedError(error)) throw error;
+  void emitBoundedRunAudit(store, {
+    taskId,
+    agentId: "merger",
+    runId: `merge-${taskId}`,
+    domain: "git",
+    mutationType: "merge:branch-group-pr-sync-failed",
+    target: groupId,
+    metadata: { groupId, error: error instanceof Error ? error.message : String(error) },
+  }, { log: aiMergeLog });
+}
 
 const MAX_CONCURRENT_ADVANCE_RETRIES = 3;
 
@@ -1432,11 +1457,11 @@ export async function runAiMerge(
   const fence = createMergeWriteFence({
     taskId,
     signal: options.signal,
-    recordAudit: (category, interaction, suppressedCount) => store.recordRunAuditEvent?.({
+    recordAudit: (category, interaction, suppressedCount) => emitBoundedRunAudit(store, {
       taskId, agentId: "merger", runId: `merge-${taskId}`, domain: "git",
       mutationType: "merge:orphan-write-fenced", target: taskId,
       metadata: { taskId, category, interaction, suppressedCount },
-    }),
+    }, { log: aiMergeLog }),
   });
   // Surface progress on the task detail (status pill) + the task log stream.
   const log = async (message: string): Promise<void> => {
@@ -2045,11 +2070,11 @@ export async function landWorkspaceTask(
   const fence = createMergeWriteFence({
     taskId,
     signal: options.signal,
-    recordAudit: (category, interaction, suppressedCount) => store.recordRunAuditEvent?.({
+    recordAudit: (category, interaction, suppressedCount) => emitBoundedRunAudit(store, {
       taskId, agentId: "merger", runId: `merge-${taskId}`, domain: "git",
       mutationType: "merge:orphan-write-fenced", target: taskId,
       metadata: { taskId, category, interaction, suppressedCount },
-    }),
+    }, { log: aiMergeLog }),
   });
   const log = async (message: string): Promise<void> => {
     await fence.write("log", () => store.logEntry(taskId, message, "AiMerge").catch(() => undefined));
@@ -3119,18 +3144,10 @@ async function finalizeMerged(
           syncGroupPr,
         });
       } catch (err) {
-        if (isMergeAbortedError(err)) throw err;
         try {
-          store.recordRunAuditEvent?.({
-            taskId,
-            agentId: "merger",
-            runId: `merge-${taskId}`,
-            domain: "git",
-            mutationType: "merge:branch-group-pr-sync-failed",
-            target: groupRouting.branchGroup.id,
-            metadata: { groupId: groupRouting.branchGroup.id, error: err instanceof Error ? err.message : String(err) },
-          });
-        } catch {
+          recordBranchGroupPrSyncFailureAudit(store, taskId, groupRouting.branchGroup.id, err);
+        } catch (auditError) {
+          if (isMergeAbortedError(auditError)) throw auditError;
           // best-effort audit
         }
       }

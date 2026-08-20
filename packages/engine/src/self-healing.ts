@@ -47,6 +47,7 @@ import { finalizePlanningSegment } from "@fusion/core";
 import type { WorkspaceLandIntent } from "@fusion/core";
 import type { MeshLeaseManager } from "./project/mesh-lease-manager.js";
 import { createLogger, schedulerLog } from "./logger.js";
+import { emitBoundedRunAudit } from "./util/emit-bounded-run-audit.js";
 import {
   TRIAGE_MARKER_CLEARED_REPLAN_LOG_ACTION,
   buildInactiveDuplicateClearFeedback,
@@ -2512,7 +2513,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       `[recovery] already-merged rejected ${task.id} candidate=${candidateSha.slice(0, 12)} owner=${candidateOwner ?? "unknown"} branch=${taskBranch ?? "?"} base=${baseBranch} reason=${reason}`,
     );
     try {
-      await this.store.recordRunAuditEvent?.({
+      await emitBoundedRunAudit(this.store, {
         taskId: task.id,
         agentId: "self-healing",
         runId: generateSyntheticRunId("self-heal-already-merged-rejected", task.id),
@@ -2527,7 +2528,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           taskBranch: taskBranch ?? null,
           baseBranch,
         },
-      });
+      }, { log });
     } catch (err: unknown) {
       log.warn(`Failed to record already-merged rejection audit for ${task.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -3984,7 +3985,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     },
   ): Promise<void> {
     try {
-      await this.store.recordRunAuditEvent({
+      await emitBoundedRunAudit(this.store, {
         taskId,
         agentId: "self-healing",
         runId: generateSyntheticRunId("wedged-active-merge", taskId),
@@ -4000,7 +4001,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           status: metadata.status,
           column: metadata.column,
         },
-      });
+      }, { log });
     } catch (err: unknown) {
       log.warn(
         `Failed to audit wedged active merge reclaim for ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -6699,20 +6700,20 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     const result = await this.store.reconcileStaleSymbolLocks();
     if (result.reconciled.length > 0) {
       this.symbolLockNoActionAudited = false;
-      await this.store.recordRunAuditEvent({
+      await emitBoundedRunAudit(this.store, {
         agentId: "self-healing", runId: "symbol-lock-reconcile", domain: "database",
         mutationType: "symbol-lock:reconcile-stale", target: "symbol-locks",
         metadata: { count: result.reconciled.length, symbolKeys: result.reconciled, outcome: "reconciled" },
-      });
+      }, { log });
       return result.reconciled.length;
     }
     if (!this.symbolLockNoActionAudited) {
       this.symbolLockNoActionAudited = true;
-      await this.store.recordRunAuditEvent({
+      await emitBoundedRunAudit(this.store, {
         agentId: "self-healing", runId: "symbol-lock-reconcile", domain: "database",
         mutationType: "symbol-lock:reconcile-stale-no-action", target: "symbol-locks",
         metadata: { count: 0, outcome: "no-action" },
-      });
+      }, { log });
     }
     return 0;
   }
@@ -13626,12 +13627,14 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
               ? "Auto-recovered: in-review pause-abort park cleared — preserved for normal review progression"
               : "Auto-recovered: pause-abort park cleared — requeued for normal scheduling",
           );
-          // FNXC:WorkflowLifecycle 2026-06-20-00:00: audit emission is strictly
-          // best-effort — an audit throw AFTER the successful state mutation must
-          // not drop into the per-task catch and falsely log "recovery failed" /
-          // skip the recovered++ (coderabbit, PR #1687).
+          /*
+          FNXC:RunAudit 2026-08-20-04:15:
+          FN-9175 routes this post-mutation telemetry through the bounded shared seam. A failed
+          audit must not enter the recovery catch, falsely report recovery failure, or skip
+          `recovered++` after the state mutation has succeeded.
+          */
           try {
-            await this.store.recordRunAuditEvent?.({
+            await emitBoundedRunAudit(this.store, {
               taskId: task.id,
               agentId: "self-healing",
               runId: generateSyntheticRunId("self-healing", task.id),
@@ -13644,7 +13647,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
                 recoveryRoute: route.kind,
                 recoveryReason: route.reason,
               },
-            });
+            }, { log });
           } catch (auditErr: unknown) {
             log.warn(`Pause-abort park audit emission failed for ${task.id}: ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`);
           }
@@ -16000,7 +16003,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           // without persisting duration prose; the atomically finalized task id
           // and fixed no-live-owner reason are sufficient forensic evidence.
           try {
-            await this.store.recordRunAuditEvent?.({
+            await emitBoundedRunAudit(this.store, {
               taskId: task.id,
               agentId: "self-healing",
               runId: generateSyntheticRunId("orphaned-planning-segment", task.id),
@@ -16008,7 +16011,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
               mutationType: "task:reconcile-orphaned-planning-segment",
               target: task.id,
               metadata: { taskId: task.id, finalizedCount: 1, reason: "no-live-planning-owner" },
-            });
+            }, { log });
           } catch (auditError: unknown) {
             const errorType = auditError instanceof Error && auditError.name ? auditError.name : "unknown-error";
             log.warn(`[self-healing] orphaned planning segment ${task.id} audit could not be recorded: errorType=${errorType}`);
@@ -16028,14 +16031,14 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             ? { finalizedCount: 0, reason: "all-attempts-failed", attemptedCount: attempted }
             : { finalizedCount: 0, reason: "no-finalization", attemptedCount: attempted, failedAttemptCount: failedAttempts };
         try {
-          await this.store.recordRunAuditEvent?.({
+          await emitBoundedRunAudit(this.store, {
             agentId: "self-healing",
             runId: generateSyntheticRunId("orphaned-planning-segment", "global"),
             domain: "database",
             mutationType: "task:reconcile-orphaned-planning-segment-no-action",
             target: "planning-segments",
             metadata: noActionMetadata,
-          });
+          }, { log });
         } catch (auditError: unknown) {
           const errorType = auditError instanceof Error && auditError.name ? auditError.name : "unknown-error";
           log.warn(`[self-healing] orphaned planning segment no-action audit could not be recorded: errorType=${errorType}`);

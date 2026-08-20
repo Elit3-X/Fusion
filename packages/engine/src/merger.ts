@@ -153,6 +153,7 @@ import { activeSessionRegistry } from "./agents/active-session-registry.js";
 import { AgentLogger } from "./agents/agent-logger.js";
 import { attachAgentUsageTelemetry, emitAgentSessionStart } from "./agents/agent-usage-telemetry.js";
 import { mergerLog } from "./logger.js";
+import { emitBoundedRunAudit } from "./util/emit-bounded-run-audit.js";
 
 /*
 FNXC:EngineDiagnostics 2026-07-26-10:10:
@@ -6764,7 +6765,7 @@ export async function aiMergeTask(
   if (finalizedColumns.has(task.column)) {
     const message = `merger: skipping squash for ${taskId} — task already finalized (column=${task.column})`;
     mergerLog.log(message);
-    await (store as any).recordRunAuditEvent?.({
+    await emitBoundedRunAudit(store, {
       domain: "database",
       mutationType: "task:auto-merge-skipped-already-done",
       target: taskId,
@@ -6772,7 +6773,7 @@ export async function aiMergeTask(
         column: task.column,
         mergeConfirmed: task.mergeDetails?.mergeConfirmed ?? false,
       },
-    });
+    }, { log: mergerLog });
     return {
       task,
       branch: resolveTaskWorkingBranch(task),
@@ -6844,7 +6845,7 @@ export async function aiMergeTask(
       settings,
     });
     try {
-      await (store as any).recordRunAuditEvent?.({
+      await emitBoundedRunAudit(store, {
         taskId,
         agentId: "merger",
         runId: `merge-${taskId}`,
@@ -6858,7 +6859,7 @@ export async function aiMergeTask(
           effectiveEligible: promotionEligibility.eligible,
           reason: promotionEligibility.reason,
         },
-      });
+      }, { log: mergerLog });
     } catch {
       // best-effort audit
     }
@@ -6885,7 +6886,7 @@ export async function aiMergeTask(
       }).catch((err) => {
         // Non-fatal: never fail the merge/landing because PR sync failed.
         try {
-          void store.recordRunAuditEvent({
+          void emitBoundedRunAudit(store, {
             taskId,
             agentId: "merger",
             runId: `merge-${taskId}`,
@@ -6896,7 +6897,7 @@ export async function aiMergeTask(
               groupId,
               error: err instanceof Error ? err.message : String(err),
             },
-          });
+          }, { log: mergerLog });
         } catch {
           // best-effort audit
         }
@@ -6907,7 +6908,7 @@ export async function aiMergeTask(
   if (groupRouting) {
     const auditRunId = `merge-${taskId}`;
     try {
-      await (store as any).recordRunAuditEvent?.({
+      await emitBoundedRunAudit(store, {
         taskId,
         agentId: "merger",
         runId: auditRunId,
@@ -6920,7 +6921,7 @@ export async function aiMergeTask(
           mergeTargetBranch: mergeTarget.branch,
           mergeTargetSource: mergeTarget.source,
         },
-      });
+      }, { log: mergerLog });
     } catch {
       // best-effort audit
     }
@@ -6935,7 +6936,7 @@ export async function aiMergeTask(
       `${taskId}: merge target rejected (${mergeTarget.rejected.reason}): ${mergeTarget.rejected.source}=${mergeTarget.rejected.branch} → using ${mergeTarget.branch}`,
     );
     try {
-      await (store as any).recordRunAuditEvent?.({
+      await emitBoundedRunAudit(store, {
         domain: "git",
         mutationType: "merge:merge-target-rejected-fusion-sibling",
         target: taskId,
@@ -6946,7 +6947,7 @@ export async function aiMergeTask(
           fallbackBranch: mergeTarget.branch,
           fallbackSource: mergeTarget.source,
         },
-      });
+      }, { log: mergerLog });
     } catch {
       // best-effort audit; never block the merge on telemetry
     }
@@ -7617,7 +7618,7 @@ export async function aiMergeTask(
             lane: "legacy-no-op-classifier",
           }, null, 2),
         );
-        await (store as any).recordRunAuditEvent?.({
+        await emitBoundedRunAudit(store, {
           domain: "database",
           mutationType: "task:no-commits-finalize-blocked-incomplete-steps",
           target: taskId,
@@ -7629,7 +7630,7 @@ export async function aiMergeTask(
             baseRef: classification.baseRef,
             lane: "legacy-no-op-classifier",
           },
-        });
+        }, { log: mergerLog });
         await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
         await releaseReuseHandoffEarly("no-commits-incomplete-blocked");
         return {
@@ -7655,7 +7656,7 @@ export async function aiMergeTask(
             classification: classification.kind,
           }, null, 2),
         );
-        await (store as any).recordRunAuditEvent?.({
+        await emitBoundedRunAudit(store, {
           domain: "database",
           mutationType: "task:finalize-lost-work-blocked",
           target: taskId,
@@ -7663,7 +7664,7 @@ export async function aiMergeTask(
             modifiedFilesCount: task.modifiedFiles.length,
             classification: classification.kind,
           },
-        });
+        }, { log: mergerLog });
         await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
         await releaseReuseHandoffEarly("lost-work-blocked");
         return {
@@ -7721,12 +7722,12 @@ export async function aiMergeTask(
       `Finalize blocked: unproven ownership evidence (${classification.reason}); no owned landed commit was found — auto-retrying via todo requeue`,
       JSON.stringify(classification.details, null, 2),
     );
-    await (store as any).recordRunAuditEvent?.({
+    await emitBoundedRunAudit(store, {
       domain: "database",
       mutationType: "task:finalize-unproven-blocked",
       target: taskId,
       metadata: { reason: classification.reason, details: classification.details, autoRetry: true },
-    });
+    }, { log: mergerLog });
     await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
     await releaseReuseHandoffEarly(unprovenError);
     return {
@@ -7856,12 +7857,12 @@ export async function aiMergeTask(
         `Finalize blocked: unproven ownership evidence (${classification.reason}); branch missing and no owned landed commit was found — auto-retrying via todo requeue`,
         JSON.stringify(classification.details, null, 2),
       );
-      await (store as any).recordRunAuditEvent?.({
+      await emitBoundedRunAudit(store, {
         domain: "database",
         mutationType: "task:finalize-unproven-blocked",
         target: taskId,
         metadata: { reason: classification.reason, details: classification.details, branchMissing: true, autoRetry: true },
-      });
+      }, { log: mergerLog });
       await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
       return result;
     }
@@ -7924,7 +7925,7 @@ export async function aiMergeTask(
             lane: "legacy-branch-missing-no-op",
           }, null, 2),
         );
-        await (store as any).recordRunAuditEvent?.({
+        await emitBoundedRunAudit(store, {
           domain: "database",
           mutationType: "task:no-commits-finalize-blocked-incomplete-steps",
           target: taskId,
@@ -7936,7 +7937,7 @@ export async function aiMergeTask(
             baseRef: classification.baseRef,
             lane: "legacy-branch-missing-no-op",
           },
-        });
+        }, { log: mergerLog });
         await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
         return result;
       }
