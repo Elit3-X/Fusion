@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { TaskStore } from "../store.js";
 import { createLogger } from "../process/logger.js";
 import { recordRunAuditEvent } from "../postgres/data-layer.js";
+import { emitBoundedRunAudit } from "../run-audit/emit-bounded-run-audit.js";
 import * as schema from "../postgres/schema/index.js";
 import {
   acknowledgeTaskLifecycleEvent,
@@ -282,7 +283,13 @@ export class TaskDeletedOutboxConsumer {
         }
       }
       if (this.running && events.length > 0) {
-        await recordRunAuditEvent(layer, {
+        /*
+        FNXC:RunAudit 2026-08-20-06:50:
+        FN-9178 classified task-deleted-outbox catch-up, reconciliation, and lease-fence rows as
+        class A: bounded best-effort telemetry. Keep each emit awaited at its durable-work boundary,
+        rather than fire-and-forget, so post-acknowledgement/cursor ordering remains observable.
+        */
+        await emitBoundedRunAudit({ recordRunAuditEvent: (input) => recordRunAuditEvent(layer, input) }, {
           agentId: "system",
           runId: `task-deleted-outbox:${consumerId}`,
           domain: "task-lifecycle",
@@ -386,7 +393,7 @@ export class TaskDeletedOutboxConsumer {
     }
     const advanced = await advanceTaskLifecycleConsumerCursor(layer, consumerId, priorSeq, headSeq, lease.fencingToken);
     if (!advanced) return false;
-    await recordRunAuditEvent(layer, {
+    await emitBoundedRunAudit({ recordRunAuditEvent: (input) => recordRunAuditEvent(layer, input) }, {
       agentId: "system", runId: `task-deleted-outbox:${consumerId}`, domain: "task-lifecycle",
       mutationType: "task-deleted-outbox:reconciliation-fallback", target: consumerId,
       metadata: { projectId: layer.projectId, consumerId, reason, reconciliationHeadSeq: headSeq.toString(), dispatchedCount, scannedCount: liveRows.length },
@@ -399,7 +406,7 @@ export class TaskDeletedOutboxConsumer {
     const consumerId = this.store.consumerId;
     if (!layer || !consumerId) return;
     const cursor = await readTaskLifecycleConsumerCursor(layer, consumerId);
-    await recordRunAuditEvent(layer, {
+    await emitBoundedRunAudit({ recordRunAuditEvent: (input) => recordRunAuditEvent(layer, input) }, {
       agentId: "system", runId: `task-deleted-outbox:${consumerId}`, domain: "task-lifecycle",
       mutationType: "task-deleted-outbox:lease-fenced", target: consumerId,
       metadata: {

@@ -5,19 +5,15 @@ import { describe, expect, it } from "vitest";
 /*
  * FNXC:RunAudit 2026-08-20-07:16:
  * FN-9178 makes every direct awaited core audit writer a named decision rather than an implicit
- * exception. Class A sites are evaluated candidates, C retains its ordering claim, and
- * transactional/sink writers remain permanent atomicity boundaries. FN-9182 migrated class B
- * sites to the reporting bounded seam, so they no longer appear in this direct-await inventory.
+ * exception. Class C retains its ordering claim while transactional/sink writers remain permanent
+ * atomicity boundaries. FN-9180 routed class-A outbox rows and FN-9182 routed class-B sites
+ * through bounded seams, so neither class remains in this direct-await inventory.
  */
 const awaitedClassifications = {
   "store.ts:task:bypass-review": "C",
   "store.ts:task:resume-step": "C",
   "task-store/task-creation.ts:intake:resurrection-blocked": "C",
   "task-store/task-id-integrity.ts:task:resurrection-blocked": "C",
-  "task-store/task-deleted-outbox-consumer.ts:task-deleted-outbox:catch-up": "A",
-  "task-store/task-deleted-outbox-consumer.ts:task-deleted-outbox:reconciliation-fallback": "A",
-  "task-store/task-deleted-outbox-consumer.ts:task-deleted-outbox:lease-fenced": "A",
-  "task-store/task-lifecycle-event-retention.ts:task-deleted-outbox:retention-pruned": "A",
   "memory/recall-capture.ts:memory:capture-recorded|memory:capture-failed": "A",
   "task-store/project-store-ops.ts:recordRunAuditEventImpl": "permanent-sink",
 } as const;
@@ -35,7 +31,8 @@ const files = [
   "../task-store/merge-queue-ops-2.ts", "../task-store/task-mutation-ops.ts", "../task-store/workflow-integrity.ts",
   "../task-store/workflow-workitems-ops.ts", "../task-store/workflow-workitems-ops-2.ts", "../task-store/task-artifacts-ops.ts",
   "../task-store/lifecycle-ops.ts", "../task-store/task-id-integrity.ts", "../task-store/workflow-definitions.ts",
-  "../task-store/async/async-phantom-reservations.ts",
+  "../task-store/async/async-phantom-reservations.ts", "../task-store/task-deleted-outbox-consumer.ts",
+  "../task-store/task-lifecycle-event-retention.ts",
 ];
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));

@@ -1,26 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const audit = vi.hoisted(() => vi.fn());
 const asyncAudit = vi.hoisted(() => vi.fn());
 const softDelete = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const readTaskRow = vi.hoisted(() => vi.fn());
-const lifecycle = vi.hoisted(() => ({
-  acknowledgeTaskLifecycleEvent: vi.fn(async () => true),
-  acquireTaskLifecycleLease: vi.fn(async () => ({ token: "lease", fencingToken: 1n })),
-  advanceTaskLifecycleConsumerCursor: vi.fn(async () => true),
-  hasTaskLifecycleConsumerReceipt: vi.fn(async () => false),
-  listTaskLifecycleEvents: vi.fn(async () => []),
-  readTaskLifecycleConsumerCursor: vi.fn(async () => ({ fencingToken: 1n, lastAckedSeq: 0n, retryAttempts: 0, updatedAt: new Date().toISOString() })),
-  readTaskLifecycleEventBounds: vi.fn(async () => ({ headSeq: 4n, oldestSeq: 1n })),
-  registerTaskLifecycleConsumer: vi.fn(async () => undefined),
-  releaseTaskLifecycleLease: vi.fn(async () => undefined),
-  renewTaskLifecycleLease: vi.fn(async () => true),
-  setTaskLifecycleConsumerActive: vi.fn(async () => undefined),
-}));
-vi.mock("../postgres/data-layer.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../postgres/data-layer.js")>()),
-  recordRunAuditEvent: audit,
-}));
 vi.mock("../task-store/async/async-audit.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../task-store/async/async-audit.js")>()),
   recordRunAuditEvent: asyncAudit,
@@ -30,44 +12,17 @@ vi.mock("../task-store/async/async-persistence.js", async (importOriginal) => ({
   softDeleteTaskRow: softDelete,
   readTaskRow,
 }));
-vi.mock("../task-store/task-lifecycle-consumer-registry.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../task-store/task-lifecycle-consumer-registry.js")>()),
-  acknowledgeTaskLifecycleEvent: lifecycle.acknowledgeTaskLifecycleEvent,
-  acquireTaskLifecycleLease: lifecycle.acquireTaskLifecycleLease,
-  advanceTaskLifecycleConsumerCursor: lifecycle.advanceTaskLifecycleConsumerCursor,
-  hasTaskLifecycleConsumerReceipt: lifecycle.hasTaskLifecycleConsumerReceipt,
-  listTaskLifecycleEvents: lifecycle.listTaskLifecycleEvents,
-  readTaskLifecycleConsumerCursor: lifecycle.readTaskLifecycleConsumerCursor,
-  readTaskLifecycleEventBounds: lifecycle.readTaskLifecycleEventBounds,
-  registerTaskLifecycleConsumer: lifecycle.registerTaskLifecycleConsumer,
-  releaseTaskLifecycleLease: lifecycle.releaseTaskLifecycleLease,
-  renewTaskLifecycleLease: lifecycle.renewTaskLifecycleLease,
-  setTaskLifecycleConsumerActive: lifecycle.setTaskLifecycleConsumerActive,
-}));
 
 import { createRecallCaptureWriter } from "../memory/recall-capture.js";
 import { resolveSameAgentDuplicateIntake } from "../task-store/task-creation.js";
 import { maybeResolveTombstonedTaskIdImpl } from "../task-store/task-id-integrity.js";
 import { TombstonedTaskResurrectionError } from "../task-store/errors.js";
-import { pruneTaskLifecycleEvents } from "../task-store/task-lifecycle-event-retention.js";
-import { TaskDeletedOutboxConsumer } from "../task-store/task-deleted-outbox-consumer.js";
 
 /*
- * FNXC:RunAudit 2026-08-20-06:40:
- * FN-9178 invokes real helper-owned entry points with hostile audit helpers. It records existing
- * awaiting/ordering behavior only; fake timers make the never-settling observation deterministic.
+ * FNXC:RunAudit 2026-08-20-07:42:
+ * FN-9180 routes class-A outbox rows through bounded telemetry, so this characterization retains
+ * only intentionally awaited class-C and recall-capture behavior.
  */
-function emptyQuery() {
-  const query: Record<string, unknown> = {};
-  for (const method of ["from", "where", "orderBy", "limit"]) query[method] = () => query;
-  query.then = (resolve: (value: unknown[]) => unknown) => resolve([]);
-  return query;
-}
-
-function retentionLayer() {
-  return { projectId: "project", db: { select: vi.fn(() => emptyQuery()) } } as never;
-}
-
 describe("FN-9178 awaited data-layer audit characterization", () => {
   afterEach(() => { vi.clearAllMocks(); vi.useRealTimers(); });
 
@@ -151,158 +106,6 @@ describe("FN-9178 awaited data-layer audit characterization", () => {
       await expect(operation).rejects.toThrow(_state === "synchronous throw" ? "sync" : "reject");
     }
   });
-  it.each([
-    ["absent", () => undefined],
-    ["synchronous throw", () => { throw new Error("sync"); }],
-    ["rejection", () => Promise.reject(new Error("rejected"))],
-  ])("drives retention pruning through a %s audit helper", async (_state, sink) => {
-    audit.mockImplementation(sink as never);
-    const layer = retentionLayer();
-    const operation = pruneTaskLifecycleEvents(layer, "project");
-    if (_state === "absent") await expect(operation).resolves.toMatchObject({ prunedCount: 0 });
-    else await expect(operation).rejects.toThrow();
-    expect(audit).toHaveBeenCalledWith(layer, expect.objectContaining({ mutationType: "task-deleted-outbox:retention-pruned" }));
-  });
-
-  it("retention pruning remains pending for a never-settling audit helper", async () => {
-    const layer = retentionLayer();
-    audit.mockImplementation(() => new Promise<never>(() => undefined));
-    vi.useFakeTimers();
-    try {
-      let settled = false;
-      void pruneTaskLifecycleEvents(layer, "project").finally(() => { settled = true; }).catch(() => undefined);
-      await vi.advanceTimersByTimeAsync(2_100);
-      expect(settled).toBe(false);
-    } finally { vi.useRealTimers(); }
-  });
-
-  it("a late retention audit delays the real return until it settles", async () => {
-    const layer = retentionLayer();
-    let resolve!: () => void;
-    audit.mockImplementation(() => new Promise<void>((done) => { resolve = done; }));
-    audit.mockClear();
-    const operation = pruneTaskLifecycleEvents(layer, "project");
-    await vi.waitFor(() => expect(audit).toHaveBeenCalled());
-    resolve();
-    await expect(operation).resolves.toMatchObject({ prunedCount: 0 });
-  });
-
-  it.each([
-    ["absent", () => undefined, true],
-    ["synchronous throw", () => { throw new Error("sync"); }, false],
-    ["rejection", () => Promise.reject(new Error("rejected")), false],
-  ])("reconciliation fallback advances its cursor before a %s audit helper", async (_state, sink, completes) => {
-    audit.mockImplementation(sink as never);
-    const layer = retentionLayer();
-    const store = { asyncLayer: layer, consumerId: "consumer", taskCache: new Map(), emitObservedTaskDeleted: vi.fn() } as never;
-    const operation = (new TaskDeletedOutboxConsumer(store) as never).reconcile(0n, { fencingToken: 1n }, "pruned-gap");
-    if (completes) await expect(operation).resolves.toBe(true); else await expect(operation).rejects.toThrow();
-    expect(lifecycle.advanceTaskLifecycleConsumerCursor).toHaveBeenCalledOnce();
-    expect(audit).toHaveBeenCalledWith(layer, expect.objectContaining({ mutationType: "task-deleted-outbox:reconciliation-fallback" }));
-  });
-
-  it.each(["never-settling", "late-settling"])("reconciliation fallback waits after its cursor advance for %s audit", async (state) => {
-    const layer = retentionLayer();
-    audit.mockImplementation((state === "never-settling" ? () => new Promise<never>(() => undefined) : () => new Promise<void>((resolve) => setTimeout(resolve, 2_100))) as never);
-    const store = { asyncLayer: layer, consumerId: "consumer", taskCache: new Map(), emitObservedTaskDeleted: vi.fn() } as never;
-    vi.useFakeTimers();
-    let settled = false;
-    void (new TaskDeletedOutboxConsumer(store) as never).reconcile(0n, { fencingToken: 1n }, "pruned-gap").finally(() => { settled = true; }).catch(() => undefined);
-    await vi.advanceTimersByTimeAsync(2_100);
-    expect(lifecycle.advanceTaskLifecycleConsumerCursor).toHaveBeenCalledOnce();
-    expect(settled).toBe(state === "late-settling");
-  });
-
-  function catchUpStore() {
-    return {
-      asyncLayer: retentionLayer(), consumerId: "consumer", taskCache: new Map([["FN-DELETED", { id: "FN-DELETED" }]]),
-      emitObservedTaskDeleted: vi.fn(),
-    } as never;
-  }
-
-  function deletedEvent() {
-    return {
-      eventId: "event-1", eventType: "task:deleted", taskId: "FN-DELETED", occurredAt: new Date().toISOString(), seq: 1n,
-      payload: { taskId: "FN-DELETED", previousColumn: "todo", previousStatus: null, deletedAt: new Date().toISOString(), allowResurrection: false, githubIssueAction: null, closureContext: null, deletedBy: null },
-    };
-  }
-
-  it.each([
-    ["absent", () => undefined, true],
-    ["synchronous throw", () => { throw new Error("sync"); }, false],
-    ["rejection", () => Promise.reject(new Error("rejected")), false],
-  ])("drives catch-up through the production poll batch before a %s audit helper", async (_state, sink, completes) => {
-    lifecycle.listTaskLifecycleEvents.mockResolvedValueOnce([deletedEvent()]);
-    audit.mockImplementation(sink as never);
-    const consumer = new TaskDeletedOutboxConsumer(catchUpStore());
-    /*
-     * FNXC:RunAudit 2026-08-20-07:04:
-     * The characterization must use poll's production batch path. Set only its lifecycle-owned
-     * running gate to avoid adding a background scheduler while retaining lease-to-release order.
-     */
-    (consumer as never).running = true;
-    const operation = consumer.poll();
-    if (completes) await expect(operation).resolves.toBe("active"); else await expect(operation).rejects.toThrow();
-    expect(lifecycle.acknowledgeTaskLifecycleEvent).toHaveBeenCalledOnce();
-    expect(audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ mutationType: "task-deleted-outbox:catch-up" }));
-    expect(lifecycle.releaseTaskLifecycleLease).toHaveBeenCalledOnce();
-  });
-
-  it("keeps the real catch-up poll and its lease cleanup pending for a never-settling audit", async () => {
-    lifecycle.listTaskLifecycleEvents.mockResolvedValueOnce([deletedEvent()]);
-    audit.mockImplementation(() => new Promise<never>(() => undefined));
-    const consumer = new TaskDeletedOutboxConsumer(catchUpStore());
-    (consumer as never).running = true;
-    vi.useFakeTimers();
-    try {
-      let settled = false;
-      void consumer.poll().finally(() => { settled = true; }).catch(() => undefined);
-      await vi.advanceTimersByTimeAsync(2_100);
-      expect(lifecycle.acknowledgeTaskLifecycleEvent).toHaveBeenCalledOnce();
-      expect(settled).toBe(false);
-      expect(lifecycle.releaseTaskLifecycleLease).not.toHaveBeenCalled();
-    } finally { vi.useRealTimers(); }
-  });
-
-  it("finishes the real catch-up poll only after a late audit settles beyond the bounded window", async () => {
-    lifecycle.listTaskLifecycleEvents.mockResolvedValueOnce([deletedEvent()]);
-    let resolveAudit!: () => void;
-    audit.mockImplementation(() => new Promise<void>((resolve) => { resolveAudit = resolve; }));
-    const consumer = new TaskDeletedOutboxConsumer(catchUpStore());
-    (consumer as never).running = true;
-    vi.useFakeTimers();
-    try {
-      const operation = consumer.poll();
-      await vi.advanceTimersByTimeAsync(2_100);
-      expect(lifecycle.acknowledgeTaskLifecycleEvent).toHaveBeenCalledOnce();
-      expect(lifecycle.releaseTaskLifecycleLease).not.toHaveBeenCalled();
-      resolveAudit();
-      await expect(operation).resolves.toBe("active");
-      expect(lifecycle.releaseTaskLifecycleLease).toHaveBeenCalledOnce();
-    } finally { vi.useRealTimers(); }
-  });
-
-  it.each([
-    ["absent", () => undefined, true],
-    ["synchronous throw", () => { throw new Error("sync"); }, false],
-    ["rejection", () => Promise.reject(new Error("rejected")), false],
-  ])("drives the real outbox lease-fenced entry through a %s audit helper", async (_state, sink, completes) => {
-    audit.mockImplementation(sink as never);
-    const store = { asyncLayer: retentionLayer(), consumerId: "consumer" } as never;
-    const operation = (new TaskDeletedOutboxConsumer(store) as never).recordLeaseFenced({ fencingToken: 1n }, 1);
-    if (completes) await expect(operation).resolves.toBeUndefined(); else await expect(operation).rejects.toThrow();
-    expect(audit).toHaveBeenCalledWith(store.asyncLayer, expect.objectContaining({ mutationType: "task-deleted-outbox:lease-fenced" }));
-  });
-
-  it.each(["never-settling", "late-settling"])("outbox lease-fenced awaits a %s audit helper", async (state) => {
-    audit.mockImplementation((state === "never-settling" ? () => new Promise<never>(() => undefined) : () => new Promise<void>((resolve) => setTimeout(resolve, 2_100))) as never);
-    const store = { asyncLayer: retentionLayer(), consumerId: "consumer" } as never;
-    vi.useFakeTimers(); let settled = false;
-    void (new TaskDeletedOutboxConsumer(store) as never).recordLeaseFenced({ fencingToken: 1n }, 1).finally(() => { settled = true; }).catch(() => undefined);
-    await vi.advanceTimersByTimeAsync(2_100);
-    expect(settled).toBe(state === "late-settling");
-  });
-
   it.each([
     ["absent", () => undefined],
     ["synchronous throw", () => { throw new Error("sync"); }],
