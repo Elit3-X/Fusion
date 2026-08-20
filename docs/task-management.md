@@ -443,13 +443,16 @@ Task branch fields are intentionally distinct:
 
 When a task was created to resolve a temporary failure state in another task (for example, a preserved `in-review/failed` merge condition), its dependency contract may become stale after recovery.
 
+Dependencies must always target a live task in the same project. Fusion rejects a missing or soft-deleted dependency instead of persisting a durable blocker; a blocked execution that discovers one returns to planning so the prerequisite can be corrected.
+
 Use supported TaskStore/API paths to reconcile safely:
 
 - Remove/replace stale dependencies through task update APIs (do not hand-edit `task.json` or PostgreSQL rows)
+- Normal task deletion refuses when live dependents still reference the task. Where a supported caller explicitly removes dependency references, Fusion atomically removes those edges and returns affected dependents to planning.
 - Add a single comment/log entry explaining why the dependency changed
 - Keep downstream blockers coherent (only tasks that still truly depend on unfinished work should remain blocked)
 
-Completion gating treats dependencies as resolved only when the dependency task is in `done`, `in-review`, or `archived`.
+The PostgreSQL TaskStore/API boundary performs this validation and recovery. Do not use direct SQL or task JSON edits to remove dangling dependency references. Completion gating treats dependencies as resolved only when the dependency task is in `done`, `in-review`, or `archived`.
 
 Auto-merge recovery follow-up creation is deduplicated: Fusion creates at most one active (`not done/archived`) recovery task per unresolved parent failure, and merge-conflict recovery also deduplicates by active branch ownership to prevent parallel duplicate follow-ups on the same conflict branch.
 

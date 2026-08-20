@@ -1838,6 +1838,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       { name: "reconcile-soft-delete-column-drift", fn: () => this.reconcileSoftDeletedColumnDrift().then(() => undefined) },
       { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy().then(() => undefined) },
       { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies().then(() => undefined) },
+      { name: "reconcile-missing-dependencies", fn: () => this.reconcileMissingDependencies().then(() => undefined) },
       { name: "reconcile-dependency-blocking-leases", fn: () => this.reconcileDependencyBlockingLeases().then(() => undefined) },
       { name: "reconcile-stale-symbol-locks", fn: () => this.reconcileStaleSymbolLocks().then(() => undefined) },
       { name: "reconcile-completed-blocked", fn: () => this.reconcileCompletedBlockedTasks().then(() => undefined) },
@@ -3064,6 +3065,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           // only; a no-op when there are no markers).
           { name: "recover-stale-transition-pending", fn: () => this.runStaleTransitionPendingSweep() },
           { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies() },
+          { name: "reconcile-missing-dependencies", fn: () => this.reconcileMissingDependencies() },
           { name: "reconcile-dependency-blocking-leases", fn: () => this.reconcileDependencyBlockingLeases() },
           { name: "reconcile-completed-blocked", fn: () => this.reconcileCompletedBlockedTasks() },
           { name: "reconcile-in-review-unmet-dependencies", fn: () => this.reconcileInReviewUnmetDependencies() },
@@ -7134,6 +7136,62 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     }
 
     return recovered;
+  }
+
+  /** Repair legacy dependency residue before it can re-enter executor dispatch. */
+  async reconcileMissingDependencies(): Promise<number> {
+    let repaired = 0;
+    const tasks = await this.store.listTasks({ slim: true });
+    for (const snapshot of tasks) {
+      if (!snapshot.dependencies.length || snapshot.userPaused || snapshot.paused || snapshot.autoMerge === false) continue;
+      const livePaths = activeSessionRegistry.pathsForTask(snapshot.id);
+      const liveExecution = livePaths.some((path) => activeSessionRegistry.isPathActive(path))
+        || executingTaskLock.has(snapshot.id)
+        || this.options.getExecutingTaskIds?.().has(snapshot.id) === true
+        || this.options.isTaskActive?.(snapshot.id) === true
+        || Boolean(snapshot.checkedOutBy);
+      if (liveExecution) continue;
+
+      let removed = 0;
+      /*
+      FNXC:DependencyIntegrity 2026-08-20-17:41:
+      A sweep snapshot is discovery-only. Remove one still-missing edge through the store mutation
+      seam so its task lock re-reads current dependencies; never publish a stale replacement array
+      that could erase a concurrent operator edit.
+      */
+      for (const dependencyId of snapshot.dependencies) {
+        try {
+          const dependency = await this.store.getTask(dependencyId, { includeDeleted: true });
+          if (!dependency.deletedAt) continue;
+        } catch (error) {
+          if (!isTaskNotFoundError(error)) throw error;
+        }
+
+        // Recheck control and execution fences against the latest task before mutating it.
+        const current = await this.store.getTask(snapshot.id).catch((error: unknown) => {
+          if (isTaskNotFoundError(error)) return undefined;
+          throw error;
+        });
+        if (!current || current.userPaused || current.paused || current.autoMerge === false
+          || current.checkedOutBy
+          || activeSessionRegistry.pathsForTask(current.id).some((path) => activeSessionRegistry.isPathActive(path))
+          || executingTaskLock.has(current.id)
+          || this.options.getExecutingTaskIds?.().has(current.id) === true
+          || this.options.isTaskActive?.(current.id) === true
+          || !current.dependencies.includes(dependencyId)) continue;
+        try {
+          await this.store.updateTaskDependencies(current.id, { operation: "remove", dependency: dependencyId });
+          removed += 1;
+        } catch (error) {
+          // A concurrent dependency replacement wins; a later sweep re-discovers any surviving residue.
+          if (!/does not depend on/i.test(error instanceof Error ? error.message : String(error))) throw error;
+        }
+      }
+      if (removed === 0) continue;
+      await this.store.logEntry(snapshot.id, `Auto-reconciled ${removed} missing dependency reference(s); replanning required.`);
+      repaired += 1;
+    }
+    return repaired;
   }
 
   async reconcileSelfDefeatingDependencies(): Promise<number> {

@@ -8,7 +8,7 @@
  */
 import {TaskStore, storeLog} from "../store.js";
 import {InvalidFileScopeError, SelfDefeatingDependencyError, detectSelfDefeatingDependency, TombstonedTaskResurrectionError} from "./errors.js";
-import {and, eq, isNull, sql} from "drizzle-orm";
+import {and, eq, inArray, isNull, sql} from "drizzle-orm";
 import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {existsSync} from "node:fs";
@@ -37,7 +37,8 @@ import {withTaskBranchContextInSourceMetadata} from "../task-store/branch-contex
 import {resolveCreateDeclaredSymbols} from "../tasks/task-symbol-resolution.js";
 import {softDeleteTaskRow as softDeleteTaskRowAsync, insertTaskRowInTransaction, isTaskIdConflictError} from "../task-store/async/async-persistence.js";
 import {recordRunAuditEvent as recordRunAuditEventAsync} from "../task-store/async/async-audit.js";
-import {recordRunAuditEventWithinTransaction, taskProjectScope} from "../postgres/data-layer.js";
+import {projectScopeFor, recordRunAuditEventWithinTransaction, taskProjectScope} from "../postgres/data-layer.js";
+import {withTaskWorkflowSerialization} from "./async/async-workflow-workitems.js";
 import * as schema from "../postgres/schema/index.js";
 import type {DbTransaction} from "../postgres/data-layer.js";
 import { resolveTaskPrefix } from "./task-prefix.js";
@@ -898,11 +899,43 @@ export async function _createTaskInternalBackendImpl(store: TaskStore, input: Ta
     // A duplicate-ID collision raises a unique_violation (23505) which we
     // catch and surface as "Task ID already exists" (matching the SQLite path).
     const context = store.createTaskPersistSerializationContext(task);
+    const dependencyIds = [...new Set((task.dependencies ?? []).map((dependencyId) => dependencyId.trim()))]
+      .filter((dependencyId) => dependencyId.length > 0)
+      .sort();
     try {
       await layer.transactionImmediate(async (tx) => {
-        // FNXC:MultiProjectIsolation 2026-07-10: stamp the bound projectId so the
-        // new task row is attributed to (and later filtered under) this project.
-        await insertTaskRowInTransaction(tx, task as unknown as Record<string, unknown>, context, layer.projectId);
+        /*
+        FNXC:DependencyIntegrity 2026-08-20-18:03:
+        Creation is a dependency writer too. Lock each normalized prerequisite in deterministic order
+        and revalidate its live row in this insertion transaction, so a missing, soft-deleted, or
+        concurrently forced-deleted task can never become a durable dependency edge.
+        */
+        const insertAfterDependencyValidation = async (): Promise<void> => {
+          await (store as unknown as { __afterDependencyTargetLocksForTest?: () => void | Promise<void> }).__afterDependencyTargetLocksForTest?.();
+          if (dependencyIds.length > 0) {
+            const liveDependencies = await tx.select({ id: schema.project.tasks.id })
+              .from(schema.project.tasks)
+              .where(and(
+                projectScopeFor(schema.project.tasks.projectId, layer.projectId),
+                isNull(schema.project.tasks.deletedAt),
+                inArray(schema.project.tasks.id, dependencyIds),
+              ));
+            if (liveDependencies.length !== dependencyIds.length) {
+              const liveIds = new Set(liveDependencies.map((row) => row.id));
+              const missingDependencyId = dependencyIds.find((dependencyId) => !liveIds.has(dependencyId));
+              throw new Error(`Dependency task ${missingDependencyId} not found`);
+            }
+          }
+          // FNXC:MultiProjectIsolation 2026-07-10: stamp the bound projectId so the
+          // new task row is attributed to (and later filtered under) this project.
+          await insertTaskRowInTransaction(tx, task as unknown as Record<string, unknown>, context, layer.projectId);
+        };
+        const serializeDependencyTargets = async (index: number): Promise<void> => {
+          if (index >= dependencyIds.length) return insertAfterDependencyValidation();
+          return withTaskWorkflowSerialization(tx, layer.projectId, dependencyIds[index], () =>
+            serializeDependencyTargets(index + 1));
+        };
+        await serializeDependencyTargets(0);
         /*
         FNXC:MissionAdmission 2026-07-23-19:00:
         The row insert establishes this task as the sole winner before its staged
