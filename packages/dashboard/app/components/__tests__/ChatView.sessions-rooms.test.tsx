@@ -888,9 +888,8 @@ describe("Chat pop-out header actions", () => {
     expect(onPopOut).toHaveBeenCalledTimes(1);
   });
 
-  it("renders maximize, minimize, and close actions in floating Chat", async () => {
+  it("renders only right-aligned maximize and close actions in floating Chat", async () => {
     const onMaximize = vi.fn();
-    const onMinimize = vi.fn();
     const onClose = vi.fn();
     setupMockChat({ sessions: [], filteredSessions: [] });
 
@@ -900,16 +899,20 @@ describe("Chat pop-out header actions", () => {
         addToast={vi.fn()}
         floating
         onMaximize={onMaximize}
-        onMinimize={onMinimize}
         onClose={onClose}
       />,
     );
 
-    fireEvent.click(screen.getByTestId("chat-modal-maximize"));
-    fireEvent.click(screen.getByTestId("chat-modal-minimize"));
-    fireEvent.click(screen.getByTestId("chat-modal-close"));
+    const header = document.querySelector(".view-header") as HTMLElement;
+    const maximize = screen.getByTestId("chat-modal-maximize");
+    const close = screen.getByTestId("chat-modal-close");
+    expect(header).toContainElement(maximize);
+    expect(header).toContainElement(close);
+    expect(screen.queryByTestId("chat-modal-minimize")).toBeNull();
+
+    fireEvent.click(maximize);
+    fireEvent.click(close);
     expect(onMaximize).toHaveBeenCalledTimes(1);
-    expect(onMinimize).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

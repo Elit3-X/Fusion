@@ -52,10 +52,15 @@ describe("ChatView mobile list/detail navigation", () => {
     await userEvent.click(screen.getByTestId("chat-session-session-001"));
 
     expect(sidebar).toHaveClass("chat-sidebar--hidden");
-    expect(screen.getByTestId("chat-back-btn")).toHaveAccessibleName("Back to conversations");
+    const back = screen.getByTestId("chat-back-btn");
+    expect(back).toHaveAccessibleName("Back to conversations");
+    expect(back).toHaveTextContent("< BACK");
+    expect(back.closest(".chat-thread-header")).toBeInTheDocument();
+    expect(back.closest(".view-header")).toBeNull();
+    expect(screen.getAllByTestId("chat-back-btn")).toHaveLength(1);
     expect(screen.queryByTestId("chat-mobile-session-trigger")).toBeNull();
 
-    await userEvent.click(screen.getByTestId("chat-back-btn"));
+    await userEvent.click(back);
     expect(sidebar).not.toHaveClass("chat-sidebar--hidden");
     expect(screen.queryByTestId("chat-back-btn")).toBeNull();
     viewportSpy.mockRestore();
@@ -92,6 +97,8 @@ describe("ChatView mobile list/detail navigation", () => {
     await userEvent.click(screen.getByTestId("chat-session-session-001"));
 
     expect(document.querySelector(".chat-view--narrow .chat-sidebar")).toHaveClass("chat-sidebar--hidden");
+    const back = screen.getByTestId("chat-back-btn");
+    expect(back.closest(".chat-thread-header")).toBeInTheDocument();
     expect(screen.getAllByTestId("chat-back-btn")).toHaveLength(1);
     expect(screen.queryByTestId("chat-mobile-session-trigger")).toBeNull();
     viewportSpy.mockRestore();

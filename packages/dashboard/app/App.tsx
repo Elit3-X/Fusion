@@ -2116,14 +2116,14 @@ function AppInner() {
         }
       />
       {/*
-      FNXC:ChatModal 2026-06-22-13:24:
-      Quick Chat is replaced by the full ChatView in a movable/resizable FloatingWindow. The launcher icon is only the minimized entry point: clicking it opens the Chat modal, and the modal's minimize button closes the window back into that icon. Main Chat can also pop out into this same full Chat modal.
+      FNXC:ChatModal 2026-08-20-05:25:
+      FN-068 keeps Quick Chat's launcher as the only minimized entry point. Its floating Chat header exposes Close for dismissal and Open in Chat view for navigation, so no redundant minimize control can compete with Close. Main Chat can also pop out into this same full Chat modal.
 
       FNXC:ChatModal 2026-06-22-14:57:
       Reopening Quick Chat from the FAB restores the last floating Chat window geometry through FloatingWindow's persisted/clamped geometry key. The modal's maximize button routes to the full Chat view and closes the floating modal without clearing ChatView's shared session selection state.
 
       FNXC:ChatModal 2026-06-27-00:00:
-      Quick Chat is a transient utility window, so it opts into FloatingWindow's outside-click dismissal in addition to minimize, close, and maximize controls. Task pop-outs intentionally do not opt in because they are persistent workspace windows that should survive page clicks.
+      Quick Chat is a transient utility window, so it opts into FloatingWindow's outside-click dismissal in addition to close and Open in Chat view controls. Task pop-outs intentionally do not opt in because they are persistent workspace windows that should survive page clicks.
 
       FNXC:ChatModal 2026-06-28-00:00:
       Outside-click dismissal is now governed by the project-scoped quickChatCloseOnOutsideClick setting, default-on to preserve FN-7152 behavior. Other FloatingWindow callers still do not pass closeOnOutsidePointerDown, so task pop-outs and utility windows remain persistent.
@@ -2182,7 +2182,6 @@ function AppInner() {
                 handleTaskViewChange("chat");
                 setQuickChatOpen(false);
               }}
-              onMinimize={() => setQuickChatOpen(false)}
               onClose={() => setQuickChatOpen(false)}
             />
           </Suspense>

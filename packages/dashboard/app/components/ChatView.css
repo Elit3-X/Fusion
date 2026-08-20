@@ -507,14 +507,12 @@ The Direct-chat context budget indicator is a secondary desktop/tablet header af
   color: var(--text-muted);
 }
 
-/* Detail has one route back to the list; conversation controls stay in the list. */
-.chat-view--detail > .view-header {
-  flex-wrap: nowrap;
-}
-
-.chat-view--detail > .view-header .view-header__actions {
-  flex: 1 1 auto;
-  justify-content: flex-start;
+/*
+FNXC:ChatNavigation 2026-08-20-05:25:
+FN-068 puts the only Back action beside the selected conversation title. Do not override ViewHeader actions for detail mode: floating Open in Chat view and Close must retain ViewHeader's canonical right alignment.
+*/
+.chat-thread-header-back {
+  flex: 0 0 auto;
 }
 
 .chat-view-header-new-chat {
@@ -585,8 +583,8 @@ The Direct-chat context budget indicator is a secondary desktop/tablet header af
 }
 
 /*
-FNXC:ChatModal 2026-06-22-13:22:
-The old Quick Chat panel is replaced by the full ChatView inside a movable FloatingWindow. In floating mode ChatView's shared header is the only visible modal header and doubles as the drag handle, with minimize/close controls in the same action row.
+FNXC:ChatModal 2026-08-20-05:25:
+FN-068 keeps the floating Chat ViewHeader as the only visible modal header and drag handle. Its action row contains Open in Chat view and Close only; Close remains available at narrow sizes while CSS hides only Open in Chat view when it cannot fit.
 */
 .chat-view--floating .view-header {
   cursor: grab;
@@ -645,8 +643,8 @@ A narrow floating host uses the same full-pane list/detail flow as every other C
 }
 
 /*
-FNXC:ChatModal 2026-06-22-18:00:
-In the narrow/mobile chat layout there is no room for an expand/maximize affordance in the header. Hide only the expand controls (main Chat pop-out and floating-modal maximize); keep minimize/close visible so the user can still dismiss or dock the chat.
+FNXC:ChatModal 2026-08-20-05:25:
+In the narrow/mobile chat layout there is no room for an Open in Chat view affordance in the header. Hide only the expand controls (main Chat pop-out and floating-modal maximize); keep Close visible so the user can still dismiss floating Chat.
 */
 .chat-view--narrow [data-testid="chat-pop-out"],
 .chat-view--narrow [data-testid="chat-modal-maximize"] {

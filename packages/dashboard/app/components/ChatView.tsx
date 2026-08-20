@@ -8,14 +8,12 @@ import {
   Trash2,
   Archive,
   Pencil,
-  ChevronLeft,
   Bot,
   Paperclip,
   ChevronDown,
   Copy,
   Check,
   Maximize2,
-  Minimize2,
   X,
   Hash,
   Pin,
@@ -115,7 +113,6 @@ export interface ChatViewProps {
   compactLayout?: boolean;
   onPopOut?: () => void;
   onMaximize?: () => void;
-  onMinimize?: () => void;
   onClose?: () => void;
   /** Optional external composer seed; paired with a nonce so repeated opens reseed intentionally. */
   initialComposerDraft?: string;
@@ -553,7 +550,7 @@ interface RoomContext {
   memberIds: ReadonlySet<string>;
 }
 
-export function ChatView({ projectId, addToast, floating = false, compactLayout = false, onPopOut, onMaximize, onMinimize, onClose, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
+export function ChatView({ projectId, addToast, floating = false, compactLayout = false, onPopOut, onMaximize, onClose, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
   const { t } = useTranslation("app");
   const chatMessageLayout = useChatMessageLayout();
   useEffect(() => {
@@ -2637,11 +2634,13 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     pushNav({ type: "view", revert: chatScope === "rooms" ? handleRoomBack : handleBack });
   }, [chatScope, handleBack, handleRoomBack, hasDetailSelection, pushNav]);
 
-  const threadHeaderTitle = activeSession?.agentId === FN_AGENT_ID
-    ? (activeModelTag ?? "Fusion")
-    : activeSession?.title || agentsMap.get(activeSession?.agentId ?? "")?.name || activeSession?.agentId || "Chat";
+  /*
+  FNXC:ChatNavigation 2026-08-20-05:25:
+  FN-068 makes the saved conversation title the direct-thread identity for every host. Model metadata remains secondary, and titleless legacy sessions use a stable label rather than promoting a model name into the title slot.
+  */
+  const threadHeaderTitle = activeSession?.title?.trim() || t("chat.untitledConversation", "Untitled conversation");
 
-  const showThreadHeaderModelTag = Boolean(activeModelTag && activeModelTag !== threadHeaderTitle);
+  const showThreadHeaderModelTag = Boolean(activeModelTag);
   const showThreadHeaderContextWindow = !isChatMobile && hasThreadInView && activeContextWindow !== null;
   const threadHeaderContextUsed = formatTokenCount(estimatedChatTokens);
   const threadHeaderContextTotal = activeContextWindow !== null ? formatTokenCount(activeContextWindow) : null;
@@ -3140,8 +3139,8 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
 
   return (
     /*
-    FNXC:ChatNavigation 2026-08-19-19:36:
-    Chat uses the shared ViewHeader for the list/detail return path while .chat-view__body renders one full pane at a time. This preserves thread scrolling and keyboard compensation without a desktop split pane.
+    FNXC:ChatNavigation 2026-08-20-05:25:
+    FN-068 reserves the shared ViewHeader for view-level actions. A selected conversation owns its sole textual Back action in the thread row, preserving one list/detail state machine across desktop, floating, compact, and mobile hosts.
     */
     <div ref={chatViewRef} className={`chat-view${floating ? " chat-view--floating" : ""}${isChatMobile ? " chat-view--narrow" : ""}${hasDetailSelection ? " chat-view--detail" : ""}${chatMessageLayout === "full-width" ? " chat-view--full-width" : ""}`}>
       <ViewHeader
@@ -3149,11 +3148,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
         title={t("chat.title", "Chat")}
         actions={
           <>
-            {hasDetailSelection ? (
-              <button className="btn-icon chat-back-btn" onClick={handleVisibleDetailBack} data-testid="chat-back-btn" aria-label={t("chat.backToConversations", "Back to conversations")}>
-                <ChevronLeft size={16} />
-              </button>
-            ) : scopeToggle}
+            {!hasDetailSelection ? scopeToggle : null}
             {!hasDetailSelection ? (
               <button
                 className="btn btn-sm btn-primary chat-view-header-new-chat"
@@ -3186,18 +3181,6 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                 data-testid="chat-modal-maximize"
               >
                 <Maximize2 size={16} />
-              </button>
-            ) : null}
-            {floating && onMinimize ? (
-              <button
-                type="button"
-                className="btn-icon chat-view-header-icon"
-                onClick={onMinimize}
-                aria-label={t("chat.minimizeToQuickChat", "Minimize to quick chat")}
-                title={t("chat.minimizeToQuickChat", "Minimize to quick chat")}
-                data-testid="chat-modal-minimize"
-              >
-                <Minimize2 size={16} />
               </button>
             ) : null}
             {floating && onClose ? (
@@ -3662,6 +3645,15 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
           {rooms.activeRoom ? (
             <>
               <div className="chat-room-thread-header">
+                <button
+                  type="button"
+                  className="btn btn-sm chat-thread-header-back chat-back-btn"
+                  onClick={handleVisibleDetailBack}
+                  data-testid="chat-back-btn"
+                  aria-label={t("chat.backToConversations", "Back to conversations")}
+                >
+                  {"< BACK"}
+                </button>
                 <span className="chat-thread-header-title">#{rooms.activeRoom.name}</span>
                 <div className="chat-room-thread-members">
                   {rooms.activeRoomMembers.map((member) => (
@@ -3858,16 +3850,24 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
         </div>
       ) : hasDetailSelection ? (
       <div ref={chatThreadRef} className="chat-thread">
-        {/* Header - desktop/tablet keeps the thread identity row; mobile direct-thread controls move into ViewHeader. */}
         {/* FNXC:ChatRenderToggle 2026-07-04-00:00: The markdown/plain eye toggle
             button (desktop `.chat-thread-header-render-toggle` and the mobile
             floating `--floating` variant) was removed per FN-7541. Chat now
             always renders Markdown (forcePlain is hardcoded to false). */}
-        {!isChatMobile && (hasThreadInView || !isChatMobile) && (
+        {hasThreadInView && (
           <div className="chat-thread-header">
+            <button
+              type="button"
+              className="btn btn-sm chat-thread-header-back chat-back-btn"
+              onClick={handleVisibleDetailBack}
+              data-testid="chat-back-btn"
+              aria-label={t("chat.backToConversations", "Back to conversations")}
+            >
+              {"< BACK"}
+            </button>
             <div className="chat-thread-header-identity" data-testid="chat-thread-header-identity">
               {activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="md" /> : <Bot size={16} />}
-              <span className="chat-thread-header-title">{threadHeaderTitle}</span>
+              <span className="chat-thread-header-title" title={threadHeaderTitle}>{threadHeaderTitle}</span>
               {showThreadHeaderModelTag && <span className="chat-model-tag">{activeModelTag}</span>}
               {showThreadHeaderContextWindow && threadHeaderContextTotal && threadHeaderContextLabel ? (
                 <span
