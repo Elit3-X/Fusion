@@ -1,5 +1,186 @@
 # @runfusion/fusion
 
+## 0.77.0-beta.4
+
+### Minor Changes
+
+- 338dc17: summary: Add `pnpm dev --isolated` to run the dev server against its own database and project directory.
+  category: feature
+  dev: Inside a machine already running Fusion, a plain `pnpm dev` shares the live database: everything durable hangs off `$HOME/.fusion` and `embedded-lifecycle` attaches to an existing postmaster when the data dir already has one. `--isolated` (also `--isolated=<dir>`, `FUSION_DEV_ISOLATED=1`) spawns the dev child with `HOME` pointed at a sandbox, giving it its own settings, credentials, central DB and Postgres cluster on its own port. It also sets the child's `cwd`, because `fn dashboard` derives its project from the working directory and has no project flag — without that, both instances share `<repo>/.fusion/tasks/`, which the orphaned-task-dir sweep re-imports, so a fresh dev database adopts the real instance's tasks. The sandbox defaults to `~/.fusion-dev/<checkout-name>/{home,project}` — outside the work tree and keyed by checkout — and the project dir is `git init`-ed on first use. Safe because `PRELOAD`/`LOADER`/`ENTRY` are already absolute paths.
+- 643a409: summary: Add the Velvet color theme (plum/burgundy dark, blush-white light).
+  category: feature
+- c30d650: summary: Add a localized action to copy displayed task Activity Feed logs.
+  category: feature
+  dev: Uses the shared clipboard fallback and preserves the bounded Feed order.
+- e0ffd31: summary: Add desktop click-drag panning across Board workflow columns.
+  category: feature
+  dev: Safe Board surfaces pan horizontally with the native scroll position; task-card drag-and-drop and mobile touch paging remain unchanged.
+- 3ae22c2: summary: Add a project Appearance preference for bubble or full-width chat messages.
+  category: feature
+  dev: Applies the project-scoped `chatMessageLayout` choice to normal, Quick, dock, Activity, and Planner Chat surfaces.
+- 6a28811: summary: Add arrival and task-ID sorting to every Board column and paged Archive.
+  category: feature
+  dev: Board lanes keep local sort choices; Archive applies its mode before bounded PostgreSQL paging.
+- 4d7e7db: summary: Expose model-supported thinking levels, including max, in dashboard selectors.
+  category: feature
+  dev: Model metadata from pi filters model-bound controls while unknown metadata keeps the canonical fallback.
+- aad4b73: summary: Use the Direct Chat default model in task-detail Chat with task-aware context.
+  category: feature
+  dev: Task Chat retains its synthetic task session and adds model/thinking controls without impersonating Direct Chat agents.
+- bcc77c9: summary: Require quality-first task recommendation evaluation at completion.
+  category: feature
+  dev: Adds the project setting `requireTaskRecommendations`; positive caps require an explicit recommendation array while relevance permits fewer or none.
+- 7563fcf: summary: Choose English, input, or interface language for AI-authored task text.
+  category: feature
+  dev: Project mode preserves legacy taskDefinitionInInputLanguage compatibility until explicitly changed.
+- b1893a6: summary: Custom-provider models now offer all thinking levels (Off → Max) and actually send the selected effort.
+  category: feature
+  dev: buildCustomProviderModels registers reasoning: true with an identity thinkingLevelMap for xhigh/max.
+- 2c16a7e: summary: Add a Medieval dashboard theme with parchment surfaces and wood-framed modals.
+  category: feature
+  dev: Bundles a local pixel font without a CDN request.
+- 3b0a6b7: summary: Group workspace worktrees beneath configurable workspace roots.
+  category: feature
+  dev: Native workspace worktrees use deterministic workspace and repository path segments.
+- 2a31505: summary: Add workspace repositories after project registration.
+  category: feature
+  dev: Adds addWorkspaceRepo and POST /api/git/workspace-repos; fn_acquire_repo_worktree refreshes membership monotonically.
+- ef35fb8: summary: Let workspace tasks choose and display a verified base branch per repository.
+  category: feature
+  dev: Per-repo verification falls back safely, pins durable base fields for landing/revert, and records an ids-only audit decision.
+- 3d35546: summary: Mission features: done-credit via reverse lineage, re-point/unlink tools, and live unlink SSE updates.
+  category: feature
+  dev: New `fn_feature_repoint_task` / `fn_feature_unlink_task` agent tools (engine + CLI) backed by an atomic `repointFeatureToTask` store primitive preserving single-valued `feature.taskId` and one-feature-one-task invariants; unlink of an unlinked feature errors clearly. Classified as mutation tools like `fn_feature_link_task`.
+
+### Patch Changes
+
+- cc6f389: summary: Organize project and workflow model overrides in one Settings group.
+  category: feature
+  dev: Moves the Project Models JSX into Model Overrides subgroups and adds matching i18n/search metadata.
+- 200b310: summary: Make freshly generated Remote Access links authenticate immediately.
+  category: fix
+  dev: Synchronizes global settings cache reads used by remote-login handoff.
+- 6f91764: summary: Fix duplicate "Move to Planning" entry in the task card menu for review-lane tasks.
+  category: fix
+  dev: TaskCard's supplemental in-review move targets are now filtered against the workflow's declared columns, so the legacy `triage` id is not offered on workflows that no longer declare it.
+- d45c80d: summary: Remote Access now labels a Cloudflare tunnel URL correctly instead of calling it a Tailnet URL.
+  category: fix
+  dev: RemoteSection derives the share-block label from remoteStatus.provider; adds settings.remote.cloudflareTunnelURL and settings.remote.tunnelURL.
+- c0966fb: summary: Make mobile Board column releases settle smoothly into the valid column.
+  category: fix
+  dev: Keeps the existing target, edge-clamping, reduced-motion, and compositor-fencing behavior.
+- d295202: summary: Restore the production i18n catalog lint guardrail.
+  category: fix
+  dev: Adds a runLinter regression test and keeps all supported app catalogs structurally synchronized.
+- c380e68: summary: Keep Files Changed scoped to task-owned files after rebases.
+  category: fix
+  dev: Rebase-backed dashboard diffs now prefer attributed commits or execution-scoped files and omit unproven remote changes.
+- 561e0f4: summary: Remove retired Board compatibility styling without changing live scrolling behavior.
+  category: internal
+  dev: Removes the legacy `.lane-columns` CSS after verifying current selected-workflow and All-workflows Board paths and known/bundled plugin surfaces do not consume it; live desktop containment and phone proximity snapping remain covered by CSS-fixture regression tests.
+- 0899d49: summary: Preserve partially generated chat replies when an operator stops generation.
+  category: fix
+  dev: Direct Chat and task Planner Chat persist interrupted assistant prefixes before cancellation completes.
+- b17c6de: summary: Recognize saved custom providers and refresh built-in model catalogs live.
+  category: fix
+  dev: Adds the POST /api/models/refresh catalog action and shared readiness signal without persisting new settings.
+- 612195f: summary: Preserve New Task workflow choices and add a guarded Start action for manual-intake workflows.
+  category: fix
+  dev: Start uses server-derived manual-intake metadata and validated workflow move targets.
+- b88bb1d: summary: Keep disabled built-in workflows out of dashboard workflow selectors.
+  category: fix
+  dev: Project Settings now requires at least one enabled built-in workflow.
+- df5c580: summary: Cap primary chat composers at five lines while preserving manual desktop resizing.
+  category: fix
+  dev: Direct Chat, Rooms, Activity, and Planner Chat now scroll long drafts internally; native vertical expansion remains an unsaved current-draft override on desktop/tablet, while mobile stays compact.
+- 519180b: summary: Replace chat message edits with one atomic rewind-and-resend operation.
+  category: fix
+  dev: Retires the destructive PATCH edit transport in favor of replacement-aware SSE with trimmed content and acceptance-gated reconciliation.
+- 9cff3d2: summary: Preserve streamed Direct, Quick, and Planner Chat prefixes after Stop.
+  category: fix
+  dev: Explicit cancellation now records one interrupted assistant turn and keeps its text in the reopened model session context.
+- c3ff663: summary: Route refinement follow-ups directly into workflow planning lanes.
+  category: fix
+  dev: Manual intake workflows use their trait-derived hold lane; automatic workflows retain intake routing.
+- a7afb02: summary: Give short untitled tasks a deterministic title during planning.
+  category: fix
+  dev: Triage derives the title from the first meaningful description line; long-description AI summarization remains unchanged.
+- 3f85c4c: summary: Prevent multi-repository tasks from using a workspace-root worktree.
+  category: fix
+  dev: Workspace sessions and reviews now use only declared repository worktrees; stale root routing metadata is repaired without losing sub-repository progress.
+- a81c9b8: summary: Make automatic task-title summarization project-controlled for every non-empty description.
+  category: fix
+  dev: Reuses the project `autoSummarizeTitles` setting while preserving explicit titles and manual `summarize:true` requests.
+- 29f4de3: summary: Make project onboarding produce task-ready Git repositories or fail closed.
+  category: fix
+  dev: Shared registration now creates a baseline HEAD, reconciles managed Fusion ignore rules, preserves existing repositories, and prepares workspace members before activation.
+- e80fef3: summary: Keep Chat source links complete, readable, and safely opened in a new tab.
+  category: fix
+  dev: Numeric dotted tokens now survive streaming bridge normalization; shared Chat Markdown links use tokenized contrast and noopener noreferrer.
+- 06649a0: summary: Make the conversation layout setting discoverable in dashboard Settings search.
+  category: fix
+  dev: Adds the missing Appearance search entry and focused cross-surface regression coverage.
+- ef22fa4: summary: Keep task Chat context bound to the selected project when its engine is unavailable.
+  category: fix
+  dev: Request-scoped ChatManager resolution now retains the canonical TaskStore and ChatStore pair.
+- c3aeff5: summary: Resize primary chat composers from the top edge and restore their height after clearing drafts.
+  category: fix
+  dev: Shared composer autosizing now owns desktop/tablet pointer resizing and clears stale manual heights.
+- da3c280: summary: Apply mounted Appearance settings immediately from either Settings view.
+  category: fix
+  dev: Mirrors chat layout, task routing, popup, cost badge, and task-detail ordering drafts into the App shell while SettingsModal remains the sole persistence writer.
+- 67becd9: summary: Keep direct and room chat transcripts visible during background refresh.
+  category: fix
+  dev: Preserves populated transcript rows and reader anchors through same-thread revalidation.
+- 3fd4bdb: summary: Move Board and List tasks from their contextual Move to menu.
+  category: fix
+  dev: Native task drag-and-drop is removed; multiple legal destinations are grouped in one accessible submenu.
+- b533220: summary: Remove accidental Board mouse-drag panning while preserving mobile column snapping.
+  category: fix
+  dev: Desktop Board scrolling remains native; touch-only magnetic settling is unchanged.
+- 4d74560: summary: Simplify Chat navigation to a conversation list and full-pane detail.
+  category: fix
+  dev: Removes the split history pane, resize handle, and in-detail conversation selector.
+- 47a8b53: summary: Prevent duplicate Task Failed entries after subsequent task updates.
+  category: fix
+  dev: Records failure activity only on a non-failed-to-failed task transition.
+- 0712588: summary: Refine Medieval with readable pixel text and textured paper-and-wood surfaces.
+  category: fix
+  dev: Replaces the bundled UI font and confines CSS wood grain to generic modal frames.
+- 14befb7: summary: Prevent blocked AI merge reviews from retrying as git conflicts.
+  category: fix
+  dev: Reconciles and bounds durable squash-review findings across corrective passes.
+- 29010e0: summary: Restore safe desktop Board background drag navigation.
+  category: fix
+  dev: Direct-root mouse drags pan only while moving; text, cards, controls, and edge proximity remain native.
+- 7b55a02: summary: Prevent completed foreach workflow tasks from stalling indefinitely in merge review.
+  category: fix
+  dev: Adds evaluateForeachMergeProof.liveStepSatisfiedInstanceIds, the merge-boundary-unproven terminal value, and classifyMergePrimitiveResult passthrough.
+- 179f08c: summary: Recover automatically when Windows antivirus blocks a bundled PostgreSQL library.
+  category: fix
+  dev: Marker v3 verifies cached payload inventory, failed verification leaves no marker, and reports EmbeddedPostgresPayloadBlockedError.
+- 7dfce1c: summary: Prevent oversized task drafts from exhausting browser storage.
+  category: fix
+  dev: Scoped draft writes return a persistence result, cap free text at 64,000 bytes, and reclaim stale entries after quota failures.
+- d280fa6: summary: Preserve incomplete implementation failures through workflow merge handling.
+  category: fix
+  dev: Keeps the implementation-incomplete merge-node value intact for graph recovery.
+- 7ded57e: summary: Clear interrupted manual merge status so cards do not remain stuck as merging.
+  category: fix
+  dev: Adds clearOwnedMergeStamp, reconcileUnownedStaleMergeStamp, fenced runAiMerge cleanup, and SIGINT/SIGTERM/SIGHUP CLI handlers.
+- 5ba0b0c: summary: Record merge-boundary proof parks in the run-audit history.
+  category: feature
+  dev: Adds `task:merge-boundary-unproven-parked` at both terminal park sites with closed reason codes and a bounded, failure-isolated emit seam.
+- 84d9a59: summary: Reliably reclaim Windows-locked AI merge clean-room worktrees.
+  category: fix
+  dev: Uses shared worktree-removal-retry across AI cleanup, self-healing, and native fallback.
+- 416c6a0: summary: Preserve unavailable merge diagnostics across workflow merge dispatch paths.
+  category: fix
+  dev: Adds merge-unavailable to PRESERVED_MERGE_FAILURE_REASONS while deliberately keeping it non-terminal.
+- 3dea1bb: summary: Audit telemetry failures can no longer stall or abort task execution.
+  category: fix
+  dev: Routes executor telemetry through emitBoundedRunAudit with bounded sink isolation.
+
 ## 0.77.0-beta.3
 
 ### Minor Changes

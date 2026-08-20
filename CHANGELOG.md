@@ -2,6 +2,63 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
+## 0.77.0-beta.4
+
+### Highlights
+
+- Workspace tasks get per-repo verified base branches and can add repositories after setup
+- Move tasks from a Move to menu on Board and List; native drag-and-drop is gone
+- Stop now keeps the partial chat reply, and message edits rewind and resend atomically
+- Two new dashboard themes: Velvet and Medieval, plus bubble or full-width chat layout
+- Merge fixes: foreach tasks no longer stall in review, stuck merging cards clear on interrupt
+
+### New
+
+- Move Board and List tasks from a contextual Move to menu that groups every legal destination in one accessible submenu.
+- Workspace tasks can pick and display a verified base branch per repository, with a safe fallback and durable pinning for landing and revert.
+- Add workspace repositories after a project is registered, and group workspace worktrees beneath configurable workspace roots.
+- Two new themes: Velvet (plum and burgundy dark, blush-white light) and Medieval (parchment surfaces, wood-framed modals, bundled pixel font with no CDN request).
+- Project Appearance preference for bubble or full-width chat messages, applied across normal, Quick, dock, Activity, and Planner Chat.
+- Sort every Board column and the paged Archive by arrival or task ID; Board lanes keep their local sort choice.
+- Task-detail Chat now uses the Direct Chat default model with task-aware context, plus model and thinking controls.
+- Model selectors expose the thinking levels a model actually supports, including Max; custom-provider models offer Off through Max and send the selected effort.
+- Copy the displayed task Activity Feed logs with one localized action.
+- Choose English, the input language, or the interface language for AI-authored task text.
+- New project setting requires a quality-first recommendation evaluation when a task completes.
+- Mission features gain done-credit via reverse lineage, re-point and unlink agent tools, and live unlink updates over SSE.
+- Desktop Board background drag panning across workflow columns, safe against text, cards, and controls.
+- Project and workflow model overrides are organized into one Settings group.
+- `pnpm dev --isolated` runs the dev server against its own database, settings, and project directory, so it no longer adopts a live instance's tasks.
+- Merge-boundary proof parks are now recorded in run-audit history with closed reason codes.
+
+### Fixed
+
+- Freshly generated Remote Access links authenticate immediately, and a Cloudflare tunnel URL is labeled correctly instead of as a Tailnet URL.
+- Completed foreach workflow tasks no longer stall indefinitely in merge review.
+- Interrupted manual merges clear their merging status instead of leaving cards stuck, including on SIGINT, SIGTERM, and SIGHUP.
+- Blocked AI merge reviews no longer retry as git conflicts, and unavailable merge diagnostics survive every merge dispatch path.
+- Windows-locked AI merge clean-room worktrees are reliably reclaimed, and a blocked bundled PostgreSQL library now recovers automatically when antivirus interferes.
+- Multi-repository tasks can no longer use a workspace-root worktree; stale routing metadata is repaired without losing sub-repository progress.
+- Files Changed stays scoped to task-owned files after a rebase, omitting unproven remote changes.
+- Chat composers cap at five lines and scroll long drafts, resize from the top edge, and restore their height after a draft is cleared.
+- Direct and room chat transcripts stay visible during background refresh; Chat navigation is now a conversation list plus a full-pane detail.
+- Chat source links stay complete and readable and open in a new tab with `noopener noreferrer`.
+- Task Chat context stays bound to the selected project even when its engine is unavailable.
+- Saved custom providers are recognized, and built-in model catalogs refresh live.
+- New Task keeps workflow choices and adds a guarded Start action for manual-intake workflows; disabled built-in workflows no longer appear in selectors.
+- Refinement follow-ups route straight into the workflow's planning lane; short untitled tasks get a deterministic title, and automatic title summarization is project-controlled.
+- Project onboarding now produces task-ready Git repositories or fails closed.
+- Oversized task drafts can no longer exhaust browser storage: free text is capped at 64,000 bytes and stale entries are reclaimed.
+- The duplicate "Move to Planning" entry is gone from review-lane task cards, and duplicate Task Failed activity entries no longer appear.
+- Mounted Appearance settings apply immediately from either Settings view, and the conversation layout setting is findable in Settings search.
+- Mobile Board column releases settle smoothly into the valid column.
+- Audit telemetry failures can no longer stall or abort task execution.
+
+### Internal
+
+- Restored the production i18n catalog lint guardrail and kept all supported app catalogs structurally synchronized.
+- Removed retired Board compatibility styling with no change to live scrolling behavior.
+
 ## 0.77.0-beta.3
 
 ### Highlights
