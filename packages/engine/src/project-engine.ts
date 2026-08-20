@@ -2069,11 +2069,11 @@ export class ProjectEngine {
    * handler already follows).
    */
   private async emitOverseerInterventionSafe(fn: () => unknown | Promise<unknown>): Promise<void> {
-    try {
-      await fn();
-    } catch (err) {
-      runtimeLog.warn(`Failed to emit overseer intervention: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await emitBoundedRunAudit(
+      { recordRunAuditEvent: () => fn() },
+      { mutationType: "overseer:intervention" },
+      { log: runtimeLog },
+    );
   }
 
   /**

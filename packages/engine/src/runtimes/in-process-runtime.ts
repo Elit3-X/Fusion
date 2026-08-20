@@ -66,6 +66,7 @@ import { TriageProcessor } from "../triage.js";
 import { validateProjectNodeMapping } from "../project/node-dispatch-validation.js";
 import { attachAgentLinkSync } from "../agents/task-agent-sync.js";
 import { createRunAuditor, generateSyntheticRunId } from "../util/run-audit.js";
+import { emitBoundedRunAudit } from "../util/emit-bounded-run-audit.js";
 import { setImmediate as setImmediateCb } from "node:timers";
 import { seedPreReleasePlanReviewContinuation, type PlanReviewSeedBailReason } from "../plan-review-continuation.js";
 import {
@@ -848,6 +849,25 @@ function formatRuntimeGitDetectionWarning(workingDirectory: string, detection: E
     `Task execution will fail until the Git error is resolved. Git reported: ${stderr}.${remedy}`;
 }
 
+/**
+ * FNXC:RunAudit 2026-08-20-06:06:
+ * Credential rotation is runtime-owned recovery plumbing. Its optional audit adapter must use the
+ * bounded seam so an unavailable telemetry sink cannot delay a production rotation candidate.
+ */
+export function createRuntimeCredentialRotationAuditAdapter(taskStore: TaskStore) {
+  return async (mutationType: string, metadata: Record<string, unknown>): Promise<void> => {
+    await emitBoundedRunAudit(taskStore, {
+      taskId: typeof metadata.taskId === "string" ? metadata.taskId : undefined,
+      agentId: typeof metadata.agentId === "string" ? metadata.agentId : "runtime",
+      runId: generateSyntheticRunId("credential-instance-rotation", typeof metadata.taskId === "string" ? metadata.taskId : String(metadata.providerId ?? "unknown")),
+      domain: "database",
+      mutationType,
+      target: String(metadata.providerId ?? "unknown"),
+      metadata,
+    });
+  };
+}
+
 export class InProcessRuntime
   extends EventEmitter<ProjectRuntimeEvents>
   implements ProjectRuntime
@@ -1030,17 +1050,7 @@ export class InProcessRuntime
         // Rotation evidence is emitted through the runtime-owned audit seam. Metadata
         // is supplied by the rotator as ids/counts/outcomes only; audit failures stay
         // non-fatal so an observability outage cannot prevent rate-limit recovery.
-        recordRunAuditEvent: async (mutationType, metadata) => {
-          await this.taskStore.recordRunAuditEvent?.({
-            taskId: typeof metadata.taskId === "string" ? metadata.taskId : undefined,
-            agentId: typeof metadata.agentId === "string" ? metadata.agentId : "runtime",
-            runId: generateSyntheticRunId("credential-instance-rotation", typeof metadata.taskId === "string" ? metadata.taskId : String(metadata.providerId ?? "unknown")),
-            domain: "database",
-            mutationType,
-            target: String(metadata.providerId ?? "unknown"),
-            metadata,
-          });
-        },
+        recordRunAuditEvent: createRuntimeCredentialRotationAuditAdapter(this.taskStore),
       });
       this.usageLimitPauser ??= new UsageLimitPauser(this.taskStore, {
         credentialRotator: this.credentialRotator,

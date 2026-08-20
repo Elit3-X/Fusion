@@ -12,6 +12,14 @@ const modules = [
   "project-engine.ts",
   "plugins/plugin-runner.ts",
   "missions/mission-execution-loop.ts",
+  "execution/hold-release.ts",
+  "goals/goal-injection-diagnostics.ts",
+  "goals/goal-anchoring-audit.ts",
+  "overseer/overseer-advisor-service.ts",
+  "project/mesh-lease-manager.ts",
+  "runtimes/in-process-runtime.ts",
+  "credential-instance-rotation.ts",
+  "workflow-column-boundary-hooks.ts",
 ] as const;
 
 /**
