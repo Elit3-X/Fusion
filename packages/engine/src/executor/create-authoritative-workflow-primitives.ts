@@ -18,6 +18,7 @@ import type {
   WorkflowRuntimePrimitives,
 } from "../execution/runtime-primitives.js";
 import { WorkflowPlanningService } from "../workflows/workflow-planning-service.js";
+import { MERGE_BOUNDARY_UNPROVEN_VALUE } from "../workflows/workflow-merge-nodes.js";
 import {
   FOREACH_ACTIVE_CONTEXT_KEY,
   SEAM_GOVERNING_NODE_CONTEXT_KEY,
@@ -359,12 +360,22 @@ export function createAuthoritativeWorkflowPrimitivesFromExecutor(
         if (ctx.signal?.aborted) {
           return { outcome: "failure", value: "merge-cancelled" };
         }
-        const mergeTask = await deps.ensureWorkflowMergeBoundaryTask(task, {
+        const mergeBoundary = await deps.ensureWorkflowMergeBoundaryTask(task, {
           reason: "workflow-merge-boundary",
           nodeId: ctx.node.node.id,
           workflowId: ctx.run.workflowId,
           runId: ctx.run.runId,
         });
+        /*
+        FNXC:WorkflowMerge 2026-08-20-00:50:
+        FN-9157 turns an unprovable boundary into a terminal graph failure. Do not
+        attach data.status:failed: direct merge-attempt classification rewrites an
+        unknown reason to merge-failed and re-enters the bounded retry.
+        */
+        if (mergeBoundary.blocked) {
+          return { outcome: "failure", value: MERGE_BOUNDARY_UNPROVEN_VALUE };
+        }
+        const mergeTask = mergeBoundary.task;
         /*
         FNXC:WorkflowMerge 2026-06-29-23:18:
         FN-7261 reached the merge node in fast mode with every legacy implementation step still pending, producing a no-op merge proof for work that never ran. A graph-native workflow may project its checklist at the merge boundary only when node workflow results prove implementation completed; otherwise incomplete legacy steps are authoritative and merge must fail before the merger can create stale no-op proof.

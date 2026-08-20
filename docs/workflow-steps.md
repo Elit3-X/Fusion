@@ -1014,3 +1014,9 @@ Task creation resolves ownership once at the shared pre-insert boundary used by 
 ### Board visibility of pre-release Plan Review
 
 Board hold-lane payloads can expose a transient `releaseGate` verdict. It makes the resolved pre-release Plan Review node, its column/default-on state, and a capacity-boundary continuation observable to Promote controls without duplicating workflow-gate rules in the browser.
+
+## Foreach merge admission
+
+A workflow whose `foreach` template contains `step-execute` may use terminal live task-step coverage as merge implementation proof when it expects at least one instance. Every expected instance must map to a `done` or `skipped` live step. This supports Review Level 0, which intentionally disables optional node-result groups. Zero expected instances still require a relevant `source:"node"` pre-merge result, and pending or failed node results remain blocking.
+
+When the merge boundary cannot be proven, Fusion emits the terminal graph value `merge-boundary-unproven` and parks the task as failed with an actionable error. It does not silently retain the task in the review lane or repeat the same boundary check through bounded auto-merge retry.

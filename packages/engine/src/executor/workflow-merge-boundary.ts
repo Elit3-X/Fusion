@@ -12,8 +12,14 @@ export type WorkflowMergeBoundaryProof = {
   complete: boolean;
   hasRelevantNodeResult: boolean;
   allResultsTerminal: boolean;
+  hasLiveStepImplementationProof: boolean;
   nonTerminalResult?: { workflowStepId?: string; status?: string } | null;
   missingInstanceIds: string[];
+};
+
+export type WorkflowMergeBoundaryResult = {
+  task: TaskDetail;
+  blocked?: { reason: string };
 };
 
 export type WorkflowMergeBoundaryDeps = {
@@ -34,9 +40,9 @@ export async function ensureWorkflowMergeBoundaryTask(
   deps: WorkflowMergeBoundaryDeps,
   task: TaskDetail,
   metadata: { reason: string; nodeId: string; workflowId: string; runId: string },
-): Promise<TaskDetail> {
+): Promise<WorkflowMergeBoundaryResult> {
   let live = await deps.store.getTask(task.id);
-  if (!live) return task;
+  if (!live) return { task };
 
   /*
   FNXC:WorkflowMerge 2026-07-19-04:10 (U5a / R1 / KTD-7):
@@ -56,8 +62,8 @@ export async function ensureWorkflowMergeBoundaryTask(
   A prior review handoff can move a graph-native workflow into its merge column before this boundary projects successful node results onto the legacy checklist. Preserve the no-move behavior, but do not return until the projection has run.
   */
   const alreadyAtMergeColumn = live.column === targetColumn;
-  if (live.column === await resolveCompleteColumnFor(deps.store, live.id)) return live;
-  if (live.paused || live.userPaused) return live;
+  if (live.column === await resolveCompleteColumnFor(deps.store, live.id)) return { task: live };
+  if (live.paused || live.userPaused) return { task: live };
 
   /*
   FNXC:WorkflowMerge 2026-06-29-10:15:
@@ -65,6 +71,13 @@ export async function ensureWorkflowMergeBoundaryTask(
 
   FNXC:WorkflowMerge 2026-06-29-15:28:
   Compound Engineering and similar graph-native workflows execute skill nodes instead of legacy parsed task steps. The graph records those nodes as `workflowStepResults.source = "node"`; at the merge boundary, project a successful graph-native run onto the legacy checklist so `task has incomplete steps` cannot block a workflow that already completed its authoritative nodes.
+  */
+  /*
+  FNXC:WorkflowMerge 2026-08-20-00:50:
+  FN-9157 permits merge admission from complete terminal live foreach coverage
+  when Review Level 0 has deliberately disabled optional node-recording groups.
+  The proof still excludes zero expected instances and any pending step; checklist
+  projection continues to depend only on proof.complete.
   */
   const mergeProof = await deps.evaluateWorkflowMergeBoundary(live, metadata.runId);
   if (mergeProof.hasForeachStepExecute && !mergeProof.complete) {
@@ -74,7 +87,7 @@ export async function ensureWorkflowMergeBoundaryTask(
         ? `non-terminal pre-merge node result ${mergeProof.nonTerminalResult?.workflowStepId ?? "unknown"} (${mergeProof.nonTerminalResult?.status ?? "unknown"})`
         : `foreach step instances incomplete at merge boundary: missing ${mergeProof.missingInstanceIds.join(", ")}`;
     await deps.store.logEntry(live.id, `Workflow merge boundary blocked: ${reason}`, undefined, deps.getRunContextFor(live.id));
-    return live;
+    return { task: live, blocked: { reason } };
   }
 
   if (deps.shouldCompleteChecklistAtWorkflowMerge(live, mergeProof)) {
@@ -99,7 +112,7 @@ export async function ensureWorkflowMergeBoundaryTask(
       deps.getRunContextFor(live.id),
     );
   }
-  if (alreadyAtMergeColumn) return live;
+  if (alreadyAtMergeColumn) return { task: live };
   const moveOptions = {
     preserveProgress: true,
     moveSource: "engine" as const,
@@ -112,9 +125,9 @@ export async function ensureWorkflowMergeBoundaryTask(
   if (typeof storeWithMove.moveTask === "function") {
     const moved = await storeWithMove.moveTask(live.id, targetColumn, moveOptions);
     await deps.store.logEntry(live.id, `Workflow merge boundary moved task to ${targetColumn} before requesting merge`, undefined, deps.getRunContextFor(live.id));
-    return moved ?? { ...live, column: targetColumn };
+    return { task: moved ?? { ...live, column: targetColumn } };
   }
   await deps.store.updateTask(live.id, { column: targetColumn } as Partial<TaskDetail>, deps.getRunContextFor(live.id));
   await deps.store.logEntry(live.id, `Workflow merge boundary moved task to ${targetColumn} before requesting merge`, undefined, deps.getRunContextFor(live.id));
-  return { ...live, column: targetColumn };
+  return { task: { ...live, column: targetColumn } };
 }

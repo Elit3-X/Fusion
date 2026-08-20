@@ -2,6 +2,9 @@ import type { TaskDetail } from "@fusion/core";
 import type { MergePrimitiveResult, WorkflowPrimitiveContext, WorkflowRuntimePrimitives } from "../execution/runtime-primitives.js";
 import type { WorkflowNodeResult } from "./workflow-graph-executor.js";
 
+/** A terminal graph value: retrying cannot create missing merge-boundary proof. */
+export const MERGE_BOUNDARY_UNPROVEN_VALUE = "merge-boundary-unproven";
+
 export interface WorkflowMergeNodeDeps {
   primitives: Pick<WorkflowRuntimePrimitives, "requestMerge" | "audit">;
 }
@@ -34,6 +37,16 @@ export function classifyMergePrimitiveResult(
   value: string | undefined,
   primitiveOutcome: WorkflowNodeResult["outcome"],
 ): WorkflowNodeResult {
+  /*
+  FNXC:WorkflowMerge 2026-08-20-00:50:
+  FN-9157 requires an unprovable merge boundary to remain terminal on direct
+  merge-attempt dispatch. Preserve this explicit value before failed-data
+  classification, whose unknown-reason fallback is merge-failed and would repeat
+  the boundary retry.
+  */
+  if (value === MERGE_BOUNDARY_UNPROVEN_VALUE) {
+    return { outcome: "failure", value: MERGE_BOUNDARY_UNPROVEN_VALUE };
+  }
   if (data?.status === "merged") {
     return { outcome: "success", value: data.noOp ? "already-landed" : "merged" };
   }

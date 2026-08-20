@@ -20,6 +20,7 @@ import {
 } from "../workflows/workflow-node-handlers.js";
 import { graphActiveContextKey } from "./task-predicates.js";
 import { WorkflowReviewService } from "../workflows/workflow-review-service.js";
+import { MERGE_BOUNDARY_UNPROVEN_VALUE } from "../workflows/workflow-merge-nodes.js";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
 import { resolveReviewCheckoutCwd } from "../execution/review-checkout.js";
 import { logReviewCheckoutRouting } from "./review-checkout-routing.js";
@@ -202,12 +203,15 @@ export function createAuthoritativeWorkflowSeams(
         if (signal?.aborted) {
           return { outcome: "failure", value: "merge-cancelled" };
         }
-        const mergeTask = await deps.ensureWorkflowMergeBoundaryTask(seamTask, {
+        const mergeBoundary = await deps.ensureWorkflowMergeBoundaryTask(seamTask, {
           reason: "workflow-merge-boundary",
           nodeId: "legacy-merge-seam",
           workflowId: "legacy-seams",
           runId: deps.getRunContextFor(seamTask.id)?.runId ?? "legacy-seam",
         });
+        /* FNXC:WorkflowMerge 2026-08-20-00:50: FN-9157 keeps the legacy seam terminal too; a retry cannot create missing boundary proof. */
+        if (mergeBoundary.blocked) return { outcome: "failure", value: MERGE_BOUNDARY_UNPROVEN_VALUE };
+        const mergeTask = mergeBoundary.task;
         const missingImplementationProof = await deps.getWorkflowMergeImplementationProofFailure(mergeTask);
         if (missingImplementationProof) {
           await deps.store.logEntry(
