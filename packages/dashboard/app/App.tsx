@@ -1913,6 +1913,7 @@ function AppInner() {
         filesOpen={modalManager.filesOpen}
         view={taskView}
         onChangeView={viewMode === "project" && currentProject ? handleTaskViewChange : undefined}
+        onNewTask={viewMode === "project" && currentProject ? openNewTaskWithNav : undefined}
         showSkillsTab={skillsEnabled}
         showAgentsTab={agentsEnabled}
         searchQuery={searchQuery}

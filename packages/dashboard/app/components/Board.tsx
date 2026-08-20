@@ -226,6 +226,11 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
     setBoardElement((current) => current === element ? current : element);
   }, []);
   const viewportMode = useViewportMode();
+  /*
+  FNXC:MobileTaskNavigation 2026-08-20-05:47:
+  Issue #2226 moves only the mobile full-task modal trigger to Header. Keep intake quick-create props on every viewport so Planning remains an inline composer.
+  */
+  const mobileFullTaskModalHidden = viewportMode === "mobile";
   useColumnScrollSnap(boardElement, { mobileOnly: true });
   /*
   FNXC:BoardNavigation 2026-08-20-04:47:
@@ -1006,7 +1011,7 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
                   mergeStrategy={mergeStrategy}
                   // FNXC:PlanApproval 2026-07-07-00:00: FN-7653 — the plan auto-approve shortcut belongs only to the intake/planning column, never to hold (Todo-like) columns; the built-in Coding workflow's Todo column carries the hold trait and was wrongly receiving this prop pair.
                   {...((columnDef.flags.intake && !columnDef.flags.archived && !columnDef.flags.complete && !columnDef.flags.countsTowardWip && !columnDef.flags.mergeBlocker && !columnDef.flags.humanReview) ? { planAutoApproveEnabled, onTogglePlanAutoApprove } : {})}
-                  {...(isCreateColumn && aggregateQuickCreateTarget ? { workflowId: aggregateQuickCreateTarget.workflowId, workflowOptions, defaultWorkflowId: boardWorkflows?.defaultWorkflowId ?? null, onQuickCreate: handleAggregateWorkflowQuickCreate, onNewTask: handleAggregateWorkflowNewTask, onSubtaskBreakdown } : {})}
+                  {...(isCreateColumn && aggregateQuickCreateTarget ? { workflowId: aggregateQuickCreateTarget.workflowId, workflowOptions, defaultWorkflowId: boardWorkflows?.defaultWorkflowId ?? null, onQuickCreate: handleAggregateWorkflowQuickCreate, ...(!mobileFullTaskModalHidden ? { onNewTask: handleAggregateWorkflowNewTask } : {}), onSubtaskBreakdown } : {})}
                   {...(columnDef.flags.mergeBlocker || columnDef.flags.humanReview ? { onToggleAutoMerge: handleToggleAutoMerge } : {})}
                   {...(columnDefOffersArchiveAllDone(columnDef) ? { onArchiveAllDone } : {})}
                   {...(laneSortModeChange ? { sortMode: laneSortMode, onSortModeChange: laneSortModeChange } : {})}
@@ -1101,7 +1106,7 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
                 mergeStrategy={mergeStrategy}
                 // FNXC:PlanApproval 2026-07-07-00:00: FN-7653 — the plan auto-approve shortcut belongs only to the intake/planning column, never to hold (Todo-like) columns; the built-in Coding workflow's Todo column carries the hold trait and was wrongly receiving this prop pair.
                 {...((columnDef.flags.intake && !columnDef.flags.archived && !columnDef.flags.complete && !columnDef.flags.countsTowardWip && !columnDef.flags.mergeBlocker && !columnDef.flags.humanReview) ? { planAutoApproveEnabled, onTogglePlanAutoApprove } : {})}
-                {...(isCreateColumn ? { workflowOptions, defaultWorkflowId: selectedWorkflow.id, onQuickCreate: handleWorkflowQuickCreate, onNewTask: handleSelectedWorkflowNewTask, onSubtaskBreakdown } : {})}
+                {...(isCreateColumn ? { workflowOptions, defaultWorkflowId: selectedWorkflow.id, onQuickCreate: handleWorkflowQuickCreate, ...(!mobileFullTaskModalHidden ? { onNewTask: handleSelectedWorkflowNewTask } : {}), onSubtaskBreakdown } : {})}
                 {...(columnDef.flags.mergeBlocker || columnDef.flags.humanReview ? { onToggleAutoMerge: handleToggleAutoMerge } : {})}
                 {...(columnDefOffersArchiveAllDone(columnDef) ? { onArchiveAllDone } : {})}
                 {...{ sortMode: laneSortMode, onSortModeChange: laneSortModeChange, doneSortMode: laneSortMode, onDoneSortModeChange: laneSortModeChange }}

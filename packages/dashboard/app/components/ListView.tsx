@@ -2710,7 +2710,7 @@ export function ListView({
         <Columns3 size={14} />
         {t("listView.viewOptions", "View")}
       </button>
-      {onNewTask ? (
+      {onNewTask && !isMobile ? (
         <button
           className="btn btn-task-create btn-sm list-new-task-action"
           onClick={() => onNewTask(isAllWorkflowsSelected ? undefined : selectedWorkflow?.id)}

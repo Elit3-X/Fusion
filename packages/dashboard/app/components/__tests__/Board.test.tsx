@@ -1790,6 +1790,23 @@ describe("Board", () => {
       expect(onNewTask).toHaveBeenCalledWith(CUSTOM_WORKFLOW.id);
     });
 
+    it("keeps intake quick entry while omitting its full task button on mobile", async () => {
+      const mobile = installMobileBoardStabilizationHarness();
+      try {
+        const onNewTask = vi.fn();
+        enableFlag({ "FN-1": CUSTOM_WORKFLOW.id }, [DEFAULT_WORKFLOW, CUSTOM_WORKFLOW]);
+        renderBoard({ tasks: [mkTask({ id: "FN-1", column: "intake" })], onNewTask });
+
+        await selectWorkflow(CUSTOM_WORKFLOW.id);
+        const intakeColumn = screen.getByTestId("column-intake");
+        expect(intakeColumn).toHaveAttribute("data-has-quick-create", "yes");
+        expect(intakeColumn).toHaveAttribute("data-has-new-task", "no");
+        expect(screen.queryByTestId("mock-new-task-intake")).toBeNull();
+      } finally {
+        mobile.restore();
+      }
+    });
+
     it("defaults All workflows quick-add to the default workflow and resolves selected workflow columns", async () => {
       const onQuickCreate = vi.fn().mockResolvedValue({ id: "FN-new", workflowId: "wf-custom" });
       enableFlag({}, [DEFAULT_WORKFLOW, CUSTOM_WORKFLOW]);

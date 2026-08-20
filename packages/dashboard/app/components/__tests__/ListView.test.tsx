@@ -3300,13 +3300,14 @@ describe("ListView", () => {
     expect(desktopSplitRule).toContain("grid-template-columns: auto 0 minmax(0, 1fr)");
   });
 
-  it("keeps Bulk Edit, View, and + New Task together in the mobile toolbar controls", () => {
+  it("omits the full New Task button from mobile toolbar controls", () => {
     const viewportSpy = mockMobileViewport();
     renderListView({}, { openViewOptions: false });
 
     const actions = document.querySelector(".list-toolbar .list-action-cluster");
     const actionButtons = Array.from(actions?.querySelectorAll("button") ?? []).map((button) => button.textContent);
-    expect(actionButtons).toEqual(["Bulk Edit", "View", "+ New Task"]);
+    expect(actionButtons).toEqual(["Bulk Edit", "View"]);
+    expect(screen.queryByText("+ New Task")).toBeNull();
 
     viewportSpy.mockRestore();
   });
