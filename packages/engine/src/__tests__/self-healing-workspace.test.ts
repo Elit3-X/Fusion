@@ -402,6 +402,35 @@ describeIfGit("workspace-aware self-healing (Phase D U1)", () => {
     expect(store.tasks.get(TASK_ID)?.status).not.toBe("failed");
   });
 
+  it("partial-land reconciler re-enqueues a failed zero-land lease-loss workspace task", async () => {
+    fx = await createWorkspaceFixture(["repo-a", "repo-b"]);
+    addRepoBranch(fx, "repo-a", "a\n");
+    addRepoBranch(fx, "repo-b", "b\n");
+    const task = workspaceTask(
+      {
+        "repo-a": { worktreePath: fx.repoPath("repo-a"), branch: BRANCH },
+        "repo-b": { worktreePath: fx.repoPath("repo-b"), branch: BRANCH },
+      },
+      {
+        status: "failed",
+        error: "Workspace partial land: 0 repo(s) landed — Workspace lease is no longer valid",
+        steps: [{ status: "done" }, { status: "done" }],
+      },
+    );
+    const workspaceWorktrees = task.workspaceWorktrees;
+    const store = createStore([task]);
+    const manager = makeManager(store, fx.rootDir);
+
+    const recovered = await manager.reconcileWorkspacePartialLands();
+
+    expect(recovered).toBe(1);
+    expect(store.enqueued).toEqual([TASK_ID]);
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.emitted.some((event) => event.event === "task:merged")).toBe(false);
+    expect(store.tasks.get(TASK_ID)?.workspaceWorktrees).toBe(workspaceWorktrees);
+    expect(store.tasks.get(TASK_ID)?.column).toBe("in-review");
+  });
+
   // ── KTD1 P1: zero-landed mergeable workspace task admitted ─────────────────
   it("recoverMergeableReviewTasks re-enqueues a zero-landed mergeable workspace task (P1)", async () => {
     fx = await createWorkspaceFixture(["repo-a", "repo-b"]);

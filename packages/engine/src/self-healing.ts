@@ -1794,6 +1794,13 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         }
       } },
       { name: "reconcile-pending-workspace-land-intents", fn: () => this.reconcilePendingWorkspaceLandIntents().then(() => undefined) },
+      /*
+      FNXC:WorkspaceRetry 2026-08-20-20:46:
+      A startup after a lease-loss must not leave an otherwise retryable workspace partial land
+      waiting for periodic maintenance. Reuse the guarded reconciler so its human-control,
+      liveness, pending-owner, branch-evidence, and bounded-queue rules remain authoritative.
+      */
+      { name: "reconcile-workspace-partial-lands", fn: () => this.reconcileWorkspacePartialLands().then(() => undefined) },
       { name: "interrupted-merging", fn: () => this.recoverInterruptedMergingTasks().then(() => undefined) },
       { name: "wedged-active-merge", fn: () => this.recoverWedgedActiveMerge().then(() => undefined) },
       { name: "transient-merge-failures", fn: () => this.recoverTransientMergeFailures().then(() => undefined) },

@@ -130,7 +130,7 @@ import {
 import { buildBoardWorkflowsPayload } from "./board-workflows.js";
 import { resolveNativeStructurePreview } from "../native-structure-preview.js";
 import { isBackwardMoveBlockedByOpenPr, PR_OPEN_BLOCKS_MOVE_BACK_MESSAGE } from "./register-pull-requests-routes.js";
-import { computePlanApprovalFingerprint, isTaskAwaitingPlanning, isWorkspaceTask, type RunAuditEventInput } from "@fusion/core";
+import { allowsAutoMergeProcessing, computePlanApprovalFingerprint, isTaskAwaitingPlanning, isWorkspaceTask, type RunAuditEventInput } from "@fusion/core";
 import { FUSION_CLIENT_HEADER, resolveHttpDeleteCallerKind, isValidTaskBranchName } from "@fusion/core";
 import { ApiError, badRequest, conflict, notFound } from "../api-error.js";
 // FNXC:TaskLookup404 2026-07-26-11:40: shared task-miss -> 404 mapping seam.
@@ -3514,6 +3514,28 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           ...buildManualRetryResetPatch({ resetMergeRetries: true }),
         });
         await scopedStore.logEntry(req.params.id, `Retry requested from dashboard (in-review merge retry, mergeRetries reset${retryLogSuffix})`);
+
+        /*
+        FNXC:WorkspaceRetry 2026-08-20-20:46:
+        A lease-loss workspace merge must resume promptly when an operator selects Retry, without
+        waiting for periodic recovery. Delegate only to ProjectEngine's fenced queue after its
+        authoritative pending-owner probe says no local or remote owner exists; probe failures stay
+        fail-closed so this route never duplicates an active land attempt or handles leases itself.
+        */
+        const isCompletedWorkspaceMerge = isWorkspaceTask(task)
+          && task.steps.every((step) => step.status === "done" || step.status === "skipped");
+        const isUserControlledPause = task.userPaused === true || (task.paused === true && !task.pausedReason);
+        if (engine && isCompletedWorkspaceMerge && !isUserControlledPause) {
+          const settings = await scopedStore.getSettings();
+          if (allowsAutoMergeProcessing(task, settings)) {
+            try {
+              if (!(await engine.isMergePending(task.id))) engine.enqueueMerge(task.id);
+            } catch {
+              // An unreadable pending-owner probe must preserve the retry reset but not dispatch.
+            }
+          }
+        }
+
         const updated = await scopedStore.getTask(req.params.id);
         res.json(updated);
         return;
