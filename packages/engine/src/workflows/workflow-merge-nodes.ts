@@ -5,6 +5,8 @@ import type { WorkflowNodeResult } from "./workflow-graph-executor.js";
 /** A terminal graph value: retrying cannot create missing merge-boundary proof. */
 export const MERGE_BOUNDARY_UNPROVEN_VALUE = "merge-boundary-unproven";
 
+const PRESERVED_MERGE_FAILURE_REASONS = new Set(["implementation-incomplete"]);
+
 export interface WorkflowMergeNodeDeps {
   primitives: Pick<WorkflowRuntimePrimitives, "requestMerge" | "audit">;
 }
@@ -72,7 +74,16 @@ export function classifyMergePrimitiveResult(
 }
 
 function classifyMergeFailure(reason: string): WorkflowNodeResult {
-  const normalized = reason.toLowerCase();
+  const normalized = reason.trim().toLowerCase();
+  /*
+  FNXC:WorkflowMerge 2026-08-20-01:20:
+  implementation-incomplete must survive merge classification because handleGraphFailure,
+  routeGraphMergeFailureToRetry, and isRetryableBenignMergePauseAbort key on this literal.
+  Collapsing it to merge-failed reopens FN-1165's no-op-merge-proof hole through bounded retry.
+  */
+  if (PRESERVED_MERGE_FAILURE_REASONS.has(normalized)) {
+    return { outcome: "failure", value: normalized };
+  }
   if (normalized.includes("file scope") || normalized.includes("filescope")) {
     return { outcome: "failure", value: "file-scope-violation" };
   }
