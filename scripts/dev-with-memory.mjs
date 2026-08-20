@@ -16,8 +16,12 @@ import {
   parseDevWrapperArgs,
   readDevServerListening,
   resolveDevTunnelPort,
+  resolveIsolatedDevPaths,
   resolvePrebuildMode,
 } from "./dev-with-memory-lib.mjs";
+import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join as pathJoin, resolve as pathResolve } from "node:path";
 import { createDevSourceWatcher } from "./lib/dev-source-watch.mjs";
 import { resolveDevTunnelAuth, startDevTunnel } from "./lib/dev-tunnel.mjs";
 
@@ -34,7 +38,7 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
-const { inspectFlags, args, requestedPrebuild, watchSourceFromFlag, tunnel, tunnelPort } = parsedArgs;
+const { inspectFlags, args, requestedPrebuild, watchSourceFromFlag, tunnel, tunnelPort, isolated, isolatedDir } = parsedArgs;
 let { watchSource } = parsedArgs;
 
 // NODE_OPTIONS is shared with every spawned node process (build + run +
@@ -47,6 +51,31 @@ process.env.NODE_OPTIONS = nodeOptions;
 // builds default to 127.0.0.1; this override only applies when starting
 // the dashboard via `pnpm dev dashboard` and only if no --host was passed.
 const forwardedArgs = buildForwardedDevArgs(args);
+
+/*
+FNXC:DevIsolation 2026-08-20-04:10:
+Prepare the isolated sandbox up front so the child can be spawned straight into it. The project
+directory is `git init`-ed when empty because Fusion projects are git work trees — worktrees,
+branches and merges all assume one — and an isolated instance that cannot resolve a repository is
+not usable for the UI work this flag exists to support.
+*/
+let isolatedPaths;
+if (isolated) {
+  const realHome = process.env.HOME || process.env.USERPROFILE;
+  isolatedPaths = resolveIsolatedDevPaths({
+    repoRoot: process.cwd(),
+    home: realHome,
+    explicitDir: isolatedDir ? pathResolve(isolatedDir) : undefined,
+  });
+  fsMkdirSync(isolatedPaths.home, { recursive: true });
+  fsMkdirSync(isolatedPaths.project, { recursive: true });
+  if (!fsExistsSync(pathJoin(isolatedPaths.project, ".git"))) {
+    // Short, deterministic git plumbing — the engine-wide execSync ban targets user-configured
+    // commands, not this.
+    spawnSync("git", ["init", "-q"], { cwd: isolatedPaths.project, stdio: "ignore" });
+  }
+  console.log(`[fusion:dev] isolated instance — database ${isolatedPaths.home}/.fusion, project ${isolatedPaths.project}`);
+}
 if (watchSource && forwardedArgs[0] !== "dashboard") {
   if (watchSourceFromFlag) {
     console.error("[fusion:dev] --watch is supported for the dashboard engine process only");
@@ -200,11 +229,16 @@ function runApp(extraArgs) {
     // FNXC:SystemPanel 2026-07-25-10:05: stamp the supervisor pid alongside the
     // flag so the child can tell a real supervising parent from an inherited
     // copy of the variable (see hasLiveSupervisingParent in commands/dashboard.ts).
+    // FNXC:DevIsolation 2026-08-20-04:10: HOME moves the whole durable state (settings, credentials,
+    // central DB, embedded Postgres cluster); cwd moves the project, so the two instances cannot
+    // share `.fusion/tasks/`. Absolute PRELOAD/LOADER/ENTRY paths make the cwd change safe.
+    ...(isolatedPaths ? { cwd: isolatedPaths.project } : {}),
     env: {
       ...process.env,
       FUSION_RESTART_SUPERVISED: "1",
       FUSION_SUPERVISOR_PID: String(process.pid),
       ...(watchSource ? { FUSION_DEV_WATCH: "1" } : {}),
+      ...(isolatedPaths ? { HOME: isolatedPaths.home, USERPROFILE: isolatedPaths.home } : {}),
     },
   });
   appChild = tsx;

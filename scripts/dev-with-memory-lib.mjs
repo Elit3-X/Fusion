@@ -133,6 +133,8 @@ export function parseDevWrapperArgs(rawArgs, env = process.env) {
   `--tunnel=PORT` targets a port other than the dashboard's (e.g. a Vite server on 5173).
   */
   let tunnel = env.FUSION_DEV_TUNNEL === "1";
+  let isolated = env.FUSION_DEV_ISOLATED === "1";
+  let isolatedDir = env.FUSION_DEV_ISOLATED_DIR || undefined;
   let tunnelPort = env.FUSION_DEV_TUNNEL_PORT ? Number(env.FUSION_DEV_TUNNEL_PORT) : undefined;
 
   for (let i = 0; i < rawArgs.length; i += 1) {
@@ -165,6 +167,35 @@ export function parseDevWrapperArgs(rawArgs, env = process.env) {
     if (arg === "--watch") {
       watchSource = true;
       watchSourceFromFlag = true;
+      continue;
+    }
+
+    /*
+    FNXC:DevIsolation 2026-08-20-04:10:
+    `--isolated` runs the dev server against its OWN database and its OWN project directory, for
+    working on Fusion from inside a machine that is already running one. Everything durable hangs
+    off $HOME/.fusion — global settings, credentials, the central DB, the embedded Postgres data dir
+    — and a second process pointed at a data dir whose postmaster is already running simply ATTACHES
+    to it, so a plain `pnpm dev` inside a Fusion container silently shares the live database.
+
+    Isolating HOME alone is not enough: `fn dashboard` derives its project from the working
+    directory, so both instances would still share `<repo>/.fusion`, including `.fusion/tasks/<id>/`
+    — and self-healing's orphaned-task-dir sweep re-imports task directories that have no row,
+    meaning a fresh dev database would adopt the real instance's tasks. The flag therefore moves the
+    working directory too.
+
+    `--isolated=<dir>` puts the sandbox somewhere specific; otherwise it is a stable per-repo path so
+    the dev database survives restarts.
+    */
+    if (arg === "--isolated") {
+      isolated = true;
+      continue;
+    }
+
+    if (arg.startsWith("--isolated=")) {
+      isolated = true;
+      isolatedDir = arg.slice("--isolated=".length);
+      if (!isolatedDir) throw new Error("Missing directory for --isolated=<dir>.");
       continue;
     }
 
@@ -201,7 +232,31 @@ export function parseDevWrapperArgs(rawArgs, env = process.env) {
     watchSourceFromFlag,
     tunnel,
     tunnelPort,
+    isolated,
+    isolatedDir,
   };
+}
+
+/**
+ * Where an isolated dev instance keeps its state.
+ *
+ * FNXC:DevIsolation 2026-08-20-04:10:
+ * `home` becomes the child's HOME, giving it its own `.fusion` — settings, credentials, central DB,
+ * and an embedded Postgres cluster on its own port (a fresh data dir binds a free port; an existing
+ * one would have been attached to instead). `project` becomes the child's working directory, so the
+ * dev instance cannot reach the real instance's `.fusion/tasks/` and adopt its tasks.
+ *
+ * The default lives under the REAL home rather than inside the repo: a project directory inside a
+ * git work tree shows up in status and risks being committed, and the dev database should not be
+ * wiped by a clean checkout. It is keyed by repo directory name so several checkouts do not collide.
+ */
+export function resolveIsolatedDevPaths({ repoRoot, home, explicitDir } = {}) {
+  if (!repoRoot) throw new Error("resolveIsolatedDevPaths requires repoRoot");
+  if (!home && !explicitDir) throw new Error("resolveIsolatedDevPaths requires home or explicitDir");
+
+  const repoName = repoRoot.split(/[\\/]+/).filter(Boolean).pop() || "fusion";
+  const base = explicitDir ?? `${home}/.fusion-dev/${repoName}`;
+  return { base, home: `${base}/home`, project: `${base}/project` };
 }
 
 /*

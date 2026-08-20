@@ -9,6 +9,7 @@ import {
   readDevServerListening,
   readDevServerListeningPort,
   resolveDevTunnelPort,
+  resolveIsolatedDevPaths,
   resolvePrebuildMode,
 } from "../../../../scripts/dev-with-memory-lib.mjs";
 import {
@@ -65,6 +66,8 @@ describe("dev-with-memory prebuild options", () => {
       watchSourceFromFlag: false,
       tunnel: false,
       tunnelPort: undefined,
+      isolated: false,
+      isolatedDir: undefined,
     });
   });
 
@@ -77,6 +80,8 @@ describe("dev-with-memory prebuild options", () => {
       watchSourceFromFlag: true,
       tunnel: false,
       tunnelPort: undefined,
+      isolated: false,
+      isolatedDir: undefined,
     });
   });
 
@@ -371,6 +376,47 @@ describe("development source restart watcher", () => {
       expect(resolveDevTunnelPort(undefined, { PORT: "8080" })).toBe(8080);
       // An explicit --tunnel=PORT wins, so a Vite server can be exposed while PORT names the dashboard.
       expect(resolveDevTunnelPort(5173, { PORT: "8080" })).toBe(5173);
+    });
+
+    /*
+    FNXC:DevIsolation 2026-08-20-04:10:
+    A plain `pnpm dev` inside a machine already running Fusion SHARES its database: everything
+    durable hangs off $HOME/.fusion, and a process pointed at a data dir whose postmaster is already
+    up attaches to it rather than starting its own. Isolating HOME alone still leaves both instances
+    on one project directory, where the orphaned-task-dir sweep would have the dev instance adopt
+    the real one's tasks — so the flag moves the working directory too.
+    */
+    it("parses --isolated with and without an explicit directory", () => {
+      expect(parseDevWrapperArgs(["--isolated"], {})).toMatchObject({ isolated: true, isolatedDir: undefined });
+      expect(parseDevWrapperArgs(["--isolated=/tmp/sandbox"], {})).toMatchObject({ isolated: true, isolatedDir: "/tmp/sandbox" });
+      expect(parseDevWrapperArgs(["dashboard"], {})).toMatchObject({ isolated: false });
+      expect(parseDevWrapperArgs(["dashboard"], { FUSION_DEV_ISOLATED: "1" })).toMatchObject({ isolated: true });
+      expect(() => parseDevWrapperArgs(["--isolated="], {})).toThrow(/Missing directory/);
+    });
+
+    it("does not swallow a following argument as the isolation directory", () => {
+      // `--isolated dashboard` means "isolate, and run the dashboard".
+      expect(parseDevWrapperArgs(["--isolated", "dashboard"], {})).toMatchObject({ isolated: true, isolatedDir: undefined, args: ["dashboard"] });
+    });
+
+    it("keeps the sandbox out of the repo and separates database from project", () => {
+      const paths = resolveIsolatedDevPaths({ repoRoot: "/Users/dev/Projects/kb", home: "/Users/dev" });
+      // Outside the work tree: a project dir inside it shows up in git status and dies on a clean checkout.
+      expect(paths.base).toBe("/Users/dev/.fusion-dev/kb");
+      expect(paths.home).toBe("/Users/dev/.fusion-dev/kb/home");
+      expect(paths.project).toBe("/Users/dev/.fusion-dev/kb/project");
+      expect(paths.project.startsWith("/Users/dev/Projects/kb")).toBe(false);
+    });
+
+    it("keys the sandbox by checkout so two clones do not share one database", () => {
+      const a = resolveIsolatedDevPaths({ repoRoot: "/w/kb", home: "/h" });
+      const b = resolveIsolatedDevPaths({ repoRoot: "/w/kb-feature", home: "/h" });
+      expect(a.home).not.toBe(b.home);
+    });
+
+    it("honours an explicit sandbox directory", () => {
+      expect(resolveIsolatedDevPaths({ repoRoot: "/w/kb", explicitDir: "/tmp/sandbox" }))
+        .toEqual({ base: "/tmp/sandbox", home: "/tmp/sandbox/home", project: "/tmp/sandbox/project" });
     });
 
     it("recognises the cloudflare quick-tunnel hostname in agent output", () => {

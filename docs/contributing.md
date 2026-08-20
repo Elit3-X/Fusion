@@ -121,6 +121,30 @@ Tunnelling any other port has no Fusion auth to lend it, and says so:
   └ anyone with this URL can reach that port — Fusion adds no auth to it
 ```
 
+### Running against an isolated database (`--isolated`)
+
+Working on Fusion from inside a machine that already runs one — a container, a shared box — a plain
+`pnpm dev` **shares that instance's live database**. Everything durable hangs off `$HOME/.fusion`
+(settings, credentials, central DB, the embedded Postgres data dir), and a second process pointed at
+a data dir whose postmaster is already running attaches to it rather than starting its own.
+
+```bash
+pnpm dev --isolated --tunnel        # own database, own project dir, own tunnel
+pnpm dev --isolated=/tmp/sandbox    # put the sandbox somewhere specific
+FUSION_DEV_ISOLATED=1 pnpm dev      # same, from the environment
+```
+
+`--isolated` gives the dev server its own `HOME` (so its own `.fusion`, credentials and Postgres
+cluster, on its own port) **and** its own project directory. Both matter: `fn dashboard` derives its
+project from the working directory, so isolating `HOME` alone would leave both instances sharing
+`<repo>/.fusion` — including `.fusion/tasks/<id>/`, which self-healing's orphaned-task-dir sweep
+re-imports, so a fresh dev database would adopt the real instance's tasks.
+
+The sandbox defaults to `~/.fusion-dev/<checkout-name>/` — outside the work tree, so it neither shows
+up in `git status` nor dies on a clean checkout, and keyed by checkout so two clones do not collide.
+Its project directory is `git init`-ed on first use, because Fusion projects are git work trees. The
+dev database persists across restarts; delete the directory to start fresh.
+
 Requires `cloudflared` on PATH (the Docker image ships it). Quick tunnels need no account, domain, or
 payment card **because a dev server is HTTP** — the TCP endpoints that something like SSH would need
 require a card (ngrok) or a domain plus Zero Trust (Cloudflare), which is why this flag exists only
