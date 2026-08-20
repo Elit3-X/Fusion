@@ -1598,6 +1598,8 @@ export function TaskDetailContent({
 
   const [editTitle, setEditTitle] = useState(task.title || "");
   const [editDescription, setEditDescription] = useState(task.description || "");
+  const editDescriptionRef = useRef(editDescription);
+  editDescriptionRef.current = editDescription;
   const [editDependencies, setEditDependencies] = useState<string[]>(task.dependencies || []);
   const [editBranch, setEditBranch] = useState(task.branch ?? "");
   const [editBaseBranch, setEditBaseBranch] = useState(task.baseBranch ?? "");
@@ -2407,6 +2409,15 @@ export function TaskDetailContent({
   const editAutoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editAutoSaveRevisionRef = useRef(0);
   const editSaveTriggeredReplanRef = useRef(false);
+  const blankDescriptionDeletePendingRef = useRef(false);
+  const lastBlankDescriptionDeleteAttemptRef = useRef<string | null>(null);
+  const handleDeleteRef = useRef<((canProceed?: () => boolean) => Promise<boolean | undefined>) | null>(null);
+
+  useEffect(() => {
+    if (editDescription.trim().length > 0) {
+      lastBlankDescriptionDeleteAttemptRef.current = null;
+    }
+  }, [editDescription]);
 
   const buildEditUpdates = useCallback((includeDescription: boolean) => {
     const updates: Record<string, unknown> = {};
@@ -2503,7 +2514,37 @@ export function TaskDetailContent({
     return { updates, error: null as string | null };
   }, [editBaseBranch, editBranch, editDependencies, editDescription, editExecutionMode, editCredentialInstanceId, editExecutorModel, editNodeId, editPlanningCredentialInstanceId, editPlanningModel, editPriority, editReviewLevel, editSelectedWorkflowSteps, editSourceIssueExternalId, editSourceIssueProvider, editSourceIssueRepository, editSourceIssueUrl, editThinkingLevel, editPlannerOversightLevel, editTitle, editValidatorCredentialInstanceId, editValidatorModel, task]);
 
-  const persistEditChanges = useCallback(async (includeDescription: boolean) => {
+  const requestBlankDescriptionDeletion = useCallback(async (descriptionAtRequest: string, force: boolean): Promise<boolean> => {
+    if (blankDescriptionDeletePendingRef.current || (!force && lastBlankDescriptionDeleteAttemptRef.current === descriptionAtRequest)) return false;
+
+    lastBlankDescriptionDeleteAttemptRef.current = descriptionAtRequest;
+    blankDescriptionDeletePendingRef.current = true;
+    try {
+      /*
+      FNXC:TaskDescriptionDeletion 2026-08-20-05:48:
+      Clearing a previously populated Task Detail description is an intentional destructive gesture,
+      so it must reuse the shared confirmation and deletion lifecycle rather than persist an empty
+      description. The snapshot fence prevents either debounce timer from deleting a draft restored
+      while its confirmation is open.
+      */
+      return Boolean(await handleDeleteRef.current?.(() =>
+        editDescriptionRef.current === descriptionAtRequest
+        && editDescriptionRef.current.trim().length === 0,
+      ));
+    } finally {
+      blankDescriptionDeletePendingRef.current = false;
+    }
+  }, []);
+
+  const persistEditChanges = useCallback(async (includeDescription: boolean, forceBlankDescriptionDeletion = false) => {
+    const trimmedDescription = editDescription.trim();
+    if (includeDescription && task.description.trim().length > 0 && trimmedDescription.length === 0) {
+      return requestBlankDescriptionDeletion(editDescription, forceBlankDescriptionDeletion);
+    }
+    if (trimmedDescription.length > 0) {
+      lastBlankDescriptionDeleteAttemptRef.current = null;
+    }
+
     const { updates, error } = buildEditUpdates(includeDescription);
     if (!updates) {
       setEditAutoSaveStatus("error");
@@ -2562,7 +2603,7 @@ export function TaskDetailContent({
         setIsSaving(false);
       }
     }
-  }, [addToast, buildEditUpdates, confirm, detailColumnFlags, onTaskUpdated, projectId, requestClose, task.column, task.executionMode, task.id]);
+  }, [addToast, buildEditUpdates, confirm, detailColumnFlags, editDescription, onTaskUpdated, projectId, requestBlankDescriptionDeletion, requestClose, task.column, task.description, task.executionMode, task.id]);
 
   const handleAutoSaveDescription = useCallback(async (_description: string) => {
     await persistEditChanges(true);
@@ -2570,7 +2611,7 @@ export function TaskDetailContent({
 
   const handleSave = useCallback(async () => {
     editSaveTriggeredReplanRef.current = false;
-    const didSave = await persistEditChanges(true);
+    const didSave = await persistEditChanges(true, true);
     if (!didSave || editSaveTriggeredReplanRef.current) {
       return;
     }
@@ -3064,19 +3105,20 @@ export function TaskDetailContent({
     [task.id, task.steps, onMoveTask, requestClose, addToast, confirm],
   );
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(async (canProceed: () => boolean = () => true) => {
     let allowResurrection = false;
+    let deletionSucceeded = false;
     let deleteCloseRequested = false;
     const closeBeforeDeleteRequest = () => {
-      if (deleteCloseRequested) {
-        return;
-      }
+      if (!canProceed()) return false;
+      if (deleteCloseRequested) return true;
       /*
       FNXC:TaskDetailDelete 2026-07-01-09:40:
       Task detail hosts must close optimistically after the operator completes every required delete prompt and before each server delete request starts. Keep this helper idempotent so dependency/lineage retries preserve async prompts and toasts without reopening or repeatedly closing the modal, main panel, list split, or right-dock host.
       */
       requestClose();
       deleteCloseRequested = true;
+      return true;
     };
 
     if (!isArchivedColumn && onArchiveTask) {
@@ -3165,7 +3207,7 @@ export function TaskDetailContent({
     }
 
     try {
-      closeBeforeDeleteRequest();
+      if (!closeBeforeDeleteRequest()) return false;
       if (githubIssueAction) {
         await onDeleteTask(task.id, { githubIssueAction, allowResurrection });
       } else {
@@ -3174,7 +3216,9 @@ export function TaskDetailContent({
       const issueSuffix = trackedIssue?.owner && trackedIssue.repo && trackedIssue.number && githubIssueAction
         ? ` ${t("taskDetail.delete.issueSuffix", "and {{action}} issue {{ref}}", { action: githubIssueAction === "close" ? t("taskDetail.delete.actionClosed", "closed") : githubIssueAction === "delete" ? t("taskDetail.delete.actionDeleted", "deleted") : t("taskDetail.delete.actionLeft", "left"), ref: `${trackedIssue.owner}/${trackedIssue.repo}#${trackedIssue.number}` })}`
         : "";
+      deletionSucceeded = true;
       addToast(t("taskDetail.delete.deletedToast", "Deleted {{id}}{{suffix}}", { id: task.id, suffix: issueSuffix }), "info");
+      return deletionSucceeded;
     } catch (err) {
       const dependencyConflict = extractDependencyDeleteConflict(err);
       if (dependencyConflict && dependencyConflict.dependentIds.length > 0) {
@@ -3264,6 +3308,7 @@ export function TaskDetailContent({
       }
     }
   }, [task.column, task.githubTracking?.enabled, task.githubTracking?.issue, task.id, onDeleteTask, onArchiveTask, requestClose, addToast, confirm, confirmWithChoice, confirmWithCheckbox, isArchivedColumn]);
+  handleDeleteRef.current = handleDelete;
 
   const handleMerge = useCallback(async () => {
     const shouldMerge = await confirm({
@@ -7204,7 +7249,7 @@ export function TaskDetailContent({
               */}
               {isTaskReverted(task.sourceMetadata) && (
                 <>
-                  <button className="btn btn-sm btn-danger" onClick={handleDelete} aria-label={t("taskDetail.reverted.deleteAria", "Delete reverted task")}>{t("taskDetail.delete.btn", "Delete")}</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => void handleDelete()} aria-label={t("taskDetail.reverted.deleteAria", "Delete reverted task")}>{t("taskDetail.delete.btn", "Delete")}</button>
                   {onReviseTask && <button className="btn btn-sm" onClick={() => { onReviseTask(task); requestClose?.(); }}>{t("taskDetail.revise", "Revise")}</button>}
                 </>
               )}
@@ -7216,7 +7261,7 @@ export function TaskDetailContent({
               {isIntakeColumn && !isAwaitingApproval && !canRetryTask && (
                 <button
                   className="btn btn-sm btn-danger"
-                  onClick={handleDelete}
+                  onClick={() => void handleDelete()}
                   aria-label={t("taskDetail.delete.ariaLabel", "Delete task")}
                   title={t("taskDetail.delete.ariaLabel", "Delete task")}
                 >
