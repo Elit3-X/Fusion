@@ -847,6 +847,10 @@ Project-scoped structured recall records for durable decisions, preferences, and
 
 - Knowledge-graph artifact: `<rootDir>/.fusion-knowledge/graph/` (`nodes.json`, `edges.json`, and `manifest.json`). This is deliberately outside ignored `.fusion` and may be committed at the operator's discretion.
 
+### Embedded PostgreSQL on Windows — antivirus and the runtime-bin payload
+
+If Windows startup reports `unknown error 4551` while loading an embedded PostgreSQL DLL such as `dict_snowball.dll`, antivirus quarantined part of `%USERPROFILE%\\.fusion\\embedded-postgres`. Add that directory as a Windows Security exclusion, restore the file from Protection history, and restart Fusion. Fusion verifies and automatically re-copies the runtime payload; see [Windows antivirus blocks an embedded PostgreSQL DLL](solutions/database-issues/windows-antivirus-blocks-embedded-postgres-dll.md).
+
 ### Bounded task-intake lookups
 
 Recommendation proposal claims use the indexed `findTaskByProposalClaimId` read (`uqTasksProjectProposalClaimId`), and same-agent intake reads only matching source lineage (`idxTasksProjectSourceAgentId` and `idxTasksSourceParentTaskId`). Do not replace either read with a `listTasks()` scan. Workflow terminal flags for intake duplicate checks are derived from workflow definitions, not board rows. Guarded-intake near-duplicate checks must remain bounded to their candidates (the fallback is `limit: 50`) and must not hydrate the full board.
