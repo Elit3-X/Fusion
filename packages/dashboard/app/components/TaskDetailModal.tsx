@@ -426,6 +426,8 @@ export interface TaskDetailModalProps {
   onResetTask?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   onTaskUpdated?: (task: Task) => void;
+  /** Publishes a successfully created refinement child to shared board state. */
+  onRefinementCreated?: (task: Task) => void;
   addToast: (message: string, type?: ToastType) => void;
   prAuthAvailable?: boolean;
   autoMergeEnabled?: boolean;
@@ -810,6 +812,7 @@ export function TaskDetailContent({
   onResetTask,
   onDuplicateTask,
   onTaskUpdated,
+  onRefinementCreated,
   addToast,
   prAuthAvailable,
   autoMergeEnabled: autoMergeEnabledProp,
@@ -3725,6 +3728,12 @@ export function TaskDetailContent({
     setIsRefining(true);
     try {
       const newTask = await refineTask(task.id, refineFeedback.trim(), projectId);
+      /*
+      FNXC:TaskRefinementBoardVisibility 2026-08-20-20:43:
+      The returned child enters shared board state before this source detail closes, rather than
+      relying on delayed SSE delivery. Its server-selected column must remain untouched here.
+      */
+      onRefinementCreated?.(newTask);
       addToast(t("taskDetail.refine.taskCreated", "Refinement task created: {{id}}", { id: newTask.id }), "success");
       requestClose();
     } catch (err) {
@@ -3732,7 +3741,7 @@ export function TaskDetailContent({
     } finally {
       setIsRefining(false);
     }
-  }, [task.id, refineFeedback, addToast, requestClose]);
+  }, [task.id, refineFeedback, addToast, onRefinementCreated, projectId, requestClose]);
 
   const uploadFile = useCallback(async (file: File) => {
     setUploading(true);
@@ -5954,6 +5963,7 @@ export function TaskDetailContent({
                   addToast={addToast}
                   sessionLive={isCliSessionLive(cliSession)}
                   onTaskUpdated={handleChatTaskUpdated}
+                  onRefinementCreated={onRefinementCreated}
                   expanded={isActivityExpanded}
                   onToggleExpanded={() => setActivityExpanded((value) => !value)}
                   effectiveModels={{

@@ -275,6 +275,8 @@ interface ListViewProps {
   onMergeTask: (id: string) => Promise<MergeResult>;
   onResetTask?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
+  /** App-owned ingestion seam for successful split-detail refinements. */
+  onRefinementCreated?: (task: Task) => void;
   onOpenDetail: (task: Task | TaskDetail, options?: DetailTaskOpenOptions) => void;
   /*
   FNXC:FloatingWindow 2026-06-22-20:45:
@@ -370,6 +372,7 @@ export function ListView({
   onMergeTask,
   onResetTask,
   onDuplicateTask,
+  onRefinementCreated,
   onPopOut,
   openMobileTasksInPopup = false,
   onOpenDetail,
@@ -3586,6 +3589,7 @@ export function ListView({
                       Live board, SSE, and fetch snapshots remain on mergeTaskSnapshot so server clock
                       arbitration continues to protect lifecycle state outside this local callback.
                       */
+                      onRefinementCreated={onRefinementCreated}
                       onTaskUpdated={(updatedTask) => {
                         setSelectedTaskSnapshot((previous) => {
                           if (!previous || (updatedTask.id !== undefined && updatedTask.id !== previous.id)) return previous;

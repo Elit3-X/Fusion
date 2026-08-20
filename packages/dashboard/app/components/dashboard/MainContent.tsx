@@ -978,6 +978,7 @@ export function MainContent({
               The full-panel task-detail must dismiss back to the board when a destructive/terminal action (delete/merge/archive/retry/reset/duplicate) fires, mirroring the modal path. Without onRequestClose the panel kept showing a ghost of the just-acted-on task.
               */
               onRequestClose={closeTaskDetailMainPanel}
+              onRefinementCreated={(task) => ingestCreatedTasks([task])}
               onTaskUpdated={(updatedTask) => {
                 setMainPanelDetailTask((previous) => {
                   if (!previous || (updatedTask.id !== undefined && updatedTask.id !== previous.id)) return previous;
@@ -1075,6 +1076,7 @@ export function MainContent({
         onMergeTask={mergeTask}
         onResetTask={resetTask}
         onDuplicateTask={duplicateTask}
+        onRefinementCreated={(task) => ingestCreatedTasks([task])}
         onOpenDetail={(task, options) => openDetailTask(task, undefined, options)}
         onPopOut={popOutTaskDetail}
         addToast={addToast}

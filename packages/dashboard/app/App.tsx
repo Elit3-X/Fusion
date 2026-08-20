@@ -2234,6 +2234,7 @@ function AppInner() {
               onBypassReview={bypassReview}
               onResetTask={resetTask}
               onDuplicateTask={duplicateTask}
+              onRefinementCreated={(task) => ingestCreatedTasks([task])}
               onRequestClose={close}
               addToast={addToast}
               prAuthAvailable={prAuthAvailable}
@@ -2261,6 +2262,7 @@ function AppInner() {
           handlePlanningTasksCreated,
           handleGitHubImport,
         }}
+        onRefinementCreated={(task) => ingestCreatedTasks([task])}
         onPlanningMode={openPlanningWithInitialPlanWithNav}
         onOpenChatWithPrefill={openChatWithPrefill}
         taskOperations={{ moveTask, deleteTask, mergeTask, archiveTask, revertTask, retryTask, pauseTask, unpauseTask, bypassReview, resetTask, duplicateTask }}

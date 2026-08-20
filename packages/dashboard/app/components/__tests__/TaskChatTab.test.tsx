@@ -1858,6 +1858,7 @@ describe("TaskChatTab", () => {
     const user = userEvent.setup();
     const addToast = vi.fn();
     const onTaskUpdated = vi.fn();
+    const onRefinementCreated = vi.fn();
     const refinementTask = makeTask({ id: "FN-222", column: "todo" });
     mockedRefineTask.mockResolvedValue(refinementTask);
     render(
@@ -1867,6 +1868,7 @@ describe("TaskChatTab", () => {
         active
         addToast={addToast}
         onTaskUpdated={onTaskUpdated}
+        onRefinementCreated={onRefinementCreated}
       />,
     );
 
@@ -1885,6 +1887,8 @@ describe("TaskChatTab", () => {
     expect(addToast).toHaveBeenCalledWith("Refinement task created: FN-222", "success");
     expect(onTaskUpdated).not.toHaveBeenCalledWith(refinementTask);
     expect(onTaskUpdated).not.toHaveBeenCalled();
+    expect(onRefinementCreated).toHaveBeenCalledTimes(1);
+    expect(onRefinementCreated).toHaveBeenCalledWith(refinementTask);
   });
 
   it("preserves durable non-default workflow context after done-task refinement success", async () => {

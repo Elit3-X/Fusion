@@ -55,6 +55,8 @@ interface AppModalsProps {
   modalManager: ModalManager;
   projectActions: Pick<UseProjectActionsResult, "handleAddProject" | "handleSetupComplete" | "handleModelOnboardingComplete">;
   taskHandlers: Pick<UseTaskHandlersResult, "handleModalCreate" | "handlePlanningTaskCreated" | "handlePlanningTasksCreated" | "handleGitHubImport">;
+  /** App-owned ingestion seam for a successful detail refinement. */
+  onRefinementCreated?: (task: Task) => void;
   onPlanningMode?: (initialPlan: string, workflowId?: string | null, sourceIssue?: { provider: "github"; repository: string; issueNumber: number; url: string; title?: string }) => void;
   onOpenChatWithPrefill?: (prefillText: string) => void;
   taskOperations: {
@@ -130,6 +132,7 @@ export function AppModals({
   modalManager,
   projectActions,
   taskHandlers,
+  onRefinementCreated,
   onPlanningMode,
   onOpenChatWithPrefill,
   taskOperations,
@@ -334,6 +337,7 @@ export function AppModals({
             onResetTask={taskOperations.resetTask}
             onDuplicateTask={taskOperations.duplicateTask}
             onTaskUpdated={modalManager.updateDetailTask}
+            onRefinementCreated={onRefinementCreated}
             addToast={addToast}
             prAuthAvailable={settings.prAuthAvailable}
             autoMergeEnabled={settings.autoMerge}
