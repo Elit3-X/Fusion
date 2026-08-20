@@ -2041,7 +2041,7 @@ describe("Board", () => {
       ]);
     });
 
-    it("pans selected and All-workflows Board roots only while the pointer moves", async () => {
+    it("restores safe empty-column descendant panning in selected and All-workflows Boards", async () => {
       enableFlag(
         { "FN-1": "builtin:coding", "FN-2": "wf-custom" },
         [DEFAULT_WORKFLOW, CUSTOM_WORKFLOW],
@@ -2050,45 +2050,41 @@ describe("Board", () => {
 
       const selectedBoard = screen.getByRole("main") as HTMLElement;
       makeBoardHorizontallyScrollable(selectedBoard);
-      fireEvent.pointerDown(selectedBoard, { button: 0, clientX: 100, clientY: 50, pointerId: 1, pointerType: "mouse" });
-      fireEvent.pointerMove(selectedBoard, { clientX: 40, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      const selectedEmptyText = within(selectedBoard).getAllByText("No tasks")[0];
+      fireEvent.pointerDown(selectedEmptyText, { button: 0, clientX: 100, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerMove(selectedEmptyText, { clientX: 40, clientY: 50, pointerId: 1, pointerType: "mouse" });
       expect(selectedBoard.scrollLeft).toBe(160);
       expect(selectedBoard).toHaveClass("is-mouse-panning");
-      fireEvent.pointerUp(selectedBoard, { pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerUp(selectedEmptyText, { pointerId: 1, pointerType: "mouse" });
       expect(selectedBoard).not.toHaveClass("is-mouse-panning");
       expect(selectedBoard.scrollLeft).toBe(160);
 
       await selectWorkflow(ALL_WORKFLOWS_BOARD_VIEW_ID);
       const aggregateBoard = screen.getByRole("main") as HTMLElement;
       makeBoardHorizontallyScrollable(aggregateBoard);
-      fireEvent.pointerDown(aggregateBoard, { button: 0, clientX: 100, clientY: 50, pointerId: 2, pointerType: "mouse" });
-      fireEvent.pointerMove(aggregateBoard, { clientX: 40, clientY: 50, pointerId: 2, pointerType: "mouse" });
+      const aggregateEmptyText = within(aggregateBoard).getAllByText("No tasks")[0];
+      fireEvent.pointerDown(aggregateEmptyText, { button: 0, clientX: 100, clientY: 50, pointerId: 2, pointerType: "mouse" });
+      fireEvent.pointerMove(aggregateEmptyText, { clientX: 40, clientY: 50, pointerId: 2, pointerType: "mouse" });
       expect(aggregateBoard.scrollLeft).toBe(160);
-      fireEvent.pointerUp(aggregateBoard, { pointerId: 2, pointerType: "mouse" });
-      expect(aggregateBoard.scrollLeft).toBe(160);
+      fireEvent.pointerUp(aggregateEmptyText, { pointerId: 2, pointerType: "mouse" });
+      expect(aggregateBoard).not.toHaveClass("is-mouse-panning");
     });
 
-    it("keeps empty text and non-overflow Board surfaces outside mouse panning", async () => {
-      enableFlag(
-        { "FN-1": "builtin:coding", "FN-2": "wf-custom" },
-        [DEFAULT_WORKFLOW, CUSTOM_WORKFLOW],
-      );
-      renderBoard({ tasks: [mkTask({ id: "FN-1" }), mkTask({ id: "FN-2", column: "intake" })] });
+    it("keeps non-overflow Boards and stationary edgeward pointers outside continued panning", () => {
+      enableFlag({});
+      renderBoard();
+      const board = screen.getByRole("main") as HTMLElement;
+      makeBoardHorizontallyScrollable(board);
 
-      const selectedBoard = screen.getByRole("main") as HTMLElement;
-      makeBoardHorizontallyScrollable(selectedBoard);
-      dispatchMouseDrag(within(selectedBoard).getAllByText("No tasks")[0]);
-      expect(selectedBoard.scrollLeft).toBe(100);
+      fireEvent.pointerDown(within(board).getAllByText("No tasks")[0], { button: 0, clientX: 100, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerMove(board, { clientX: 190, clientY: 50, pointerId: 1, pointerType: "mouse" });
+      const scrollAfterPointerMove = board.scrollLeft;
+      fireEvent.pointerUp(board, { pointerId: 1, pointerType: "mouse" });
+      expect(board.scrollLeft).toBe(scrollAfterPointerMove);
 
-      Object.defineProperty(selectedBoard, "scrollWidth", { configurable: true, value: 200 });
-      dispatchMouseDrag(selectedBoard, 2);
-      expect(selectedBoard.scrollLeft).toBe(100);
-
-      await selectWorkflow(ALL_WORKFLOWS_BOARD_VIEW_ID);
-      const aggregateBoard = screen.getByRole("main") as HTMLElement;
-      makeBoardHorizontallyScrollable(aggregateBoard);
-      dispatchMouseDrag(within(aggregateBoard).getAllByText("No tasks")[0], 3);
-      expect(aggregateBoard.scrollLeft).toBe(100);
+      Object.defineProperty(board, "scrollWidth", { configurable: true, value: 200 });
+      dispatchMouseDrag(board, 2);
+      expect(board.scrollLeft).toBe(scrollAfterPointerMove);
     });
 
     it("keeps touch and task-card interactions native", async () => {
@@ -2121,6 +2117,29 @@ describe("Board", () => {
       fireEvent.pointerUp(quickCreate, { pointerId: 3, pointerType: "mouse" });
       fireEvent.click(quickCreate);
       expect(onQuickCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables desktop mouse panning at the mobile viewport without changing touch ownership", () => {
+      const harness = installMobileBoardStabilizationHarness();
+      try {
+        enableFlag({});
+        renderBoard();
+        const board = screen.getByRole("main") as HTMLElement;
+        makeBoardHorizontallyScrollable(board);
+        const emptyText = within(board).getAllByText("No tasks")[0];
+
+        fireEvent.pointerDown(emptyText, { button: 0, clientX: 100, clientY: 50, pointerId: 1, pointerType: "mouse" });
+        fireEvent.pointerMove(emptyText, { clientX: 40, clientY: 50, pointerId: 1, pointerType: "mouse" });
+        fireEvent.pointerUp(emptyText, { pointerId: 1, pointerType: "mouse" });
+        fireEvent.pointerDown(emptyText, { button: 0, clientX: 100, clientY: 50, pointerId: 2, pointerType: "touch" });
+        fireEvent.pointerMove(emptyText, { clientX: 40, clientY: 50, pointerId: 2, pointerType: "touch" });
+        fireEvent.pointerUp(emptyText, { pointerId: 2, pointerType: "touch" });
+
+        expect(board.scrollLeft).toBe(100);
+        expect(board).not.toHaveClass("is-mouse-panning");
+      } finally {
+        harness.restore();
+      }
     });
 
     it("preserves all-workflows board scroll during mobile visualViewport refresh stabilization", async () => {

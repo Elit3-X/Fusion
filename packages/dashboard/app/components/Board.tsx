@@ -225,20 +225,20 @@ export function Board({ tasks, projectId, maxConcurrent, showWorktreeGrouping, o
     boardRef.current = element;
     setBoardElement((current) => current === element ? current : element);
   }, []);
+  const viewportMode = useViewportMode();
   useColumnScrollSnap(boardElement, { mobileOnly: true });
   /*
-  FNXC:BoardNavigation 2026-08-20-02:44:
-  Selected and All-workflows Board roots share one bounded mouse-pan hook, while the loading
-  skeleton remains unbound and mobile touch remains owned by the separate snap hook. Direct-root
-  drags alone can pan; this wiring must not turn cards, text, or controls into navigation surfaces.
+  FNXC:BoardNavigation 2026-08-20-04:47:
+  Selected and All-workflows live roots share safe-surface primary-mouse panning outside mobile;
+  empty-column text may pan, while cards and controls remain native. The skeleton stays unbound,
+  and the separate mobile-only snap owner plus mobile styles remain unchanged.
   */
-  const { isPanning: isBoardMousePanning, ...boardMousePanBindings } = useBoardMousePan(boardElement);
+  const { isPanning: isBoardMousePanning, ...boardMousePanBindings } = useBoardMousePan(boardElement, viewportMode !== "mobile");
   const boardClassName = `board board-workflow-columns${isBoardMousePanning ? " is-mouse-panning" : ""}`;
   const [headerWorkflowSlot, setHeaderWorkflowSlot] = useState<HTMLElement | null>(() => {
     if (typeof document === "undefined") return null;
     return document.getElementById("header-workflow-slot");
   });
-  const viewportMode = useViewportMode();
   // Normalized search-active signal: trimmed and non-empty
   const isSearchActive = searchQuery.trim() !== "";
   useEffect(() => {
