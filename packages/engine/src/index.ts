@@ -676,6 +676,8 @@ export {
   type InspectBranchConflictInput,
 } from "./execution/branch-conflicts.js";
 export { generateReservedWorktreeName, generateWorktreeName, planTaskWorktreePath, slugify } from "./worktree/worktree-names.js";
+export { deriveJiraBranchName, normalizeJiraIssueKey } from "./worktree/jira-branch-name.js";
+export type { JiraBranchNameResult } from "./worktree/jira-branch-name.js";
 export { createLogger, type Logger } from "./logger.js";
 export {
   validateExternalIntegrationManifest,

@@ -34,6 +34,8 @@ describe("scope anchors", () => {
     expect(isProjectSettingsKey("gitlabAuthToken")).toBe(true);
     expect(isGlobalSettingsKey("gitlabAuthTokenType")).toBe(true);
     expect(isProjectSettingsKey("gitlabAuthTokenType")).toBe(true);
+    expect(isGlobalSettingsKey("jiraEnabled")).toBe(true);
+    expect(isProjectSettingsKey("jiraEnabled")).toBe(true);
     expect(isProjectSettingsKey("requireTaskRecommendations")).toBe(true);
     expect(isGlobalSettingsKey("requireTaskRecommendations")).toBe(false);
   });
@@ -811,5 +813,46 @@ describe("splitSettingsSave", () => {
     // ...and is instead routed to the project patch on the project-scoped
     // "source-control" section, rather than being dropped or erroring.
     expect(onProject.projectPatch).toMatchObject({ githubTrackingDefaultRepo: "org/repo" });
+  });
+
+  it("does not pin untouched inherited JIRA settings into a project override", () => {
+    const result = splitSettingsSave({
+      payload: {
+        jiraEnabled: true,
+        jiraBaseUrl: "https://acme.atlassian.net",
+        jiraAuthTokenSecretScope: "global",
+      },
+      initialValues: {
+        jiraEnabled: true,
+        jiraBaseUrl: "https://acme.atlassian.net",
+        jiraAuthTokenSecretScope: "global",
+      } as never,
+      initialScopedValues: {
+        global: {
+          jiraEnabled: true,
+          jiraBaseUrl: "https://acme.atlassian.net",
+          jiraAuthTokenSecretScope: "global",
+        },
+        project: {},
+      } as never,
+      activeSection: "source-control",
+    });
+
+    expect(result.globalPatch).toEqual({});
+    expect(result.projectPatch).toEqual({});
+  });
+
+  it("clears a project JIRA override with null-as-delete", () => {
+    const { projectPatch } = splitSettingsSave({
+      payload: { jiraBaseUrl: undefined },
+      initialValues: { jiraBaseUrl: "https://project.atlassian.net" } as never,
+      initialScopedValues: {
+        global: { jiraBaseUrl: "https://global.atlassian.net" },
+        project: { jiraBaseUrl: "https://project.atlassian.net" },
+      } as never,
+      activeSection: "source-control",
+    });
+
+    expect(projectPatch).toEqual({ jiraBaseUrl: null });
   });
 });

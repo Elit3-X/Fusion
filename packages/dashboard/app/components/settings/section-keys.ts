@@ -116,6 +116,7 @@ export const PROJECT_SECTION_KEYS: Readonly<Record<string, readonly string[]>> =
     "gitlabAuthTokenType",
     "gitlabEnabled",
     "gitlabInstanceUrl",
+    "jiraEnabled", "jiraBaseUrl", "jiraApiBaseUrl", "jiraAuthEmail", "jiraAuthTokenSecretKey", "jiraAuthTokenSecretScope", "jiraBranchNameTemplate",
   ],
   commands: ["buildCommand", "testCommand"],
   worktrees: [

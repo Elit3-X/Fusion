@@ -289,6 +289,15 @@ export function TaskForm({
 }: TaskFormProps) {
   const { t } = useTranslation("app");
   const branchNameRequired = branchMode === "existing" || branchMode === "custom-new" || branchMode === "shared-group";
+  const [jiraEnabled, setJiraEnabled] = useState(false);
+  const [jiraKey, setJiraKey] = useState("");
+  const [jiraError, setJiraError] = useState("");
+  const [jiraDeriving, setJiraDeriving] = useState(false);
+  const deriveJiraBranch = useCallback(async () => {
+    if (!jiraKey.trim() || !onBranchChange) return;
+    setJiraDeriving(true); setJiraError("");
+    try { const response = await fetch("/api/jira/derive-branch-name", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ issueKey: jiraKey }) }); const result = await response.json() as { ok: boolean; branchName?: string; message?: string }; if (result.ok && result.branchName) onBranchChange(result.branchName); else setJiraError(result.message ?? "Could not derive a branch name from JIRA."); } catch { setJiraError("Could not derive a branch name from JIRA."); } finally { setJiraDeriving(false); }
+  }, [jiraKey, onBranchChange]);
   /*
   FNXC:WorkspaceBranchInput 2026-08-20-03:38:
   FN-9161 exposes a reusable workspace branch in this shared form. Show the
@@ -384,8 +393,8 @@ export function TaskForm({
       .catch(() => {/* silently fail */})
       .finally(() => setModelsLoading(false));
     fetchSettings(projectId)
-      .then((nextSettings) => setSettings(nextSettings))
-      .catch(() => setSettings(null));
+      .then((nextSettings) => { setSettings(nextSettings); setJiraEnabled(nextSettings.jiraEnabled === true); })
+      .catch(() => { setSettings(null); setJiraEnabled(false); });
     // U6/R3: load selectable workflows for the picker. Fragments are excluded
     // (KTD-1) so they never appear as selectable task workflows.
     if (onWorkflowIdChange) {
@@ -1441,6 +1450,16 @@ export function TaskForm({
               {branchNameInvalid && (
                 <div id="task-working-branch-help" className="form-error">
                   {t("taskForm.branchNameInvalid", "Enter a valid Git branch name (no spaces or ref punctuation).")}
+                </div>
+              )}
+              {jiraEnabled && (
+                <div className="form-group" data-testid="jira-derive-branch">
+                  <label htmlFor="jira-issue-key" className="model-select-label">{t("taskForm.jiraIssueKey", "JIRA issue key")}</label>
+                  <div className="flex-row gap-sm">
+                    <input id="jira-issue-key" className="input" value={jiraKey} onChange={(event) => setJiraKey(event.target.value)} placeholder="PRD-1234" disabled={disabled || jiraDeriving} />
+                    <button type="button" className="btn btn-sm" onClick={() => { void deriveJiraBranch(); }} disabled={disabled || jiraDeriving || !jiraKey.trim()}>{jiraDeriving ? t("taskForm.jiraDeriving", "Deriving…") : t("taskForm.jiraDerive", "Derive")}</button>
+                  </div>
+                  {jiraError && <div className="form-error">{jiraError}</div>}
                 </div>
               )}
             </>

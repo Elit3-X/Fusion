@@ -554,6 +554,18 @@ describe("settings key parity", () => {
       "gitlabAuthToken",
       "gitlabAuthTokenType",
       /*
+      FNXC:JiraBranchNaming 2026-08-20-05:18:
+      JIRA configuration is intentionally dual-scoped: global values are organization defaults
+      and project values override them without storing a plaintext token.
+      */
+      "jiraEnabled",
+      "jiraBaseUrl",
+      "jiraApiBaseUrl",
+      "jiraAuthEmail",
+      "jiraAuthTokenSecretKey",
+      "jiraAuthTokenSecretScope",
+      "jiraBranchNameTemplate",
+      /*
       FNXC:ToolOutputBudget 2026-07-30-03:40:
       Shared ON PURPOSE. settings-schema.ts:462 states it outright: "Project settings participate in
       the existing effective-settings merge, allowing a project-specific tool-output cap or explicit

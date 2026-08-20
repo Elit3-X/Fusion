@@ -2913,3 +2913,5 @@ export * from "./memory/recall-capture.js";
  * filesystem-dependent spawn factory remains available only at @fusion/core/mcp-builtin-servers.
  */
 export * from "./config/mcp-builtin-descriptor.js";
+export { resolveJiraConfig, resolveJiraEnabled, DEFAULT_JIRA_TOKEN_SECRET_KEY, DEFAULT_JIRA_BRANCH_NAME_TEMPLATE } from "./jira/jira-config.js";
+export type { JiraConfigSettingsSource, ResolvedJiraConfig, ResolveJiraConfigInput, JiraTokenSecretScope } from "./jira/jira-config.js";

@@ -586,6 +586,14 @@ export interface GlobalSettings {
   gitlabAuthToken?: string;
   /** Global fallback GitLab token type label. Defaults effectively to "personal" when a token exists and this is unset. */
   gitlabAuthTokenType?: GitlabAuthTokenType;
+  /** JIRA branch naming is opt-in and supports project-over-global configuration. */
+  jiraEnabled?: boolean;
+  jiraBaseUrl?: string;
+  jiraApiBaseUrl?: string;
+  jiraAuthEmail?: string;
+  jiraAuthTokenSecretKey?: string;
+  jiraAuthTokenSecretScope?: "project" | "global";
+  jiraBranchNameTemplate?: string;
   /** Cadence for automatic update checks. The dashboard's `/update-check`
    *  route uses this to decide whether to consult npm or return a cached
    *  result.
@@ -2089,6 +2097,14 @@ export interface ProjectSettings {
   gitlabAuthToken?: string;
   /** Project GitLab token type label. Defaults effectively to "personal" when a token exists and this is unset. */
   gitlabAuthTokenType?: GitlabAuthTokenType;
+  /** JIRA branch naming is opt-in and supports project-over-global configuration. */
+  jiraEnabled?: boolean;
+  jiraBaseUrl?: string;
+  jiraApiBaseUrl?: string;
+  jiraAuthEmail?: string;
+  jiraAuthTokenSecretKey?: string;
+  jiraAuthTokenSecretScope?: "project" | "global";
+  jiraBranchNameTemplate?: string;
   /**
    * FNXC:GitLabLifecycle 2026-07-02-00:00:
    * GitLab comment and auto-close settings mirror GitHub lifecycle side effects but remain disabled by default and use the configured GitLab instance/API URL so GitLab.com and self-managed hosts behave consistently.

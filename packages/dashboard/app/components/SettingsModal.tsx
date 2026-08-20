@@ -634,7 +634,7 @@ type PluginsSubsectionId = "fusion-plugins" | "pi-extensions";
 
 /** Local form state extends Settings with a worktreeInitCommand override and lets tokenCap carry null (delete semantic). */
 type SettingsFormState = Settings & { worktreeInitCommand?: string; tokenCap?: number | null };
-type GlobalSourceControlSettings = Pick<GlobalSettings, "gitlabEnabled" | "gitlabInstanceUrl" | "gitlabApiBaseUrl" | "gitlabAuthToken" | "gitlabAuthTokenType" | "reportRoadmapDedupeEnabled" | "reportRoadmapLabel" | "reportRoadmapRepo">;
+type GlobalSourceControlSettings = Pick<GlobalSettings, "gitlabEnabled" | "gitlabInstanceUrl" | "gitlabApiBaseUrl" | "gitlabAuthToken" | "gitlabAuthTokenType" | "reportRoadmapDedupeEnabled" | "reportRoadmapLabel" | "reportRoadmapRepo" | "jiraEnabled" | "jiraBaseUrl" | "jiraApiBaseUrl" | "jiraAuthEmail" | "jiraAuthTokenSecretKey" | "jiraAuthTokenSecretScope" | "jiraBranchNameTemplate">;
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -1724,6 +1724,13 @@ export function SettingsModal({
           reportRoadmapDedupeEnabled: scoped.global.reportRoadmapDedupeEnabled,
           reportRoadmapLabel: scoped.global.reportRoadmapLabel,
           reportRoadmapRepo: scoped.global.reportRoadmapRepo,
+          jiraEnabled: scoped.global.jiraEnabled,
+          jiraBaseUrl: scoped.global.jiraBaseUrl,
+          jiraApiBaseUrl: scoped.global.jiraApiBaseUrl,
+          jiraAuthEmail: scoped.global.jiraAuthEmail,
+          jiraAuthTokenSecretKey: scoped.global.jiraAuthTokenSecretKey,
+          jiraAuthTokenSecretScope: scoped.global.jiraAuthTokenSecretScope,
+          jiraBranchNameTemplate: scoped.global.jiraBranchNameTemplate,
         });
         setInitialScopedValues({
           ...scoped,
@@ -3550,6 +3557,19 @@ export function SettingsModal({
         reportRoadmapDedupeEnabled: gitlabFormForSave.reportRoadmapDedupeEnabled,
         reportRoadmapLabel: gitlabFormForSave.reportRoadmapLabel?.trim() || undefined,
         reportRoadmapRepo: gitlabFormForSave.reportRoadmapRepo?.trim() || undefined,
+        /*
+        FNXC:JiraBranchNaming 2026-08-20-05:18:
+        Project forms begin with effective JIRA values inherited from global settings. Preserve
+        unset values here rather than coercing defaults so splitSettingsSave can distinguish an
+        untouched inherited setting from an operator's project override or explicit clear.
+        */
+        jiraEnabled: gitlabFormForSave.jiraEnabled,
+        jiraBaseUrl: gitlabFormForSave.jiraBaseUrl?.trim() || undefined,
+        jiraApiBaseUrl: gitlabFormForSave.jiraApiBaseUrl?.trim() || undefined,
+        jiraAuthEmail: gitlabFormForSave.jiraAuthEmail?.trim() || undefined,
+        jiraAuthTokenSecretKey: gitlabFormForSave.jiraAuthTokenSecretKey?.trim() || undefined,
+        jiraAuthTokenSecretScope: gitlabFormForSave.jiraAuthTokenSecretScope,
+        jiraBranchNameTemplate: gitlabFormForSave.jiraBranchNameTemplate?.trim() || undefined,
         githubAuthToken: formSnapshot.githubAuthToken?.trim() || undefined,
         prTitlePromptInstructions: formSnapshot.prTitlePromptInstructions?.trim() || undefined,
         prDescriptionPromptInstructions: formSnapshot.prDescriptionPromptInstructions?.trim() || undefined,
@@ -4122,6 +4142,13 @@ export function SettingsModal({
               reportRoadmapDedupeEnabled: current?.reportRoadmapDedupeEnabled,
               reportRoadmapLabel: current?.reportRoadmapLabel,
               reportRoadmapRepo: current?.reportRoadmapRepo,
+              jiraEnabled: current?.jiraEnabled,
+              jiraBaseUrl: current?.jiraBaseUrl,
+              jiraApiBaseUrl: current?.jiraApiBaseUrl,
+              jiraAuthEmail: current?.jiraAuthEmail,
+              jiraAuthTokenSecretKey: current?.jiraAuthTokenSecretKey,
+              jiraAuthTokenSecretScope: current?.jiraAuthTokenSecretScope,
+              jiraBranchNameTemplate: current?.jiraBranchNameTemplate,
               ...patch,
             }))}
             globalTrackingRepoOptions={globalTrackingRepoOptions}

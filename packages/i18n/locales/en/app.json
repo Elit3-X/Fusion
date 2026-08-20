@@ -7120,6 +7120,29 @@
       "download": "Download",
       "remove": "Remove",
       "error": "Model error: {{message}}"
+    },
+    "jira": {
+      "configuration": "JIRA Configuration",
+      "enable": "Enable JIRA integration",
+      "enabledHelp": "No default — unset (JIRA is opt-in).",
+      "baseUrl": "JIRA site URL",
+      "globalBaseUrl": "Global JIRA site URL",
+      "baseUrlHelp": "JIRA site URL. Default: unset.",
+      "apiBaseUrl": "JIRA API base URL (optional)",
+      "globalApiBaseUrl": "Global JIRA API base URL (optional)",
+      "apiBaseUrlHelp": "No default — unset (derives <site>/rest/api/3 when enabled).",
+      "email": "JIRA account email (optional)",
+      "globalEmail": "Global JIRA account email (optional)",
+      "emailHelp": "Email selects Basic authentication. Default: unset.",
+      "secretKey": "JIRA token secret key",
+      "globalSecretKey": "Global JIRA token secret key",
+      "secretHelp": "Secret-store key only. No default — unset (effective key: JIRA_API_TOKEN).",
+      "secretScope": "JIRA token secret scope",
+      "globalSecretScope": "Global JIRA token secret scope",
+      "scopeHelp": "No default — unset (effective scope: project).",
+      "template": "JIRA branch-name template",
+      "globalTemplate": "Global JIRA branch-name template",
+      "templateHelp": "No default — unset (effective template: feature/{key}-{summary})."
     }
   },
   "setup": {

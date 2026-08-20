@@ -1607,3 +1607,34 @@ describe("TaskForm focus behavior (FN-1459)", () => {
     });
   });
 });
+
+describe("JIRA branch derivation", () => {
+  beforeEach(async () => {
+    const { fetchSettings } = await import("../../api");
+    vi.mocked(fetchSettings).mockResolvedValue({ modelPresets: [], autoSelectModelPreset: false, defaultPresetBySize: {}, jiraEnabled: true } as never);
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("fills the editable branch field only after an explicit successful derive", async () => {
+    const onBranchChange = vi.fn();
+    vi.mocked(globalThis.fetch).mockResolvedValue(new Response(JSON.stringify({ ok: true, branchName: "feature/PRD-1234-my-slug" }), { status: 200 }));
+    renderTaskForm({ branch: "feature/manual", onBranchChange });
+    fireEvent.click(screen.getByTestId("task-form-more-options-toggle"));
+    await screen.findByTestId("jira-derive-branch");
+    fireEvent.change(screen.getByLabelText("JIRA issue key"), { target: { value: "PRD-1234" } });
+    fireEvent.click(screen.getByTestId("jira-derive-branch").querySelector("button")!);
+    await waitFor(() => expect(onBranchChange).toHaveBeenCalledWith("feature/PRD-1234-my-slug"));
+  });
+
+  it("keeps a manual branch and renders a recoverable derivation error", async () => {
+    const onBranchChange = vi.fn();
+    vi.mocked(globalThis.fetch).mockResolvedValue(new Response(JSON.stringify({ ok: false, message: "JIRA issue was not found." }), { status: 200 }));
+    renderTaskForm({ branch: "feature/manual", onBranchChange });
+    fireEvent.click(screen.getByTestId("task-form-more-options-toggle"));
+    await screen.findByTestId("jira-derive-branch");
+    fireEvent.change(screen.getByLabelText("JIRA issue key"), { target: { value: "PRD-404" } });
+    fireEvent.click(screen.getByTestId("jira-derive-branch").querySelector("button")!);
+    expect(await screen.findByText("JIRA issue was not found.")).toBeInTheDocument();
+    expect(onBranchChange).not.toHaveBeenCalled();
+  });
+});
