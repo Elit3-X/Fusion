@@ -51,6 +51,7 @@ export interface TaskRow {
   mergerCredentialInstanceId: string | null;
   mergerModelId: string | null;
   mergeRetries: number | null;
+  aiMergeReviewReconciliation: string | null;
   workflowStepRetries: number | null;
   stuckKillCount: number | null;
   resumeLimboCount: number | null;
@@ -289,6 +290,7 @@ export const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("mergerCredentialInstanceId", (task) => task.mergerCredentialInstanceId ?? null),
   defineTaskColumn("mergerModelId", (task) => task.mergerModelId ?? null),
   defineTaskColumn("mergeRetries", (task) => task.mergeRetries ?? null),
+  defineTaskColumn("aiMergeReviewReconciliation", (task) => toJsonNullable(task.aiMergeReviewReconciliation)),
   defineTaskColumn("workflowStepRetries", (task) => task.workflowStepRetries ?? null),
   defineTaskColumn("stuckKillCount", (task) => task.stuckKillCount ?? 0),
   defineTaskColumn("resumeLimboCount", (task) => task.resumeLimboCount ?? 0),

@@ -3609,6 +3609,23 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
     }
   });
 
+  /* FNXC:AIMergeReviewReconciliation 2026-08-20-21:56: dashboard dismissal is distinct from failed workflow-step bypass and requires server-derived actor plus a nonblank reason. */
+  router.post("/tasks/:id/ai-merge-review-findings/:findingId/dismiss", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const { reason } = (req.body ?? {}) as { reason?: unknown };
+      if (typeof reason !== "string" || !reason.trim()) throw badRequest("reason is required to dismiss an AI merge finding");
+      const updated = await scopedStore.dismissAiMergeReviewFinding(req.params.id, req.params.findingId, reason.trim(), "dashboard-operator");
+      res.json(updated);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("not active") || message.includes("not found")) throw notFound(message);
+      if (message.includes("requires a nonblank")) throw badRequest(message);
+      rethrowAsApiError(err);
+    }
+  });
+
   /*
    * FNXC:ReviewLaneBypass 2026-07-09-00:00:
    * Operator/privileged escape hatch for a card stranded in `in-review` solely

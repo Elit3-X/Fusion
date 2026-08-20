@@ -716,6 +716,27 @@ export interface WorkspaceWorktreeEntry {
   landFailure?: { message: string; at: string; branch?: string };
 }
 
+export type AiMergeFindingDisposition = "pending" | "corrected" | "absent-from-squash" | "still-present" | "dismissed";
+
+export interface AiMergeReviewFinding {
+  id: string;
+  text: string;
+  disposition: AiMergeFindingDisposition;
+  audit?: Array<{ at: string; actor: string; disposition: AiMergeFindingDisposition; reason?: string }>;
+}
+
+/** Durable authority for AI merge review reconciliation; it is never reconstructed from task logs. */
+export interface AiMergeReviewReconciliation {
+  sourceSha: string;
+  integrationTipSha: string;
+  candidateSha?: string;
+  candidateTreeSha?: string;
+  findings: AiMergeReviewFinding[];
+  consecutiveCleanApprovals: number;
+  correctivePasses: number;
+  terminal?: boolean;
+}
+
 export interface Task {
   id: string;
   /** Immutable lineage identity used for durable commit/task attribution. */
@@ -1006,6 +1027,12 @@ export interface Task {
   workflowStepResults?: WorkflowStepResult[];
   /** Number of merge retry attempts made for this task (auto-merge conflict recovery) */
   mergeRetries?: number;
+  /*
+  FNXC:AIMergeReviewReconciliation 2026-08-20-21:56:
+  FN-090 keeps finding authority, candidate identity, confirmation count, and corrective budget
+  together so interruption cannot grant a fresh budget to an old reviewer finding.
+  */
+  aiMergeReviewReconciliation?: AiMergeReviewReconciliation;
   /** Number of workflow step failure retry attempts made for this task.
    *  When pre-merge workflow steps fail, the executor retries up to MAX_WORKFLOW_STEP_RETRIES
    *  times before marking the task as failed. Cleared on successful workflow step completion. */

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Pencil, Bot, X, ChevronDown, ChevronRight, GitBranch, ArrowLeft, Zap, Loader2, AlertTriangle, Sparkles, Maximize2, Minimize2, Send, Square, Info, Paperclip, Eye, EyeOff, Copy } from "lucide-react";
 import { useViewportMode } from "../hooks/useViewportMode";
 import { mergeTaskSnapshot } from "../hooks/useTasks";
+import { dismissAiMergeReviewFinding } from "../api/tasks/tasks-lifecycle";
 import { FloatingWindow } from "./FloatingWindow";
 import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import { useModalDismissPreference, useOverlayDismiss } from "../hooks/useOverlayDismiss";
@@ -3414,6 +3415,22 @@ export function TaskDetailContent({
   }, [task.id, onBypassReview, onTaskUpdated, addToast, t]);
 
   /*
+  FNXC:AIMergeReviewReconciliation 2026-08-20-22:14:
+  A dismissal is an explicit, audited operator decision, so eligible active findings collect a
+  required reason and use their dedicated reconciliation endpoint rather than workflow bypass.
+  */
+  const handleDismissAiMergeFinding = useCallback((findingId: string) => {
+    const reason = window.prompt(t("taskDetail.aiMergeReview.dismissPrompt", "Reason for dismissing this AI merge finding (required, audit-logged):"));
+    if (!reason?.trim()) return;
+    dismissAiMergeReviewFinding(task.id, findingId, reason.trim(), projectId)
+      .then((updated) => {
+        onTaskUpdated?.(updated);
+        addToast(t("taskDetail.aiMergeReview.dismissed", "Dismissed AI merge finding for {{id}}", { id: task.id }), "success");
+      })
+      .catch((err) => addToast(getErrorMessage(err), "error"));
+  }, [addToast, onTaskUpdated, projectId, t, task.id]);
+
+  /*
   FNXC:TaskReset 2026-08-19-06:45:
   Reset is destructive: confirmation explains that the owned worktree and current plan are discarded, while the success toast is emitted only after the server has fenced work, completed cleanup, and committed the fresh Planning state.
   */
@@ -5576,6 +5593,18 @@ export function TaskDetailContent({
                     </span>
                   </div>
                 )}
+                {task.aiMergeReviewReconciliation && (() => {
+                  const reconciliation = task.aiMergeReviewReconciliation;
+                  const pending = reconciliation.findings.filter((finding) => finding.disposition === "pending" || finding.disposition === "still-present");
+                  return (
+                    <section className={`ai-merge-review-reconciliation ${reconciliation.terminal ? "ai-merge-review-reconciliation-terminal" : ""}`} aria-label="AI merge review reconciliation">
+                      <h3>{reconciliation.consecutiveCleanApprovals > 0 ? `Approved — ${pending.length} prior finding(s) unconfirmed` : "AI merge review reconciliation"}</h3>
+                      {reconciliation.candidateSha && <p>Candidate: <code>{reconciliation.candidateSha}</code></p>}
+                      {pending.length > 0 && <ul>{pending.map((finding) => <li key={finding.id}>{finding.text}{(reconciliation.terminal || finding.disposition === "still-present") && <button type="button" className="btn btn-secondary" onClick={() => handleDismissAiMergeFinding(finding.id)}>Dismiss this finding</button>}</li>)}</ul>}
+                      {reconciliation.terminal && <p>Rebase or re-push the branch, dismiss a finding with justification, or land manually.</p>}
+                    </section>
+                  );
+                })()}
                 {(task.prInfo?.number || task.mergeDetails?.prNumber) && (
                   <div className="detail-provenance detail-pr-link-row">
                     <GitBranch aria-hidden="true" />

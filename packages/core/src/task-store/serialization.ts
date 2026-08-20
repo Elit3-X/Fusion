@@ -108,6 +108,7 @@ export function rowToTask(row: TaskRow): Task {
     ...(row.mergerCredentialInstanceId ? { mergerCredentialInstanceId: row.mergerCredentialInstanceId } : {}),
     mergerModelId: row.mergerModelId || undefined,
     mergeRetries: row.mergeRetries ?? undefined,
+    aiMergeReviewReconciliation: fromJson<Task["aiMergeReviewReconciliation"]>(row.aiMergeReviewReconciliation) ?? undefined,
     workflowStepRetries: row.workflowStepRetries ?? undefined,
     stuckKillCount: row.stuckKillCount ?? undefined,
     resumeLimboCount: row.resumeLimboCount ?? undefined,

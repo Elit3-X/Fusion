@@ -106,6 +106,7 @@ export const tasks = projectSchema.table("tasks", {
   mergerModelId: text("merger_model_id"),
   mergerThinkingLevel: text("merger_thinking_level"),
   mergeRetries: integer("merge_retries"),
+  aiMergeReviewReconciliation: text("ai_merge_review_reconciliation"),
   workflowStepRetries: integer("workflow_step_retries"),
   resumeLimboCount: integer("resume_limbo_count").default(0),
   graphResumeRetryCount: integer("graph_resume_retry_count").default(0),

@@ -193,6 +193,9 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       if (!task.log) {
         task.log = [];
       }
+      if (updates.log !== undefined) {
+        task.log = updates.log;
+      }
 
       let titleNormalized = false;
       if (updates.title !== undefined) {
@@ -689,6 +692,8 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       if (updates.size !== undefined) task.size = updates.size;
       if (updates.reviewLevel !== undefined) task.reviewLevel = updates.reviewLevel;
       if (updates.mergeRetries !== undefined) task.mergeRetries = updates.mergeRetries;
+      if (updates.aiMergeReviewReconciliation === null) task.aiMergeReviewReconciliation = undefined;
+      else if (updates.aiMergeReviewReconciliation !== undefined) task.aiMergeReviewReconciliation = updates.aiMergeReviewReconciliation;
       if (updates.workflowStepRetries !== undefined) task.workflowStepRetries = updates.workflowStepRetries;
       if (updates.stuckKillCount === null) {
         task.stuckKillCount = undefined;
