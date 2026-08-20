@@ -2,14 +2,17 @@ import { useTranslation } from "react-i18next";
 import type { Task } from "@fusion/core";
 
 /*
-FNXC:Workspace 2026-08-15-07:05:
+FNXC:Workspace 2026-08-20-20:05:
+A populated workspaceWorktrees map fences stale singular routing in browser snapshots while the
+store's asynchronous normalization catches up. Presentation must show every acquired repository,
+even for a one-repository workspace, rather than hiding it behind task.worktree.
+
 Task Detail lifts the former flat-list ceiling with durable landed/pending/failed repository
 status. TaskCard remains count-only because its dense layout cannot safely grow a per-repo list;
 legacy and empty rows stay pending because task error prose cannot attribute a repository failure.
 */
 
-export function isWorkspaceTask(task: Pick<Task, "worktree" | "workspaceWorktrees">): boolean {
-  if (task.worktree) return false;
+export function isWorkspaceTask(task: Pick<Task, "workspaceWorktrees">): boolean {
   const entries = task.workspaceWorktrees;
   return Boolean(entries && Object.keys(entries).length > 0);
 }
@@ -38,17 +41,22 @@ export function WorkspaceWorktreesSummary({ task, compact = false }: WorkspaceWo
   const entries = task.workspaceWorktrees;
   if (!isWorkspaceTask(task) || !entries) return null;
 
-  const repos = Object.entries(entries);
+  const repos = Object.entries(entries).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
   const statuses = repos.map(([repoRelPath, entry]) => ({ repoRelPath, entry, ...deriveWorkspaceRepoStatus(entry, repoRelPath, task.mergeDetails) }));
   const landedCount = statuses.filter(({ status }) => status === "landed").length;
   const hasStatusEvidence = statuses.some(({ status }) => status !== "pending");
   const fullyLanded = landedCount === repos.length;
+  const acquiredLabel = t(
+    "tasks.workspaceReposAcquired",
+    repos.length === 1 ? "{{count}} repo acquired" : "{{count}} repos acquired",
+    { count: repos.length },
+  );
   const placeholder = hasStatusEvidence
     ? t("tasks.workspaceReposLanded", "{{landed}} of {{count}} repos landed", { landed: landedCount, count: repos.length })
-    : t("tasks.workspaceReposAcquired", "{{count}} repos acquired", { count: repos.length });
+    : acquiredLabel;
 
   if (compact) {
-    return <div className="card-branch-row" aria-label={t("tasks.workspaceWorktrees", "Workspace repos")}><span className="card-branch-chip" data-testid="workspace-worktrees-placeholder" title={t("tasks.workspaceReposAcquired", "{{count}} repos acquired", { count: repos.length })}><span className="card-branch-label">{t("tasks.workspace", "Workspace")}</span><span className="card-branch-value">{t("tasks.workspaceReposAcquired", "{{count}} repos acquired", { count: repos.length })}</span></span></div>;
+    return <div className="card-branch-row" aria-label={t("tasks.workspaceWorktrees", "Workspace repos")}><span className="card-branch-chip" data-testid="workspace-worktrees-placeholder" title={acquiredLabel}><span className="card-branch-label">{t("tasks.workspace", "Workspace")}</span><span className="card-branch-value">{acquiredLabel}</span></span></div>;
   }
 
   return <div className="workspace-worktrees-summary" data-testid="workspace-worktrees-summary" aria-label={t("tasks.workspaceWorktrees", "Workspace repos")}>

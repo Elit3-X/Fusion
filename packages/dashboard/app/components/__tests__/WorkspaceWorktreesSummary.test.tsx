@@ -39,10 +39,10 @@ describe("isWorkspaceTask", () => {
     expect(isWorkspaceTask({ worktree: undefined, workspaceWorktrees: {} })).toBe(false);
   });
 
-  it("prefers the singular worktree even if workspaceWorktrees is populated", () => {
+  it("prefers populated acquired workspace entries over stale singular routing", () => {
     expect(
-      isWorkspaceTask({ worktree: "/wt/x", workspaceWorktrees: workspaceTask.workspaceWorktrees }),
-    ).toBe(false);
+      isWorkspaceTask({ worktree: "/wt/stale", workspaceWorktrees: workspaceTask.workspaceWorktrees }),
+    ).toBe(true);
   });
 });
 
@@ -74,6 +74,26 @@ describe("WorkspaceWorktreesSummary", () => {
     expect(screen.getAllByTestId("workspace-repo-base-branch")).toHaveLength(2);
     expect(screen.getByTestId("workspace-repo-base-fallback")).toHaveAttribute("title", expect.stringContaining("release/1.2"));
     expect(screen.getByTestId("workspace-repo-base-fallback")).toHaveAttribute("title", expect.stringContaining("repo-b"));
+  });
+
+  it("renders the acquired workspace entry in full and compact modes despite stale singular routing", () => {
+    const staleWorkspaceTask = {
+      worktree: "/wt/unrelated-stale-worktree",
+      workspaceWorktrees: {
+        "repo-acquired": { worktreePath: "/wt/repo-acquired/.worktrees/FN-080", branch: "fusion/FN-080" },
+      },
+    } as const;
+    const { unmount } = render(<WorkspaceWorktreesSummary task={staleWorkspaceTask} />);
+
+    expect(screen.getByText(/1 repo acquired/i)).toBeTruthy();
+    expect(screen.getByText("repo-acquired")).toBeTruthy();
+    expect(screen.getByText("/wt/repo-acquired/.worktrees/FN-080")).toBeTruthy();
+    expect(screen.getByText("fusion/FN-080")).toBeTruthy();
+    expect(screen.queryByText("/wt/unrelated-stale-worktree")).toBeNull();
+
+    unmount();
+    render(<WorkspaceWorktreesSummary task={staleWorkspaceTask} compact />);
+    expect(screen.getByTestId("workspace-worktrees-placeholder")).toHaveTextContent("1 repo acquired");
   });
 
   it("renders only the compact placeholder in compact mode", () => {
