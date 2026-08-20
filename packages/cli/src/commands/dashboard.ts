@@ -101,6 +101,7 @@ import {
   createFusionModelRegistry,
   refreshFusionModelRegistry,
   setLocalDashboardPort,
+  reconcileUnownedStaleMergeStamp,
 } from "@fusion/engine";
 import { setHostTaskStore, clearHostTaskStores } from "../extension.js";
 import { DefaultPackageManager, SettingsManager, discoverAndLoadExtensions, createExtensionRuntime } from "@earendil-works/pi-coding-agent";
@@ -1652,6 +1653,8 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   - UI-only (--no-engine): createServer receives uiOnlyOnMerge which calls runAiMerge/landWorkspaceTask with pluginRunner undefined — dual-remediation for grok-cli/no-key is correct because there is no ProjectEngine PluginRunner. Do not invent a bootstrap here and do not pass the bare PluginLoader (lacks getRuntimeById).
   */
   const uiOnlyOnMerge = async (taskId: string) => {
+    // Authorization C: this dashboard has no exclusive process-level merge ownership proof.
+    await reconcileUnownedStaleMergeStamp(store, taskId);
     // FNXC:Workspace 2026-06-21-23:40 (Phase C U1, KTD2):
     // Dashboard merge button (UI-only mode). A workspace-mode task routes through
     // the ENGINE per-repo merge loop `landWorkspaceTask` (each sub-repo lands on its

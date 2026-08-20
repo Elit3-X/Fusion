@@ -932,7 +932,9 @@ export {
   DEFAULT_STALE_MERGING_STATUS_MIN_AGE_MS,
   isMergeActiveStatus,
   isStaleMergeActiveStatus,
+  shouldClearOrphanedMergeStamp,
 } from "./merge/merge-active-status.js";
+export { clearOwnedMergeStamp, reconcileUnownedStaleMergeStamp } from "./merge/clear-orphaned-merge-stamp.js";
 export { PluginRunner, type PluginRunnerOptions } from "./plugins/plugin-runner.js";
 export {
   registerPluginTraits,

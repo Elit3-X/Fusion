@@ -98,7 +98,7 @@ import {
   resolveActiveTaskCapacityLimit,
 } from "./concurrency/concurrency.js";
 import { canStartNextMergeBody } from "./merge/merge-reclaim-policy.js";
-import { shouldClearOrphanedMergeStamp } from "./merge/merge-active-status.js";
+import { clearOwnedMergeStamp } from "./merge/clear-orphaned-merge-stamp.js";
 import {
   registerProjectVerificationLimit,
   unregisterProjectVerificationLimit,
@@ -735,14 +735,7 @@ export class ProjectEngine {
   successor attempt.
   */
   private async clearAbortedMergeStamp(taskId: string): Promise<void> {
-    const store = this.runtime.getTaskStore();
-    const task = await store.getTask(taskId).catch(() => null);
-    if (!task || !shouldClearOrphanedMergeStamp(task)) return;
-    const clearedStatus = task.status;
-    await store.updateTask(taskId, { status: null }).catch(() => undefined);
-    await store
-      .logEntry(taskId, `Auto-recovered: cleared stale '${clearedStatus}' status`, "MergeAborted")
-      .catch(() => undefined);
+    await clearOwnedMergeStamp(this.runtime.getTaskStore(), taskId, "MergeAborted");
   }
 
   /*
@@ -754,14 +747,7 @@ export class ProjectEngine {
   and synchronous internalEnqueueMerge callers; pre-enqueue blockers remain self-healing's job.
   */
   private async reconcileClaimedMergeStamp(taskId: string): Promise<void> {
-    const store = this.runtime.getTaskStore();
-    const task = await store.getTask(taskId).catch(() => null);
-    if (!task || !shouldClearOrphanedMergeStamp(task)) return;
-    const clearedStatus = task.status;
-    await store.updateTask(taskId, { status: null }).catch(() => undefined);
-    await store
-      .logEntry(taskId, `Auto-recovered: reconciled orphaned '${clearedStatus}' merge status`, "MergeQueue")
-      .catch(() => undefined);
+    await clearOwnedMergeStamp(this.runtime.getTaskStore(), taskId, "MergeQueue");
   }
 
   /** FN-5697/FN-5674: cap transient provider/network abort retries in auto-merge.

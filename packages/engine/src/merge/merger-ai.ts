@@ -70,6 +70,7 @@ import {
 import { selectUserCommentsForAgentContext } from "../agents/agent-user-comments.js";
 import { resolveTaskWorkingBranch } from "../worktree/worktree-names.js";
 import { resolveIntegrationBranch } from "./integration-branch.js";
+import { shouldClearOrphanedMergeStamp } from "./merge-active-status.js";
 import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "../worktree/workspace-base-branch.js";
 import { advanceIntegrationBranchRef } from "./merger-ref-update-advance.js";
 import { enforceAiMergeSquashGates } from "./merger-ai-squash-gates.js";
@@ -1494,6 +1495,7 @@ export async function runAiMerge(
   const taskTitle = task.title?.trim() ? task.title.split("\n")[0] : undefined;
 
   await setStatus("merging");
+  try {
   // FNXC:Workspace 2026-06-21-23:40 (Phase C U1, KTD1):
   // runAiMerge is now the SINGLE-REPO caller of the extracted `landOneRepo`. It
   // builds the same per-task context it always built and lands the project root
@@ -1704,6 +1706,16 @@ export async function runAiMerge(
   const finalized = await finalizeMerged(store, projectRootDir, taskId, task, branch, integrationBranch, landResult.squashSha, audit, log, { empty: false }, mergeTarget, groupRouting, options.syncGroupPr, fence);
   await runPushAfterMergeStep({ store, projectRootDir, taskId, settings, integrationBranch, audit, log, options, result: finalized, fence });
   return finalized;
+  } finally {
+    /*
+    FNXC:MergeReliability 2026-08-20-02:00:
+    Authorization A clears the single-repo transient stamp through the aborted generation's write
+    fence. The read preserves terminal/confirmed finalization only; the fence, not this predicate,
+    prevents a late aborted body from clearing a successor's identical `merging` stamp.
+    */
+    const live = await store.getTask(taskId).catch(() => null);
+    if (live && shouldClearOrphanedMergeStamp(live)) await setStatus(null);
+  }
 }
 
 /*
