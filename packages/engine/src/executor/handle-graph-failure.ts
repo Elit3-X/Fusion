@@ -30,6 +30,8 @@ import { getPromptPath } from "../execution/spec-staleness.js";
 import { moveTaskToReplanColumn, resolveReplanTargetColumn } from "../execution/replan-target.js";
 import { executorLog } from "../logger.js";
 import { generateSyntheticRunId, type EngineRunContext } from "../util/run-audit.js";
+import { MERGE_BOUNDARY_UNPROVEN_VALUE } from "../workflows/workflow-merge-nodes.js";
+import { emitMergeBoundaryUnprovenParked } from "./emit-merge-boundary-unproven-audit.js";
 import { PAUSE_ABORT_PARK_ERROR_MARKER, PAUSE_ABORT_PARK_OPERATOR_MARKER } from "../self-healing.js";
 import {
   graphFailureValue,
@@ -932,8 +934,27 @@ export async function handleGraphFailure(
         const message = `Workflow graph terminal merge failure at node '${failedNode ?? "unknown"}' (${failureValue}) — operator action required`;
         executorLog.warn(`${task.id}: ${message}`);
         await deps.store.logEntry(task.id, message, undefined, deps.getRunContextFor(task.id));
-        if (live.status == null && live.error == null) {
+        const outcome = live.status == null && live.error == null ? "parked" as const : "already-terminal" as const;
+        if (outcome === "parked") {
           await deps.store.updateTask(task.id, { error: message, status: "failed" }, deps.getRunContextFor(task.id));
+        }
+        if (failureValue === MERGE_BOUNDARY_UNPROVEN_VALUE) {
+          /*
+          FNXC:RunAudit 2026-08-20-02:00:
+          FN-9168 records this reachable graph-terminal merge-boundary-unproven park exactly once.
+          Other terminal merge failures remain unchanged. The bounded emitter contains audit failure
+          and hangs after the status write, so observability cannot alter or wedge the park.
+          */
+          await emitMergeBoundaryUnprovenParked(deps.store, {
+            taskId: task.id,
+            nodeId: failedNode ?? "unknown",
+            failureValue,
+            source: "graph-terminal-park",
+            priorColumn: live.column,
+            priorStatus: live.status,
+            outcome,
+            runId: deps.getRunContextFor(task.id)?.runId,
+          });
         }
         await deps.persistTokenUsage(task.id);
         return;

@@ -3,6 +3,7 @@ import { MERGE_BOUNDARY_UNPROVEN_VALUE, classifyMergePrimitiveResult, runWorkflo
 import { graphFailureValue, isMergeGraphFailure } from "../executor/graph-failure-pure.js";
 import { isTerminalMergeGraphFailureValue } from "../executor/task-predicates.js";
 import { routeGraphMergeFailureToRetry } from "../executor/route-graph-merge-failure-to-retry.js";
+import { MERGE_BOUNDARY_UNPROVEN_AUDIT_EMIT_TIMEOUT_MS } from "../executor/emit-merge-boundary-unproven-audit.js";
 import { shouldHoldActiveFileScopeLease } from "../scheduler.js";
 
 const task = { id: "FN-9157", column: "in-review", steps: [], dependencies: [], log: [], createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z", title: "t", description: "", prompt: "# t" } as any;
@@ -36,7 +37,7 @@ describe("FN-9157 merge-boundary-unproven terminal routing", () => {
       store: { updateTask, logEntry } as any,
       getRunContextFor: () => undefined,
       mergeRequester,
-      ensureWorkflowMergeBoundaryTask: vi.fn().mockResolvedValue({ task: live, blocked: { reason: "no pre-merge node result recorded" } }),
+      ensureWorkflowMergeBoundaryTask: vi.fn().mockResolvedValue({ task: live, blocked: { reason: "no pre-merge node result recorded", code: "no-node-result", missingInstanceCount: 0 } }),
       persistTokenUsage: vi.fn(),
     }, live, graphResult(), undefined);
     expect(handled).toBe(true);
@@ -44,5 +45,80 @@ describe("FN-9157 merge-boundary-unproven terminal routing", () => {
     expect(updateTask).toHaveBeenCalledWith("FN-9157", expect.objectContaining({ status: "failed", error: expect.stringContaining("MERGE_BOUNDARY_UNPROVEN:") }), undefined);
     expect(logEntry).toHaveBeenCalledWith("FN-9157", expect.stringContaining("retry parked task"), undefined, undefined);
     expect(shouldHoldActiveFileScopeLease({ ...live, status: "failed" }, [])).toBe(false);
+  });
+
+  it("emits redacted audit metadata for parked and already-terminal retry boundaries", async () => {
+    const live = { ...task, status: undefined };
+    const updateTask = vi.fn(async (_id, patch) => ({ ...live, ...patch }));
+    const recordRunAuditEvent = vi.fn().mockResolvedValue(undefined);
+    const base = {
+      store: { updateTask, logEntry: vi.fn(), recordRunAuditEvent } as any,
+      getRunContextFor: () => undefined,
+      mergeRequester: vi.fn(),
+      persistTokenUsage: vi.fn(),
+    };
+    await expect(routeGraphMergeFailureToRetry({
+      ...base,
+      ensureWorkflowMergeBoundaryTask: vi.fn().mockResolvedValue({ task: live, blocked: { reason: "foreach step instances incomplete at merge boundary: missing secret-a, secret-b", code: "missing-foreach-instances", missingInstanceCount: 2 } }),
+    }, live, graphResult(), undefined)).resolves.toBe(true);
+    expect(recordRunAuditEvent).toHaveBeenCalledTimes(1);
+    expect(recordRunAuditEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      mutationType: "task:merge-boundary-unproven-parked", target: "FN-9157",
+      metadata: expect.objectContaining({ taskId: "FN-9157", source: "retry-boundary", reasonCode: "missing-foreach-instances", missingInstanceCount: 2, outcome: "parked" }),
+    }));
+    expect(JSON.stringify(recordRunAuditEvent.mock.calls[0][0].metadata)).not.toContain("secret-a");
+
+    const terminal = { ...live, status: "failed", error: "existing" };
+    await expect(routeGraphMergeFailureToRetry({
+      ...base,
+      ensureWorkflowMergeBoundaryTask: vi.fn().mockResolvedValue({ task: terminal, blocked: { reason: "no pre-merge node result recorded", code: "no-node-result", missingInstanceCount: 0 } }),
+    }, terminal, graphResult(), undefined)).resolves.toBe(true);
+    expect(recordRunAuditEvent.mock.calls[1][0].metadata.outcome).toBe("already-terminal");
+    expect(updateTask).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["rejects", vi.fn().mockRejectedValue(new Error("audit sink down"))],
+    ["throws", vi.fn(() => { throw new Error("audit sink boom"); })],
+  ])("keeps the terminal park intact when the audit sink %s", async (_name, recordRunAuditEvent) => {
+    const live = { ...task, status: undefined };
+    const updateTask = vi.fn(async (_id, patch) => ({ ...live, ...patch }));
+    const persistTokenUsage = vi.fn();
+    await expect(routeGraphMergeFailureToRetry({
+      store: { updateTask, logEntry: vi.fn(), recordRunAuditEvent } as any,
+      getRunContextFor: () => undefined,
+      mergeRequester: vi.fn(),
+      ensureWorkflowMergeBoundaryTask: vi.fn().mockResolvedValue({ task: live, blocked: { reason: "no pre-merge node result recorded", code: "no-node-result", missingInstanceCount: 0 } }),
+      persistTokenUsage,
+    }, live, graphResult(), undefined)).resolves.toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("FN-9157", expect.objectContaining({ status: "failed", error: expect.stringContaining("MERGE_BOUNDARY_UNPROVEN:") }), undefined);
+    expect(persistTokenUsage).toHaveBeenCalledWith("FN-9157");
+  });
+
+  it("bounds a hung audit sink without skipping token usage", async () => {
+    vi.useFakeTimers();
+    try {
+      const live = { ...task, status: undefined };
+      const updateTask = vi.fn(async (_id, patch) => ({ ...live, ...patch }));
+      const persistTokenUsage = vi.fn();
+      const handled = routeGraphMergeFailureToRetry({
+        store: { updateTask, logEntry: vi.fn(), recordRunAuditEvent: vi.fn(() => new Promise<void>(() => {})) } as any,
+        getRunContextFor: () => undefined,
+        mergeRequester: vi.fn(),
+        ensureWorkflowMergeBoundaryTask: vi.fn().mockResolvedValue({ task: live, blocked: { reason: "no pre-merge node result recorded", code: "no-node-result", missingInstanceCount: 0 } }),
+        persistTokenUsage,
+      }, live, graphResult(), undefined);
+      let settled = false;
+      void handled.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(MERGE_BOUNDARY_UNPROVEN_AUDIT_EMIT_TIMEOUT_MS);
+      await expect(handled).resolves.toBe(true);
+      expect(persistTokenUsage).toHaveBeenCalledWith("FN-9157");
+      expect(updateTask).toHaveBeenCalledWith("FN-9157", expect.objectContaining({ error: expect.stringContaining("MERGE_BOUNDARY_UNPROVEN:") }), undefined);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

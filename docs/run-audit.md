@@ -35,6 +35,7 @@ Events that close a task's delivery: blocked/advanced completion parks, already-
 | `task:no-commits-finalize-blocked-incomplete-steps` | Finalize is blocked for a zero-commit task with incomplete workflow steps (FN-6461 lane). |
 | `task:empty-merge-finalize-blocked-no-landed-proof` | The AI empty-merge lane vetoes a zero-diff no-op finalize with no landed proof (FN-8141). |
 | `task:finalize-unproven-blocked` | Finalize is blocked because finalization has not been proven against the landing truth. |
+| `task:merge-boundary-unproven-parked` | A workflow merge boundary could not be proven and its terminal park is recorded with best-effort, time-bounded telemetry that never blocks or stalls the park. |
 | `task:finalize-lost-work-blocked` | Finalize is blocked because it would discard work (lost-work guard). |
 | `task:auto-recover-stale-merger-status` | Self-healing clears a stale merger status left on a finalize path. |
 

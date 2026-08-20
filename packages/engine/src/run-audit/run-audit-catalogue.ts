@@ -43,6 +43,7 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENTS_LITERALS = [
   "task:no-commits-finalize-blocked-incomplete-steps",
   "task:empty-merge-finalize-blocked-no-landed-proof",
   "task:finalize-unproven-blocked",
+  "task:merge-boundary-unproven-parked",
   "task:finalize-lost-work-blocked",
   "task:auto-recover-stale-merger-status",
 
@@ -69,7 +70,7 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENTS_LITERALS = [
 ] as const;
 
 /**
- * The 32-event literal union of the curated catalogue. `as const` preserves the literal element
+ * The 31-event literal union of the curated catalogue. `as const` preserves the literal element
  * tuples so the notes map can be keyed by exactly the catalogued events (rather than widening to the
  * full `DatabaseMutationType` union). The exported array below is still typed as
  * `Readonly<DatabaseMutationType[]>`, so member-validity remains compile-time-enforced: assigning
@@ -109,6 +110,8 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENT_NOTES: Readonly<Record<DeliveryPi
     "The AI empty-merge lane vetoes a zero-diff no-op finalize with no landed proof (FN-8141).",
   "task:finalize-unproven-blocked":
     "Finalize is blocked because finalization has not been proven against the landing truth.",
+  "task:merge-boundary-unproven-parked":
+    "A terminal merge-boundary proof failure is parked with bounded best-effort audit telemetry.",
   "task:finalize-lost-work-blocked":
     "Finalize is blocked because it would discard work (lost-work guard).",
   "task:auto-recover-stale-merger-status":

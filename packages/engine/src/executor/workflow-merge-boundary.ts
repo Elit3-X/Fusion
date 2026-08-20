@@ -17,9 +17,18 @@ export type WorkflowMergeBoundaryProof = {
   missingInstanceIds: string[];
 };
 
+export type MergeBoundaryUnprovenReasonCode =
+  | "no-node-result"
+  | "non-terminal-node-result"
+  | "missing-foreach-instances";
+
 export type WorkflowMergeBoundaryResult = {
   task: TaskDetail;
-  blocked?: { reason: string };
+  blocked?: {
+    reason: string;
+    code: MergeBoundaryUnprovenReasonCode;
+    missingInstanceCount: number;
+  };
 };
 
 export type WorkflowMergeBoundaryDeps = {
@@ -81,13 +90,28 @@ export async function ensureWorkflowMergeBoundaryTask(
   */
   const mergeProof = await deps.evaluateWorkflowMergeBoundary(live, metadata.runId);
   if (mergeProof.hasForeachStepExecute && !mergeProof.complete) {
-    const reason = !mergeProof.hasRelevantNodeResult
-      ? "no pre-merge node result recorded"
+    const blocked = !mergeProof.hasRelevantNodeResult
+      ? { reason: "no pre-merge node result recorded", code: "no-node-result" as const }
       : !mergeProof.allResultsTerminal
-        ? `non-terminal pre-merge node result ${mergeProof.nonTerminalResult?.workflowStepId ?? "unknown"} (${mergeProof.nonTerminalResult?.status ?? "unknown"})`
-        : `foreach step instances incomplete at merge boundary: missing ${mergeProof.missingInstanceIds.join(", ")}`;
-    await deps.store.logEntry(live.id, `Workflow merge boundary blocked: ${reason}`, undefined, deps.getRunContextFor(live.id));
-    return { task: live, blocked: { reason } };
+        ? {
+            reason: `non-terminal pre-merge node result ${mergeProof.nonTerminalResult?.workflowStepId ?? "unknown"} (${mergeProof.nonTerminalResult?.status ?? "unknown"})`,
+            code: "non-terminal-node-result" as const,
+          }
+        : {
+            reason: `foreach step instances incomplete at merge boundary: missing ${mergeProof.missingInstanceIds.join(", ")}`,
+            code: "missing-foreach-instances" as const,
+          };
+    /*
+    FNXC:RunAudit 2026-08-20-02:00:
+    Boundary reason prose can contain foreach instance IDs and node-result status text. Run-audit
+    metadata must remain ids/counts/outcomes-only, so terminal parks receive this closed code and
+    missing-instance count rather than this human-readable reason.
+    */
+    await deps.store.logEntry(live.id, `Workflow merge boundary blocked: ${blocked.reason}`, undefined, deps.getRunContextFor(live.id));
+    return {
+      task: live,
+      blocked: { ...blocked, missingInstanceCount: mergeProof.missingInstanceIds.length },
+    };
   }
 
   if (deps.shouldCompleteChecklistAtWorkflowMerge(live, mergeProof)) {

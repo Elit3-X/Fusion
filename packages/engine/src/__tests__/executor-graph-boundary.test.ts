@@ -222,19 +222,36 @@ describe("U5a — IR-driven merge boundary (scenario 1)", () => {
     expect(store.moveTask).toHaveBeenCalledWith("FN-B1", "in-review", expect.anything());
   });
 
-  it("keeps incomplete foreach coverage and zero expected steps blocked", async () => {
-    for (const steps of [
-      [{ id: "0", title: "Implement", status: "pending" as const }],
-      [],
-    ]) {
+  it("maps each incomplete merge-boundary proof to a redacted audit code", async () => {
+    const cases = [
+      {
+        steps: [{ id: "0", title: "Implement", status: "pending" as const }],
+        workflowStepResults: [],
+        code: "no-node-result",
+        missingInstanceCount: 1,
+      },
+      {
+        steps: [{ id: "0", title: "Implement", status: "pending" as const }],
+        workflowStepResults: [{ workflowStepId: "review", workflowStepName: "Review", source: "node" as const, phase: "pre-merge" as const, status: "pending" as const, completedAt: "2026-01-01" }],
+        code: "non-terminal-node-result",
+        missingInstanceCount: 1,
+      },
+      {
+        steps: [{ id: "0", title: "Implement", status: "pending" as const }],
+        workflowStepResults: [{ workflowStepId: "review", workflowStepName: "Review", source: "node" as const, phase: "pre-merge" as const, status: "passed" as const, completedAt: "2026-01-01" }],
+        code: "missing-foreach-instances",
+        missingInstanceCount: 1,
+      },
+    ];
+    for (const { steps, workflowStepResults, code, missingInstanceCount } of cases) {
       const { executor, liveTask } = makeExecutor({
-        selection: { workflowId: "custom:foreach", stepIds: [] }, ir: foreachIr(), steps, workflowStepResults: [],
+        selection: { workflowId: "custom:foreach", stepIds: [] }, ir: foreachIr(), steps, workflowStepResults,
       });
       const result = await executor.ensureWorkflowMergeBoundaryTask(
         liveTask,
         { reason: "workflow-merge-boundary", nodeId: "merge", workflowId: "custom:foreach", runId: "r1" },
-      ) as { blocked?: { reason: string } };
-      expect(result.blocked?.reason).toBe("no pre-merge node result recorded");
+      ) as { blocked?: { code: string; missingInstanceCount: number } };
+      expect(result.blocked).toMatchObject({ code, missingInstanceCount });
     }
   });
 });

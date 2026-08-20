@@ -847,6 +847,16 @@ export type DatabaseMutationType =
   | "task:in-review-stall-terminal-provider-error"
   | "task:finalize-unproven-blocked"
   /**
+   * FNXC:RunAudit 2026-08-20-02:02:
+   * Records one terminal park when a workflow merge boundary cannot be proven, at the retry
+   * boundary or graph-terminal park. Metadata is { taskId, nodeId, failureValue, source,
+   * reasonCode?, missingInstanceCount?, priorColumn, priorStatus, outcome }; it is strictly
+   * ids/counts/outcomes-only and never includes reason prose, instance IDs, or error text.
+   * This is best-effort telemetry: an absent, failed, or hung write must not alter, block, or
+   * stall the terminal park.
+   */
+  | "task:merge-boundary-unproven-parked"
+  /**
    * FN-5490/FN-5517/FN-5526/FN-5540 lost-work guard: the merger or self-heal
    * sweep refused to finalize a task as no-op because its record claimed
    * `modifiedFiles` while no commit landed. Task is moved back to todo with
