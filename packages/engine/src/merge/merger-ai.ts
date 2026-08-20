@@ -901,7 +901,7 @@ export interface LandRepoContext {
   */
   noCommitsExpected?: boolean;
   /** FNXC:Workspace 2026-08-15-08:36: Present only for workspace sub-repos; it fences the durable intent and remote ref advance. */
-  workspaceLand?: { handle: WorkspaceLeaseHandle; repoRelPath: string; remote: string };
+  workspaceLand?: { getHandle: () => WorkspaceLeaseHandle; repoRelPath: string; remote: string; assertLive: () => void };
   /** FNXC:WorkspaceMergeDispatch 2026-08-15-22:55: Task-level pin that fences every merge-body ref advance. */
   workspaceDispatchFence?: { fenceRefName: string; fenceRefSha: string };
   store: TaskStore;
@@ -1168,7 +1168,9 @@ export async function landOneRepo(
       // move. A later reconciler can then settle an interrupted remote advance without re-squashing.
       let workspaceFence: { remote: string; fenceRefName: string; fenceRefSha: string } | undefined;
       if (ctx.workspaceLand) {
-        const { handle, repoRelPath, remote } = ctx.workspaceLand;
+        ctx.workspaceLand.assertLive();
+        const { repoRelPath, remote } = ctx.workspaceLand;
+        const handle = ctx.workspaceLand.getHandle();
         if (!handle.fenceRefName || !handle.fenceRefSha) {
           throw new Error(`Workspace land lease ${handle.leaseKey} is missing its fence pin`);
         }
@@ -1186,6 +1188,7 @@ export async function landOneRepo(
 
       // 4 + 5. Land the squash on the target branch and sync the user's
       //        checkout (AI reconciles a conflicting restore).
+      ctx.workspaceLand?.assertLive();
       await setStatus("landing");
       const landed = await landSquash({
         projectRootDir: repoRootDir, mergeRoot, integrationBranch, tipSha, squashSha, taskId, audit,
@@ -2312,11 +2315,45 @@ export async function landWorkspaceTask(
       throw error;
     }
 
+    /*
+    FNXC:Workspace 2026-08-20-19:45:
+    A repository land can legitimately outlive the five-minute durable TTL while dependency sync and
+    AI review run. Renew its current owner/fence handle during the complete land body, but keep every
+    intent and push fenced by the durable handle: a failed renewal aborts before the next commit point.
+    */
+    let leaseLost = false;
+    const leaseAbort = new AbortController();
+    let renewalInFlight: Promise<void> | undefined;
+    const renewWorkspaceLease = (store as Partial<TaskStore>).renewWorkspaceLease;
+    const renewLease = async (): Promise<void> => {
+      if (!durableLandLease || typeof renewWorkspaceLease !== "function" || leaseLost) return;
+      try {
+        const renewed = await renewWorkspaceLease.call(store, durableLandLease, 5 * 60_000);
+        if (!renewed) throw new Error("Workspace lease renewal was refused");
+        durableLandLease = renewed;
+      } catch {
+        leaseLost = true;
+        leaseAbort.abort("workspace-repo-land-lease-lost");
+      }
+    };
+    const renewalTimer = durableLandLease && typeof renewWorkspaceLease === "function"
+      ? setInterval(() => {
+        if (!renewalInFlight) {
+          renewalInFlight = renewLease().finally(() => { renewalInFlight = undefined; });
+        }
+      }, 60_000)
+      : undefined;
+    renewalTimer?.unref?.();
+    const landSignal = options.signal ? AbortSignal.any([options.signal, leaseAbort.signal]) : leaseAbort.signal;
+    const assertLeaseLive = () => {
+      if (leaseLost || leaseAbort.signal.aborted) throw new WorkspaceRepoLandBusyError(repoRel, "durable-workspace-lease", taskId);
+    };
+
     try {
       const landResult = await landOneRepo(repoRootDir, entry.branch, integrationBranch, {
         taskId, settings, audit, log, setStatus, maxPasses,
         mergeAgent, reviewAgent, stashResolveAgent,
-        includeTaskId, trailers, taskTitle, signal: options.signal,
+        includeTaskId, trailers, taskTitle, signal: landSignal,
         allowDirtyLocalCheckoutSync,
         // FNXC:Workspace 2026-06-24-23:50: one sub-repo's dependency-sync failure must not block
         // landing the others — degrade verification for that repo, still land the git squash.
@@ -2325,10 +2362,11 @@ export async function landWorkspaceTask(
         noCommitsExpected: task.noCommitsExpected === true,
         repoRel,
         repoKeys,
-        ...(durableLandLease ? { workspaceLand: { handle: durableLandLease, repoRelPath: repoRel, remote: "origin" } } : {}),
+        ...(durableLandLease ? { workspaceLand: { getHandle: () => { assertLeaseLive(); return durableLandLease!; }, repoRelPath: repoRel, remote: "origin", assertLive: assertLeaseLive } } : {}),
         ...(workspaceDispatchFence ? { workspaceDispatchFence } : {}),
         store,
       });
+      assertLeaseLive();
       if (landResult.outcome === "landed") {
         /*
         FNXC:Workspace 2026-06-22-04:10 (Phase C review A1 — persist-after-advance is a HARD failure):
@@ -2341,6 +2379,7 @@ export async function landWorkspaceTask(
         */
         try {
           if (durableLandLease) {
+            assertLeaseLive();
             const resolved = await store.resolveWorkspaceLandIntent({
               handle: durableLandLease,
               taskId,
@@ -2379,6 +2418,12 @@ export async function landWorkspaceTask(
         repos.push({ repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch, status: "empty" });
       }
     } catch (err: unknown) {
+      /*
+      FNXC:Workspace 2026-08-20-19:58:
+      A lost repository tenancy is not a repository land failure: writing landFailure here would
+      let a stale owner mutate workspace state after its durable lease was revoked.
+      */
+      if (leaseLost) throw new WorkspaceRepoLandBusyError(repoRel, "durable-workspace-lease", taskId);
       if (isMergeAbortedError(err)) throw err;
       // A WorkspacePartialLandError from the persist-failure window above must PROPAGATE
       // (the engine parks/retries). The outer try/finally below resets status first (A3).
@@ -2399,6 +2444,8 @@ export async function landWorkspaceTask(
       // loop and the landed predicate above skips them (only the failed repo retries).
       break;
     } finally {
+      if (renewalTimer) clearInterval(renewalTimer);
+      await renewalInFlight?.catch(() => undefined);
       /*
       FNXC:Workspace 2026-06-22-02:10 (Phase C U3, KTD4):
       Release the land lease — on land SUCCESS or land FAILURE — but ONLY when WE hold

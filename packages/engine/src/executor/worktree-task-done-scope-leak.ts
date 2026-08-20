@@ -4,7 +4,7 @@
  * fn_task_done File Scope leak guard (workspace multi-repo + singular checkout).
  */
 import type { Settings, Task, TaskStore } from "@fusion/core";
-import { deriveRepoScopeSubset } from "../worktree/workspace-paths.js";
+import { resolveRepoDeclaredScope } from "../worktree/workspace-paths.js";
 import { executorLog } from "../logger.js";
 import type { EngineRunContext, RunAuditor } from "../util/run-audit.js";
 import { parseReviewLevelFromPrompt } from "./prompt-derived-eligibility.js";
@@ -114,7 +114,7 @@ export async function evaluateTaskDoneScopeLeak(
         const repoTouched = [...new Set([...repoUncommitted, ...repoCommitted])];
         // Repo-LOCAL declared-scope subset for THIS repo (prefix stripped). Same filter as the
         // non-workspace branch below — one surface.
-        const repoScopeSubset = deriveRepoScopeSubset(declaredScope, repoRel);
+        const repoScopeSubset = resolveRepoDeclaredScope(declaredScope, repoRel, repoKeys).scope;
         const repoOffScope = repoTouched
           .filter((filePath) => !workflowPathMatchesDeclaredScope(filePath, repoScopeSubset))
           .filter((filePath) => !isAlwaysAllowedScopeLeakPath(filePath))
