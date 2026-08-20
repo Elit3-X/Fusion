@@ -191,6 +191,7 @@ import { resolveDedicatedPlannerColumnsForTask } from "../planner-lane-resolutio
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
 import { buildStepFailureMessage, emitProactiveStatus, sanitizeFailureReason } from "../project/proactive-status.js";
 import { createRunAuditor, generateSyntheticRunId, type EngineRunContext } from "../util/run-audit.js";
+import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 import { acquireTaskWorktree, WorktreeBaseRefreshError } from "../worktree/worktree-acquisition.js";
 import { resolveWorktreesDir } from "../worktree/worktree-paths.js";
 import {
@@ -1811,7 +1812,7 @@ export async function runImplementation(
       const taskCreateWithheld = !isAgentTaskCreateToolAvailable(settings, executionCallerIsEphemeral);
       const delegateWithheld = !isAgentDelegateTaskToolAvailable(settings, executionCallerIsEphemeral);
       if (taskCreateWithheld || delegateWithheld) {
-        await deps.store.recordRunAuditEvent?.({
+        await emitBoundedRunAudit(deps.store, {
           taskId: task.id,
           agentId: identityAgent?.id ?? "executor",
           runId: deps.getRunContextFor(task.id)?.runId ?? generateSyntheticRunId("task-create-withheld", task.id),
@@ -1825,7 +1826,7 @@ export async function runImplementation(
             withheldDelegateTask: delegateWithheld,
             lane: "execution-session",
           },
-        }).catch(() => undefined);
+        });
       }
       /*
       FNXC:AgentProvisioningGate 2026-07-26-13:20:

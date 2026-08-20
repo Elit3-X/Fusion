@@ -275,6 +275,13 @@ Scoped exception (FN-5819/FN-8823): while project auto-merge is On, shared-branc
 `testMode?: boolean` is now available in both project and global settings. If project `testMode === true` (or the resolved default provider is `"mock"` at any tier), every AI lane is forced to `mock/scripted`, overriding per-task and per-lane model selections. The dashboard exposes this via the Settings Modal "Enable test mode" toggle and a persistent "Test mode — no real AI calls" banner.
 
 ### Run Audit
+<!--
+FNXC:RunAudit 2026-08-20-03:12:
+FN-9172 makes executor telemetry optional even when PostgreSQL or an extension sink stalls. Direct
+`store.recordRunAuditEvent` calls under `packages/engine/src/executor/` are an anti-pattern: use
+`emitBoundedRunAudit` so audit visibility never becomes a lifecycle dependency.
+-->
+- FN-9172: New executor run-audit emitters must use `emitBoundedRunAudit`; it absorbs absent, throwing, rejecting, hanging, and late-settling sinks without changing the owning branch.
 - FN-9109: `session:cross-runtime-fallback-engaged` records a single retryable-failure handoff from a primary runtime to a deferred CLI runtime. Metadata is ids/outcomes-only (`sessionPurpose`, primary/fallback provider and model IDs, trigger point, failure category, `contextTransferred`); never record error prose or transferred transcript text.
 
 - FN-8958: `merge:orphan-write-fenced` is emitted once per orphan merge body at its fence's first interaction. Metadata is ids/counts/outcomes-only: `{ taskId, category, interaction, suppressedCount }`; `suppressedCount` is the emit-time count (`1` for `interaction:"suppressed"`, `0` for `interaction:"rejected"`), never a cumulative body total.

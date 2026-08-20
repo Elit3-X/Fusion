@@ -42,6 +42,7 @@ import {
 import { getActiveNotificationService } from "../util/notifier.js";
 import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
+import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 import { takePreHeldExecutorSlot } from "../concurrency/concurrency.js";
 import { resolveCompleteColumnFor } from "./lifecycle-columns.js";
 import { nextPlanReviewAttemptCount, PLAN_REVIEW_FEEDBACK_HISTORY_LIMIT } from "../plan-review-feedback-history.js";
@@ -779,7 +780,7 @@ export async function executeWorkflowGraph(
          * Record suspension so an invisible wait is greppable (ids/outcomes-only audit).
          */
         const suspension = result.suspension;
-        await deps.store.recordRunAuditEvent?.({
+        await emitBoundedRunAudit(deps.store, {
           taskId: task.id,
           agentId: "executor",
           runId: resolvedRunId ?? `workflow-run-suspended:${task.id}`,
@@ -796,7 +797,7 @@ export async function executeWorkflowGraph(
             continuationNodeId: continuation?.nodeId ?? null,
             continuationState: continuation?.state ?? null,
           },
-        }).catch(() => undefined);
+        });
         executorLog.log(
           `[workflow-graph] ${task.id} suspended at node '${suspension?.nodeId ?? "unknown"}' (${suspension?.reason ?? "unknown"})`,
         );

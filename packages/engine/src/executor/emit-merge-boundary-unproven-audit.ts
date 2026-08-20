@@ -1,6 +1,6 @@
 import type { TaskStore } from "@fusion/core";
-import { executorLog } from "../logger.js";
 import { generateSyntheticRunId } from "../util/run-audit.js";
+import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 import type { MergeBoundaryUnprovenReasonCode } from "./workflow-merge-boundary.js";
 
 export const MERGE_BOUNDARY_UNPROVEN_AUDIT_EMIT_TIMEOUT_MS = 2_000;
@@ -30,53 +30,23 @@ export async function emitMergeBoundaryUnprovenParked(
   store: TaskStore | null | undefined,
   payload: MergeBoundaryUnprovenParkedAuditPayload,
 ): Promise<void> {
-  const sink = store?.recordRunAuditEvent;
-  if (typeof sink !== "function") return;
-
-  let sinkPromise: Promise<unknown>;
-  try {
-    sinkPromise = Promise.resolve(sink.call(store, {
+  await emitBoundedRunAudit(store, {
+    taskId: payload.taskId,
+    agentId: "executor",
+    runId: payload.runId ?? generateSyntheticRunId("merge-boundary-unproven-park", payload.taskId),
+    domain: "database",
+    mutationType: "task:merge-boundary-unproven-parked",
+    target: payload.taskId,
+    metadata: {
       taskId: payload.taskId,
-      agentId: "executor",
-      runId: payload.runId ?? generateSyntheticRunId("merge-boundary-unproven-park", payload.taskId),
-      domain: "database",
-      mutationType: "task:merge-boundary-unproven-parked",
-      target: payload.taskId,
-      metadata: {
-        taskId: payload.taskId,
-        nodeId: payload.nodeId,
-        failureValue: payload.failureValue,
-        source: payload.source,
-        ...(payload.reasonCode === undefined ? {} : { reasonCode: payload.reasonCode }),
-        ...(payload.missingInstanceCount === undefined ? {} : { missingInstanceCount: payload.missingInstanceCount }),
-        priorColumn: payload.priorColumn,
-        priorStatus: payload.priorStatus ?? null,
-        outcome: payload.outcome,
-      },
-    }));
-  } catch {
-    executorLog.warn("[run-audit] failed to record task:merge-boundary-unproven-parked");
-    return;
-  }
-
-  // Observe late rejection before the bounded wait returns so it cannot become unhandled.
-  void sinkPromise.catch(() => undefined);
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      executorLog.warn("[run-audit] timed out recording task:merge-boundary-unproven-parked");
-      resolve();
-    }, MERGE_BOUNDARY_UNPROVEN_AUDIT_EMIT_TIMEOUT_MS);
-    timer.unref?.();
-    void sinkPromise.then(
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      () => {
-        clearTimeout(timer);
-        executorLog.warn("[run-audit] failed to record task:merge-boundary-unproven-parked");
-        resolve();
-      },
-    );
-  });
+      nodeId: payload.nodeId,
+      failureValue: payload.failureValue,
+      source: payload.source,
+      ...(payload.reasonCode === undefined ? {} : { reasonCode: payload.reasonCode }),
+      ...(payload.missingInstanceCount === undefined ? {} : { missingInstanceCount: payload.missingInstanceCount }),
+      priorColumn: payload.priorColumn,
+      priorStatus: payload.priorStatus ?? null,
+      outcome: payload.outcome,
+    },
+  }, { timeoutMs: MERGE_BOUNDARY_UNPROVEN_AUDIT_EMIT_TIMEOUT_MS });
 }

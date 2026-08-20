@@ -29,6 +29,7 @@ import {
 import { moveTaskToReplanColumn, resolveReplanTargetColumn } from "../execution/replan-target.js";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
 import { generateSyntheticRunId, type EngineRunContext, type RunAuditor } from "../util/run-audit.js";
+import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 import { executorLog } from "../logger.js";
 import { resolveReboundColumnFor } from "./lifecycle-columns.js";
 import { evaluateTaskDoneRefusal } from "./task-done-refusal.js";
@@ -228,7 +229,7 @@ export function createTaskDoneTool(
               deps.getRunContextFor(taskId),
             );
           }
-          await deps.store.recordRunAuditEvent?.({
+          await emitBoundedRunAudit(deps.store, {
             taskId,
             agentId: "executor",
             runId: generateSyntheticRunId("execution-blocked", taskId),
