@@ -20,7 +20,7 @@ import type {
   Task,
   TaskStore,
 } from "@fusion/core";
-import { classifyGhError, getCurrentRepo, isGhAuthenticated, loadWorkspaceConfig } from "@fusion/core";
+import { addWorkspaceRepo, classifyGhError, detectWorkspaceRepos, getCurrentRepo, isGhAuthenticated, loadWorkspaceConfig, WorkspaceRepoValidationError } from "@fusion/core";
 import {
   dropAutostashHandle,
   generateSyntheticRunId,
@@ -2672,16 +2672,43 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
 
   /**
    * GET /api/git/workspace-repos
-   * Returns the list of sub-repos for a workspace-mode project.
-   * Non-workspace projects return an empty array.
+   * Returns registered workspace repos, with candidates only when explicitly requested.
    */
   router.get("/git/workspace-repos", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
       const rootDir = resolveGitDir(req, scopedStore.getRootDir());
       const config = await loadWorkspaceConfig(rootDir);
-      res.json({ repos: config?.repos ?? [] });
+      if (!config) throw conflict("This project is not a workspace");
+      if (req.query.includeAvailable === "1") {
+        const available = (await detectWorkspaceRepos(rootDir)).filter((repo) => !config.repos.includes(repo));
+        res.json({ repos: config.repos, available });
+      } else {
+        res.json({ repos: config.repos });
+      }
     } catch (err: unknown) {
+      if (err instanceof ApiError) throw err;
+      rethrowAsApiError(err);
+    }
+  });
+
+  /*
+  FNXC:Workspace 2026-08-20-02:03:
+  workspace.json is the membership authority. Core serializes this idempotent write with mode
+  toggles, and executor acquisition refreshes disk membership without a process restart.
+  */
+  router.post("/git/workspace-repos", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const rootDir = resolveGitDir(req, scopedStore.getRootDir());
+      const repo = (req.body as { repo?: unknown } | undefined)?.repo;
+      if (typeof repo !== "string") throw badRequest("repo must be a string");
+      res.json(await addWorkspaceRepo(rootDir, repo));
+    } catch (err: unknown) {
+      if (err instanceof WorkspaceRepoValidationError) {
+        if (err.reason === "not-a-workspace") throw conflict("This project is not a workspace");
+        throw badRequest(`Invalid workspace repository: ${err.reason}`);
+      }
       if (err instanceof ApiError) throw err;
       rethrowAsApiError(err);
     }

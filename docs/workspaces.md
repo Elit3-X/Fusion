@@ -39,7 +39,13 @@ For example:
 
 Each `repos` entry is relative to the workspace root and must stay inside it. Absolute paths, `..` escapes, empty values, and non-string values are rejected or filtered when `loadWorkspaceConfig` reads the file. Keep member repositories as direct children so they remain discoverable and easy to operate.
 
-The configuration file makes the root a workspace at repository-initialization time. The automatic path writes the `workspaceMode` setting before `workspace.json`, preventing a partially written configuration from making the next registration incorrectly treat the root as a workspace.
+The configuration file is written by registration, repository initialization, the interactive CLI resolver, and `addWorkspaceRepo`. The configuration file makes the root a workspace at repository-initialization time. The automatic path writes the `workspaceMode` setting before `workspace.json`, preventing a partially written configuration from making the next registration incorrectly treat the root as a workspace.
+
+## Adding a repository to an existing workspace
+
+In **Settings → General → Workspace repositories**, choose a detected candidate or enter a direct-child directory and select **Add**. The same operation is available to integrations as `POST /api/git/workspace-repos` with `{ "repo": "api" }`. Adds are idempotent. Fusion requires an in-root direct child that is a real Git work tree and rejects excluded names (`node_modules`, `.fusion`, `.git`, `.pi`), absolute paths, and escapes.
+
+A running task picks up a newly added member on its next `fn_acquire_repo_worktree` call without restarting the engine. Membership only grows during a live run: a failed or empty refresh preserves the last known-good members; removals require an engine restart. Tasks already in review or merging refuse late acquisition to avoid bypassing review; create a follow-up task instead.
 
 ## The workspaceMode setting
 
@@ -121,6 +127,10 @@ Archiving a workspace task synchronously removes every recorded member worktree.
 ### A sub-repository was not detected
 
 `detectWorkspaceRepos` only scans one level. Ensure the repository is a direct child, is not named `node_modules`, `.fusion`, `.git`, or `.pi`, has a `.git` marker, and succeeds as a real Git work tree. Remove or investigate a stray `.git` at the workspace root rather than initializing it: the root should remain non-Git.
+
+### `fn_acquire_repo_worktree` reports an unknown repository
+
+Add the repository in **Settings → General → Workspace repositories** (or through `POST /api/git/workspace-repos`), then retry immediately. The repository must be a valid direct-child Git work tree. Tasks already in review or merging require a follow-up task.
 
 ### `fn_acquire_repo_worktree` reports busy
 

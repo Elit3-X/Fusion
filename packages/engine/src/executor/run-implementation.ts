@@ -219,6 +219,7 @@ export type RunImplementationDeps = {
   rootDir: string;
   workspaceConfig: WorkspaceConfig | null | undefined;
   ensureWorkspaceConfig: () => Promise<WorkspaceConfig | null>;
+  refreshWorkspaceConfig?: () => Promise<WorkspaceConfig | null>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TaskExecutorOptions is large and only partially used here
   options: any;
   stuckAborted: Map<string, boolean>;
@@ -1952,6 +1953,7 @@ export async function runImplementation(
         customTools.push(createAcquireRepoWorktreeTool({
           workspaceRootDir: deps.rootDir,
           workspaceRepos: deps.workspaceConfig.repos,
+          resolveWorkspaceRepos: async () => (await deps.refreshWorkspaceConfig?.())?.repos ?? [],
           task,
           store: deps.store,
           settings,

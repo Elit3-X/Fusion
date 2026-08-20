@@ -6372,6 +6372,7 @@ export function createReadMessagesTool(messageStore: MessageStore, agentId: stri
 export function createAcquireRepoWorktreeTool(opts: {
   workspaceRootDir: string;
   workspaceRepos: string[];
+  resolveWorkspaceRepos?: () => Promise<string[]>;
   task: import("@fusion/core").Task;
   store: TaskStore;
   settings: Partial<Settings>;
@@ -6393,7 +6394,7 @@ export function createAcquireRepoWorktreeTool(opts: {
   runConfiguredCommand?: import("./worktree/worktree-acquisition.js").AcquireWorkspaceRepoWorktreeOptions["runConfiguredCommand"];
   taskEnv?: NodeJS.ProcessEnv;
 }): ToolDefinition {
-  const { workspaceRootDir, workspaceRepos, task, store, settings, logger, secretsStore, runContext, audit, onAcquired, runConfiguredCommand, taskEnv } = opts;
+  const { workspaceRootDir, workspaceRepos, resolveWorkspaceRepos, task, store, settings, logger, secretsStore, runContext, audit, onAcquired, runConfiguredCommand, taskEnv } = opts;
   return {
     name: "fn_acquire_repo_worktree",
     label: "Acquire Repo Worktree",
@@ -6404,14 +6405,32 @@ export function createAcquireRepoWorktreeTool(opts: {
     parameters: acquireRepoWorktreeParams,
     execute: async (_id: string, params: Static<typeof acquireRepoWorktreeParams>) => {
       const { repo } = params;
-      if (!workspaceRepos.includes(repo)) {
+      const freshTask = await store.getTask(task.id);
+      /*
+      FNXC:Workspace 2026-08-20-02:03:
+      Membership can grow on disk during a run. Refresh per acquire, but use a monotone union of
+      startup, fresh, and acquired members so a transient refresh never revokes a usable repo.
+      */
+      let freshRepos: string[] = [];
+      try { freshRepos = await resolveWorkspaceRepos?.() ?? []; } catch { /* optional refresh is fail-safe */ }
+      const allowed = [...new Set([...workspaceRepos, ...freshRepos, ...Object.keys(freshTask.workspaceWorktrees ?? {})])];
+      if (!allowed.includes(repo)) {
         return {
-          content: [{ type: "text" as const, text: `ERROR: Unknown repo: "${repo}". Available: ${workspaceRepos.join(", ")}` }],
+          content: [{ type: "text" as const, text: `ERROR: Unknown repo: "${repo}". Available: ${allowed.join(", ")}. Add it to .fusion/workspace.json in Settings → General → Workspace repositories, then retry without restarting the engine.` }],
           details: {},
           isError: true,
         };
       }
-      const freshTask = await store.getTask(task.id);
+      const existing = freshTask.workspaceWorktrees?.[repo];
+      const lateAcquireBlocked = freshTask.column === "in-review" || freshTask.column === "done" || freshTask.column === "archived" || ["merging", "merging-pr", "merging-fix"].includes(freshTask.status ?? "") || Object.values(freshTask.workspaceWorktrees ?? {}).some((entry) => Boolean(entry.landedSha));
+      if (!existing && lateAcquireBlocked) {
+        await store.logEntry(task.id, `fn_acquire_repo_worktree: refused late acquisition of ${repo}; task is already in review or landing`, undefined, runContext);
+        return {
+          content: [{ type: "text" as const, text: `ERROR: Cannot acquire new repository "${repo}" after review or landing has started. Create a follow-up task with fn_task_create for this repository.` }],
+          details: {},
+          isError: true,
+        };
+      }
       /*
       FNXC:Workspace 2026-06-21-22:30:
       F1 — acquireWorkspaceRepoWorktree can throw WorkspaceRepoAcquireBusyError on

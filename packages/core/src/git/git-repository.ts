@@ -202,9 +202,8 @@ export async function detectWorkspaceRepos(
   do not produce false-positive workspace members. A workspace root is a plain directory whose
   immediate children are the intended sub-repos, not transitive dependency artifacts.
   */
-  const EXCLUDED_ENTRIES = new Set(["node_modules", ".fusion", ".git", ".pi"]);
   for (const entry of entries) {
-    if (EXCLUDED_ENTRIES.has(entry)) continue;
+    if (EXCLUDED_WORKSPACE_ENTRIES.has(entry)) continue;
 
     const childDir = join(dir, entry);
     // Cheap pre-filter: skip children with no `.git` marker at all before spawning git.
@@ -225,7 +224,23 @@ export interface WorkspaceConfig {
   repos: string[];
 }
 
+export type WorkspaceRepoValidationReason =
+  | "not-a-workspace"
+  | "invalid-path"
+  | "not-direct-child"
+  | "excluded-name"
+  | "missing"
+  | "not-a-git-work-tree";
+
+export class WorkspaceRepoValidationError extends Error {
+  constructor(readonly reason: WorkspaceRepoValidationReason) {
+    super(`Workspace repository validation failed: ${reason}`);
+    this.name = "WorkspaceRepoValidationError";
+  }
+}
+
 const WORKSPACE_CONFIG_FILENAME = "workspace.json";
+const EXCLUDED_WORKSPACE_ENTRIES = new Set(["node_modules", ".fusion", ".git", ".pi"]);
 
 /**
  * Reads .fusion/config.json and returns true when `workspaceMode` is explicitly
@@ -315,6 +330,55 @@ export async function loadWorkspaceConfig(rootDir: string): Promise<WorkspaceCon
   } catch {
     return null;
   }
+}
+
+/*
+FNXC:Workspace 2026-08-20-02:03:
+Issue 3480 item 6 requires workspace membership to be editable after registration. New members are
+in-root direct-child Git work trees, additions are idempotent, and the write shares the workspace-mode
+lock so a concurrent mode toggle cannot lose a member.
+*/
+export async function addWorkspaceRepo(
+  rootDir: string,
+  repoRelPath: string,
+  options: { runner?: GitRepositoryCommandRunner; timeout?: number } = {},
+): Promise<{ outcome: "added" | "already-member"; repos: string[] }> {
+  const pathMod = await import("node:path");
+  const { stat } = await import("node:fs/promises");
+  const repo = typeof repoRelPath === "string" ? repoRelPath.trim() : "";
+  if (!repo || !isInRootRelativePath(repo, pathMod)) {
+    throw new WorkspaceRepoValidationError("invalid-path");
+  }
+  const normalized = pathMod.normalize(repo);
+  // A workspace member must name a child, not the workspace root (including child/..).
+  if (normalized === ".") {
+    throw new WorkspaceRepoValidationError("not-direct-child");
+  }
+  if (normalized.includes(pathMod.sep) || normalized.includes("/")) {
+    throw new WorkspaceRepoValidationError("not-direct-child");
+  }
+  if (EXCLUDED_WORKSPACE_ENTRIES.has(normalized)) {
+    throw new WorkspaceRepoValidationError("excluded-name");
+  }
+  const childPath = pathMod.join(rootDir, normalized);
+  try {
+    if (!(await stat(childPath)).isDirectory()) throw new WorkspaceRepoValidationError("missing");
+  } catch (error) {
+    if (error instanceof WorkspaceRepoValidationError) throw error;
+    throw new WorkspaceRepoValidationError("missing");
+  }
+  const runner = options.runner ?? runGitCommand;
+  if (!(await isInsideGitWorkTree(childPath, runner, options.timeout ?? DEFAULT_GIT_TIMEOUT_MS))) {
+    throw new WorkspaceRepoValidationError("not-a-git-work-tree");
+  }
+  return withWorkspaceModeLock(rootDir, async () => {
+    const config = await loadWorkspaceConfig(rootDir);
+    if (!config) throw new WorkspaceRepoValidationError("not-a-workspace");
+    if (config.repos.includes(normalized)) return { outcome: "already-member", repos: config.repos };
+    const repos = [...config.repos, normalized].sort();
+    await saveWorkspaceConfig(rootDir, { ...config, repos });
+    return { outcome: "added", repos };
+  });
 }
 
 export async function saveWorkspaceConfig(rootDir: string, config: WorkspaceConfig): Promise<void> {

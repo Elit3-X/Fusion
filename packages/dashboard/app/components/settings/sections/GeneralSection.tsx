@@ -7,6 +7,7 @@ import { SettingsSelectRow } from "../SettingsSelectRow";
 import { SettingsNumberRow } from "../SettingsNumberRow";
 import { SettingsTextRow } from "../SettingsTextRow";
 import { SettingsHelpTip } from "../SettingsHelpTip";
+import { WorkspaceReposCard } from "./WorkspaceReposCard";
 import { ReportActionMenu } from "../../ReportActionMenu";
 import { ReportModal } from "../../ReportModal";
 import { resolveReportContextRefs } from "../../../utils/reportContextRefs";
@@ -350,6 +351,8 @@ export function GeneralSection({ form, setForm, projectId, addToast, prefixError
         value={form.workspaceMode === true}
         onChange={(v) => setForm((f) => ({ ...f, workspaceMode: v === true }))}
       />
+      {/* FNXC:Workspace 2026-08-20-02:03: Membership remains editable after registration; the mode toggle alone never adds repository members. */}
+      <WorkspaceReposCard projectId={projectId} />
       {/*
         FNXC:FileBrowser 2026-06-29-00:00:
         This project-scoped General toggle is intentionally default-off because slash-prefixed file-browser paths can browse outside the workspace. It only affects workspace file-browser routes and keeps task-local file APIs and other path validators confined.

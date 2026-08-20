@@ -318,7 +318,9 @@ export {
 export {
   ensureGitRepositoryForProjectPath,
   GitRepositoryInitializationError,
+  WorkspaceRepoValidationError,
   detectWorkspaceRepos,
+  addWorkspaceRepo,
   loadWorkspaceConfig,
   saveWorkspaceConfig,
   removeWorkspaceConfig,
@@ -332,6 +334,7 @@ export type {
   GitRepositoryEnsureOutcome,
   EnsureGitRepositoryOptions,
   WorkspaceConfig,
+  WorkspaceRepoValidationReason,
   WorkspaceModeToggleOps,
   WorkspaceModeToggleResult,
 } from "./git/git-repository.js";
