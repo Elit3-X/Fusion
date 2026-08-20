@@ -1812,6 +1812,8 @@ CREATE INDEX IF NOT EXISTS "idxCentralActivityLogType"
   ON central.central_activity_log(type);
 CREATE INDEX IF NOT EXISTS "idxCentralActivityLogProjectId"
   ON central.central_activity_log(project_id);
+CREATE INDEX IF NOT EXISTS "idxCentralActivityLogTaskIdTimestamp"
+  ON central.central_activity_log(task_id, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS central.global_concurrency (
   id integer PRIMARY KEY,

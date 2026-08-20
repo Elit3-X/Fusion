@@ -65,7 +65,8 @@ capacity-model table drop that landed while this PR was open.
 /* FNXC:MessageArchive 2026-08-12-22:14: 0058 persists non-destructive mailbox archival on upgrades. */
 /* FNXC:TaskRecommendations 2026-08-13-22:23: upgrades must install the source-agent index before duplicate intake queries it. */
 /* FNXC:WorkspaceLease 2026-08-15-12:00: the baseline ceiling must include durable coordination tables so an upgraded database is never rejected by the current binary. */
-export const SCHEMA_BASELINE_VERSION = "0060";
+/* FNXC:ActivityLogTaskSearch 2026-08-20-04:17: advance the schema ceiling so durable central task-ID lookups receive their indexed upgrade. */
+export const SCHEMA_BASELINE_VERSION = "0061";
 /** FNXC:SymbolLock 2026-07-20-10:00: upgrades need durable task declarations before admission resolves symbols. */
 export const TASK_DECLARED_SYMBOLS_VERSION = "0028";
 const INITIAL_SCHEMA_VERSION = "0000";
@@ -226,6 +227,8 @@ export const PROJECT_OWNERSHIP_DEFAULT_RECONCILIATION_VERSION = "0057";
 export const MESSAGE_ARCHIVE_SCHEMA_VERSION = "0058";
 export const TASK_SOURCE_AGENT_INDEX_VERSION = "0059";
 export const WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION = "0060";
+/** FNXC:ActivityLogTaskSearch 2026-08-20-04:17: explicit registration prevents the central durable task-ID index from being skipped on upgrades. */
+export const ACTIVITY_LOG_TASK_ID_INDEX_VERSION = "0061";
 
 /** SECURITY DEFINER helper that only inserts LEGACY_ADOPTION_DRAINED_MARKER. */
 export const LEGACY_ADOPTION_DRAINED_MARKER_FUNCTION = "fusion_mark_legacy_adoption_drained";
@@ -460,6 +463,7 @@ const PROJECT_OWNERSHIP_DEFAULT_RECONCILIATION_MIGRATION_PATH = join(MIGRATIONS_
 const MESSAGE_ARCHIVE_SCHEMA_MIGRATION_PATH = join(MIGRATIONS_DIR, "0058_fn_9014_message_archive.sql");
 const TASK_SOURCE_AGENT_INDEX_MIGRATION_PATH = join(MIGRATIONS_DIR, "0059_fn_9037_tasks_source_agent_index.sql");
 const WORKSPACE_COORDINATION_LEASES_MIGRATION_PATH = join(MIGRATIONS_DIR, "0060_fn_9059_workspace_coordination_leases.sql");
+const ACTIVITY_LOG_TASK_ID_INDEX_MIGRATION_PATH = join(MIGRATIONS_DIR, "0061_fn_066_activity_log_task_id_index.sql");
 
 /**
  * Ensure the migration bookkeeping table exists. Lives in the public schema so
@@ -590,6 +594,7 @@ export async function applySchemaBaseline(
     const messageArchiveSchemaAlreadyApplied = applied.includes(MESSAGE_ARCHIVE_SCHEMA_VERSION);
     const taskSourceAgentIndexAlreadyApplied = applied.includes(TASK_SOURCE_AGENT_INDEX_VERSION);
     const workspaceCoordinationLeasesAlreadyApplied = applied.includes(WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION);
+    const activityLogTaskIdIndexAlreadyApplied = applied.includes(ACTIVITY_LOG_TASK_ID_INDEX_VERSION);
     assertBinaryNotOlderThanDatabase(applied);
     let schemaChanged = false;
 
@@ -1301,6 +1306,12 @@ export async function applySchemaBaseline(
       const migrationSql = await readFile(WORKSPACE_COORDINATION_LEASES_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION}) ON CONFLICT (version) DO NOTHING`);
+      schemaChanged = true;
+    }
+    if (!activityLogTaskIdIndexAlreadyApplied) {
+      const migrationSql = await readFile(ACTIVITY_LOG_TASK_ID_INDEX_MIGRATION_PATH, "utf8");
+      await tx.execute(sql.raw(migrationSql));
+      await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${ACTIVITY_LOG_TASK_ID_INDEX_VERSION}) ON CONFLICT (version) DO NOTHING`);
       schemaChanged = true;
     }
     return { applied: schemaChanged, pluginHooksRun: pluginHooks.length };

@@ -94,7 +94,10 @@
       "minutesAgo_other": "há {{count}}m"
     },
     "title": "Registro de atividades",
-    "typeFilterBadge": "Tipo: {{type}}"
+    "typeFilterBadge": "Tipo: {{type}}",
+    "taskId": "ID da tarefa",
+    "taskIdSearchPlaceholder": "Pesquisar ID da tarefa (ex.: FN-066)",
+    "taskIdFilterBadge": "Tarefa: {{taskId}}"
   },
   "agentError": {
     "copied": "Copiado",

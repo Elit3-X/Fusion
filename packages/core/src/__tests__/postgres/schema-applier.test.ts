@@ -103,6 +103,7 @@ import {
   MESSAGE_ARCHIVE_SCHEMA_VERSION,
   TASK_SOURCE_AGENT_INDEX_VERSION,
   WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION,
+  ACTIVITY_LOG_TASK_ID_INDEX_VERSION,
 } from "../../postgres/schema-applier.js";
 import { ProjectPartitionRekeyError, rekeyFallbackProjectPartition } from "../../postgres/migration-stamping.js";
 import type { PluginSchemaInitHook } from "../../postgres/plugin-schema-hook.js";
@@ -137,7 +138,8 @@ describe("schema-applier: immutable migration identities", () => {
        0060 (FN-9059 workspace coordination leases/intents) advance the baseline to 0060. */
     expect(TASK_SOURCE_AGENT_INDEX_VERSION).toBe("0059");
     expect(WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION).toBe("0060");
-    expect(SCHEMA_BASELINE_VERSION).toBe("0060");
+    expect(ACTIVITY_LOG_TASK_ID_INDEX_VERSION).toBe("0061");
+    expect(SCHEMA_BASELINE_VERSION).toBe("0061");
   });
 
   it("keeps monitor and approval isolation assigned to version 0003", () => {

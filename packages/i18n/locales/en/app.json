@@ -94,7 +94,10 @@
       "minutesAgo_other": "{{count}}m ago"
     },
     "title": "Activity Log",
-    "typeFilterBadge": "Type: {{type}}"
+    "typeFilterBadge": "Type: {{type}}",
+    "taskId": "Task ID",
+    "taskIdSearchPlaceholder": "Search task ID (e.g. FN-066)",
+    "taskIdFilterBadge": "Task: {{taskId}}"
   },
   "agentError": {
     "copied": "Copied",

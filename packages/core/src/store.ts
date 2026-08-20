@@ -3844,7 +3844,7 @@ Issue #2149 requires read-only type filtering to occur in the file-store before 
   /**
    * FNXC:RuntimeWorkflowAsync 2026-06-24-16:02:
    */
-  async getActivityLog(options?: { limit?: number; since?: string; type?: ActivityEventType }): Promise<ActivityLogEntry[]> {
+  async getActivityLog(options?: { limit?: number; since?: string; type?: ActivityEventType; taskId?: string }): Promise<ActivityLogEntry[]> {
     return getActivityLogImpl(this, options);
   }
 

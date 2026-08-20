@@ -76,6 +76,9 @@ export default interface Resources {
       "notMerged": "Not merged",
       "projectFilterBadge": "Project: {{project}}",
       "refresh": "Refresh",
+      "taskId": "Task ID",
+      "taskIdFilterBadge": "Task: {{taskId}}",
+      "taskIdSearchPlaceholder": "Search task ID (e.g. FN-066)",
       "time": {
         "daysAgo_one": "{{count}}d ago",
         "daysAgo_other": "{{count}}d ago",
