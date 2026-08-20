@@ -30,7 +30,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Task, TaskStore } from "@fusion/core";
 import { assertNotWorkspaceTaskMerge } from "@fusion/core";
-import { landWorkspaceTask, runAiMerge } from "../merge/merger-ai.js";
+import { RESOLVED_PRIOR_FINDINGS_MARKER, landWorkspaceTask, runAiMerge } from "../merge/merger-ai.js";
 import { createWorkspaceFixture, hasGit, type WorkspaceFixture } from "./_workspace-fixture.js";
 
 const describeIfGit = hasGit ? describe : describe.skip;
@@ -215,6 +215,31 @@ describeIfGit("landWorkspaceTask — per-repo merge loop (Phase C U1)", () => {
     // U2 finalize-once: every repo landed → the task moves to done exactly once.
     expect(store.moveTaskCalls).toEqual([{ id: TASK_ID, column: "done" }]);
     expect(store.emitted.filter((e) => e.event === "task:merged")).toHaveLength(1);
+  });
+
+  it("reuses reconciled review findings for a workspace sub-repository", async () => {
+    fx = await createWorkspaceFixture(["repo-a"]);
+    addRepoBranchWithEdit(fx, "repo-a", "a feature\n");
+    const store = createStore({ merger: { mode: "ai", maxReviewPasses: 1 } });
+    const task = makeTask({ "repo-a": { worktreePath: fx.repoPath("repo-a"), branch: BRANCH } });
+    const finding = "drops the workspace task export";
+    const reviewPrompts: string[] = [];
+    let reviews = 0;
+
+    const result = await landWorkspaceTask(store, task, fx.rootDir, {}, {
+      mergeAgent: squashMergeAgent(BRANCH),
+      reviewAgent: async (_cwd, prompt) => {
+        reviewPrompts.push(prompt);
+        reviews++;
+        return reviews === 1
+          ? `${finding}\nSEVERITY: blocking\nREVIEW_VERDICT: reject`
+          : `${RESOLVED_PRIOR_FINDINGS_MARKER} ${finding}\nREVIEW_VERDICT: approve`;
+      },
+    });
+
+    expect(result.allLanded).toBe(true);
+    expect(reviewPrompts).toHaveLength(2);
+    expect(reviewPrompts[1]).toContain(finding);
   });
 
   it("per-repo resolution: each repo lands on its OWN origin/HEAD branch (override-stripping)", async () => {

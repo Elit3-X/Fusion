@@ -84,6 +84,7 @@ import type { RoutineRunner } from "./scheduling/routine-runner.js";
 import { sweepStaleAutostashes, VerificationError } from "./merger.js";
 import {
   runAiMerge,
+  AiMergeBlockedError,
   landWorkspaceTask,
   WorkspaceFinalizeBlockedError,
   WorkspaceMergeDispatchSupersededError,
@@ -5141,6 +5142,32 @@ export class ProjectEngine {
           }
 
           if (mergeStrategyOnErr === "direct") {
+            /*
+            FNXC:AIMergeReviewRecovery 2026-08-20-02:02:
+            An exhausted AI review is terminal operator work, not a git conflict.
+            Its message includes reviewer prose, so classify the typed error before
+            any text sniffing can turn a natural-language "conflicts" finding into
+            a retry/bounce/cooldown livelock.
+            */
+            if (err instanceof AiMergeBlockedError) {
+              try {
+                await store.updateTask(taskId, {
+                  status: "failed",
+                  mergeRetries: maxAutoMergeRetriesOnErr,
+                  error: "AI merge review blocked landing; operator intervention is required.",
+                });
+                await store.logEntry(
+                  taskId,
+                  `AI merge review exhausted its corrective budget; task parked for operator intervention (${Math.min(err.reasons.length, 8)} current blocking finding(s))`,
+                  "AiMergeReviewBlocked",
+                );
+              } catch (recoveryErr) {
+                runtimeLog.error(
+                  `Auto-merge: failed to park ${taskId} after AI review block: ${recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr)}`,
+                );
+              }
+              continue;
+            }
             const isConflictError =
               errorMsg.includes("conflict") || errorMsg.includes("Conflict");
 

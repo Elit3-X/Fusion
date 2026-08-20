@@ -20,11 +20,15 @@ export interface AiMergeReviewVerdict {
   verdict: "approve" | "reject";
   reasons: string[];
   severity?: AiMergeReviewSeverity;
+  /** Prior findings the reviewer explicitly confirmed are fixed in this squash. */
+  resolvedPriorReasons: string[];
 }
 
 export const REVIEW_VERDICT_MARKER = "REVIEW_VERDICT:";
+export const RESOLVED_PRIOR_FINDINGS_MARKER = "RESOLVED_PRIOR_FINDINGS:";
 const VERDICT_LINE_RE = /REVIEW_VERDICT:\s*(approve|reject)\b/i;
 const SEVERITY_LINE_RE = /SEVERITY:\s*(blocking|advisory)\b/i;
+const RESOLVED_PRIOR_FINDINGS_LINE_RE = /RESOLVED_PRIOR_FINDINGS:\s*(.*)$/i;
 
 /*
 FNXC:MergerAiReview 2026-07-15-21:30:
@@ -49,6 +53,7 @@ export function parseReviewVerdict(
       verdict: "reject",
       reasons: ["reviewer produced no output"],
       severity: "blocking",
+      resolvedPriorReasons: [],
     };
 
   const lines = text.split(/\r?\n/);
@@ -69,23 +74,53 @@ export function parseReviewVerdict(
         `reviewer did not emit a "${REVIEW_VERDICT_MARKER} approve|reject" line`,
       ],
       severity: "blocking",
+      resolvedPriorReasons: [],
     };
   }
-  if (decision === "approve") return { verdict: "approve", reasons: [] };
+  const resolvedPriorReasons = extractResolvedPriorReasons(lines);
+  if (decision === "approve") return { verdict: "approve", reasons: [], resolvedPriorReasons };
 
   const severity: AiMergeReviewSeverity = SEVERITY_LINE_RE.test(text)
     ? (text.match(SEVERITY_LINE_RE)![1].toLowerCase() as AiMergeReviewSeverity)
     : "blocking";
+  const resolvedKeys = new Set(resolvedPriorReasons.map(normalizeReasonIdentity));
   return {
     verdict: "reject",
-    reasons: extractRejectReasons(lines, verdictLineIndex),
+    // Marker bullets are acknowledgements; reconciliation separately promotes
+    // unknown acknowledgements to new findings instead of dropping them.
+    reasons: extractRejectReasons(lines, verdictLineIndex)
+      .filter((reason) => !resolvedKeys.has(normalizeReasonIdentity(reason))),
     severity,
+    resolvedPriorReasons,
   };
+}
+
+/**
+ * Extract only a clearly delimited, bullet-form resolution acknowledgement.
+ * A missing or malformed marker intentionally yields no resolutions: callers
+ * retain every prior blocker rather than guessing that reviewer prose cleared it.
+ */
+function extractResolvedPriorReasons(lines: string[]): string[] {
+  const markerIndex = lines.findIndex((line) => RESOLVED_PRIOR_FINDINGS_LINE_RE.test(line));
+  if (markerIndex === -1) return [];
+  const inline = lines[markerIndex].match(RESOLVED_PRIOR_FINDINGS_LINE_RE)?.[1].trim();
+  const resolved = inline && !/^none\b/i.test(inline) ? [inline] : [];
+  for (let index = markerIndex + 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (VERDICT_LINE_RE.test(line) || SEVERITY_LINE_RE.test(line) || !line.trim()) break;
+    if (!/^\s*(?:[-*•]|\d+[.)])\s+/.test(line)) return [];
+    resolved.push(cleanReasonLine(line));
+  }
+  return resolved;
 }
 
 /** Strip bullet/numeric list markers and surrounding whitespace from one line. */
 function cleanReasonLine(line: string): string {
   return line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").trim();
+}
+
+function normalizeReasonIdentity(reason: string): string {
+  return reason.trim().toLocaleLowerCase().replace(/[\s\p{P}]+/gu, " ").trim();
 }
 
 /** Lines that carry no reviewer reasoning and must never be reported as a reason. */
@@ -94,6 +129,7 @@ function isNonReasonLine(line: string): boolean {
   if (!t) return true;
   if (SEVERITY_LINE_RE.test(t)) return true;
   if (VERDICT_LINE_RE.test(t)) return true;
+  if (RESOLVED_PRIOR_FINDINGS_LINE_RE.test(t)) return true;
   // Markdown scaffolding the reviewer may emit around its analysis.
   if (/^#{1,6}\s/.test(t)) return true;
   if (/^(?:-{3,}|={3,}|`{3,})/.test(t)) return true;
@@ -277,19 +313,24 @@ export function buildReviewSystemPrompt(): string {
     "merged into the integration branch and decide whether it is safe to land.",
     "",
     "Investigate with read-only commands (git show, git diff, git log, cat, grep).",
-    "Judge on four axes:",
-    "  1. Completeness — does the squash contain ALL of the task branch's intended",
+    "Judge the squash's fidelity on four axes:",
+    "  1. Branch preservation — does the squash preserve the task branch's",
     "     changes? Flag any hunk silently dropped during conflict resolution.",
-    "  2. No collateral — does it touch only files within the task's footprint?",
-    "  3. Conflict soundness — were conflicts resolved coherently (both sides'",
-    "     intent preserved), not by blindly discarding one side?",
+    "  2. No collateral — does the squash add unrelated changes outside its",
+    "     branch/squash footprint?",
+    "  3. Conflict soundness — were conflicts resolved coherently (both relevant",
+    "     branch intents retained), not by blindly discarding one side?",
     "  4. Commit message — read `git show`'s message: the subject must concisely",
     "     and ACCURATELY summarize the actual changes (not vague, not a mere",
     "     restatement of the task title, not misleading). A poor/inaccurate",
     "     message is an ADVISORY concern (it should be rewritten on retry, but",
     "     must not block the merge).",
     "",
-    "Bias toward rejection when uncertain.",
+    "Whole-tree semantic or intent concerns in files untouched by this squash are",
+    "ADVISORY or follow-up material, never a blocking veto: the merger is not",
+    "authorized to edit outside branch reconciliation.",
+    "",
+    "Bias toward rejection when uncertain about squash fidelity.",
     "",
     /*
     FNXC:MergerAiReview 2026-07-15-21:30:
@@ -306,9 +347,9 @@ export function buildReviewSystemPrompt(): string {
     "vague reason produces a blind retry rather than a fix.",
     "",
     `Then add a "SEVERITY:" line:`,
-    "  - SEVERITY: blocking — a correctness problem (dropped/lost task changes,",
-    "    incomplete squash, or a conflict resolution that discards intent). The",
-    "    merge must NOT land if this is unfixable.",
+    "  - SEVERITY: blocking — a squash-fidelity defect: dropped/lost branch",
+    "    changes, unrelated collateral in the squash, or a conflict resolution",
+    "    that discards relevant branch intent. The merge must NOT land if unfixable.",
     "  - SEVERITY: advisory — a quality/style concern that does not risk",
     "    correctness; acceptable to land if unresolved.",
     "",
@@ -349,9 +390,14 @@ export function buildReviewPrompt(input: {
   if (input.priorReasons && input.priorReasons.length > 0) {
     lines.push(
       "",
-      "A prior pass rejected an earlier attempt for these reasons — confirm they",
-      "are now resolved in the complete resulting tree, including code outside",
-      "this squash diff. Do not approve merely because the rebuilt diff became smaller:",
+      "A prior pass rejected an earlier squash for these findings. Inspect this",
+      "squash's fidelity, then explicitly identify only findings it resolves:",
+      `  ${RESOLVED_PRIOR_FINDINGS_MARKER}`,
+      "  - <repeat the resolved prior finding>",
+      "If none are resolved, write `RESOLVED_PRIOR_FINDINGS: none`. Omit this",
+      "marker only when you cannot determine resolution; omitted or malformed",
+      "evidence retains every prior blocker.",
+      "Do not use whole-tree concerns outside this squash's footprint as blockers:",
       ...input.priorReasons.map((r) => `  - ${r}`)
     );
   }

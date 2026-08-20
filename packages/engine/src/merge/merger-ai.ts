@@ -206,27 +206,41 @@ function taskHasApprovedAiMergeReview(task: Task | undefined): boolean {
   );
 }
 
-function getOutstandingBlockingMergeReasons(task: Task | undefined): string[] {
-  const actions = task?.log?.map((entry) => entry.action).filter((action): action is string => typeof action === "string") ?? [];
-  const reasons: string[] = [];
-  const addReasons = (value: string): void => {
-    for (const reason of value.split(/;\s*/).map((part) => part.trim()).filter(Boolean)) {
-      if (!reasons.includes(reason)) reasons.push(reason);
-    }
-  };
-  for (let index = actions.length - 1; index >= 0; index--) {
-    const action = actions[index];
-    if (/AI merge: (?:landed|finalized).*task → done/i.test(action)) return [];
-    if (/AI merge review \(pass \d+\): approved/i.test(action)) return [];
-    const blocked = action.match(/AI merge BLOCKED .*?unresolved correctness concern:\s*(.+)$/i);
-    if (blocked?.[1]) {
-      addReasons(blocked[1]);
-      return reasons;
-    }
-    const rejected = action.match(/AI merge review \(pass \d+\): rejected \(blocking\) —\s*(.+)$/i);
-    if (rejected?.[1]) addReasons(rejected[1]);
+const MAX_BLOCKING_REVIEW_REASONS = 8;
+const MAX_BLOCKING_REVIEW_REASON_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function normalizeBlockingReviewReason(reason: string): string {
+  return reason.trim().toLocaleLowerCase().replace(/[\s\p{P}]+/gu, " ").trim();
+}
+
+function boundBlockingReviewReasons(reasons: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const bounded: string[] = [];
+  for (const reason of reasons) {
+    const display = reason.trim().replace(/\s+/g, " ");
+    const key = normalizeBlockingReviewReason(display);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    bounded.push(display);
+    if (bounded.length === MAX_BLOCKING_REVIEW_REASONS) break;
   }
-  return reasons;
+  return bounded;
+}
+
+function getOutstandingBlockingMergeReasons(task: Task | undefined): string[] {
+  const entries = task?.log ?? [];
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    const action = entry.action;
+    if (/AI merge: (?:landed|finalized).*task → done/i.test(action) || /AI merge review \(pass \d+\): approved/i.test(action)) return [];
+    const current = action.match(/AI merge (?:BLOCKED .*?unresolved correctness concern:\s*|review \(pass \d+\): rejected \(blocking\) —\s*)(.+)$/i);
+    if (!current?.[1]) continue;
+    const ageMs = Date.now() - Date.parse(entry.timestamp);
+    // Invalid legacy timestamps remain recoverable; only provably stale contracts expire.
+    if (Number.isFinite(ageMs) && ageMs > MAX_BLOCKING_REVIEW_REASON_AGE_MS) return [];
+    return boundBlockingReviewReasons(current[1].split(/;\s*/));
+  }
+  return [];
 }
 
 function matchesApprovedAiMergeSha(squashSha: string, approvedShas: Set<string>): boolean {
@@ -418,6 +432,7 @@ async function ensureCommitTaskMetadata(
 
 export {
   REVIEW_VERDICT_MARKER,
+  RESOLVED_PRIOR_FINDINGS_MARKER,
   buildMergePrompt,
   buildMergeSystemPrompt,
   buildReviewPrompt,
@@ -2618,7 +2633,10 @@ async function mergeAndReview(input: {
   initialPriorReasons?: string[];
 }): Promise<{ squashSha: string | null; priorReasons: string[] }> {
   const { mergeRoot, branch, integrationBranch, tipSha, taskTitle, includeTaskId, trailers, taskId, maxPasses, mergeAgent, reviewAgent, audit, log, setStatus, store, signal } = input;
-  let priorReasons = [...(input.initialPriorReasons ?? [])];
+  let priorReasons = boundBlockingReviewReasons(input.initialPriorReasons ?? []);
+  // Only findings introduced by the immediately preceding review are actionable
+  // merger instructions; older findings remain reviewer-verification evidence.
+  let correctiveReasons: string[] = [];
 
   for (let attempt = 0; ; attempt++) {
     throwIfAborted(signal, taskId);
@@ -2629,13 +2647,13 @@ async function mergeAndReview(input: {
 
     if (attempt > 0) {
       await setStatus("merging");
-      await log(`AI merge: corrective re-merge (pass ${attempt}/${maxPasses}) addressing: ${priorReasons.join("; ")}`);
+      await log(`AI merge: corrective re-merge (pass ${attempt}/${maxPasses}) addressing new findings: ${correctiveReasons.join("; ") || "reviewer reconciliation"}`);
     }
     const latestTaskForMergePrompt = await store.getTask(taskId);
     const mergeUserComments = selectUserCommentsForAgentContext(latestTaskForMergePrompt);
     await mergeAgent(mergeRoot, buildMergePrompt({
       taskId, branch, integrationBranch, tipSha, taskTitle, includeTaskId, trailers,
-      correctiveReasons: priorReasons.length ? priorReasons : undefined,
+      correctiveReasons: correctiveReasons.length ? correctiveReasons : undefined,
       userComments: mergeUserComments,
     }));
 
@@ -2665,34 +2683,59 @@ async function mergeAndReview(input: {
       metadata: { taskId, attempt, verdict: verdict.verdict, severity: verdict.severity, reasons: verdict.reasons, squashSha: head },
     });
 
-    if (verdict.verdict === "approve") {
+    /*
+    FNXC:MergeReviewReconciliation 2026-08-20-02:02:
+    Review findings are a current squash-fidelity contract, not a permanent transcript.
+    A reviewer must explicitly acknowledge every supplied blocking finding before approval;
+    unknown acknowledgements are new findings, never silently discarded. Advisory findings
+    remain landable and are never carried into the next approval gate.
+    */
+    const priorKeys = new Set(priorReasons.map(normalizeBlockingReviewReason));
+    const acknowledgedKeys = new Set(
+      verdict.resolvedPriorReasons
+        .map(normalizeBlockingReviewReason)
+        .filter((key) => priorKeys.has(key)),
+    );
+    const unknownAcknowledgements = verdict.resolvedPriorReasons.filter(
+      (reason) => !priorKeys.has(normalizeBlockingReviewReason(reason)),
+    );
+    const retainedPriorReasons = priorReasons.filter(
+      (reason) => !acknowledgedKeys.has(normalizeBlockingReviewReason(reason)),
+    );
+    const acknowledgedReasonKeys = new Set(
+      verdict.resolvedPriorReasons
+        .filter((reason) => acknowledgedKeys.has(normalizeBlockingReviewReason(reason)))
+        .map(normalizeBlockingReviewReason),
+    );
+    const reportedNewReasons = verdict.reasons.filter(
+      (reason) => !acknowledgedReasonKeys.has(normalizeBlockingReviewReason(reason)),
+    );
+    const newReasons = verdict.verdict === "approve" || verdict.severity === "blocking"
+      ? [...reportedNewReasons, ...unknownAcknowledgements]
+      : [];
+    const unresolvedReasons = boundBlockingReviewReasons([...retainedPriorReasons, ...newReasons]);
+    const budgetExhausted = attempt >= maxPasses;
+
+    if (verdict.verdict === "approve" && unresolvedReasons.length === 0) {
       await log(`AI merge review (pass ${attempt + 1}): approved squash ${head}`);
       return { squashSha: emptyMerge ? null : head, priorReasons };
     }
 
-    /*
-    FNXC:MergeReviewBlockers 2026-07-21-21:30:
-    Every rejected blocker remains part of the corrective contract until a reviewer approves the complete result. Review an empty corrective rebuild instead of treating it as an unreviewed no-op, and accumulate newly discovered blockers so a later pass cannot regress an earlier concern.
-
-    FNXC:MergeReviewBlockers 2026-07-21-21:45:
-    Persist the accumulated set in every rejection log so crash recovery restores all outstanding concerns rather than only the latest pass.
-    */
-    const unresolvedReasons = [...new Set([...priorReasons, ...verdict.reasons])];
-    const budgetExhausted = attempt >= maxPasses;
+    if (budgetExhausted && (verdict.severity === "blocking" || unresolvedReasons.length > 0)) {
+      await audit.git({ type: "merge:ai-review-blocked", target: integrationBranch, metadata: { taskId, attempt, reasons: unresolvedReasons } });
+      await log(`AI merge BLOCKED after ${attempt} corrective pass(es) — unresolved correctness concern: ${unresolvedReasons.join("; ")}`);
+      throw new AiMergeBlockedError(taskId, unresolvedReasons);
+    }
     if (budgetExhausted) {
-      if (verdict.severity === "blocking") {
-        await audit.git({ type: "merge:ai-review-blocked", target: integrationBranch, metadata: { taskId, attempt, reasons: unresolvedReasons } });
-        await log(`AI merge BLOCKED after ${attempt} corrective pass(es) — unresolved correctness concern: ${unresolvedReasons.join("; ")}`);
-        throw new AiMergeBlockedError(taskId, unresolvedReasons);
-      }
-      // Advisory: land the squash with the concern logged.
-      await audit.git({ type: "merge:ai-review-landed-with-concerns", target: integrationBranch, metadata: { taskId, attempt, reasons: unresolvedReasons, squashSha: head } });
-      await log(`AI merge: landing with unresolved advisory concern(s): ${unresolvedReasons.join("; ")}`);
-      return { squashSha: emptyMerge ? null : head, priorReasons: unresolvedReasons };
+      // Advisory: land the squash with the concern logged, without poisoning the next pass.
+      await audit.git({ type: "merge:ai-review-landed-with-concerns", target: integrationBranch, metadata: { taskId, attempt, reasons: reportedNewReasons, squashSha: head } });
+      await log(`AI merge: landing with unresolved advisory concern(s): ${reportedNewReasons.join("; ")}`);
+      return { squashSha: emptyMerge ? null : head, priorReasons: [] };
     }
 
     priorReasons = unresolvedReasons;
-    await log(`AI merge review (pass ${attempt + 1}): rejected (${verdict.severity}) — ${unresolvedReasons.join("; ")}`);
+    correctiveReasons = boundBlockingReviewReasons(newReasons);
+    await log(`AI merge review (pass ${attempt + 1}): rejected (${verdict.severity ?? "blocking"}) — ${unresolvedReasons.join("; ")}`);
   }
 }
 
