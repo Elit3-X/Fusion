@@ -1741,7 +1741,7 @@ describe("TaskChatTab", () => {
   it.each([
     ["active steering", makeTask({ column: "in-progress" })],
     ["done-task refinement", makeTask({ column: "done" })],
-  ] as const)("caps the %s composer, top-edge expands it, and collapses after clear", async (_label, task) => {
+  ] as const)("caps the %s composer, ignores pointer resizing, and collapses after clear", async (_label, task) => {
     const user = userEvent.setup();
     mockedAddSteeringComment.mockResolvedValue(task);
     mockedRefineTask.mockResolvedValue(makeTask({ id: "FN-024-refinement", column: "todo" }));
@@ -1759,16 +1759,13 @@ describe("TaskChatTab", () => {
     expect(input.style.overflowY).toBe("auto");
     expect(screen.getByTestId("task-chat-transcript")).toBeInTheDocument();
 
-    vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
-      bottom: 400, height: 118, left: 0, right: 600, top: 282, width: 600, x: 0, y: 282, toJSON: () => ({}),
-    });
     const pointer = (type: string, clientY: number) => input.dispatchEvent(Object.assign(
       new Event(type, { bubbles: true, cancelable: true }), { clientY, pointerId: 1, pointerType: "mouse" },
     ));
-    pointer("pointerdown", 284);
-    pointer("pointermove", 0);
-    pointer("pointerup", 0);
-    expect(Number.parseInt(input.style.height, 10)).toBeGreaterThan(automaticHeight);
+    pointer("pointerdown", 0);
+    pointer("pointermove", -200);
+    pointer("pointerup", -200);
+    expect(Number.parseInt(input.style.height, 10)).toBe(automaticHeight);
 
     fireEvent.change(input, { target: { value: "" } });
     await waitFor(() => {

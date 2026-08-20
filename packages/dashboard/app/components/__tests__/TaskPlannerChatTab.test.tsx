@@ -296,7 +296,7 @@ describe("TaskPlannerChatTab", () => {
     expect(document.body.textContent).not.toContain("5. 6");
   });
 
-  it("caps the loaded planner composer, top-edge expands it, and collapses on clear", async () => {
+  it("caps the loaded planner composer, ignores pointer resizing, and collapses on clear", async () => {
     mockFetchChatMessages.mockResolvedValueOnce({
       messages: [{ id: "planner-history", sessionId: "chat-planner", role: "assistant", content: "Loaded planner history", thinkingOutput: null, metadata: null, createdAt: "2026-06-30T00:01:00.000Z" }],
     });
@@ -315,16 +315,13 @@ describe("TaskPlannerChatTab", () => {
     expect(input.style.overflowY).toBe("auto");
     expect(screen.getByTestId("task-planner-chat-transcript")).toBeInTheDocument();
 
-    vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
-      bottom: 400, height: 118, left: 0, right: 600, top: 282, width: 600, x: 0, y: 282, toJSON: () => ({}),
-    });
     const pointer = (type: string, clientY: number) => input.dispatchEvent(Object.assign(
       new Event(type, { bubbles: true, cancelable: true }), { clientY, pointerId: 1, pointerType: "mouse" },
     ));
-    pointer("pointerdown", 284);
-    pointer("pointermove", 0);
-    pointer("pointerup", 0);
-    expect(Number.parseInt(input.style.height, 10)).toBeGreaterThan(automaticHeight);
+    pointer("pointerdown", 0);
+    pointer("pointermove", -200);
+    pointer("pointerup", -200);
+    expect(Number.parseInt(input.style.height, 10)).toBe(automaticHeight);
 
     fireEvent.change(input, { target: { value: "" } });
     await waitFor(() => {

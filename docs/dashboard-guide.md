@@ -743,8 +743,8 @@ Use **Settings → Appearance → Conversation layout** to choose the project-sc
 <!-- FNXC:ChatStreamingDocs 2026-08-19-13:52: Ordinary Markdown links in the shared Chat renderer open safely in a new tab and use the assistant-bubble text token so source destinations remain readable on desktop and narrow hosts. -->
 Ordinary Markdown links in Direct Chat, Chat Rooms, Quick Chat, floating/dock Chat, and task-detail Planner Chat open in a new browser tab and include the safe `noopener noreferrer` relationship. They retain the complete sanitized destination and use the shared readable, always-underlined Chat treatment on desktop and mobile. Native `fusion://` structure references continue to open their preview cards, file-path controls keep their in-app navigation, and terminal-only CLI output plus separate non-Chat Markdown surfaces are outside this link contract.
 
-<!-- FNXC:ChatComposerDocs 2026-08-19-03:02: Primary conversation drafts must stop displacing the transcript while retaining an intentional desktop/tablet escape hatch. -->
-Primary Chat, Rooms, Activity, and task Chat composers grow automatically through five rendered lines, then scroll excess text inside the input. On desktop and tablet, drag the native vertical resize affordance to enlarge the current draft; that manual height is in-memory only, is not saved, and resets when the draft is cleared, sent, or the conversation/task target changes. Mobile keeps the composer compact, capped at five lines, and internally scrolling without advertising a mouse-only resize affordance.
+<!-- FNXC:ChatComposerDocs 2026-08-20-19:25: FN-076 makes every dashboard chat textarea automatic-only so mouse resizing cannot leave a shortened or cleared draft enlarged. -->
+Every dashboard chat textarea—Primary Chat, Rooms, Activity, task Planner Chat, message correction, question responses, and Compose Chat—grows automatically through five rendered lines and scrolls additional text inside the input. It shrinks as content is removed and returns to its minimum height when cleared. Mouse resizing is unavailable on desktop, tablet, and mobile.
 
 ## Mailbox archive
 
@@ -2351,7 +2351,7 @@ const baseOnly = await loadAllAppCssBaseOnly(); // strips @media/@supports
 ### File browser editor & autosize textarea
 
 - `FileEditor.tsx` is CodeMirror 6-only (no `<textarea>` fallback). Language resolution: `packages/dashboard/app/utils/codemirror-language.ts`.
-- For chat-style composer fields use `packages/dashboard/app/hooks/useAutosizeTextarea.ts`. Pattern: `height = "auto"` then clamp `scrollHeight` to min/max in `useLayoutEffect`. Pair with `resize: none`; keep `overflow-y: hidden` while under the max-height cap and switch to `overflow-y: auto` only after content exceeds the cap.
+- For dashboard chat textareas use `packages/dashboard/app/utils/chatInputAutosize.ts`. Its controller resets the used height before measuring, caps automatic growth at five rendered lines, sets `overflow-y: auto` only beyond that cap, and returns cleared content to the minimum. Pair every chat class with `resize: none`; do not add a manual mouse-resize path.
 
 ### File-path links
 

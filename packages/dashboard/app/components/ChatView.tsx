@@ -1728,13 +1728,13 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     setShowNewDialog(true);
   }, [chatDefaultTarget, chatSettings?.chatNewSessionMode, handleCreateSession]);
 
-  const resizeComposer = useCallback((textarea?: HTMLTextAreaElement | null, options?: { resetManual?: boolean }) => {
+  const resizeComposer = useCallback((textarea?: HTMLTextAreaElement | null) => {
     if (!textarea || textarea === inputRef.current) {
-      inputAutosizeRef.current?.resize(options);
+      inputAutosizeRef.current?.resize();
       return;
     }
     if (textarea === roomInputRef.current) {
-      roomAutosizeRef.current?.resize(options);
+      roomAutosizeRef.current?.resize();
     }
   }, []);
 
@@ -1773,22 +1773,12 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   useLayoutEffect(() => {
     // FNXC:VoiceInput 2026-07-24-05:00: Select the active textarea explicitly so controlled
     // programmatic updates, including dictation, resize the room composer instead of a hidden direct input.
-    resizeComposer(
-      chatScope === "rooms" ? roomInputRef.current : inputRef.current,
-      { resetManual: messageInput.length === 0 },
-    );
+    resizeComposer(chatScope === "rooms" ? roomInputRef.current : inputRef.current);
     if (focusComposerAfterPrefillRef.current) {
       focusComposerAfterPrefillRef.current = false;
       inputRef.current?.focus();
     }
   }, [chatScope, messageInput, activeSession?.id, rooms.activeRoom?.id, resizeComposer]);
-
-  useLayoutEffect(() => {
-    // FNXC:ChatComposer 2026-08-19-02:00: Session and room changes replace the mounted draft target,
-    // so a height deliberately chosen for the previous conversation must not leak into this one.
-    inputAutosizeRef.current?.reset();
-    roomAutosizeRef.current?.reset();
-  }, [chatScope, activeSession?.id, rooms.activeRoom?.id]);
 
   /*
   FNXC:ChatComposerPrefill 2026-07-30-12:00:

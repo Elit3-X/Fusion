@@ -1185,7 +1185,9 @@ User messages in direct (model-loop) chat carry a compact edit affordance inline
 
 .chat-message-edit-textarea {
   width: 100%;
-  resize: vertical;
+  resize: none;
+  overflow-y: hidden;
+  max-height: none;
   min-height: calc(var(--space-lg) * 4);
   font: inherit;
   color: var(--text);
@@ -1632,8 +1634,8 @@ User messages in direct (model-loop) chat carry a compact edit affordance inline
 }
 
 /*
-FNXC:ChatComposer 2026-08-19-17:58:
-ChatView's inline controller supplies the five-line automatic height and owns desktop/tablet top-edge pointer resizing. Disable native resizing at every breakpoint so the lower-right grip cannot compete; mobile remains automatic-only.
+FNXC:ChatComposer 2026-08-20-19:25:
+FN-076 requires ChatView composers to use automatic-only sizing through five rendered lines. The controller owns capped overflow and shrink-to-minimum behavior, while this rule removes native mouse resizing at every breakpoint.
 */
 .chat-input-textarea {
   /* FN-5322: this textarea sits directly inside `.chat-input-wrapper`, which

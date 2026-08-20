@@ -745,8 +745,8 @@ export function TaskChatTab({ task, columnFlags, projectId, active, addToast, on
 
   const showLoadingIndicator = loadingIndicatorTaskId === task.id;
 
-  const resizeComposer = useCallback((options?: { resetManual?: boolean }) => {
-    autosizeRef.current?.resize(options);
+  const resizeComposer = useCallback(() => {
+    autosizeRef.current?.resize();
   }, []);
 
   const handleComposerRef = useCallback((textarea: HTMLTextAreaElement | null) => {
@@ -758,14 +758,8 @@ export function TaskChatTab({ task, columnFlags, projectId, active, addToast, on
   }, []);
 
   useLayoutEffect(() => {
-    resizeComposer({ resetManual: draft.length === 0 });
+    resizeComposer();
   }, [draft, resizeComposer]);
-
-  useLayoutEffect(() => {
-    // FNXC:ChatComposer 2026-08-19-02:00: Reused task-detail instances must not carry a
-    // manually enlarged Activity composer into another task's draft.
-    autosizeRef.current?.reset();
-  }, [task.id]);
 
   const cancelAnchorTranscriptFrame = useCallback(() => {
     if (anchorFrameRef.current === null) return;
