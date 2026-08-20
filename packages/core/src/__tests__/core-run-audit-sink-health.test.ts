@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { asyncAuditSink, workflowReader, resolvedWorkflowIr } = vi.hoisted(() => ({
+const { asyncAuditSink, recallAppend, workflowReader, resolvedWorkflowIr } = vi.hoisted(() => ({
   asyncAuditSink: { current: undefined as undefined | ((event: unknown) => unknown) },
+  recallAppend: { current: undefined as undefined | ((input: unknown) => unknown) },
   workflowReader: { current: undefined as undefined | (() => unknown) },
   resolvedWorkflowIr: { current: undefined as unknown },
 }));
@@ -13,6 +14,10 @@ vi.mock("../postgres/data-layer.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../postgres/data-layer.js")>();
   return { ...actual, recordRunAuditEvent: (_layer: unknown, event: unknown) => asyncAuditSink.current?.(event) };
 });
+
+vi.mock("../memory/recall/recall-store.js", () => ({
+  appendRecall: (_layer: unknown, input: unknown) => recallAppend.current?.(input),
+}));
 
 vi.mock("../task-store/async/async-persistence.js", () => ({
   readTaskRow: vi.fn(async () => workflowReader.current?.()),
@@ -54,6 +59,7 @@ import {
   emitOverseerRetry,
   emitOverseerSteering,
 } from "../planner/planner-overseer-events.js";
+import { createRecallCaptureWriter } from "../memory/recall-capture.js";
 import { CORE_RUN_AUDIT_EMIT_TIMEOUT_MS } from "../run-audit/emit-bounded-run-audit.js";
 import { runPluginColumnTransitionHooksImpl } from "../task-store/audit-ops.js";
 import { rehomeOccupantImpl } from "../task-store/branch-group-ops.js";
@@ -102,9 +108,61 @@ async function settleBounded(promise: Promise<void>, mode: SinkMode, settle: () 
   await expect(promise).resolves.toBeUndefined();
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  asyncAuditSink.current = undefined;
+  recallAppend.current = undefined;
+  workflowReader.current = undefined;
+  resolvedWorkflowIr.current = undefined;
+  vi.useRealTimers();
+});
 
 describe("core audit emitters tolerate hostile sinks", () => {
+  it.each(["absent", "throw", "reject", "never", "late-resolve", "late-reject"] as const)(
+    "keeps production recall-capture audit bounded for %s layer sinks", async (mode) => {
+      vi.useFakeTimers();
+      const hostile = hostileSink(mode);
+      asyncAuditSink.current = mode === "absent" ? undefined : hostile.sink;
+      recallAppend.current = () => ({
+        status: "created",
+        record: { id: "recall-9177", projectId: "project", kind: "decision", content: "stored", contentHash: "hash", source: { origin: "other" }, tags: [], graphNodeIds: [], createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z" },
+      });
+      const writer = createRecallCaptureWriter({ layer: {} as never, logger: { warn: vi.fn() } });
+      expect(writer.capture({ origin: "insight", summary: "must not reach audit", insightId: "INS-9177" })).toBeUndefined();
+      const drain = writer.flushPendingCaptures();
+      if (mode === "never" || mode.startsWith("late-")) {
+        await vi.advanceTimersByTimeAsync(CORE_RUN_AUDIT_EMIT_TIMEOUT_MS);
+        hostile.settle();
+      }
+      await expect(drain).resolves.toBeUndefined();
+      await expect(writer.flushPendingCaptures()).resolves.toBeUndefined();
+      if (mode !== "absent") expect(hostile.sink).toHaveBeenCalled();
+      if (mode === "late-reject") await Promise.resolve();
+      if (mode === "absent") return;
+      const event = hostile.sink.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(event).toMatchObject({ agentId: "memory-capture", domain: "database", mutationType: "memory:capture-recorded", target: "INS-9177" });
+      expect(event.metadata).toMatchObject({ origin: "insight", recallRecordId: "recall-9177", outcome: "created" });
+      expect(JSON.stringify(event)).not.toContain("must not reach audit");
+    },
+  );
+
+  it("records the production layer failure event and suppresses the layer when append is injected", async () => {
+    const sink = vi.fn();
+    asyncAuditSink.current = sink;
+    recallAppend.current = () => Promise.reject(new TypeError("append failure"));
+    const writer = createRecallCaptureWriter({ layer: {} as never, logger: { warn: vi.fn() } });
+    writer.capture({ origin: "research-finding", summary: "private failure summary", findingId: "RF-9177" });
+    await writer.flushPendingCaptures();
+    expect(sink).toHaveBeenCalledWith(expect.objectContaining({
+      mutationType: "memory:capture-failed", target: "RF-9177", metadata: { origin: "research-finding", errorClass: "TypeError" },
+    }));
+
+    const injectedAppend = vi.fn(async () => ({ status: "created" as const, record: { id: "recall-injected" } }));
+    const injectedWriter = createRecallCaptureWriter({ layer: {} as never, logger: { warn: vi.fn() }, append: injectedAppend as never });
+    injectedWriter.capture({ origin: "insight", summary: "append injection suppresses audit" });
+    await injectedWriter.flushPendingCaptures();
+    expect(sink).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["absent", "throw", "reject", "never", "late-resolve", "late-reject"] as const)(
     "keeps every planner façade bounded for %s sinks", async (mode) => {
       vi.useFakeTimers();

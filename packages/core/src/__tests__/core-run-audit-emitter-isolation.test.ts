@@ -14,7 +14,6 @@ const awaitedClassifications = {
   "store.ts:task:resume-step": "C",
   "task-store/task-creation.ts:intake:resurrection-blocked": "C",
   "task-store/task-id-integrity.ts:task:resurrection-blocked": "C",
-  "memory/recall-capture.ts:memory:capture-recorded|memory:capture-failed": "A",
   "task-store/project-store-ops.ts:recordRunAuditEventImpl": "permanent-sink",
 } as const;
 
@@ -32,7 +31,7 @@ const files = [
   "../task-store/workflow-workitems-ops.ts", "../task-store/workflow-workitems-ops-2.ts", "../task-store/task-artifacts-ops.ts",
   "../task-store/lifecycle-ops.ts", "../task-store/task-id-integrity.ts", "../task-store/workflow-definitions.ts",
   "../task-store/async/async-phantom-reservations.ts", "../task-store/task-deleted-outbox-consumer.ts",
-  "../task-store/task-lifecycle-event-retention.ts",
+  "../task-store/task-lifecycle-event-retention.ts", "../memory/recall-capture.ts",
 ];
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
