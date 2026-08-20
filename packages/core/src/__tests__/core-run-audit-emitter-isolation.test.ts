@@ -5,14 +5,13 @@ import { describe, expect, it } from "vitest";
 /*
  * FNXC:RunAudit 2026-08-20-07:16:
  * FN-9178 makes every direct awaited core audit writer a named decision rather than an implicit
- * exception. Class A sites are evaluated candidates, B needs a reporting bounded seam, C retains
- * its ordering claim, and transactional/sink writers remain permanent atomicity boundaries.
+ * exception. Class A sites are evaluated candidates, C retains its ordering claim, and
+ * transactional/sink writers remain permanent atomicity boundaries. FN-9182 migrated class B
+ * sites to the reporting bounded seam, so they no longer appear in this direct-await inventory.
  */
 const awaitedClassifications = {
   "store.ts:task:bypass-review": "C",
   "store.ts:task:resume-step": "C",
-  "task-store/workflow-definitions.ts:task:workflow-switch-torn": "B",
-  "task-store/async/async-phantom-reservations.ts:task:reconcile-phantom-committed-reservation": "B",
   "task-store/task-creation.ts:intake:resurrection-blocked": "C",
   "task-store/task-id-integrity.ts:task:resurrection-blocked": "C",
   "task-store/task-deleted-outbox-consumer.ts:task-deleted-outbox:catch-up": "A",
@@ -35,7 +34,8 @@ const files = [
   "../planner/planner-intervention.ts", "../task-store/audit-ops.ts", "../task-store/branch-group-ops.ts",
   "../task-store/merge-queue-ops-2.ts", "../task-store/task-mutation-ops.ts", "../task-store/workflow-integrity.ts",
   "../task-store/workflow-workitems-ops.ts", "../task-store/workflow-workitems-ops-2.ts", "../task-store/task-artifacts-ops.ts",
-  "../task-store/lifecycle-ops.ts", "../task-store/task-id-integrity.ts",
+  "../task-store/lifecycle-ops.ts", "../task-store/task-id-integrity.ts", "../task-store/workflow-definitions.ts",
+  "../task-store/async/async-phantom-reservations.ts",
 ];
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));

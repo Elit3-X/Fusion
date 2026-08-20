@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { asyncAuditSink } = vi.hoisted(() => ({ asyncAuditSink: { current: undefined as undefined | ((event: unknown) => unknown) } }));
+const { asyncAuditSink, workflowReader, resolvedWorkflowIr } = vi.hoisted(() => ({
+  asyncAuditSink: { current: undefined as undefined | ((event: unknown) => unknown) },
+  workflowReader: { current: undefined as undefined | (() => unknown) },
+  resolvedWorkflowIr: { current: undefined as unknown },
+}));
 vi.mock("../task-store/async/async-audit.js", () => ({
   recordRunAuditEvent: (_layer: unknown, event: unknown) => asyncAuditSink.current?.(event),
 }));
@@ -11,8 +15,13 @@ vi.mock("../postgres/data-layer.js", async (importOriginal) => {
 });
 
 vi.mock("../task-store/async/async-persistence.js", () => ({
-  readTaskRow: vi.fn(async () => undefined),
+  readTaskRow: vi.fn(async () => workflowReader.current?.()),
 }));
+
+vi.mock("../workflows/workflow-ir-resolver.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../workflows/workflow-ir-resolver.js")>();
+  return { ...actual, resolveWorkflowIrForTask: vi.fn(async () => resolvedWorkflowIr.current) };
+});
 
 vi.mock("../task-store/async/async-transition-pending.js", () => ({
   listTransitionPendingTaskIdsAsync: vi.fn(async () => ["FN-9177"]),
@@ -57,6 +66,8 @@ import { projectMergeRequestToWorkflowWorkItemImpl } from "../task-store/workflo
 import { acquireWorkflowWorkItemLeaseImpl } from "../task-store/workflow-workitems-ops-2.js";
 import { markLegacyAutoMergeStampsOnceImpl } from "../task-store/workflow-integrity.js";
 import { getTraitRegistry } from "../workflows/trait-registry.js";
+import { WorkflowSwitchRehomeFailedError } from "../workflows/workflow-reconciliation.js";
+import { selectTaskWorkflowAndReconcileImpl } from "../task-store/workflow-definitions.js";
 
 const input = { taskId: "FN-9177", stage: "executor" as const, reason: "test", timestamp: "2026-08-20T00:00:00.000Z" };
 const façades = [
@@ -256,6 +267,42 @@ describe("core audit emitters tolerate hostile sinks", () => {
     },
   );
 
+});
+
+describe("workflow-switch torn reconciliation retains its forensic rejection", () => {
+  afterEach(() => {
+    workflowReader.current = undefined;
+    resolvedWorkflowIr.current = undefined;
+  });
+
+  it.each(["absent", "throw", "reject", "never", "late-resolve", "late-reject"] as const)(
+    "throws the committed torn error for %s audit sinks", async (mode) => {
+      vi.useFakeTimers();
+      const hostile = hostileSink(mode);
+      let readCount = 0;
+      workflowReader.current = () => (readCount++ === 0 ? undefined : { id: "FN-9182", column: "todo" });
+      resolvedWorkflowIr.current = { version: 1, nodes: [], edges: [], columns: [{ id: "inbox", name: "Inbox", traits: [] }] };
+      const owner = {
+        ...hostile.store,
+        asyncLayer: {},
+        selectTaskWorkflow: vi.fn(async () => []),
+        rehomeOccupant: vi.fn(async () => ({ moved: false })),
+      };
+      const operation = selectTaskWorkflowAndReconcileImpl(owner as never, "FN-9182", "WF-9182");
+      const rejection = expect(operation).rejects.toMatchObject({
+        name: "WorkflowSwitchRehomeFailedError",
+        taskId: "FN-9182",
+        workflowId: "WF-9182",
+        fromColumn: "todo",
+        intendedColumn: "inbox",
+        committed: true,
+      } satisfies Partial<WorkflowSwitchRehomeFailedError>);
+      if (mode === "never" || mode.startsWith("late-")) await vi.advanceTimersByTimeAsync(CORE_RUN_AUDIT_EMIT_TIMEOUT_MS);
+      hostile.settle();
+      await rejection;
+      if (mode !== "absent") expect(hostile.sink).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe("remaining production owners retain hostile-sink isolation", () => {
