@@ -222,6 +222,20 @@ describe("useTheme", () => {
     expect(document.documentElement.getAttribute("data-color-theme")).toBe("medieval");
   });
 
+  it.each(["dark", "light"] as const)("preserves Medieval's selected font scales in %s mode", (themeMode) => {
+    localStorageMock[THEME_MODE_STORAGE_KEY] = themeMode;
+    localStorageMock[COLOR_THEME_STORAGE_KEY] = "medieval";
+
+    const { result } = renderHook(() => useTheme());
+    for (const fontScale of [90, 100, 110, 120]) {
+      act(() => result.current.setDashboardFontScalePct(fontScale));
+      expect(result.current.dashboardFontScalePct).toBe(fontScale);
+      expect(document.documentElement.style.fontSize).toBe(`${fontScale}%`);
+      expect(document.documentElement.getAttribute("data-color-theme")).toBe("medieval");
+      expect(document.documentElement.getAttribute("data-theme")).toBe(themeMode);
+    }
+  });
+
   it("hydrates dashboard font scale from backend on mount", async () => {
     mockFetchGlobalSettings.mockResolvedValue({ dashboardFontScalePct: 110 });
 

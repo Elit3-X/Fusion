@@ -1314,13 +1314,19 @@ Modal and dock pop-out surfaces should not darken or blur the app behind them. K
 }
 
 /*
-FNXC:DashboardTheming 2026-08-19-19:27:
-Medieval modal chrome uses only paint properties on the shared generic surface, preserving modal sizing, dismissal, focus, touch, and mobile behavior while providing the requested restrained wood frame.
+FNXC:DashboardTheming 2026-08-20-00:49:
+Operator feedback requires one readable pixel face for ordinary prose, links, dates, and native or role-based controls. Scope the override to those UI semantics rather than every descendant, so direct mono contracts for paths, identifiers, logs, code, editors, and terminals continue to describe machine-readable content.
 */
-[data-color-theme="medieval"] .modal {
-  border-color: color-mix(in srgb, var(--border) 82%, var(--accent) 18%);
-  box-shadow: inset 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--card) 70%, var(--border) 30%), var(--shadow-lg);
-  background-image: linear-gradient(90deg, color-mix(in srgb, var(--border) 16%, transparent), transparent var(--space-2xl), color-mix(in srgb, var(--border) 12%, transparent));
+[data-color-theme="medieval"] {
+  font-family: var(--font-primary);
+}
+
+[data-color-theme="medieval"] :where(a, time, button, label, input, textarea, select, option, [role="button"], [role="link"], [role="textbox"], [role="option"]) {
+  font-family: var(--font-primary);
+}
+
+[data-color-theme="medieval"] :is(pre, pre *, code, code *, kbd, kbd *, samp, samp *, .cm-editor, .cm-editor *, .xterm, .xterm *, .terminal, .terminal *, .session-terminal, .session-terminal *) {
+  font-family: var(--font-mono) !important;
 }
 
 .modal {
@@ -1333,6 +1339,22 @@ Medieval modal chrome uses only paint properties on the shared generic surface, 
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
+}
+
+/*
+FNXC:DashboardTheming 2026-08-20-00:29:
+Medieval modal chrome must follow the generic modal shorthand reset so its border-box grain remains visible. Paint-only layers keep sizing, dismissal, focus, touch, and mobile behavior owned by the existing modal contract.
+*/
+[data-color-theme="medieval"] .modal {
+  border-color: transparent;
+  border-width: var(--btn-border-width);
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(var(--surface), var(--surface)),
+    repeating-linear-gradient(90deg, var(--medieval-wood-dark) 0, var(--medieval-wood-light) var(--space-xs), var(--medieval-wood-dark) var(--space-sm), var(--medieval-wood-light) var(--space-md));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-resize-grip {
@@ -3811,8 +3833,16 @@ Toast text must contrast its status background across every dashboard theme and 
   [data-color-theme="medieval"] .modal-lg,
   [data-color-theme="medieval"] .modal-md,
   [data-color-theme="medieval"] .gm-modal {
-    border: var(--btn-border-width) solid color-mix(in srgb, var(--border) 82%, var(--accent) 18%);
-    box-shadow: inset 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--card) 70%, var(--border) 30%), var(--shadow-lg);
+    border-color: transparent;
+    border-width: var(--btn-border-width);
+    border-style: solid;
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--surface), var(--surface)),
+      repeating-linear-gradient(90deg, var(--medieval-wood-dark) 0, var(--medieval-wood-light) var(--space-xs), var(--medieval-wood-dark) var(--space-sm), var(--medieval-wood-light) var(--space-md));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: var(--shadow-lg);
   }
 
   /* Settings modal: use the section picker as the only mobile navigation */

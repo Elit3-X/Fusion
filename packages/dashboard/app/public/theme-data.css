@@ -7453,8 +7453,8 @@ FNXC:DashboardTheming 2026-07-20-00:00:
 Aurora gives operators navy/teal/violet dark surfaces and misty light surfaces. Literal palette values stay in these canonical tokens, while globally defined swatch variables keep the unselected option accurate in either mode.
 */
 /*
-FNXC:DashboardTheming 2026-08-19-19:42:
-Medieval keeps the dashboard clean and legible while applying a restrained aged-parchment canvas, wood-framed generic modals, and the bundled pixel display face. Press Start 2P remains primary, while explicit system fallbacks render any unsupported localized glyph rather than showing tofu; terminal typography stays on --font-mono and no runtime font request is made.
+FNXC:DashboardTheming 2026-08-20-00:29:
+Operator feedback supersedes the original oversized pixel choice because its apparent UI size harmed readability. Medieval keeps a locally bundled Pixelify Sans face for ordinary UI while code and terminal surfaces retain --font-mono; paper and wood paints stay CSS backgrounds rather than interaction overlays.
 */
 [data-color-theme="medieval"] {
   --bg: #21170f;
@@ -7488,7 +7488,11 @@ Medieval keeps the dashboard clean and legible while applying a restrained aged-
   --shadow-glow: 0 0 var(--space-lg) color-mix(in srgb, var(--accent) 28%, transparent);
   --focus-ring: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 24%, transparent);
   --focus-ring-strong: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 36%, transparent);
-  --font-primary: "Press Start 2P", ui-monospace, monospace;
+  --font-primary: "Pixelify Sans", system-ui, sans-serif;
+  --medieval-paper-fiber: color-mix(in srgb, var(--text) 6%, transparent);
+  --medieval-paper-mottle: color-mix(in srgb, var(--border) 18%, transparent);
+  --medieval-wood-light: color-mix(in srgb, var(--accent) 68%, var(--card));
+  --medieval-wood-dark: color-mix(in srgb, var(--border) 76%, var(--bg));
 }
 
 [data-color-theme="medieval"][data-theme="light"] {
@@ -7523,12 +7527,20 @@ Medieval keeps the dashboard clean and legible while applying a restrained aged-
   --shadow-glow: 0 0 var(--space-lg) color-mix(in srgb, var(--accent) 20%, transparent);
   --focus-ring: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 18%, transparent);
   --focus-ring-strong: 0 0 0 var(--btn-border-width) color-mix(in srgb, var(--accent) 28%, transparent);
-  --font-primary: "Press Start 2P", ui-monospace, monospace;
+  --font-primary: "Pixelify Sans", system-ui, sans-serif;
+  --medieval-paper-fiber: color-mix(in srgb, var(--text) 5%, transparent);
+  --medieval-paper-mottle: color-mix(in srgb, var(--border) 16%, transparent);
+  --medieval-wood-light: color-mix(in srgb, var(--accent) 64%, var(--card));
+  --medieval-wood-dark: color-mix(in srgb, var(--border) 78%, var(--bg));
 }
 
 [data-color-theme="medieval"] body {
   background-color: var(--bg);
-  background-image: linear-gradient(color-mix(in srgb, var(--text) 3%, transparent) 0 0), repeating-linear-gradient(0deg, transparent 0, transparent var(--space-2xl), color-mix(in srgb, var(--border) 12%, transparent) calc(var(--space-2xl) + var(--btn-border-width)));
+  background-image:
+    radial-gradient(ellipse at top left, var(--medieval-paper-fiber), transparent var(--space-2xl)),
+    radial-gradient(ellipse at bottom right, var(--medieval-paper-mottle), transparent calc(var(--space-2xl) * 2)),
+    repeating-linear-gradient(0deg, transparent 0, transparent var(--space-lg), var(--medieval-paper-fiber) calc(var(--space-lg) + var(--btn-border-width))),
+    repeating-linear-gradient(90deg, transparent 0, transparent var(--space-2xl), var(--medieval-paper-mottle) calc(var(--space-2xl) + var(--btn-border-width)));
 }
 /*
 FNXC:MidnightTheme 2026-08-03-02:05:

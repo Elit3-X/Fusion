@@ -275,7 +275,7 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.1
         version: 0.84.1(@modelcontextprotocol/sdk@1.28.0(zod@3.25.76))(ws@8.21.1)(zod@3.25.76)
-      '@fontsource/press-start-2p':
+      '@fontsource/pixelify-sans':
         specifier: ^5.3.0
         version: 5.3.0
       '@fusion-plugin-examples/claude-runtime':
@@ -2349,8 +2349,8 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@fontsource/press-start-2p@5.3.0':
-    resolution: {integrity: sha512-gxWFxdeDglPhEYSwEeooomcaFK8kSQYLQwVxfnOJeYRj2sPEHXjpVtFgEaYfqzOjuAJGrIcJOipu2KY5YkbyuQ==}
+  '@fontsource/pixelify-sans@5.3.0':
+    resolution: {integrity: sha512-4RCe9nXbi7wUu5+H0FNX1sgPZ2kJ1MmY1uTkEfvQIzzqhoS8zGKJaJfdK8oreE0OU+5gM+NdurFi3H3FJRBvyw==}
 
   '@google/genai@1.52.0':
     resolution: {integrity: sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q==}
@@ -9536,7 +9536,7 @@ snapshots:
     optionalDependencies:
       '@noble/hashes': 2.3.0
 
-  '@fontsource/press-start-2p@5.3.0': {}
+  '@fontsource/pixelify-sans@5.3.0': {}
 
   '@google/genai@1.52.0':
     dependencies:
