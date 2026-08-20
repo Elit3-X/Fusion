@@ -70,6 +70,12 @@ import {
   type ChatInputAutosizeController,
 } from "../utils/chatInputAutosize";
 
+/*
+FNXC:AgentMentionPopup 2026-08-20-04:49:
+FN-069 requires @ suggestions to open above the composer like / skills because below-composer modal placement can hide them. Direct and room composers share this invariant.
+*/
+const AGENT_MENTION_POPUP_POSITION = "above" as const;
+
 /**
  * Optional task-bound context that enables the "/" command registry (e.g.
  * `/steer`) in a ChatView instance. When omitted (the default for the
@@ -3017,7 +3023,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
             highlightedIndex={mentionHighlightIndex}
             visible={mentionPopupVisible}
             onSelect={handleMentionSelect}
-            position="below"
+            position={AGENT_MENTION_POPUP_POSITION}
             roomMemberIds={roomContext?.memberIds}
             roomName={roomContext?.roomName}
           />
@@ -3835,7 +3841,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                     highlightedIndex={mentionHighlightIndex}
                     visible={mentionPopupVisible}
                     onSelect={handleMentionSelect}
-                    position="below"
+                    position={AGENT_MENTION_POPUP_POSITION}
                     roomMemberIds={roomContext?.memberIds}
                     roomName={roomContext?.roomName}
                   />

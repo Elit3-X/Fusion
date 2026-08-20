@@ -419,15 +419,16 @@ describe("ChatView core interactions", () => {
   });
 
   describe("agent mentions", () => {
-    it("shows mention popup when @ is typed", async () => {
+    it("opens direct-chat mention popup above the composer when @ is typed", async () => {
       setupMockChat({ activeSession: activeSessionFixture, messages: [] });
 
       await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
+      await userEvent.click(screen.getByTestId("chat-session-session-001"));
       const textarea = screen.getByTestId("chat-input");
       await userEvent.type(textarea, "@");
 
-      expect(await screen.findByTestId("agent-mention-popup")).toBeInTheDocument();
+      expect(await screen.findByTestId("agent-mention-popup")).toHaveClass("agent-mention-popup--above");
     });
 
     it("filters mention popup by text after @", async () => {
@@ -435,6 +436,7 @@ describe("ChatView core interactions", () => {
 
       await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
+      await userEvent.click(screen.getByTestId("chat-session-session-001"));
       const textarea = screen.getByTestId("chat-input");
       await userEvent.type(textarea, "@be");
 
@@ -447,6 +449,7 @@ describe("ChatView core interactions", () => {
 
       await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
+      await userEvent.click(screen.getByTestId("chat-session-session-001"));
       const textarea = screen.getByTestId("chat-input");
       await userEvent.type(textarea, "@");
       expect(await screen.findByTestId("agent-mention-popup")).toBeInTheDocument();
@@ -460,6 +463,7 @@ describe("ChatView core interactions", () => {
 
       await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
+      await userEvent.click(screen.getByTestId("chat-session-session-001"));
       const textarea = screen.getByTestId("chat-input") as HTMLTextAreaElement;
       await userEvent.type(textarea, "@al");
 
@@ -472,16 +476,18 @@ describe("ChatView core interactions", () => {
 
     it("uses room member ordering in popup and marks non-member mention chips in room messages", async () => {
       setupMockChat({ activeSession: activeSessionFixture, messages: [] });
+      const activeRoom = {
+        id: "room-001",
+        slug: "engineering",
+        name: "engineering",
+        createdBy: "agent-001",
+        status: "active" as const,
+        createdAt: "2026-04-08T00:00:00.000Z",
+        updatedAt: "2026-04-08T00:00:00.000Z",
+      };
       setupMockRooms({
-        activeRoom: {
-          id: "room-001",
-          slug: "engineering",
-          name: "engineering",
-          createdBy: "agent-001",
-          status: "active",
-          createdAt: "2026-04-08T00:00:00.000Z",
-          updatedAt: "2026-04-08T00:00:00.000Z",
-        },
+        rooms: [activeRoom],
+        activeRoom,
         activeRoomMembers: [
           { roomId: "room-001", agentId: "agent-001", role: "member", addedAt: "2026-04-08T00:00:00.000Z" },
         ],
@@ -509,9 +515,11 @@ describe("ChatView core interactions", () => {
 
       const user = userEvent.setup({ delay: null });
       await user.click(screen.getByTestId("chat-sidebar-scope-rooms"));
+      await user.click(screen.getByTestId("chat-room-item-engineering"));
       const textarea = screen.getByTestId("chat-input");
       await user.type(textarea, "@");
 
+      expect(await screen.findByTestId("agent-mention-popup")).toHaveClass("agent-mention-popup--above");
       expect(screen.getByTestId("agent-mention-members-header")).toBeInTheDocument();
       expect(screen.queryByTestId("agent-mention-others-header")).not.toBeInTheDocument();
 
@@ -544,6 +552,7 @@ describe("ChatView core interactions", () => {
 
       await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} />);
 
+      await userEvent.click(screen.getByTestId("chat-session-session-001"));
       await waitFor(() => {
         expect(screen.getByText(/Talk to @Alpha and @Unknown next\./)).toBeInTheDocument();
       });
