@@ -1,3 +1,5 @@
+import { emitBoundedRunAudit } from "../run-audit/emit-bounded-run-audit.js";
+/* FNXC:RunAudit 2026-08-20-05:49: FN-9177 bounds optional audit telemetry so a hostile sink cannot alter this lifecycle path. */
 /**
  * lifecycle-ops operations.
  *
@@ -997,7 +999,7 @@ export async function recoverStaleTransitionPendingImpl(store: TaskStore): Promi
           // best-effort; a later sweep retries.
         }
 
-        void store.recordRunAuditEvent({
+        void emitBoundedRunAudit(store, {
           taskId: id,
           agentId: "system",
           runId: `transition-pending-recovery-${id}-${Date.now()}`,

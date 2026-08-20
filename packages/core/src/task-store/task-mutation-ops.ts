@@ -1,3 +1,5 @@
+import { emitBoundedRunAudit } from "../run-audit/emit-bounded-run-audit.js";
+/* FNXC:RunAudit 2026-08-20-05:49: FN-9177 bounds optional audit telemetry so a hostile sink cannot alter this lifecycle path. */
 import { createLogger } from "../process/logger.js";
 import { resolveLegacyStampReviewColumns } from "./task-store-helpers.js";
 
@@ -843,7 +845,7 @@ export async function setCompletionHandoffAcceptedMarkerImpl(store: TaskStore, t
     await recordCompletionHandoffAsync(layer.db, taskId, opts.source, opts.acceptedAt);
     const marker = await getCompletionHandoffMarkerAsync(layer.db, taskId);
     if (!marker) throw new Error(`Failed to set completion handoff marker for ${taskId}`);
-    void store.recordRunAuditEvent({
+    void emitBoundedRunAudit(store, {
       taskId,
       agentId: "system",
       runId: `completion-handoff:${taskId}:${Date.now()}`,
@@ -851,12 +853,7 @@ export async function setCompletionHandoffAcceptedMarkerImpl(store: TaskStore, t
       mutationType: "task:completion-handoff-accepted",
       target: taskId,
       metadata: { taskId, acceptedAt: marker.acceptedAt, source: marker.source },
-    }).catch((err) => {
-      storeLog.warn("completion-handoff audit write failed", {
-        taskId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    }, { log: { warn: (detail) => storeLog.warn("completion-handoff audit write failed", { taskId, detail }) } });
     return marker as CompletionHandoffMarker;
 }
 
@@ -892,7 +889,7 @@ export async function reconcileLegacyAutoMergeStampsImpl(store: TaskStore, optio
       if (store.isWatching) store.taskCache.set(current.id, { ...current });
       store.emitTaskLifecycleEventSafely("task:updated", [current]);
 
-      void store.recordRunAuditEvent({
+      void emitBoundedRunAudit(store, {
         taskId: current.id,
         agentId: "system",
         runId: `legacy-auto-merge-stamp-clear-${current.id}-${Date.now()}`,
