@@ -59,6 +59,12 @@ The tool accepts only a configured repository name and returns an isolated, task
 
 Fusion adds acquired member paths to the task's active-worktree set, so liveness and ownership checks see the root plus every active member worktree. A live remembered worktree is reused across a resumed task or executor restart. If another task is acquiring the same member, the tool returns a temporary busy error asking the agent to retry `fn_acquire_repo_worktree` shortly; acquire a different member or retry rather than editing the original repository checkout.
 
+## Choosing the base branch
+
+Set a task's `baseBranch` in the New Task form or Task Detail to choose the base for a workspace task. At acquisition, Fusion verifies that ref independently in every sub-repository. Where it resolves, it is that worktree's start point, base-SHA anchor, land target, and revert target. Where it does not resolve, Fusion safely falls back to that repository's own integration branch rather than failing acquisition; the requested and selected refs are recorded in the task log and Task Detail, while run audit stores only the task/repository identifiers and fixed decision outcome.
+
+The choice is pinned per repository at acquisition. The recorded `WorkspaceWorktreeEntry.baseBranch` wins for land, self-healing, and revert even if `task.baseBranch` is later edited. If a recorded ref disappears, those operations fall back to that repository's integration branch and leave a breadcrumb. Legacy entries without a recorded base (including worktrees acquired before this feature or a restored task) continue to target their own integration branch and ignore `task.baseBranch`; Fusion does not backfill them, and mixed legacy/recorded workspaces are valid. Checking out a desired branch first is not required: the task field is authoritative when it verifies in that member repository.
+
 ## Review and verification
 
 Fusion captures changes per acquired sub-repository, not from the non-Git root. Modified file paths are repository-prefixed, such as `api/src/server.ts`, and each member is diffed against its own base. Per-repository branch attribution, contamination, and worktree-invariant checks apply to those member worktrees. Review and verification should therefore identify the member repository alongside every changed path and command result.
@@ -106,7 +112,7 @@ Archiving a workspace task synchronously removes every recorded member worktree.
 ## Limitations and known sharp edges
 
 - Landing is non-atomic. A later failure does not undo earlier local integration-ref advances; use task logs, per-repository history, and `landedSha` proof before retrying or manually recovering.
-- The dashboard task detail does not currently expose a dedicated per-repository land-status view. Use `fn task merge` output, task logs, and run audit for the repository-level state.
+- A requested base can resolve in some members and not others. Inspect the per-repository Task Detail base/fallback marker and task log before manually coordinating a mixed workspace.
 - Exclusivity is per sub-repository. Two workspace tasks can work in different members concurrently, but cannot acquire or land the same member at the same time.
 - Detection is intentionally shallow. A Git repository nested below a non-repository direct child is not a workspace member until you restructure or configure a valid direct-child entry.
 

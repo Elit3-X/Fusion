@@ -65,12 +65,25 @@ describe("WorkspaceWorktreesSummary", () => {
     expect(screen.getByText("fusion/fn-1-b")).toBeTruthy();
   });
 
+  it("renders recorded bases and fallback markers only in the full per-repo list", () => {
+    render(<WorkspaceWorktreesSummary task={{ worktree: undefined, workspaceWorktrees: {
+      "repo-a": { worktreePath: "/wt/repo-a", branch: "fusion/fn-1-a", baseBranch: "release/1.2" },
+      "repo-b": { worktreePath: "/wt/repo-b", branch: "fusion/fn-1-b", baseBranch: "main", baseBranchFallbackFrom: "release/1.2" },
+      "repo-legacy": { worktreePath: "/wt/legacy", branch: "fusion/fn-1-legacy" },
+    } }} />);
+    expect(screen.getAllByTestId("workspace-repo-base-branch")).toHaveLength(2);
+    expect(screen.getByTestId("workspace-repo-base-fallback")).toHaveAttribute("title", expect.stringContaining("release/1.2"));
+    expect(screen.getByTestId("workspace-repo-base-fallback")).toHaveAttribute("title", expect.stringContaining("repo-b"));
+  });
+
   it("renders only the compact placeholder in compact mode", () => {
     render(<WorkspaceWorktreesSummary task={workspaceTask} compact />);
     expect(screen.getByTestId("workspace-worktrees-placeholder").textContent).toContain("2 repos");
     // Compact variant omits the full per-repo list.
     expect(screen.queryByTestId("workspace-worktrees-summary")).toBeNull();
     expect(screen.queryByText("/wt/repo-a")).toBeNull();
+    expect(screen.queryByTestId("workspace-repo-base-branch")).toBeNull();
+    expect(screen.queryByTestId("workspace-repo-base-fallback")).toBeNull();
   });
 
   it("renders landed, failed, and pending statuses with the partial-land detail", () => {

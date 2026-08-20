@@ -70,6 +70,7 @@ import {
 import { selectUserCommentsForAgentContext } from "../agents/agent-user-comments.js";
 import { resolveTaskWorkingBranch } from "../worktree/worktree-names.js";
 import { resolveIntegrationBranch } from "./integration-branch.js";
+import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "../worktree/workspace-base-branch.js";
 import { advanceIntegrationBranchRef } from "./merger-ref-update-advance.js";
 import { enforceAiMergeSquashGates } from "./merger-ai-squash-gates.js";
 import {
@@ -2106,15 +2107,32 @@ export async function landWorkspaceTask(
     const entry = workspaceWorktrees[repoRel];
     const repoRootDir = join(workspaceRootDir, repoRel);
 
-    // Re-resolve THIS sub-repo's integration branch with the shared overrides
-    // stripped (KTD1) so each sub-repo lands on its OWN origin/HEAD, not a shared
-    // workspace branch.
+    /*
+    FNXC:Workspace 2026-08-20-00:56:
+    Recorded acquisition state is the only workspace landing target. A worktree forked from
+    release/x lands on release/x, while a legacy or acquisition-fallback entry remains on its
+    own integration branch even if task.baseBranch has since changed.
+    */
     let integrationBranch: string;
     try {
-      integrationBranch = await resolveIntegrationBranch(
+      const baseResolution = await resolveWorkspaceRepoBaseBranch({
+        mode: "recorded",
         repoRootDir,
-        { ...settings, integrationBranch: undefined, baseBranch: undefined },
-      );
+        repoRelPath: repoRel,
+        task,
+        settings,
+        recordedBaseBranch: entry.baseBranch,
+      });
+      integrationBranch = baseResolution.branch;
+      await recordWorkspaceBaseBranchDecision({
+        store,
+        audit,
+        task,
+        repoRelPath: repoRel,
+        repoAbsPath: repoRootDir,
+        resolution: baseResolution,
+        stage: "land",
+      });
     } catch (err: unknown) {
       const message = getErrorMessage(err);
       await log(`AI merge (workspace): failed to resolve integration branch for sub-repo ${repoRel}: ${message}`);

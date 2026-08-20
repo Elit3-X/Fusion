@@ -107,6 +107,7 @@ import { isWorktreeContainerDir, resolveAiMergeRootPath, resolveLegacyAiMergeRoo
 import { canonicalFusionBranchName, resolveTaskWorkingBranch } from "./worktree/worktree-names.js";
 import { preservedWorktreeTargetPathForTask } from "./worktree/worktree-pinning.js";
 import { resolveIntegrationBranch } from "./merge/integration-branch.js";
+import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "./worktree/workspace-base-branch.js";
 import { resolveBranchGroupMergeRouting } from "./merge/group-merge-coordinator.js";
 import type { OwnedLandedClassification } from "./merger.js";
 import { regenerateBareMergeSubject } from "./merge/merger-bare-subject.js";
@@ -10410,10 +10411,28 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             const repoRootDir = join(this.options.rootDir, repoRel);
             let integrationBranch: string;
             try {
-              integrationBranch = await resolveIntegrationBranch(
+              const baseResolution = await resolveWorkspaceRepoBaseBranch({
+                mode: "recorded",
                 repoRootDir,
-                { ...settings, integrationBranch: undefined, baseBranch: undefined },
-              );
+                repoRelPath: repoRel,
+                task,
+                settings,
+                recordedBaseBranch: entry.baseBranch,
+              });
+              integrationBranch = baseResolution.branch;
+              await recordWorkspaceBaseBranchDecision({
+                store: this.store,
+                audit: createRunAuditor(this.store, {
+                  runId: generateSyntheticRunId("workspace-repo-base-branch", task.id),
+                  agentId: "system:self-healing",
+                  phase: "workspace-repo-base-branch",
+                }),
+                task,
+                repoRelPath: repoRel,
+                repoAbsPath: repoRootDir,
+                resolution: baseResolution,
+                stage: "self-heal",
+              });
             } catch {
               // Cannot resolve the sub-repo's integration branch → treat as retryable (re-enqueue
               // re-runs the same resolution and surfaces the real error there).
@@ -10958,11 +10977,28 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
               */
               let safe = Boolean(task.deletedAt);
               if (!safe && entry.landedSha) {
-                const integrationBranch = await resolveIntegrationBranch(
+                const baseResolution = await resolveWorkspaceRepoBaseBranch({
+                  mode: "recorded",
                   repoRootDir,
-                  { ...settings, integrationBranch: undefined, baseBranch: undefined },
-                );
-                safe = await isRepoLanded(repoRootDir, integrationBranch, entry.landedSha, task.id, branch, entry.revertBoundarySha, task.createdAt);
+                  repoRelPath: repoRel,
+                  task,
+                  settings,
+                  recordedBaseBranch: entry.baseBranch,
+                });
+                await recordWorkspaceBaseBranchDecision({
+                  store: this.store,
+                  audit: createRunAuditor(this.store, {
+                    runId: generateSyntheticRunId("workspace-repo-base-branch", task.id),
+                    agentId: "system:self-healing",
+                    phase: "workspace-repo-base-branch",
+                  }),
+                  task,
+                  repoRelPath: repoRel,
+                  repoAbsPath: repoRootDir,
+                  resolution: baseResolution,
+                  stage: "self-heal",
+                });
+                safe = await isRepoLanded(repoRootDir, baseResolution.branch, entry.landedSha, task.id, branch, entry.revertBoundarySha, task.createdAt);
               }
               if (!safe && entry.baseCommitSha) {
                 const count = await this.execWorkspaceTeardownGit(`git rev-list --count ${shellQuote(entry.baseCommitSha)}..${shellQuote(branch)}`, { cwd: repoRootDir, timeout: 120_000 });

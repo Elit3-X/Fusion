@@ -681,9 +681,21 @@ The atomic per-repository store mutation and its engine callers share this entry
 per-key merges preserve every durable workspace worktree field rather than drifting into
 independent inline shapes.
 */
+/*
+FNXC:Workspace 2026-08-20-00:56:
+Each sub-repository records the base ref selected at acquisition because later land, self-heal,
+and revert operations must target the ref the worktree was actually derived from. A requested
+base missing in one repo falls back to that repo's integration branch and records the requested
+name in baseBranchFallbackFrom. Legacy entries without these fields remain pinned to their own
+integration branch and ignore task.baseBranch. Ref names live here and in task logs, never audit metadata.
+*/
 export interface WorkspaceWorktreeEntry {
   worktreePath: string;
   branch: string;
+  /** The ref this sub-repository worktree was derived from and must later target. */
+  baseBranch?: string;
+  /** The operator-requested ref when this repository instead used its integration branch. */
+  baseBranchFallbackFrom?: string;
   baseCommitSha?: string;
   landedSha?: string;
   revertBoundarySha?: string;

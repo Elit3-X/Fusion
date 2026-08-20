@@ -428,7 +428,7 @@ These filters apply only to board rendering (not list view). Each filter support
 Task branch fields are intentionally distinct:
 
 - `task.branch` — the actual working branch used for the task worktree (for example `fusion/fn-1234` or a conflict-suffixed variant).
-- `task.baseBranch` — the task's configured merge target/base branch intent.
+- `task.baseBranch` — the task's configured merge target/base branch intent. For workspace tasks it is verified in each sub-repository at acquisition; each resolved (or fallback) selection is pinned in that repository's worktree entry. Editing it after worktrees exist affects only future acquisition and never retargets existing member worktrees.
 - `task.executionStartBranch` — internal execution provenance used when scheduler/executor temporarily start from a dependency branch; this is transient and cleared during execution resets/recovery.
 
 `PrInfo.baseBranch` is unchanged and continues to represent pull-request target branch metadata.

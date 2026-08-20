@@ -3875,6 +3875,20 @@ Read-only list/placeholder only — not the deferred rich per-repo-status compon
 .workspace-worktrees-branch {
   color: var(--text-muted, inherit);
 }
+/*
+FNXC:Workspace 2026-08-20-00:56:
+The full Task Detail list exposes durable per-repo base decisions; the compact card stays count-only.
+Fallback uses the existing warning status treatment because it is observable divergence, not an error.
+*/
+.workspace-worktrees-base {
+  color: var(--text-muted, inherit);
+}
+.workspace-worktrees-base-fallback {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-xs);
+}
 .workspace-worktrees-status {
   border-radius: var(--radius-sm);
   padding: 0 var(--space-xs);

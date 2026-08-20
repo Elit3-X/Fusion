@@ -2882,6 +2882,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               getTaskCommitAssociationsByLineageId: (lineageId: string) =>
                 scopedStore.getTaskCommitAssociationsByLineageId(lineageId),
             },
+            store: scopedStore,
           });
 
           if (!prepared.eligible) {
@@ -3035,6 +3036,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               scopedStore.getTaskCommitAssociationsByLineageId(lineageId),
           },
           effectiveAutoMerge: settings.autoMerge,
+          store: scopedStore,
         });
 
         if (workspaceResult.mode === "git" && "clean" in workspaceResult && workspaceResult.clean === true) {

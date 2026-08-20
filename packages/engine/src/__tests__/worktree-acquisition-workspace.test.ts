@@ -166,6 +166,33 @@ describeIfGit("acquireWorkspaceRepoWorktree (U2 per-repo hardening)", { timeout:
     expect(result.baseCommitSha).toBe(developTip);
   });
 
+  it("materializes a remote-tracking-only requested base as a local land target", async () => {
+    fixture = await createWorkspaceFixture(["repo-a"]);
+    const repoA = fixture.repoPath("repo-a");
+    const origin = `${repoA}-origin`;
+    git(repoA, "git init --bare " + JSON.stringify(origin));
+    git(repoA, `git remote add origin ${JSON.stringify(origin)}`);
+    git(repoA, "git checkout -qb release/remote-only");
+    git(repoA, "git commit --allow-empty -m 'release base'");
+    const releaseTip = git(repoA, "git rev-parse HEAD");
+    git(repoA, "git push -u origin release/remote-only");
+    git(repoA, "git checkout main");
+    git(repoA, "git branch -D release/remote-only");
+    expect(git(repoA, "git rev-parse origin/release/remote-only")).toBe(releaseTip);
+
+    const remoteBaseTask = makeTask("FN-9164-remote");
+    remoteBaseTask.baseBranch = "release/remote-only";
+    const { store, current } = makeFakeStore(remoteBaseTask);
+    const result = await acquireWorkspaceRepoWorktree({
+      repoRelPath: "repo-a", workspaceRootDir: fixture.rootDir, task: current(), store,
+      settings: SETTINGS, registry: new ActiveSessionRegistry(),
+    });
+
+    expect(git(repoA, "git rev-parse release/remote-only")).toBe(releaseTip);
+    expect(git(repoA, `git merge-base ${result.branch} release/remote-only`)).toBe(releaseTip);
+    expect(current().workspaceWorktrees?.["repo-a"]?.baseBranch).toBe("release/remote-only");
+  });
+
   it("reconciles a sub-repo dangling collision branch from its resolved integration tip", async () => {
     fixture = await createWorkspaceFixture(["repo-a"]);
     const repoA = fixture.repoPath("repo-a");

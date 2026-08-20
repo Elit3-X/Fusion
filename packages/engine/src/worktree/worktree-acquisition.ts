@@ -45,6 +45,7 @@ import { installTaskWorktreeIdentityGuard } from "./worktree-hooks.js";
 import { copyConfiguredWorktreeFiles, type WorktreeCopyFileResult } from "./worktree-copy-files.js";
 import { resolveCapturedBaseCommitSha } from "../execution/base-commit-capture.js";
 import { resolveIntegrationBranch } from "../merge/integration-branch.js";
+import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "./workspace-base-branch.js";
 import { activeSessionRegistry, type ActiveSessionRegistry } from "../agents/active-session-registry.js";
 import { refreshReusedWorktreeBase, type WorktreeBaseRefreshResult } from "../worktree-base-refresh.js";
 
@@ -1441,8 +1442,22 @@ export async function acquireWorkspaceRepoWorktree(
     live task through means a later repo can reuse the first repo's worktree. Clear singular fields
     on the copy so every sub-repo acquires freshly; per-repo state is `task.workspaceWorktrees`.
     */
+    /*
+    FNXC:Workspace 2026-08-20-00:56:
+    executionStartBranch belongs to the root-repository dependency chain and can be a fusion/fn-*
+    sibling absent from this sub-repo. Resolve task.baseBranch per repo instead, then overwrite the
+    copied task's start point so acquireTaskWorktree never forwards that sibling ref to git worktree add.
+    */
+    const baseResolution = await resolveWorkspaceRepoBaseBranch({
+      mode: "acquire",
+      repoRootDir: repoAbsPath,
+      repoRelPath,
+      task,
+      settings,
+      logger,
+    });
     const result = await acquireTaskWorktree({
-      task: { ...task, worktree: undefined, branch: undefined },
+      task: { ...task, worktree: undefined, branch: undefined, executionStartBranch: baseResolution.branch },
       suppressSingularWorktreePersist: true,
       rootDir: repoAbsPath,
       store,
@@ -1451,9 +1466,8 @@ export async function acquireWorkspaceRepoWorktree(
       // when no executionStartBranch is present, so new branches never inherit an ambient root HEAD.
       // For a workspace sub-repo, `settings` carries the SHARED project integrationBranch/baseBranch;
       // honoring it resolves a branch absent from this sub-repo and fails `git worktree add` with
-      // "invalid reference". Strip both overrides here so freshStartPoint falls through to this
-      // sub-repo's own origin/HEAD — matching the per-repo base-SHA capture below, which already
-      // resolves against stripped settings (F4/KTD3).
+      // "invalid reference". Keep both overrides stripped: the per-repository resolver above
+      // has already verified this repo's base and supplies it as executionStartBranch.
       settings: { ...settings, integrationBranch: undefined, baseBranch: undefined },
       logger,
       secretsStore,
@@ -1518,23 +1532,13 @@ export async function acquireWorkspaceRepoWorktree(
 
     /*
     FNXC:Workspace 2026-06-21-20:10:
-    Per-repo base SHA (KTD3): resolve THIS sub-repo's integration branch with the
-    shared settings.integrationBranch AND settings.baseBranch overrides STRIPPED.
-    resolveFromSettings (integration-branch.ts) falls back integrationBranch →
-    baseBranch → origin/HEAD, so leaving either set means every sub-repo resolves to
-    the shared workspace branch — defeating per-repo resolution (F4). With both
-    undefined, each sub-repo falls through to its own origin/HEAD. Capture the base
-    local-first against that branch so local-ahead-of-origin integration tips don't
-    inflate the per-repo diff (FN-5937 invariant, per sub-repo).
+    Per-repo base SHA (KTD3): capture against the same verified per-repository base used to
+    create this worktree. This keeps the fork point and contamination anchor aligned while the
+    resolver retains the FN-7360 fallback to this repo's own integration branch.
     */
     let baseCommitSha: string | undefined;
     try {
-      const integrationBranch = await resolveIntegrationBranch(
-        repoAbsPath,
-        { ...settings, integrationBranch: undefined, baseBranch: undefined },
-        { logger },
-      );
-      baseCommitSha = await resolveCapturedBaseCommitSha(result.worktreePath, logger, integrationBranch);
+      baseCommitSha = await resolveCapturedBaseCommitSha(result.worktreePath, logger, baseResolution.branch);
     } catch (baseErr) {
       // FNXC:Workspace 2026-06-21-22:30: F3 — base-SHA capture is non-fatal; an undefined baseCommitSha is an accepted state.
       // FNXC:Workspace 2026-06-22-00:00: guard the best-effort logEntry/audit so a logging throw cannot promote this
@@ -1571,9 +1575,29 @@ export async function acquireWorkspaceRepoWorktree(
     await store.mergeWorkspaceWorktreeEntry(
       task.id,
       repoRelPath,
-      { worktreePath: result.worktreePath, branch: result.branch, baseCommitSha },
+      {
+        worktreePath: result.worktreePath,
+        branch: result.branch,
+        baseCommitSha,
+        ...(baseResolution.requested
+          ? {
+              baseBranch: baseResolution.branch,
+              ...(baseResolution.fallbackReason ? { baseBranchFallbackFrom: baseResolution.requested } : {}),
+            }
+          : {}),
+      },
       { clearSingularWorktree: true },
     );
+    await recordWorkspaceBaseBranchDecision({
+      store,
+      audit,
+      task,
+      repoRelPath,
+      repoAbsPath,
+      resolution: baseResolution,
+      stage: "acquire",
+      runContext,
+    });
 
     return { worktreePath: result.worktreePath, branch: result.branch, baseCommitSha, alreadyAcquired: false };
   } catch (err) {

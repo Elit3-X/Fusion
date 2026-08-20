@@ -61,6 +61,8 @@ export function WorkspaceWorktreesSummary({ task, compact = false }: WorkspaceWo
         {landedSha && <span className="workspace-worktrees-sha">{landedSha.slice(0, 8)}</span>}
         <span className="workspace-worktrees-path" title={entry.worktreePath}>{entry.worktreePath}</span>
         <span className="workspace-worktrees-branch" title={entry.branch}>{entry.branch}</span>
+        {entry.baseBranch && <span className="workspace-worktrees-base" data-testid="workspace-repo-base-branch" title={t("tasks.workspaceRepoBaseBranch", "Base branch for {{repo}}", { repo: repoRelPath })}>{t("tasks.workspaceRepoBase", "Base: {{branch}}", { branch: entry.baseBranch })}</span>}
+        {entry.baseBranchFallbackFrom && <span className="workspace-worktrees-base-fallback" data-testid="workspace-repo-base-fallback" title={t("tasks.workspaceRepoBaseFallbackTitle", "{{requested}} was unavailable in {{repo}}; using {{resolved}}", { requested: entry.baseBranchFallbackFrom, repo: repoRelPath, resolved: entry.baseBranch ?? entry.branch })}>{t("tasks.workspaceRepoBaseFallback", "Base fallback")}</span>}
         {failureMessage && <span className="workspace-worktrees-failure-message">{failureMessage}</span>}
       </li>)}
     </ul>
