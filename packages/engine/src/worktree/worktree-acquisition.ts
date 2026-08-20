@@ -2,9 +2,9 @@ import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { exec } from "node:child_process";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { acquireWorktreePathReservation, canonicalizeWorktreePath, resolveEngineIncarnationId, resolveEngineNodeId, type RunMutationContext, type Settings, type Task, type TaskStore, type SecretsStore, type WorkspaceLeaseHandle } from "@fusion/core";
+import { acquireWorktreePathReservation, assertWorkspaceRepoRelPath, canonicalizeWorktreePath, resolveEngineIncarnationId, resolveEngineNodeId, workspaceWorktreeGroupSegment, WORKSPACE_GROUP_MARKER_FILENAME, type RunMutationContext, type Settings, type Task, type TaskStore, type SecretsStore, type WorkspaceLeaseHandle, type WorkspaceWorktreeContext } from "@fusion/core";
 import { generateWorktreeName, resolveTaskWorkingBranch, slugify } from "./worktree-names.js";
 import { resolveTaskWorktreePathForBackend, resolveWorktreesDir, WORKTREE_RECOVERY_DIRNAME } from "./worktree-paths.js";
 import { hydrateWorktreeDb } from "./worktree-db-hydrate.js";
@@ -125,6 +125,8 @@ export interface AcquireTaskWorktreeOptions {
    */
   /** Suppress singular `worktree` and `branch` persistence for workspace sub-repo acquisition. */
   suppressSingularWorktreePersist?: boolean;
+  /** Workspace-only layout context; native git operations still use rootDir (the sub-repository). */
+  workspaceContext?: WorkspaceWorktreeContext;
 }
 
 export interface AcquireTaskWorktreeResult {
@@ -141,6 +143,17 @@ export interface AcquireTaskWorktreeResult {
 }
 
 /** A typed refresh refusal: callers must park before creating a coding session. */
+export class WorkspaceWorktreeGroupConflictError extends Error {
+  constructor(
+    public readonly workspaceRootDir: string,
+    public readonly existingWorkspaceRootDir: string,
+    public readonly groupDir: string,
+  ) {
+    super(`Workspace worktree group conflict: ${workspaceRootDir} and ${existingWorkspaceRootDir} resolve to ${groupDir}. Configure a distinct worktreesDir for one of these projects, or rename one workspace directory.`);
+    this.name = "WorkspaceWorktreeGroupConflictError";
+  }
+}
+
 export class WorktreeBaseRefreshError extends Error {
   constructor(public readonly refresh: WorktreeBaseRefreshResult) {
     super(`Worktree base refresh blocked execution: ${refresh.kind}`);
@@ -326,8 +339,44 @@ async function pinnedWorktreeBranchMatches(rootDir: string, worktreePath: string
   return match?.branch === expectedBranch;
 }
 
+/*
+FNXC:WorkspaceWorktree 2026-08-20-01:20:
+A shared configured root needs an acquisition-time owner marker so equal workspace
+basenames never share a derivable group. The marker rejects conflicts only; all path
+resolution remains the pure core layout function and sweeps use marker presence only
+as a deletion veto.
+*/
+async function ensureWorkspaceGroupOwnership(
+  workspaceContext: WorkspaceWorktreeContext | undefined,
+  settings: Partial<Settings>,
+): Promise<void> {
+  if (!workspaceContext || !settings.worktreesDir || settings.worktrunk?.enabled) return;
+  const workspaceRootDir = resolve(workspaceContext.workspaceRootDir);
+  const configuredRoot = resolveWorktreesDir(workspaceRootDir, settings);
+  const rel = relative(workspaceRootDir, configuredRoot);
+  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return;
+  const groupDir = join(configuredRoot, workspaceWorktreeGroupSegment(workspaceRootDir));
+  await mkdir(groupDir, { recursive: true });
+  const marker = join(groupDir, WORKSPACE_GROUP_MARKER_FILENAME);
+  try {
+    await writeFile(marker, workspaceRootDir, { flag: "wx" });
+  } catch (error: unknown) {
+    const errorCode = error && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (errorCode !== "EEXIST") throw error;
+    try {
+      const existingRoot = resolve((await readFile(marker, "utf8")).trim());
+      if (existingRoot !== workspaceRootDir) throw new WorkspaceWorktreeGroupConflictError(workspaceRootDir, existingRoot, groupDir);
+    } catch (readError: unknown) {
+      if (readError instanceof WorkspaceWorktreeGroupConflictError) throw readError;
+      const readErrorCode = readError && typeof readError === "object" && "code" in readError ? readError.code : undefined;
+      if (readErrorCode !== "ENOENT") throw readError;
+      await writeFile(marker, workspaceRootDir, { flag: "wx" });
+    }
+  }
+}
+
 export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Promise<AcquireTaskWorktreeResult> {
-  const { task, rootDir, store, settings, pool, logger, audit, runContext, createWorktree, runConfiguredCommand, runInitCommand, taskEnv, secretsStore } = opts;
+  const { task, rootDir, store, settings, pool, logger, audit, runContext, createWorktree, runConfiguredCommand, runInitCommand, taskEnv, secretsStore, workspaceContext } = opts;
   const persistWorktreeAssignment = async (patch: Parameters<TaskStore["updateTask"]>[1]): Promise<void> => {
     if (!opts.suppressSingularWorktreePersist) {
       await store.updateTask(task.id, patch);
@@ -434,6 +483,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     }
     throw error;
   }
+  await ensureWorkspaceGroupOwnership(workspaceContext, settings);
   const branchName = resolveTaskWorkingBranch(task);
   const resolveExistingWorktreeBackendKind = async (path: string): Promise<WorktreeBackend["kind"]> =>
     (await readPersistedWorktreeBackendKind(path)) ?? opts.createWorktreeBackendKind ?? backend.kind;
@@ -465,10 +515,12 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
       ? task.id.toLowerCase()
       : naming === "task-title"
         ? slugify(task.title || task.description.slice(0, 60))
-        : generateWorktreeName(rootDir, settings);
-    worktreePath = await resolveTaskWorktreePathForBackend(rootDir, worktreeName, settings, backend, branchName);
+        : generateWorktreeName(rootDir, settings, workspaceContext);
+    worktreePath = await resolveTaskWorktreePathForBackend(rootDir, worktreeName, settings, backend, branchName, workspaceContext);
   }
 
+  // Grouped workspace paths have two container levels; native git requires the immediate parent to exist.
+  if (workspaceContext && backend.kind !== "worktrunk") await mkdir(dirname(worktreePath), { recursive: true });
   let isResume = Boolean(task.worktree && existsSync(worktreePath));
   // FNXC:TaskPinnedWorktrees 2026-07-16-00:00: the non-pinned resume-classification self-heal is skipped in
   // pinned mode; acquirePinnedWorktree runs its own derive→validate→reuse-or-recreate decision below.
@@ -487,8 +539,8 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
       logger?.log(`${task.id}: assigned worktree is not usable; creating a fresh worktree instead: ${worktreePath}`);
       await store.logEntry(task.id, "Assigned worktree is not a registered, usable git worktree; creating a fresh worktree instead", worktreePath, runContext);
       await persistWorktreeAssignment({ worktree: null, branch: null, sessionFile: null });
-      const fallbackName = generateWorktreeName(rootDir, settings);
-      worktreePath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName);
+      const fallbackName = generateWorktreeName(rootDir, settings, workspaceContext);
+      worktreePath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName, workspaceContext);
       isResume = false;
     }
   }
@@ -579,7 +631,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     if (reservationHeld) return createWorktreeWithoutReservation(createBranch, createPath, createTaskId, startPoint, allowRename);
     const reservation = await acquireWorktreePathReservation({
       canonicalPath: await canonicalizeWorktreePath(createPath),
-      worktreesDir: resolveWorktreesDir(rootDir, settings),
+      worktreesDir: resolveWorktreesDir(rootDir, settings, workspaceContext),
       rootDir,
       /*
       FNXC:WorkflowLifecycle 2026-07-16-10:00:
@@ -739,8 +791,8 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     logger?.warn(`${task.id}: acquisition ${source} returned repo root; clearing assignment and creating a fresh worktree`);
     await store.logEntry(task.id, "Acquisition attempted to return the project root as a task worktree; creating a fresh worktree instead", guardedPath, runContext);
     await persistWorktreeAssignment({ worktree: null, branch: null, sessionFile: null });
-    const fallbackName = generateWorktreeName(rootDir, settings);
-    const fallbackPath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName);
+    const fallbackName = generateWorktreeName(rootDir, settings, workspaceContext);
+    const fallbackPath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName, workspaceContext);
     const created = await createWorktreeImpl(branchName, fallbackPath, task.id, freshStartPoint, allowSiblingBranchRename);
     return finalizeCreatedWorktree(created, "fresh", "return-guard");
   };
@@ -783,7 +835,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
    * consume any worktree-session retry budget (acquisition returns a valid fresh worktree directly).
    */
   const acquirePinnedWorktree = async (): Promise<AcquireTaskWorktreeResult> => {
-    const pinnedPath = pinnedWorktreePathForTask(task.id, settings, rootDir);
+    const pinnedPath = pinnedWorktreePathForTask(task.id, settings, rootDir, workspaceContext);
     const resumedBranch = task.branch ?? branchName;
 
     if (task.worktree && canonicalizePath(task.worktree) !== canonicalizePath(pinnedPath)) {
@@ -798,7 +850,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
 
     const reservation = await acquireWorktreePathReservation({
       canonicalPath: await canonicalizeWorktreePath(pinnedPath),
-      worktreesDir: resolveWorktreesDir(rootDir, settings),
+      worktreesDir: resolveWorktreesDir(rootDir, settings, workspaceContext),
       rootDir,
       isLiveWorktree: async () => {
         if (activeSessionRegistry.isPathActive(pinnedPath)) return true;
@@ -810,7 +862,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
        */
       reconcileQuarantined: async () => {
         if (existsSync(pinnedPath)) return;
-        if (!isInsideWorktreesDir(rootDir, pinnedPath, settings)) {
+        if (!isInsideWorktreesDir(rootDir, pinnedPath, settings, workspaceContext)) {
           throw new Error(`Refusing to reconcile quarantined task-pinned worktree outside configured worktrees directory: ${pinnedPath}`);
         }
         if (activeSessionRegistry.isPathActive(pinnedPath)) {
@@ -869,7 +921,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
         undefined,
         runContext,
       );
-      if (isInsideWorktreesDir(rootDir, pinnedPath, settings)) {
+      if (isInsideWorktreesDir(rootDir, pinnedPath, settings, workspaceContext)) {
         try {
           const preserveAsOrphanDirectory = !classification.ok
             && (classification.classification === "incomplete" || classification.classification === "unregistered")
@@ -897,7 +949,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
                * Configured worktrees may live on another filesystem. Preserve atomically beside the
                * configured worktree root instead of weakening recovery to recursive copy-and-delete.
                */
-              const canonicalWorktreesRoot = await realpath(resolveWorktreesDir(rootDir, settings));
+              const canonicalWorktreesRoot = await realpath(resolveWorktreesDir(rootDir, settings, workspaceContext));
               const localRecoveryRoot = await ensureContainedDirectory(canonicalWorktreesRoot, WORKTREE_RECOVERY_DIRNAME);
               const localRecoveryWorktrees = await ensureContainedDirectory(localRecoveryRoot, "worktrees");
               actualRecoveryRoot = localRecoveryWorktrees;
@@ -1052,8 +1104,8 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
               logger?.warn(`${task.id}: failed to remove unusable pooled worktree ${worktreePath}: ${formatError(removeErr)}`);
             }
           }
-          const fallbackName = generateWorktreeName(rootDir, settings);
-          worktreePath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName);
+          const fallbackName = generateWorktreeName(rootDir, settings, workspaceContext);
+          worktreePath = await resolveTaskWorktreePathForBackend(rootDir, fallbackName, settings, backend, branchName, workspaceContext);
           branch = branchName;
         } else {
           /*
@@ -1264,14 +1316,8 @@ FNXC:WorkspaceWorktree 2026-06-22-00:00:
 An absolute path or a `..` escape (`../outside`) would resolve a worktree outside the workspace
 root. Validate it is a normalized, relative, in-root path before resolving the absolute path.
 */
-function assertInRootRepoRelPath(repoRelPath: string, sep: string, isAbsolute: (p: string) => boolean, normalize: (p: string) => string): void {
-  if (typeof repoRelPath !== "string" || repoRelPath.length === 0 || isAbsolute(repoRelPath)) {
-    throw new Error(`Invalid workspace repo path (must be relative and in-root): ${String(repoRelPath)}`);
-  }
-  const normalized = normalize(repoRelPath);
-  if (normalized === ".." || normalized.startsWith(`..${sep}`) || normalized.startsWith("../")) {
-    throw new Error(`Invalid workspace repo path (escapes workspace root): ${repoRelPath}`);
-  }
+function assertInRootRepoRelPath(repoRelPath: string): void {
+  assertWorkspaceRepoRelPath(repoRelPath);
 }
 
 /*
@@ -1288,10 +1334,10 @@ export async function acquireWorkspaceRepoWorktree(
 ): Promise<{ worktreePath: string; branch: string; baseCommitSha?: string; alreadyAcquired: boolean }> {
   const { repoRelPath, workspaceRootDir, task, store, settings, logger, secretsStore, audit, runContext, runConfiguredCommand, taskEnv } = opts;
   const registry = opts.registry ?? activeSessionRegistry;
-  const { join, isAbsolute, normalize, sep } = await import("node:path");
+  const { join } = await import("node:path");
 
   // FNXC:WorkspaceWorktree 2026-06-22-00:00: reject absolute / `..`-escaping repo paths before resolving.
-  assertInRootRepoRelPath(repoRelPath, sep, isAbsolute, normalize);
+  assertInRootRepoRelPath(repoRelPath);
   const repoAbsPath = join(workspaceRootDir, repoRelPath);
 
   let durableAcquireLease: WorkspaceLeaseHandle | undefined;
@@ -1459,6 +1505,7 @@ export async function acquireWorkspaceRepoWorktree(
     const result = await acquireTaskWorktree({
       task: { ...task, worktree: undefined, branch: undefined, executionStartBranch: baseResolution.branch },
       suppressSingularWorktreePersist: true,
+      workspaceContext: { workspaceRootDir, repoRelPath },
       rootDir: repoAbsPath,
       store,
       // FNXC:Workspace 2026-07-07-08:40 (FN-7360 regression — strip shared branch overrides for per-repo start-point):

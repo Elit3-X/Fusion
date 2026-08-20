@@ -93,7 +93,7 @@ export async function detectWorkspaceMainCheckoutWork(
       }
     } catch { skipped.push(repo); continue; }
     const repoScope = deriveRepoScopeSubset(declaredScope, repo);
-    const worktreesDir = path.resolve(resolveWorktreesDir(checkout, deps.settings));
+    const worktreesDir = path.resolve(resolveWorktreesDir(checkout, deps.settings, { workspaceRootDir: deps.rootDir, repoRelPath: repo }));
     const excluded = (file: string) => {
       const absolute = path.resolve(checkout, file);
       return file === ".fusion" || file.startsWith(".fusion/") || isWithin(absolute, worktreesDir) || recordedPaths.some((candidate) => isWithin(absolute, candidate));

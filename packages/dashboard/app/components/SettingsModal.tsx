@@ -1259,7 +1259,7 @@ export function SettingsModal({
     loading: worktreesDirPickerLoading,
     error: worktreesDirPickerError,
     refresh: refreshWorktreesDirPicker,
-  } = useWorkspaceFileBrowser("project", worktreesDirPickerOpen, projectId, { allowAbsolutePaths: false });
+  } = useWorkspaceFileBrowser("project", worktreesDirPickerOpen, projectId, { allowAbsolutePaths: true });
 
   const {
     entries: worktreeCopyFilePickerEntries,
@@ -3277,8 +3277,6 @@ export function SettingsModal({
   }, [closeWorktreesDirPicker]);
 
   const selectCurrentWorktreesDir = useCallback(() => {
-    if (isSlashPrefixedAbsolutePath(worktreesDirPickerCurrentPath)) return;
-
     const normalizedPath = worktreesDirPickerCurrentPath === "."
       ? "./"
       : (worktreesDirPickerCurrentPath.endsWith("/") ? worktreesDirPickerCurrentPath : `${worktreesDirPickerCurrentPath}/`);

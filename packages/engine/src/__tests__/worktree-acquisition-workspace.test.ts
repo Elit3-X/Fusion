@@ -9,16 +9,24 @@ root. The TaskStore is an in-memory fake (no DB / no network) per FN-5048 — re
 git only where the invariant needs it; everything else is a narrow seam.
 */
 import { execSync, spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Settings, Task, TaskStore } from "@fusion/core";
+import {
+  WORKSPACE_GROUP_MARKER_FILENAME,
+  workspaceRepoSegment,
+  workspaceWorktreeGroupSegment,
+  type Settings,
+  type Task,
+  type TaskStore,
+} from "@fusion/core";
 import {
   acquireTaskWorktree,
   acquireWorkspaceRepoWorktree,
   WorkspaceRepoAcquireBusyError,
 } from "../worktree/worktree-acquisition.js";
 import { ActiveSessionRegistry } from "../agents/active-session-registry.js";
+import { cleanupOrphanedWorktrees } from "../worktree/worktree-pool.js";
 import { createWorkspaceFixture, hasGit, type WorkspaceFixture } from "./_workspace-fixture.js";
 
 const describeIfGit = hasGit ? describe : describe.skip;
@@ -544,6 +552,47 @@ describeIfGit("acquireWorkspaceRepoWorktree (U2 per-repo hardening)", { timeout:
     expect(current().branch).toBeFalsy();
     expect(Boolean(current().worktree)).toBe(false);
     expect(current().workspaceWorktrees).toBeUndefined();
+  });
+
+  /*
+  FNXC:WorkspaceWorktree 2026-08-20-02:04:
+  Grouped workspace roots must be proven through real `git worktree add` calls.
+  A path-helper fixture cannot detect the task-id collision that occurs when two
+  member repositories share a configured root.
+  */
+  it("groups real multi-repo acquisitions and protects their shared-root container from a foreign project sweep", async () => {
+    fixture = await createWorkspaceFixture(["api", "web", "foreign"]);
+    const sharedRoot = join(dirname(fixture.rootDir), "shared-worktrees");
+    const settings = { ...SETTINGS, worktreesDir: sharedRoot };
+    const { store, current } = makeFakeStore(makeTask("FN-9162"));
+    const registry = new ActiveSessionRegistry();
+
+    const api = await acquireWorkspaceRepoWorktree({
+      repoRelPath: "api", workspaceRootDir: fixture.rootDir, task: current(), store, settings, registry,
+    });
+    const web = await acquireWorkspaceRepoWorktree({
+      repoRelPath: "web", workspaceRootDir: fixture.rootDir, task: current(), store, settings, registry,
+    });
+
+    const group = workspaceWorktreeGroupSegment(fixture.rootDir);
+    expect(api.worktreePath).toBe(join(sharedRoot, group, workspaceRepoSegment("api"), "fn-9162"));
+    expect(web.worktreePath).toBe(join(sharedRoot, group, workspaceRepoSegment("web"), "fn-9162"));
+    expect(api.worktreePath).not.toBe(web.worktreePath);
+    expect(existsSync(join(api.worktreePath, ".git"))).toBe(true);
+    expect(existsSync(join(web.worktreePath, ".git"))).toBe(true);
+    expect(readFileSync(join(sharedRoot, group, WORKSPACE_GROUP_MARKER_FILENAME), "utf8").trim()).toBe(fixture.rootDir);
+
+    // A non-workspace project can share the configured root. Its real cleanup
+    // path must not interpret this workspace's group container as an orphan.
+    const cleaned = await cleanupOrphanedWorktrees(
+      fixture.repoPath("foreign"),
+      { listTasks: async () => [] } as unknown as TaskStore,
+      { worktreesDir: sharedRoot, workspaceMode: false },
+    );
+    expect(cleaned).toBe(0);
+    expect(existsSync(api.worktreePath)).toBe(true);
+    expect(existsSync(web.worktreePath)).toBe(true);
+    expect(existsSync(join(sharedRoot, group, WORKSPACE_GROUP_MARKER_FILENAME))).toBe(true);
   });
 
   it("keeps the single-repo acquisition persistence contract when suppression is absent", async () => {

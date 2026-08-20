@@ -34,6 +34,7 @@ import {
   MAX_TASK_LIST_TEXT_CHARS,
   resolveSecretAccessPolicy,
   getProjectRootFromWorktree,
+  resolveWorktreesDirLayout,
   resolveTaskGithubTracking,
   formatCurrentTaskLine,
   resolveFusionSessionPrincipal,
@@ -92,7 +93,7 @@ import {
 import * as dashboard from "@fusion/dashboard";
 import { resolve, relative, isAbsolute, sep, basename, extname, join } from "node:path";
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -209,9 +210,42 @@ const MIME_TYPES: Record<string, string> = {
 
 let warnedMissingProjectRootResolver = false;
 
+type WorkspaceRootConfig = { settings?: { worktreesDir?: string; workspaceMode?: boolean } };
+type WorkspaceReposConfig = { repos?: unknown };
+
+/*
+FNXC:WorkspaceWorktree 2026-08-20-01:46:
+Extension sessions launched from grouped member checkouts must use a project root
+provided by a forward-derived layout candidate. The hash-bearing group segment is
+one-way, so parent trimming can select a non-project directory and is forbidden.
+*/
+function getKnownWorktreeCandidates(): Array<{ dir: string; projectRoot: string }> {
+  const candidates: Array<{ dir: string; projectRoot: string }> = [];
+  for (const projectRoot of knownProjectRoots) {
+    try {
+      const config = JSON.parse(readFileSync(join(projectRoot, ".fusion", "config.json"), "utf8")) as WorkspaceRootConfig;
+      const settings = config.settings;
+      candidates.push({ dir: resolveWorktreesDirLayout(projectRoot, settings), projectRoot });
+      if (settings?.workspaceMode !== true) continue;
+      const workspace = JSON.parse(readFileSync(join(projectRoot, ".fusion", "workspace.json"), "utf8")) as WorkspaceReposConfig;
+      if (!Array.isArray(workspace.repos)) continue;
+      for (const repoRelPath of workspace.repos) {
+        if (typeof repoRelPath !== "string") continue;
+        candidates.push({
+          dir: resolveWorktreesDirLayout(projectRoot, settings, { workspaceRootDir: projectRoot, repoRelPath }),
+          projectRoot,
+        });
+      }
+    } catch {
+      // A missing or malformed local config cannot prove a workspace root.
+    }
+  }
+  return candidates;
+}
+
 function resolveProjectRoot(cwd: string): string {
   const worktreeProjectRoot = typeof getProjectRootFromWorktree === "function"
-    ? getProjectRootFromWorktree(cwd)
+    ? getProjectRootFromWorktree(cwd, { worktreesDirCandidates: getKnownWorktreeCandidates() })
     : null;
   if (typeof getProjectRootFromWorktree !== "function" && !warnedMissingProjectRootResolver) {
     warnedMissingProjectRootResolver = true;
@@ -233,6 +267,16 @@ function resolveProjectRoot(cwd: string): string {
     }
     current = parent;
   }
+}
+
+/*
+FNXC:WorkspaceWorktree 2026-08-20-02:23:
+Keep the production root-resolution route directly testable so a separately
+loaded Pi extension proves it reads the host's shared known-project registry
+for grouped workspace member checkouts instead of stopping at the member repo.
+*/
+export function __resolveProjectRootForTesting(cwd: string): string {
+  return resolveProjectRoot(cwd);
 }
 
 /*
@@ -259,6 +303,7 @@ interface ExtensionStoreState {
   readonly cache: Map<string, CachedStoreEntry>;
   readonly bootInflight: Map<string, Promise<TaskStore>>;
   readonly bootFailureCooldown: Map<string, { untilMs: number; error: string }>;
+  readonly knownProjectRoots: Set<string>;
 }
 
 const extensionStoreStateKey = Symbol.for("@runfusion/fusion/extension-store-state");
@@ -267,11 +312,14 @@ const extensionStoreState = extensionStoreGlobal[extensionStoreStateKey] ?? {
   cache: new Map<string, CachedStoreEntry>(),
   bootInflight: new Map<string, Promise<TaskStore>>(),
   bootFailureCooldown: new Map<string, { untilMs: number; error: string }>(),
+  knownProjectRoots: new Set<string>(),
 };
 extensionStoreGlobal[extensionStoreStateKey] = extensionStoreState;
 
 /** Cache stores per project root to avoid re-booting the backend on every tool call. */
 const storeCache = extensionStoreState.cache;
+/* FNXC:WorkspaceWorktree 2026-08-20-01:46: Keep grouped-layout candidates visible to Pi's separately evaluated extension module. */
+const knownProjectRoots = extensionStoreState.knownProjectRoots;
 /*
 FNXC:MergeQueue 2026-07-15-11:08:
 Concurrent first-call fn_* tools must share one boot promise. Without this, two parallel cache misses each call createTaskStoreForBackend and contend on fusion:schema-applier advisory locks / pool setup — the pattern behind wedged fn_task_show during AI merge.
@@ -573,6 +621,7 @@ async function getStore(
  * The entry is external: closeCachedStores / clearHostTaskStores will not shut it down — the host owns lifecycle.
  */
 export function setHostTaskStore(projectRoot: string, store: TaskStore): void {
+  knownProjectRoots.add(resolve(projectRoot));
   // FNXC:WorkflowLifecycle 2026-07-16-10:00: Install before caching an injected host store because getStore returns cached stores without a construction pass; this preserves executor-less archive cleanup during host startup.
   installBaselineArchiveWorktreeDisposer(store, {rootDir: projectRoot, getSettings: () => store.getSettings()});
   const canonical = resolveProjectRoot(projectRoot);

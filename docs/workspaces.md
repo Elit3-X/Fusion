@@ -133,3 +133,9 @@ A branch-gone member without landing proof requires manual intervention. Inspect
 ### Workspace mode appears to re-enable after being toggled off
 
 Check `.fusion/config.json`: explicit `workspaceMode: false` is the guard that suppresses automatic detection. Also inspect `.fusion/workspace.json`; the setting and member configuration are separate artifacts. Re-register or update the configuration deliberately if the project was previously detected as a workspace.
+
+## Worktree layout
+
+When `worktreesDir` is unset, workspace members keep the existing `<member>/.worktrees/<name>` layout. When it is configured, Fusion resolves the configured root once from the workspace root and creates each native member checkout at `<configured-root>/<workspace>/<repo>/<name>`. A safe workspace directory basename is preserved verbatim; unsafe names use a sanitized segment plus a deterministic eight-character hash. Nested or unsafe member paths use the same sanitized-and-hashed rule, preventing flattened-name collisions.
+
+Fusion writes `.fusion-workspace-root` only while acquiring an external shared root. It rejects a second, different workspace root with the same safe basename rather than sharing the group; configure another root or rename one workspace. The marker never resolves paths and is only a deletion veto. Recorded worktree paths remain authoritative, so existing checkouts are not migrated. Grouped paths are forward-derived and never converted back to a project root by parent trimming. `.ai-merge` remains at the ungrouped configured root. Workspace directory sweeps do not reclaim by walking groups; archive and workspace recovery reclaim recorded member paths addressably.

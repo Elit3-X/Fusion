@@ -103,7 +103,7 @@ import { getTaskCompletionBlockerForStore } from "./execution/task-completion.js
 import { shouldReclaimWedgedMerge } from "./merge/merge-reclaim-policy.js";
 
 import { advanceIntegrationBranchRef } from "./merge/merger-ref-update-advance.js";
-import { isWorktreeContainerDir, resolveAiMergeRootPath, resolveLegacyAiMergeRootPath, resolveWorktreesDir } from "./worktree/worktree-paths.js";
+import { isReclaimableWorktreeCandidate, isWorktreeContainerDir, resolveAiMergeRootPath, resolveLegacyAiMergeRootPath, resolveWorktreesDir } from "./worktree/worktree-paths.js";
 import { canonicalFusionBranchName, resolveTaskWorkingBranch } from "./worktree/worktree-names.js";
 import { preservedWorktreeTargetPathForTask } from "./worktree/worktree-pinning.js";
 import { resolveIntegrationBranch } from "./merge/integration-branch.js";
@@ -16193,6 +16193,10 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
    */
   private async reapUnregisteredOrphans(): Promise<number> {
     const settings = await this.store.getSettings();
+    if (settings.workspaceMode === true) {
+      log.debug("[self-healing] skipped workspace unregistered-orphan reap — recorded member paths are reclaimed addressably");
+      return 0;
+    }
     if (settings.worktrunk?.enabled === true) {
       log.debug("[self-healing] skipped native unregistered-orphan reap — worktrunk backend owns layout");
       const backend = resolveWorktreeBackend(settings, { logger: log });
@@ -16216,7 +16220,10 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
     if (dirs.length === 0) return 0;
 
     const registered = await getRegisteredWorktreePaths(this.options.rootDir);
-    const unregistered = dirs.filter((d) => !registered.has(resolve(d)));
+    const ownedDirs = (await Promise.all(dirs.map(async (dir) =>
+      (await isReclaimableWorktreeCandidate(dir, { rootDir: this.options.rootDir })) ? dir : null,
+    ))).filter((dir): dir is string => dir !== null);
+    const unregistered = ownedDirs.filter((dir) => !registered.has(resolve(dir)));
 
     let cleaned = 0;
     for (const path of unregistered) {
@@ -16513,6 +16520,10 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
   private async enforceWorktreeCap(): Promise<void> {
     try {
       const settings = await this.store.getSettings();
+      if (settings.workspaceMode === true) {
+        log.debug("[self-healing] skipped workspace worktree cap enforcement — recorded member paths are reclaimed addressably");
+        return;
+      }
       if (settings.worktrunk?.enabled === true) {
         log.debug("[self-healing] skipped native worktree cap enforcement — worktrunk backend owns layout");
         const backend = resolveWorktreeBackend(settings, { logger: log });
@@ -16526,7 +16537,10 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
       const cap = (settings.maxWorktrees ?? 4) * 2;
 
       const entries = readdirSync(worktreesDir, { withFileTypes: true });
-      const dirs = entries.filter((e) => e.isDirectory() && !isWorktreeContainerDir(e.name));
+      const dirs = (await Promise.all(entries
+        .filter((entry) => entry.isDirectory() && !isWorktreeContainerDir(entry.name))
+        .map(async (entry) => (await isReclaimableWorktreeCandidate(join(worktreesDir, entry.name), { rootDir: this.options.rootDir })) ? entry : null),
+      )).filter((entry): entry is typeof entries[number] => entry !== null);
 
       if (dirs.length <= cap) return;
 
