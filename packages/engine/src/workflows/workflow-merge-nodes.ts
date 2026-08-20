@@ -5,7 +5,7 @@ import type { WorkflowNodeResult } from "./workflow-graph-executor.js";
 /** A terminal graph value: retrying cannot create missing merge-boundary proof. */
 export const MERGE_BOUNDARY_UNPROVEN_VALUE = "merge-boundary-unproven";
 
-const PRESERVED_MERGE_FAILURE_REASONS = new Set(["implementation-incomplete"]);
+export const PRESERVED_MERGE_FAILURE_REASONS = new Set(["implementation-incomplete", "merge-unavailable"]);
 
 export interface WorkflowMergeNodeDeps {
   primitives: Pick<WorkflowRuntimePrimitives, "requestMerge" | "audit">;
@@ -76,10 +76,13 @@ export function classifyMergePrimitiveResult(
 function classifyMergeFailure(reason: string): WorkflowNodeResult {
   const normalized = reason.trim().toLowerCase();
   /*
-  FNXC:WorkflowMerge 2026-08-20-01:20:
-  implementation-incomplete must survive merge classification because handleGraphFailure,
-  routeGraphMergeFailureToRetry, and isRetryableBenignMergePauseAbort key on this literal.
-  Collapsing it to merge-failed reopens FN-1165's no-op-merge-proof hole through bounded retry.
+  FNXC:WorkflowMerge 2026-08-20-02:36:
+  Structured engine sentinels must survive classification: these heuristics are only for free-text
+  merge-requester reasons, and renaming exact literals made primitive merge-attempt dispatch disagree
+  with the legacy merge seam for the same engine state. implementation-incomplete protects its no-op
+  merge-proof route; merge-unavailable deliberately remains non-terminal because it is emitted only
+  when mergeRequester is absent and routeGraphMergeFailureToRetry returns false on that same absence.
+  Marking it terminal would instead park both paths as operator-action-required failures.
   */
   if (PRESERVED_MERGE_FAILURE_REASONS.has(normalized)) {
     return { outcome: "failure", value: normalized };

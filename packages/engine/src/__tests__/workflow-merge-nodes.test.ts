@@ -32,6 +32,26 @@ describe("workflow merge nodes", () => {
       outcome: "failure",
       value: "file-scope-violation",
     });
+    expect(classifyMergePrimitiveResult({ status: "failed", reason: "already on main" }, undefined, "failure")).toEqual({
+      outcome: "success",
+      value: "already-landed",
+    });
+    expect(classifyMergePrimitiveResult({ status: "failed", reason: "socket timeout" }, undefined, "failure")).toEqual({
+      outcome: "success",
+      value: "transient-failure",
+    });
+    expect(classifyMergePrimitiveResult({ status: "failed", reason: "merge conflict" }, undefined, "failure")).toEqual({
+      outcome: "success",
+      value: "manual-required",
+    });
+    expect(classifyMergePrimitiveResult({ status: "failed", reason: "merge-unavailable" }, "merge-unavailable", "failure")).toEqual({
+      outcome: "failure",
+      value: "merge-unavailable",
+    });
+    expect(classifyMergePrimitiveResult({ status: "failed", reason: "  MeRgE-UnAvAiLaBlE  " }, "merge-unavailable", "failure")).toEqual({
+      outcome: "failure",
+      value: "merge-unavailable",
+    });
     expect(classifyMergePrimitiveResult({ status: "failed", reason: "implementation-incomplete" }, undefined, "failure")).toEqual({
       outcome: "failure",
       value: "implementation-incomplete",
@@ -40,7 +60,7 @@ describe("workflow merge nodes", () => {
       outcome: "failure",
       value: "implementation-incomplete",
     });
-    expect(classifyMergePrimitiveResult({ status: "failed", reason: "remote rejected" }, undefined, "failure")).toEqual({
+    expect(classifyMergePrimitiveResult({ status: "failed", reason: "remote rejected: non-fast-forward" }, undefined, "failure")).toEqual({
       outcome: "failure",
       value: "merge-failed",
     });
@@ -64,6 +84,10 @@ describe("workflow merge nodes", () => {
       outcome: "failure",
       value: "implementation-incomplete",
     });
+    expect(classifyMergePrimitiveResult(undefined, "merge-unavailable", "failure")).toEqual({
+      outcome: "failure",
+      value: "merge-unavailable",
+    });
   });
 
   it("runs the existing merge primitive and emits a workflow capability audit event", async () => {
@@ -86,6 +110,27 @@ describe("workflow merge nodes", () => {
       value: "merged",
       contextPatch: { mergedBranch: "main", "workflow:merge-status": "merged" },
     });
+  });
+
+  it("preserves merge-unavailable from a failed merge primitive in node context and audit", async () => {
+    const audit = vi.fn();
+    const primitiveData = { status: "failed" as const, reason: "merge-unavailable" };
+    const requestMerge = vi.fn().mockResolvedValue({
+      outcome: "failure",
+      value: "merge-unavailable",
+      data: primitiveData,
+    });
+
+    await expect(runWorkflowMergeAttemptNode({ primitives: { requestMerge, audit } }, ctx, task)).resolves.toEqual({
+      outcome: "failure",
+      value: "merge-unavailable",
+      contextPatch: { "workflow:merge-status": "merge-unavailable" },
+    });
+    expect(requestMerge).toHaveBeenCalledTimes(1);
+    expect(audit).toHaveBeenCalledWith(ctx, expect.objectContaining({
+      type: "workflow-merge-node",
+      metadata: expect.objectContaining({ primitiveValue: "merge-unavailable", primitiveData }),
+    }));
   });
 
   it("preserves implementation-incomplete from a failed merge primitive in node context", async () => {
