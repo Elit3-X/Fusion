@@ -17,6 +17,7 @@ import { resolveIntegrationBranch } from "../merge/integration-branch.js";
 import { formatError } from "../logger.js";
 import { installTaskWorktreeIdentityGuard } from "./worktree-hooks.js";
 import { pruneWorktreeAdminEntries } from "./worktree-prune.js";
+import { isRetryableRemovalError, removeDirectoryWithRetry } from "./worktree-removal-retry.js";
 import {
   StaleWorktreeIndexLockError,
   classifyStaleLock,
@@ -295,7 +296,7 @@ function getErrorMessageWithStderr(error: unknown): string {
 
 function isRecoverableNativeWorktreeRemoveError(error: unknown): boolean {
   const message = getErrorMessageWithStderr(error);
-  return /Directory not empty/i.test(message) || /failed to delete/i.test(message) || /contains modified or untracked files/i.test(message);
+  return isRetryableRemovalError(error) || /Directory not empty/i.test(message) || /failed to delete/i.test(message) || /contains modified or untracked files/i.test(message);
 }
 
 function findStringByKey(value: unknown, key: string): string | null {
@@ -669,16 +670,26 @@ export class NativeWorktreeBackend implements WorktreeBackend {
       this.deps.logger?.warn?.(
         `[worktree-backend] git worktree remove failed for ${input.worktreePath}: ${errorMessage} — falling back to filesystem removal`,
       );
+      /*
+      FNXC:WorktreeCleanup 2026-08-20-02:04:
+      Native removal retains its non-recoverable Git-error throw contract (notably stale registrations). Once Git reports a recoverable filesystem failure, use the same bounded retry as clean rooms without changing this surface's single prune placement.
+      */
+      const removal = await removeDirectoryWithRetry({
+        path: input.worktreePath,
+        rm,
+        log: (message) => this.deps.logger?.warn?.(`[worktree-backend] ${message}`),
+      });
       await this.deps.audit?.git({
         type: "worktree:remove-fallback",
         target: input.worktreePath,
         metadata: {
           fallback: "filesystem-non-empty",
           error: errorMessage,
+          ...(removal.removed ? {} : { attempts: removal.attempts, residual: true, registrationRetained: true }),
         },
       });
+      if (!removal.removed) throw removal.lastFailure ?? new Error(removal.lastError ?? "filesystem removal failed");
 
-      await rm(input.worktreePath, { recursive: true, force: true });
       await pruneWorktreeAdminEntries({
         rootDir: input.rootDir,
         auditor: this.deps.audit,

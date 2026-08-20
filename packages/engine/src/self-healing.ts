@@ -104,6 +104,7 @@ import { shouldReclaimWedgedMerge } from "./merge/merge-reclaim-policy.js";
 
 import { advanceIntegrationBranchRef } from "./merge/merger-ref-update-advance.js";
 import { isReclaimableWorktreeCandidate, isWorktreeContainerDir, resolveAiMergeRootPath, resolveLegacyAiMergeRootPath, resolveWorktreesDir } from "./worktree/worktree-paths.js";
+import { removeDirectoryWithRetry } from "./worktree/worktree-removal-retry.js";
 import { canonicalFusionBranchName, resolveTaskWorkingBranch } from "./worktree/worktree-names.js";
 import { preservedWorktreeTargetPathForTask } from "./worktree/worktree-pinning.js";
 import { resolveIntegrationBranch } from "./merge/integration-branch.js";
@@ -16375,15 +16376,24 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           }
 
           try {
+            /*
+            FNXC:WorktreeCleanup 2026-08-20-02:04:
+            The sweep's liveness and age gates run before this bounded retry. Its fixed audit reasons remain distinct from inline cleanup, and a residual path deliberately keeps its Git registration for a later reaper pass.
+            */
             cleanupAttempted = true;
-            rmSync(canonicalPath, { recursive: true, force: true });
-            log.log(`[self-healing] temp-dir sweep: cleaned stale AI merge worktree ${canonicalPath}`);
-            await auditor.git({ type: "worktree:tempdir-sweep", target: canonicalPath, metadata: { path: canonicalPath, success: true, reason: cleanupReason } });
-            cleaned++;
-          } catch (err: unknown) {
-            const errorMessage = err instanceof Error ? err.message : String(err);
-            log.warn(`[self-healing] temp-dir sweep: failed to remove ${canonicalPath}: ${errorMessage}`);
-            await auditor.git({ type: "worktree:tempdir-sweep", target: canonicalPath, metadata: { path: canonicalPath, success: false, reason: "fs-rm-failed", error: errorMessage } });
+            const removal = await removeDirectoryWithRetry({
+              path: canonicalPath,
+              rm: (target, options) => rmSync(target, options),
+              log: (message) => log.warn(`[self-healing] temp-dir sweep: ${message}`),
+            });
+            if (removal.removed) {
+              log.log(`[self-healing] temp-dir sweep: cleaned stale AI merge worktree ${canonicalPath}`);
+              await auditor.git({ type: "worktree:tempdir-sweep", target: canonicalPath, metadata: { path: canonicalPath, success: true, reason: cleanupReason } });
+              cleaned++;
+            } else {
+              log.warn(`[self-healing] temp-dir sweep: failed to remove ${canonicalPath}: ${removal.lastError ?? "unknown error"}`);
+              await auditor.git({ type: "worktree:tempdir-sweep", target: canonicalPath, metadata: { path: canonicalPath, success: false, reason: "fs-rm-failed", error: removal.lastError ?? "unknown error", attempts: removal.attempts, residual: true, registrationRetained: true } });
+            }
           } finally {
             if (cleanupAttempted) {
               try {
