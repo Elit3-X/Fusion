@@ -580,6 +580,33 @@ For an enabled-wiring check, first run disabled and normal enabled bounds to com
 
 Pass `--boundary-observer <jsonl>`, `--vitest-json <reporter.json>`, `--body-unobservable-files <list>`, and `--fully-unobservable-files <list>` to `scripts/pg-loaded-failure-census.mjs`. Capture the reporter per run with `--reporter=dot --reporter=json --outputFile=<reporter.json>`; it provides per-test duration and file identifiers but Vitest 3 provides no hook duration or failure position, so a hook-clock offset is unmeasurable rather than a point estimate. The census tolerates malformed and out-of-order rows, joins ladder/breach/enriched rows by key, and reports joined, `attributed-by-ladder`, `body-unobservable`, `position-unobservable`, and `unjoined` coverage counts plus probe suppression and latency distributions. `afterEach` consumer hooks are position-unobservable because the shared-harness body bracket closes before those hooks run. Failures from fully-unobservable files remain `unjoined` but are counted and listed separately so the known no-harness limitation is never mistaken for a missing observer join. Missing/empty input stays explicitly absent rather than a measured zero.
 
+<!-- FNXC:PgClusterHygiene 2026-08-19-18:24: FN-9154 requires PostgreSQL campaign admission to distinguish a measured zero from an empty, failed, or truncated `psql -qAt` capture. The offline report consumes a complete envelope only and cannot authorize destructive cleanup.
+
+FNXC:PgClusterHygiene 2026-08-19-18:58: PostgreSQL's unaligned boolean output is `false`/`true`, while the offline capture parser intentionally accepts the harness-compatible `f`/`t` representation. The documented query must normalize `datistemplate` so a live populated capture cannot be misread as a malformed measured zero. -->
+
+### PostgreSQL campaign cluster-hygiene report
+
+Before every FN-9152/FN-9153 campaign run, capture the maintenance-cluster rows and retain the three capture files plus the JSON report in the task document. The four counted hygiene classes are `fusion_test_%`, `fusion_schema_template%` per-module templates, `fusion_schema_template_<pid>_golden<token>` golden templates, and `fusion_pool_%`. The report classifies names itself, so the deliberately conservative SQL patterns cannot silently hide an unexpected matching name.
+
+A capture is an envelope, not bare `psql -qAt` output: the `# fusion-hygiene-capture v1` banner, `kind`, cluster identity, ISO timestamp, query identity, declared row count, body, and terminal `# end` make `rows: 0` a measured zero. Missing, empty, header-less, truncated, count-mismatched, or wrong-kind captures are `insufficient-data`, never clean evidence. A supplied-but-unmeasured or wrong-kind `--markers`/`--liveness` companion makes the whole report `insufficient-data`; an omitted companion is not evidence, so Path A/C/D clean evidence requires all three captures supplied, measured, and bearing the same cluster identity. A stale marker row is dirty terminal evidence even when all four database counts are zero. With `PG_URL="${FUSION_PG_TEST_URL_BASE:-postgresql://localhost:5432}"`, capture the database and marker rows as follows (write the displayed envelope fields around each query result):
+
+```bash
+capture() { # capture KIND QUERY SQL OUTPUT
+  kind="$1" query="$2" sql="$3" output="$4"
+  cluster="$(psql "$PG_URL/postgres" -qAt -c "SELECT current_setting('port') || '|' || version() || '|' || current_database();")"
+  rows="$(psql "$PG_URL/postgres" -qAt -c "$sql")"
+  { printf '%s\n' '# fusion-hygiene-capture v1' "# kind: $kind" "# cluster: $cluster" "# captured_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)" "# query: $query" "# rows: $(printf '%s\n' "$rows" | sed '/^$/d' | wc -l | tr -d ' ')"; printf '%s\n' "$rows"; printf '%s\n' '# end'; } > "$output"
+}
+capture databases leftover-v1 "SELECT datname, pg_get_userbyid(datdba), CASE WHEN datistemplate THEN 't' ELSE 'f' END, (SELECT count(*) FROM pg_stat_activity a WHERE a.datname = d.datname) FROM pg_database d WHERE datname LIKE 'fusion_test_%' OR datname LIKE 'fusion_schema_template%' OR datname LIKE 'fusion_pool_%' ORDER BY 1;" databases.capture
+capture markers markers-v1 "SELECT name, created_at FROM public._fusion_golden_templates ORDER BY 1;" markers.capture
+# For each parsed template owner PID, record exactly one `<pid>|alive` or `<pid>|dead` body row from `ps -p "$pid" -o pid=` in an analogous `kind: liveness`, `query: liveness-v1` envelope.
+node scripts/pg-cluster-hygiene-report.mjs --databases databases.capture --markers markers.capture --liveness liveness.capture --json
+```
+
+<!-- FNXC:PgClusterHygiene 2026-08-20-00:54: FN-9154 requires a broken supplied companion to fail closed and makes a safe-but-incomplete cleanup terminal, so campaign admission never mistakes unread evidence or a refused drop for hygiene. -->
+
+The report is advisory: `reclaimable-dead-owner` means only recorded `dead` liveness plus zero sessions; missing liveness, an alive owner, an unparseable name, or sessions retains the row. It never grants approval. Removal requires all of G2–G6: that recorded liveness verdict, immediate zero-session recheck, one literal name-scoped `DROP DATABASE` **without** `FORCE` against a present target, equality-only deletion of that same marker row (never a broad stale-marker sweep), and a human-authored, verbatim, action-explicit, evidence-informed approval recorded after the pre-state evidence in the task's `removal-approval` document. Agents may never self-issue or infer that approval. A refused drop, pre-check abort, partial marker reconciliation, or unmeasurable/dirty post-state is terminal: record the evidence, file or reuse one scoped follow-up, exit honest-blocked, and never retry, force, or claim clean. Record the four counts for every campaign run; an absent report is FN-9152 R3 `leftover-counts-unrecorded` evidence, not a clean arm.
+
 ### PostgreSQL DDL loaded-lane acceptance metric
 
 Use `scripts/pg-ddl-lane-metric.mjs` before judging a PostgreSQL DDL structural candidate. Run at least seven **interleaved** control/candidate pairs at `VITEST_MAX_WORKERS=12`; preserve one diagnostics JSONL sink and complete runner log per invocation. The exact lane is:
