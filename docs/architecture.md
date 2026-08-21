@@ -1127,7 +1127,10 @@ The client treats mapping persistence as part of onboarding success. If mapping 
 | GET | `/api/settings/auth-export` | Export local `AuthMaterialSnapshot`. |
 | GET | `/api/update-check` | Read cached/TTL-guarded npm update status for `@runfusion/fusion` (respects `updateCheckEnabled`). |
 | POST | `/api/update-check/refresh` | Clear cached update data and force a fresh npm update check. |
+| POST | `/api/update-check/install` | Install the available package once; a successful install is retained by the old process until restart. |
 | GET | `/api/updates/check` | Perform an on-demand npm registry check for the latest `@runfusion/fusion` version (no cache). |
+
+Update-check responses may include `pendingInstall`, using the install response shape for a successful `installed` target plus restart flags. `pendingInstall` takes dashboard action/message precedence over ordinary availability, disabled checks, and cached status; while it exists GET, refresh, and install return it without another registry lookup or npm install. It is intentionally process-local and expires on host replacement, rather than being persisted in settings or storage.
 
 When adding a new node settings/auth sync endpoint, add it to the `ENDPOINTS` catalog in `packages/dashboard/src/__tests__/routes-nodes-sync-contract.test.ts` so the auth/error/payload parity matrix covers it. Inbound sync endpoints (including `/api/secrets/sync-receive` and `/api/secrets/sync-export`) must validate `Authorization: Bearer <apiKey>` against the local node API key.
 
