@@ -35,6 +35,7 @@ import { commitIdentityArgs, resolveCommitIdentity } from "../git-identity.js";
  * Pure helpers (prompt builders, verdict parser) are exported for unit testing;
  * the orchestrator accepts injectable agent functions for the same reason.
  */
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpathSync, readdirSync } from "node:fs";
@@ -2094,9 +2095,92 @@ export async function landWorkspaceTask(
   const trailers = taskTrailers(taskId, task.lineageId, settings);
   const taskTitle = task.title?.trim() ? task.title.split("\n")[0] : undefined;
 
+  /*
+  FNXC:RepositoryScope 2026-08-21-00:44:
+  Landing captures qualified per-repository diffs at the merge boundary, after all execution and
+  review work has finished. Persisting this snapshot prevents a stale executor capture from
+  omitting a newly changed scoped repository from leases, review obligations, or land intents.
+  */
+  const liveMergeBoundaryTask = await store.getTask(taskId).catch(() => undefined);
+  const mergeBoundaryTask = liveMergeBoundaryTask?.workspaceWorktrees ? liveMergeBoundaryTask : task;
+  const confirmedScope = mergeBoundaryTask.repositoryScope?.state === "confirmed"
+    ? new Set(mergeBoundaryTask.repositoryScope.repositories)
+    : undefined;
+  const mergeBoundaryModifiedFiles: string[] = [];
+  const mergeBoundaryFingerprints: Record<string, string> = {};
+  const modifiedOutOfScopeRepositories = new Set<string>();
+  const netZeroBranchRepositories = new Set<string>();
+  for (const [repoRel, entry] of Object.entries(mergeBoundaryTask.workspaceWorktrees ?? {})
+    // FNXC:RepositoryScope 2026-08-21-02:17: every acquired checkout is inspected for dirty
+    // out-of-scope work before land selection. Acquisition is not intent, but it is still a
+    // completion safety surface; filtering it out here could erase unapproved changes on update.
+    .filter(([repoRel, entry]) => !entry.landedSha || !confirmedScope?.has(repoRel))
+    .sort(([left], [right]) => left.localeCompare(right))) {
+    if (!entry.branch) throw new Error(`Workspace repository ${repoRel} has no task branch for fresh merge evidence`);
+    try {
+      const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "HEAD", entry.branch], { cwd: entry.worktreePath, encoding: "utf8" });
+      const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${mergeBase.trim()}..${entry.branch}`], { cwd: entry.worktreePath, encoding: "utf8" });
+      const files = stdout.split("\n").map((file) => file.trim()).filter(Boolean);
+      if (files.length > 0) {
+        const { stdout: diffContent } = await execFileAsync("git", ["diff", "--binary", `${entry.baseCommitSha ?? mergeBase.trim()}..HEAD`], { cwd: entry.worktreePath, encoding: "utf8" });
+        mergeBoundaryFingerprints[repoRel] = createHash("sha256").update(diffContent).digest("hex");
+      }
+      if (files.length > 0 && !confirmedScope?.has(repoRel)) {
+        modifiedOutOfScopeRepositories.add(repoRel);
+      } else if (confirmedScope?.has(repoRel)) {
+        mergeBoundaryModifiedFiles.push(...files.map((file) => `${repoRel}/${file}`));
+        if (files.length === 0) {
+          const { stdout: aheadCount } = await execFileAsync("git", ["rev-list", "--count", `HEAD..${entry.branch}`], { cwd: entry.worktreePath, encoding: "utf8" });
+          if (Number(aheadCount.trim()) > 0) netZeroBranchRepositories.add(repoRel);
+        }
+      }
+    } catch (error) {
+      throw new Error(`Cannot capture fresh merge evidence for workspace repository ${repoRel}: ${getErrorMessage(error)}`);
+    }
+  }
+  if (modifiedOutOfScopeRepositories.size > 0) {
+    throw new Error(`Workspace repositories modified outside confirmed scope for ${taskId}: ${[...modifiedOutOfScopeRepositories].sort().join(", ")}`);
+  }
+  const normalizedMergeBoundaryFiles = [...new Set(mergeBoundaryModifiedFiles)].sort();
+  const persistedReviewFiles = [...new Set(mergeBoundaryTask.modifiedFiles ?? [])].sort();
+  /*
+  FNXC:RepositoryScope 2026-08-21-00:58:
+  Landing must not convert fresh evidence into approved evidence. A changed repository/file set after
+  Code Review has no matching reviewer episode, so return it through the normal review path instead
+  of silently persisting the new snapshot and landing it. Persist failure is likewise a hard fence:
+  a later recovery must never infer an unrecorded merge boundary.
+  */
+  const approvedReviewEvidence = mergeBoundaryTask.repositoryScope?.reviewEvidence ?? {};
+  const missingOrStaleReviewApproval = Object.entries(mergeBoundaryFingerprints)
+    .some(([repoRel, fingerprint]) => approvedReviewEvidence[repoRel]?.fingerprint !== fingerprint);
+  if (
+    normalizedMergeBoundaryFiles.some((file) => !persistedReviewFiles.includes(file))
+    || missingOrStaleReviewApproval
+  ) {
+    /*
+    FNXC:RepositoryScope 2026-08-21-01:36:
+    Every fresh land-required repository needs the exact fingerprint persisted by its approving
+    Code Review episode. An empty reviewEvidence map is missing approval evidence, not a legacy
+    exemption: otherwise a modified repository could publish without any reviewer authorization.
+    */
+    throw new Error(`Workspace merge evidence changed after review for ${taskId}; return the task to Code Review before landing`);
+  }
+  await store.updateTask(taskId, { modifiedFiles: normalizedMergeBoundaryFiles });
+  task = { ...mergeBoundaryTask, modifiedFiles: normalizedMergeBoundaryFiles };
   const workspaceWorktrees = task.workspaceWorktrees ?? {};
-  // SORTED keys for deterministic land order (KTD1).
-  const repoKeys = Object.keys(workspaceWorktrees).sort();
+  /*
+  FNXC:RepositoryScope 2026-08-20-23:57:
+  Landing obligations come from confirmed task intent plus actual qualified diff evidence. An
+  ambiguous legacy row must park for operator confirmation rather than treating every acquired
+  checkout as intent, because that recreates the clean-peer partial-land livelock.
+  */
+  const explicitScope = task.repositoryScope?.state === "confirmed" ? task.repositoryScope.repositories : undefined;
+  if (!explicitScope) {
+    throw new Error(`Workspace repository scope is unresolved for ${taskId}; operator confirmation is required before landing`);
+  }
+  const repoKeys = Object.keys(workspaceWorktrees)
+    .filter((repoRel) => explicitScope.includes(repoRel) && ((task.modifiedFiles ?? []).some((file) => file.startsWith(`${repoRel}/`)) || netZeroBranchRepositories.has(repoRel)))
+    .sort();
   const repos: WorkspaceRepoLandResult[] = [];
   let allLanded = true;
 

@@ -316,6 +316,7 @@ export async function createTask(
     sessionAdvisorEnabled,
     acknowledgedDuplicates,
     bypassDuplicateCheck,
+    repositoryScope,
   } = input;
 
   try {
@@ -359,6 +360,7 @@ export async function createTask(
       sessionAdvisorEnabled,
       acknowledgedDuplicates,
       bypassDuplicateCheck,
+      repositoryScope,
     }),
   });
   } catch (error) {
@@ -370,6 +372,18 @@ export async function createTask(
     }
     throw error;
   }
+}
+
+/** Update explicit workspace repository intent before any land intent or landed SHA exists. */
+export function updateTaskRepositoryScope(
+  id: string,
+  input: { repositories: string[]; reason: string; action?: "add" | "remove" | "refuse" },
+  projectId?: string,
+): Promise<Task> {
+  return api<Task>(withProjectId(`/tasks/${encodeURIComponent(id)}/repository-scope`, projectId), {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export interface RepairOverlapBlockerResult {

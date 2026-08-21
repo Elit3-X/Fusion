@@ -10504,9 +10504,22 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             continue;
           }
 
-          // Classify each acquired sub-repo: landed / retryable / unrecoverable / unreadable (FORK-A).
+          // Classify each confirmed, modified sub-repo: landed / retryable / unrecoverable / unreadable (FORK-A).
           const workspaceWorktrees = task.workspaceWorktrees ?? {};
-          const repoKeys = Object.keys(workspaceWorktrees);
+          /*
+          FNXC:RepositoryScope 2026-08-20-23:57:
+          Recovery must fail closed for an unconfirmed legacy scope. Acquired worktrees prove only
+          checkout policy, never repository intent, so re-enqueueing them would restart FN-094's
+          clean-peer land loop instead of waiting for an operator-confirmed scope.
+          */
+          const explicitScope = task.repositoryScope?.state === "confirmed" ? task.repositoryScope.repositories : undefined;
+          if (!explicitScope) {
+            await this.emitWorkspacePartialLandNoAction(task, "scope-unresolved", []);
+            continue;
+          }
+          const repoKeys = Object.keys(workspaceWorktrees).filter((repoRel) =>
+            explicitScope.includes(repoRel) && (task.modifiedFiles ?? []).some((file) => file.startsWith(`${repoRel}/`)),
+          );
           const landedRepos: string[] = [];
           const unlandedRepos: string[] = [];
           const unrecoverableRepos: string[] = [];
@@ -10672,7 +10685,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
 
   private async emitWorkspacePartialLandNoAction(
     task: Task,
-    reason: "auto-merge-off" | "user-paused" | "live-worktree" | "merge-pending" | "evidence-unavailable",
+    reason: "auto-merge-off" | "user-paused" | "live-worktree" | "merge-pending" | "evidence-unavailable" | "scope-unresolved",
     livePaths: string[],
   ): Promise<void> {
     try {

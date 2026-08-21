@@ -202,6 +202,10 @@ function workspaceTask(workspaceWorktrees: Task["workspaceWorktrees"], extra: Pa
     log: [],
     paused: false,
     workspaceWorktrees,
+    // FNXC:RepositoryScope 2026-08-21-01:18: partial-land recovery admits only confirmed
+    // repository intent plus qualified modified evidence; fixtures model that production contract.
+    repositoryScope: { repositories: Object.keys(workspaceWorktrees ?? {}).sort(), state: "confirmed", revision: 1 },
+    modifiedFiles: Object.keys(workspaceWorktrees ?? {}).sort().map((repo) => `${repo}/feature.txt`),
     createdAt: new Date().toISOString(),
     updatedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
     ...extra,

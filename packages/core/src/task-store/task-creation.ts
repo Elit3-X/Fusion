@@ -44,6 +44,7 @@ import type {DbTransaction} from "../postgres/data-layer.js";
 import { resolveTaskPrefix } from "./task-prefix.js";
 import {assertValidProviderInstanceId} from "../provider-instance.js";
 import {validateTaskBranchName} from "../branch/branch-assignment.js";
+import {loadWorkspaceConfig} from "../git/git-repository.js";
 import {
   getInternalIntakeOwnershipExemptionReason,
   resolveTaskIntakeOwner,
@@ -74,6 +75,33 @@ function normalizeCreateBranchProvenance(input: TaskCreateInput): TaskCreateInpu
   }
   const {branchOverride: _override, ...branchContext} = input.branchContext ?? {};
   return {...input, branchContext: Object.keys(branchContext).length > 0 ? branchContext : undefined};
+}
+
+/*
+FNXC:RepositoryScope 2026-08-20-23:40:
+Workspace acquisition deliberately obtains every configured checkout after creation. Seed task intent
+before that acquisition so checkout membership cannot become review or landing authority. Explicit
+operator selection is confirmed; description/default evidence remains a planner-confirmable proposal.
+*/
+async function resolveInitialRepositoryScope(store: TaskStore, input: TaskCreateInput, now: string): Promise<Task["repositoryScope"]> {
+  const configured = (await loadWorkspaceConfig(store.getRootDir()))?.repos ?? [];
+  if (configured.length === 0) return undefined;
+  const explicit = input.repositoryScope?.map((repo) => repo.trim()).filter(Boolean);
+  const unknown = explicit?.filter((repo) => !configured.includes(repo)) ?? [];
+  if (unknown.length > 0) throw new Error(`Unknown workspace repository scope: ${unknown.join(", ")}`);
+  const mentions = configured.filter((repo) => input.description.toLowerCase().includes(repo.toLowerCase()));
+  const repositories = explicit && explicit.length > 0
+    ? [...new Set(explicit)].sort()
+    : [mentions.length === 1 ? mentions[0] : configured[0]];
+  const explicitSelection = Boolean(explicit?.length);
+  return {
+    repositories,
+    state: explicitSelection ? "confirmed" : "proposed",
+    revision: 1,
+    confirmedBy: explicitSelection ? "operator" : "inferred",
+    ...(explicitSelection ? { confirmedAt: now } : {}),
+  };
+}
 }
 
 type CreateTaskWithAfterInsert = TaskCreateInput & {
@@ -686,6 +714,7 @@ export async function _createTaskInternalBackendImpl(store: TaskStore, input: Ta
       ? { manual: false as boolean, intake: undefined as string | undefined, hold: undefined as string | undefined }
       : await resolveWorkflowIntakeFacts(store, input.workflowId ?? undefined);
     const declaredSymbols = resolveCreateDeclaredSymbols(input, options?.promptOverride);
+    const repositoryScope = await resolveInitialRepositoryScope(store, input, now);
     const task: Task = {
       id,
       lineageId: input.lineageId ?? generateTaskLineageId(),
@@ -716,6 +745,7 @@ export async function _createTaskInternalBackendImpl(store: TaskStore, input: Ta
       column: input.column || options?.resolvedEntryColumn || fallbackIntakeColumn || "triage",
       dependencies: input.dependencies || [],
       noCommitsExpected: input.noCommitsExpected === true ? true : undefined,
+      repositoryScope,
       enabledWorkflowSteps: resolvedWorkflowSteps,
       modelPresetId: input.modelPresetId,
       assignedAgentId: ownership.status === "selected" ? ownership.agentId : undefined,
@@ -1237,6 +1267,7 @@ export async function _createTaskInternalImpl(store: TaskStore, input: TaskCreat
       ? { manual: false as boolean, intake: undefined as string | undefined, hold: undefined as string | undefined }
       : await resolveWorkflowIntakeFacts(store, input.workflowId ?? undefined);
     const declaredSymbols = resolveCreateDeclaredSymbols(input, options?.promptOverride);
+    const repositoryScope = await resolveInitialRepositoryScope(store, input, now);
     const task: Task = {
       id,
       lineageId: input.lineageId ?? generateTaskLineageId(),
@@ -1267,6 +1298,7 @@ export async function _createTaskInternalImpl(store: TaskStore, input: TaskCreat
       column: input.column || options?.resolvedEntryColumn || fallbackIntakeColumn || "triage",
       dependencies: input.dependencies || [],
       noCommitsExpected: input.noCommitsExpected === true ? true : undefined,
+      repositoryScope,
       enabledWorkflowSteps: resolvedWorkflowSteps,
       modelPresetId: input.modelPresetId,
       assignedAgentId: input.assignedAgentId,

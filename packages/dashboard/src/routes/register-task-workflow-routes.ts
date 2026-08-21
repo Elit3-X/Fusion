@@ -1663,6 +1663,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         sessionAdvisorEnabled,
         acknowledgedDuplicates,
         bypassDuplicateCheck,
+        repositoryScope,
       } = req.body;
       if (!description || typeof description !== "string") {
         throw badRequest("description is required");
@@ -1676,6 +1677,9 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       }
       if (bypassDuplicateCheck !== undefined && typeof bypassDuplicateCheck !== "boolean") {
         throw badRequest("bypassDuplicateCheck must be a boolean");
+      }
+      if (repositoryScope !== undefined && (!Array.isArray(repositoryScope) || !repositoryScope.every((repo: unknown) => typeof repo === "string" && repo.trim().length > 0))) {
+        throw badRequest("repositoryScope must be an array of non-empty repository names");
       }
       if (Object.hasOwn(req.body as object, "breakIntoSubtasks")) {
         throw badRequest("breakIntoSubtasks is no longer supported; create one detailed task instead");
@@ -2090,12 +2094,19 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       }
 
       const normalizedTaskSource = normalizedSource as TaskSource;
+      /*
+      FNXC:RepositoryScope 2026-08-21-00:12:
+      The dashboard forwards explicit create-time repository intent unchanged to the guarded
+      TaskStore boundary. Server validation keeps a browser payload from naming a checkout that
+      is not configured for this project.
+      */
       const createInput = {
         title: normalizedTitle,
         description: normalizedDescription,
         column,
         dependencies,
         enabledWorkflowSteps,
+        ...(repositoryScope !== undefined ? { repositoryScope: repositoryScope.map((repo: string) => repo.trim()) } : {}),
         // U6/R3: forward only when the client set it (string | null). Leaving it
         // absent preserves the project-default inheritance behavior.
         ...(workflowId !== undefined ? { workflowId: workflowId as string | null } : {}),
@@ -2282,6 +2293,43 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
   // Ordinary dashboard creation deliberately shares the guarded production intake above.
   router.post("/tasks", async (req, res) => {
     await createTaskThroughGuardedIntake(req, res);
+  });
+
+  /*
+  FNXC:RepositoryScope 2026-08-21-00:12:
+  Operators can correct, extend, or refuse repository intent before landing. The core mutation
+  re-checks pending intents and landed SHA state under its advisory transaction, so this route
+  returns the authoritative snapshot instead of trusting a stale dashboard copy.
+  */
+  router.post("/tasks/:id/repository-scope", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const id = req.params.id;
+      const { repositories, reason, action } = req.body ?? {};
+      if (!Array.isArray(repositories) || !repositories.every((repo: unknown) => typeof repo === "string" && repo.trim().length > 0)) {
+        throw badRequest("repositories must be an array of non-empty repository names");
+      }
+      if (typeof reason !== "string" || reason.trim().length === 0) throw badRequest("reason is required");
+      if (action !== undefined && action !== "add" && action !== "remove" && action !== "refuse") throw badRequest("action must be add, remove, or refuse");
+      const task = await scopedStore.getTask(id);
+      if (!task) throw new ApiError(404, `Task ${id} not found`);
+      /*
+      FNXC:RepositoryScope 2026-08-21-01:53:
+      Send an operator delta, never a replacement assembled from this read. The store takes the
+      planning lifecycle lock and appends the event to the current durable scope with plan and
+      executor changes serialized ahead of the task advisory transaction.
+      */
+      const updated = await scopedStore.mutateTaskRepositoryScope(id, {
+        action: action ?? "add",
+        repositories: repositories.map((repository: string) => repository.trim()),
+        reason: reason.trim(),
+        actor: "operator",
+      });
+      res.json(updated);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) throw err;
+      rethrowAsApiError(err);
+    }
   });
 
   /*

@@ -4039,3 +4039,30 @@ reuse source-grid spacing so long structural finding labels and immutable proven
 @media (max-width: 768px) {
   .ai-merge-review-reconciliation { margin-inline: var(--space-2); }
 }
+
+/*
+FNXC:RepositoryScope 2026-08-21-00:29:
+Task Detail exposes pre-land scope corrections beside acquired repository evidence. The controls
+use existing form and spacing tokens so desktop and compact modal layouts retain keyboard-accessible
+operator recovery without treating acquisition count as task intent.
+*/
+.workspace-repository-scope-controls {
+  display: grid;
+  gap: var(--space-sm);
+  margin-block: var(--space-md);
+}
+.workspace-repository-scope-controls label {
+  display: grid;
+  gap: var(--space-xs);
+  color: var(--text-muted);
+}
+.workspace-repository-scope-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+.workspace-repository-scope-error { color: var(--color-danger-text); }
+.workspace-repository-scope-history {
+  margin: var(--space-sm) 0;
+  padding-inline-start: var(--space-lg);
+}

@@ -229,6 +229,8 @@ export const tasks = projectSchema.table("tasks", {
   sourceIssueClosedAt: text("source_issue_closed_at"),
   mergeDetails: jsonb("merge_details"),
   workspaceWorktrees: jsonb("workspace_worktrees"),
+  // FNXC:RepositoryScope 2026-08-20-23:07: explicit task intent must survive PostgreSQL reads independently of acquired worktrees.
+  repositoryScope: jsonb("repository_scope"),
   noCommitsExpected: integer("no_commits_expected").default(0),
   enabledWorkflowSteps: jsonb("enabled_workflow_steps").default([]),
   modifiedFiles: jsonb("modified_files").default([]),

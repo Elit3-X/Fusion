@@ -2563,3 +2563,7 @@ The Memory view also includes a fourth **Knowledge Graph** tab. It provides capp
 ### Workspace per-repository land status
 
 Task Detail shows each acquired workspace repository as **landed**, **pending**, or **failed**. Landed repositories include a short commit SHA; a partial land shows the aggregate landed count and retained task failure detail. The compact TaskCard chip deliberately remains count-only. The engine records a durable per-repository failure for both `landWorkspaceTask` failed-result branches and self-healing's unrecoverable partial-land park; busy leases, aborts, persist-after-advance recovery, and empty merges intentionally do not record one. Older partial-land rows and empty repositories remain pending, with any available failure detail shown only in the aggregate block.
+
+### Workspace task scope status
+
+Task Detail's workspace repository summary distinguishes acquired repositories from explicit task scope. Each repository shows whether it is modified, out of scope, or **No changes — not reviewed**, alongside landed, pending, or failed land state. An acquired repository outside the selected scope is informational only; it does not receive a review verdict or block task completion. The same summary remains readable in compact task-card presentation without adding empty controls on mobile.

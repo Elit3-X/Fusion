@@ -155,6 +155,26 @@ describeIfGit("U2 KTD4 — per-repo scope-leak guard in fn_task_done", () => {
     expect(result.message).toContain("OFFSCOPE.md");
   });
 
+  it("blocks an unreadable acquired out-of-scope checkout instead of treating lossy capture as clean", async () => {
+    fx = await createWorkspaceFixture(["repo-a", "repo-b"]);
+    const a = addRepoWorktree(fx, "repo-a", "src/a.ts");
+    const store = createStore([]);
+    const executor = workspaceExecutor(fx, store);
+    const task = makeTask({
+      branch: BRANCH,
+      repositoryScope: { repositories: ["repo-a"], state: "confirmed", revision: 1 },
+      workspaceWorktrees: {
+        "repo-a": { worktreePath: a.worktreePath, branch: BRANCH, baseCommitSha: a.baseCommitSha },
+        "repo-b": { worktreePath: path.join(fx.repoPath("repo-b"), ".worktrees", "missing"), branch: BRANCH },
+      },
+    });
+
+    const result = await (executor as any).evaluateTaskDoneScopeLeak(task, fx.rootDir, PROMPT, SETTINGS);
+    expect(result).toMatchObject({ blocked: true });
+    expect(result.message).toContain("repo-b");
+    expect(result.message).toContain("cannot establish out-of-scope change evidence");
+  });
+
   it("accepts repo-local scope for a one-repository workspace", async () => {
     fx = await createWorkspaceFixture(["repo-a"]);
     const a = addRepoWorktree(fx, "repo-a", "src/a.ts");

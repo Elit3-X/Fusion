@@ -24,6 +24,7 @@ Coverage (FN-5893 surfaces):
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Task, TaskStore, WorkspaceLeaseHandle } from "@fusion/core";
@@ -59,6 +60,14 @@ function createStore(task: Task): TaskStore & RecordingStore {
     updateTask: vi.fn(async (_id: string, patch: Partial<Task>) => {
       Object.assign(store.task, patch);
       return undefined;
+    }),
+    updateTaskAtomic: vi.fn(async (
+      _id: string,
+      updater: (current: Task) => Partial<Task> | null | undefined | Promise<Partial<Task> | null | undefined>,
+    ) => {
+      const patch = await updater(store.task);
+      if (patch) Object.assign(store.task, patch);
+      return store.task;
     }),
     mergeWorkspaceWorktreeEntry: vi.fn(async (
       _id: string,
@@ -130,6 +139,22 @@ function makeTask(id: string, workspaceWorktrees: Task["workspaceWorktrees"]): T
     currentStep: 0,
     log: [],
     workspaceWorktrees,
+    /*
+    FNXC:RepositoryScope 2026-08-21-02:05:
+    Lease scenarios must model the Code Review fingerprint that production requires before a
+    scoped repository can land; confirmed membership and a file list alone are not approval.
+    */
+    repositoryScope: {
+      repositories: Object.keys(workspaceWorktrees ?? {}),
+      state: "confirmed",
+      revision: 1,
+      reviewEvidence: Object.fromEntries(Object.entries(workspaceWorktrees ?? {}).map(([repoRel, entry]) => {
+        const mergeBase = execSync(`git merge-base HEAD ${entry.branch}`, { cwd: entry.worktreePath, encoding: "utf8" }).trim();
+        const diff = execSync(`git diff --binary ${entry.baseCommitSha ?? mergeBase}..HEAD`, { cwd: entry.worktreePath, encoding: "utf8" });
+        return [repoRel, { fingerprint: createHash("sha256").update(diff).digest("hex"), approvedAt: new Date().toISOString() }];
+      })),
+    },
+    modifiedFiles: Object.keys(workspaceWorktrees ?? {}).map((repoRel) => `${repoRel}/feature.txt`),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   } as Task;

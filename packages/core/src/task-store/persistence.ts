@@ -146,6 +146,7 @@ export interface TaskRow {
   sourceIssueClosedAt: string | null;
   mergeDetails: string | null;
   workspaceWorktrees: string | null;
+  repositoryScope: string | null;
   noCommitsExpected: number | null;
   enabledWorkflowSteps: string | null;
   modifiedFiles: string | null;
@@ -228,7 +229,7 @@ PostgreSQL task JSONB conversion must use one registry for both descriptor write
 export const TASK_JSONB_COLUMNS: ReadonlySet<string> = new Set([
   "dependencies", "steps", "customFields", "log", "attachments", "steeringComments",
   "comments", "review", "reviewState", "workflowStepResults", "prInfo", "prInfos",
-  "issueInfo", "githubTracking", "gitlabTracking", "mergeDetails", "workspaceWorktrees", "enabledWorkflowSteps",
+  "issueInfo", "githubTracking", "gitlabTracking", "mergeDetails", "workspaceWorktrees", "repositoryScope", "enabledWorkflowSteps",
   "modifiedFiles", "declaredSymbols", "scopeAutoWiden", "sourceMetadata", "tokenUsagePerModel",
   "tokenBudgetOverride", "columnDwellMs", "workflowTransitionNotification", "recommendations",
 ]);
@@ -397,6 +398,7 @@ export const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("sourceIssueClosedAt", (task) => task.sourceIssue?.closedAt ?? null),
   defineTaskColumn("mergeDetails", (task) => toJsonNullable(task.mergeDetails)),
   defineTaskColumn("workspaceWorktrees", (task) => toJsonNullable(task.workspaceWorktrees)),
+  defineTaskColumn("repositoryScope", (task) => toJsonNullable(task.repositoryScope)),
   defineTaskColumn("noCommitsExpected", (task) => task.noCommitsExpected ? 1 : 0),
   defineTaskColumn("enabledWorkflowSteps", (task) => toJson(task.enabledWorkflowSteps || [])),
   defineTaskColumn("modifiedFiles", (task) => toJson(task.modifiedFiles || [])),

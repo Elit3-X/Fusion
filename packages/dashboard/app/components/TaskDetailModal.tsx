@@ -37,6 +37,7 @@ import {
 } from "../utils/columnRoles";
 import { resolveEffectiveAutoMerge } from "../../../core/src/merge/task-merge";
 import { uploadAttachment, deleteAttachment, updateTask, repairOverlapBlocker, fetchTaskDetail, fetchTaskPrompt, fetchSpecLock, fetchTaskVerificationRequest, fetchSettings, fetchTaskEffectiveSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, refreshPrStatus, fetchBoardWorkflows, updateTaskCustomFields, summarizeTitle, fetchWorkflowSettingValues, nudgeOverseer, stopOverseer, explainOverseer, fetchModels, fetchNodes, api } from "../api";
+import { updateTaskRepositoryScope } from "../api/tasks/tasks";
 import type { RevertTaskOptions, RevertTaskResult, ModelInfo, NodeInfo, SpecLockResponse } from "../api";
 import type { BoardWorkflowsPayload, WorkflowFieldDefinition, CustomFieldRejection } from "../api";
 import { WorkflowIcon } from "./WorkflowIcon";
@@ -998,6 +999,18 @@ export function TaskDetailContent({
     } as TaskDetail)
     : ({ ...task, prompt: "" } as TaskDetail);
   const activityLog = workingTask.log ?? [];
+  /*
+  FNXC:RepositoryScope 2026-08-21-00:29:
+  Scope edits must replace the local snapshot with the server's authoritative, land-fenced task.
+  This keeps an operator from making a second edit against stale intent after another session has
+  started a repository land.
+  */
+  const handleRepositoryScopeChange = useCallback(async (input: { repositories: string[]; reason: string; action: "add" | "remove" | "refuse" }) => {
+    const updated = await updateTaskRepositoryScope(workingTask.id, input, projectId);
+    setFullDetail((previous) => previous ? ({ ...previous, ...updated } as TaskDetail) : (updated as TaskDetail));
+    onTaskUpdated?.(updated);
+  }, [onTaskUpdated, projectId, workingTask.id]);
+
   const handleCopyActivityLogs = useCallback(async () => {
     if (detailLoading || activityLog.length === 0) return;
     const copied = await copyTextToClipboard(serializeTaskActivityLogs(activityLog));
@@ -5669,7 +5682,7 @@ export function TaskDetailContent({
                   workingTask, not the sparse task row. workspaceWorktrees is only
                   present in fetched detail, so keying off task renders blank on the
                   optimistic-open path before the detail fetch resolves. */}
-              {isWorkspaceTask(workingTask) && <WorkspaceWorktreesSummary task={workingTask} />}
+              {isWorkspaceTask(workingTask) && <WorkspaceWorktreesSummary task={workingTask} onScopeChange={handleRepositoryScopeChange} />}
             </>
           )}
           {shouldShowTaskFailureAlert && (

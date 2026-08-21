@@ -2907,12 +2907,21 @@ export class TriageProcessor {
         // this a no-op there while still guaranteeing no dangling token leaks.
         const renderedBasePrompt = renderTriagePolicyPlaceholders(resolvedBasePrompt, triagePolicySettings);
         const duplicatePolicyInstruction = buildPlanningDuplicatePolicyInstruction();
+        /*
+        FNXC:RepositoryScope 2026-08-21-00:12:
+        Workspace plan persistence rejects a missing Repository Scope, so every planner that sees
+        repository intent must be explicitly instructed to emit the confirmed heading rather than
+        repeatedly producing a plan the authoritative writer cannot publish.
+        */
         const triageLayers = buildPromptLayers({
           basePrompt: renderedBasePrompt,
           goalContext: triageGoalResolution.goalContext,
           agentInstructions: [
             triageIdentitySection,
             duplicatePolicyInstruction,
+            task.repositoryScope
+              ? `## Workspace repository intent\nThis is a multi-repository workspace task. Your final PROMPT.md MUST include a non-empty \`## Repository Scope\` heading with a markdown bullet list of configured repository names. Confirm only repositories the task concerns; do not infer intent from acquired checkouts. File Scope entries must be qualified as \`repository/path\` when more than one repository is in scope.`
+              : "",
             triageInstructions,
             isResearchToolSurfaceEnabled(settings)
               ? getResearchGuidanceForSurface("triage")

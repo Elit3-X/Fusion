@@ -267,6 +267,8 @@ export function rowToTask(row: TaskRow): Task {
       const w = fromJson<import("../types.js").Task["workspaceWorktrees"]>(row.workspaceWorktrees);
       return w && Object.keys(w).length > 0 ? w : undefined;
     })(),
+    // FNXC:RepositoryScope 2026-08-20-23:07: legacy null remains absent; hydration must not convert acquired worktrees into intent.
+    repositoryScope: fromJson<import("../types.js").Task["repositoryScope"]>(row.repositoryScope) ?? undefined,
     noCommitsExpected: row.noCommitsExpected ? true : undefined,
     // FNXC:WorkflowOptionalSteps 2026-06-29-02:55: an explicit empty optional-step
     // selection must hydrate back as [], not undefined — "all disabled" and "not

@@ -66,7 +66,7 @@ capacity-model table drop that landed while this PR was open.
 /* FNXC:TaskRecommendations 2026-08-13-22:23: upgrades must install the source-agent index before duplicate intake queries it. */
 /* FNXC:WorkspaceLease 2026-08-15-12:00: the baseline ceiling must include durable coordination tables so an upgraded database is never rejected by the current binary. */
 /* FNXC:ActivityLogTaskSearch 2026-08-20-04:17: advance the schema ceiling so durable central task-ID lookups receive their indexed upgrade. */
-export const SCHEMA_BASELINE_VERSION = "0063";
+export const SCHEMA_BASELINE_VERSION = "0064";
 /** FNXC:SymbolLock 2026-07-20-10:00: upgrades need durable task declarations before admission resolves symbols. */
 export const TASK_DECLARED_SYMBOLS_VERSION = "0028";
 const INITIAL_SCHEMA_VERSION = "0000";
@@ -231,6 +231,8 @@ export const WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION = "0060";
 export const ACTIVITY_LOG_TASK_ID_INDEX_VERSION = "0061";
 export const REMOVE_TASK_SUBTASK_SPLITTING_VERSION = "0062";
 export const AI_MERGE_REVIEW_RECONCILIATION_VERSION = "0063";
+/** FNXC:RepositoryScope 2026-08-20-23:07: upgraded projects need explicit task repository intent before workspace lifecycle readers use it. */
+export const TASK_REPOSITORY_SCOPE_VERSION = "0064";
 
 /** SECURITY DEFINER helper that only inserts LEGACY_ADOPTION_DRAINED_MARKER. */
 export const LEGACY_ADOPTION_DRAINED_MARKER_FUNCTION = "fusion_mark_legacy_adoption_drained";
@@ -468,6 +470,7 @@ const WORKSPACE_COORDINATION_LEASES_MIGRATION_PATH = join(MIGRATIONS_DIR, "0060_
 const ACTIVITY_LOG_TASK_ID_INDEX_MIGRATION_PATH = join(MIGRATIONS_DIR, "0061_fn_066_activity_log_task_id_index.sql");
 const REMOVE_TASK_SUBTASK_SPLITTING_MIGRATION_PATH = join(MIGRATIONS_DIR, "0062_remove_task_subtask_splitting.sql");
 const AI_MERGE_REVIEW_RECONCILIATION_MIGRATION_PATH = join(MIGRATIONS_DIR, "0063_fn_090_ai_merge_review_reconciliation.sql");
+const TASK_REPOSITORY_SCOPE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0064_fn_094_task_repository_scope.sql");
 
 /**
  * Ensure the migration bookkeeping table exists. Lives in the public schema so
@@ -601,6 +604,7 @@ export async function applySchemaBaseline(
     const activityLogTaskIdIndexAlreadyApplied = applied.includes(ACTIVITY_LOG_TASK_ID_INDEX_VERSION);
     const removeTaskSubtaskSplittingAlreadyApplied = applied.includes(REMOVE_TASK_SUBTASK_SPLITTING_VERSION);
     const aiMergeReviewReconciliationAlreadyApplied = applied.includes(AI_MERGE_REVIEW_RECONCILIATION_VERSION);
+    const taskRepositoryScopeAlreadyApplied = applied.includes(TASK_REPOSITORY_SCOPE_VERSION);
     assertBinaryNotOlderThanDatabase(applied);
     let schemaChanged = false;
 
@@ -1337,6 +1341,13 @@ export async function applySchemaBaseline(
       const migrationSql = await readFile(AI_MERGE_REVIEW_RECONCILIATION_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${AI_MERGE_REVIEW_RECONCILIATION_VERSION}) ON CONFLICT (version) DO NOTHING`);
+      schemaChanged = true;
+    }
+    /* FNXC:RepositoryScope 2026-08-20-23:07: migrations are explicitly registered so upgrade paths cannot silently omit task intent. */
+    if (!taskRepositoryScopeAlreadyApplied) {
+      const migrationSql = await readFile(TASK_REPOSITORY_SCOPE_MIGRATION_PATH, "utf8");
+      await tx.execute(sql.raw(migrationSql));
+      await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${TASK_REPOSITORY_SCOPE_VERSION}) ON CONFLICT (version) DO NOTHING`);
       schemaChanged = true;
     }
     return { applied: schemaChanged, pluginHooksRun: pluginHooks.length };
