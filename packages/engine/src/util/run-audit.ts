@@ -533,6 +533,9 @@ export type DatabaseMutationType =
   */
   | "task:auto-recover-terminal-failure"
   | "task:auto-recover-terminal-failure-exhausted"
+  /** Metadata: { taskId, column, attempt, maxAttempts, delayMs?, outcome } — ids/counts/outcomes only. */
+  | "task:no-progress-no-task-done-requeue"
+  | "task:no-progress-no-task-done-requeue-exhausted"
   | "task:auto-recover-finalize-already-on-main"
   /** Metadata: { taskId, previousColumn, targetColumn, commitSha, status, blockedBy, overlapBlockedBy, reason } */
   | "task:auto-merge-finalize-column-mismatch-reconciled"

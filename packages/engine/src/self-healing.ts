@@ -136,6 +136,7 @@ import {
   TERMINAL_FAILURE_CLAIM_APPLY_GRACE_MS,
 } from "@fusion/core";
 import { BASE_DELAY_MS, computeRecoveryDecision, formatDelay, MAX_DELAY_MS, MAX_RECOVERY_RETRIES } from "./healing/recovery-policy.js";
+import { NO_PROGRESS_REQUEUE_BUDGET_EXHAUSTED_PREFIX } from "./healing/no-progress-requeue-budget.js";
 
 export {
   COMPLETED_BLOCKED_PAUSE_REASON,
@@ -585,9 +586,15 @@ const ORPHANED_WITH_WORKTREE_GRACE_MS = 300_000;
 /**
  * Maximum times a task can be auto-requeued after the agent exits without
  * calling `fn_task_done`. Bounded so a persistently-broken task cannot loop
- * forever; when exhausted the task stays in `in-review` for human inspection.
+ * forever; when exhausted the task stays failed in its wip lane for human inspection.
  */
-const MAX_TASK_DONE_RETRIES = 3;
+/**
+ * FNXC:SelfHealing 2026-08-21-15:44:
+ * Issue #3496 requires a hard cap on no-progress automatic requeues. This
+ * durable budget uses taskDoneRetryCount, not recoveryRetryCount, because the
+ * terminal-failure owner clears the latter display mirror after each failure.
+ */
+export const MAX_TASK_DONE_RETRIES = 3;
 const RECONCILE_SCOPE_OVERRIDE_MERGE_ACTIVE_STATUS_SET = new Set<string>(MERGE_ACTIVE_MISSING_WORKTREE_STATUSES);
 /**
  * FNXC:WorkflowLifecycle 2026-06-20-00:00: single source of truth for the
@@ -15316,7 +15323,8 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
         !task.paused &&
         !executingIds.has(task.id) &&
         !isTaskWorkComplete(task) &&
-        !hasStepProgress(task),
+        !hasStepProgress(task) &&
+        isRecoveryRetryDue(task, Date.now()),
       );
 
       if (candidates.length === 0) return 0;
@@ -15342,17 +15350,80 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             continue;
           }
 
-          await this.store.updateTask(task.id, {
-            status: "stuck-killed",
-            worktree: null,
-            branch: null, branchWriteOrigin: "engine" as const,
+          const auditor = createRunAuditor(this.store, {
+            runId: generateSyntheticRunId("no-progress-no-task-done", task.id),
+            agentId: "self-healing",
+            taskId: task.id,
+            taskLineageId: task.lineageId,
+            phase: "no-progress-no-task-done",
           });
-          await this.store.logEntry(
-            task.id,
-            "Auto-recovered no-progress no-task_done failure — clean worktree, moved back to todo",
-          );
-          // #1411: backward recovery — skip order-derived adjacency.
+          const now = Date.now();
+          let transition:
+            | { kind: "retry"; prior: number; delayMs: number }
+            | { kind: "exhausted"; prior: number }
+            | undefined;
+          /*
+          FNXC:SelfHealing 2026-08-21-15:44:
+          taskDoneRetryCount survives the terminal-failure mirror clear, unlike
+          recoveryRetryCount. Claim the failed row under its store lock before the
+          backward move: concurrent startup/maintenance sweeps otherwise read the
+          same count and spend #3496's three-attempt cap more than once.
+          */
+          await this.store.updateTaskAtomic(task.id, (live) => {
+            if (
+              live.status !== "failed" ||
+              !isNoTaskDoneFailure(live) ||
+              live.paused ||
+              isTaskWorkComplete(live) ||
+              hasStepProgress(live) ||
+              !isRecoveryRetryDue(live, now)
+            ) return null;
+            const prior = live.taskDoneRetryCount ?? 0;
+            /*
+            FNXC:SelfHealing 2026-08-21-15:44:
+            The sentinel is an idempotence fence. It prevents later sweeps from
+            duplicating the terminal log/audit escalation after #3496 is exhausted.
+            */
+            if (prior >= MAX_TASK_DONE_RETRIES) {
+              if (live.error?.startsWith(NO_PROGRESS_REQUEUE_BUDGET_EXHAUSTED_PREFIX)) return null;
+              transition = { kind: "exhausted", prior };
+              return {
+                error: `${NO_PROGRESS_REQUEUE_BUDGET_EXHAUSTED_PREFIX} ${prior}/${MAX_TASK_DONE_RETRIES} attempts spent. ${live.error ?? ""}`,
+                recoveryRetryCount: null,
+                nextRecoveryAt: null,
+              };
+            }
+            const delayMs = computeRecoveryDecision({ recoveryRetryCount: prior }).delayMs;
+            transition = { kind: "retry", prior, delayMs };
+            return {
+              status: "stuck-killed",
+              worktree: null,
+              branch: null,
+              branchWriteOrigin: "engine" as const,
+              taskDoneRetryCount: prior + 1,
+              recoveryRetryCount: prior + 1,
+              nextRecoveryAt: new Date(now + delayMs).toISOString(),
+            };
+          });
+          if (!transition) continue;
+          if (transition.kind === "exhausted") {
+            await this.store.logEntry(task.id, `No-progress no-task_done recovery exhausted after ${transition.prior}/${MAX_TASK_DONE_RETRIES} attempts; task remains failed for operator action`);
+            await auditor.database({
+              type: "task:no-progress-no-task-done-requeue-exhausted",
+              target: task.id,
+              metadata: { taskId: task.id, column: task.column, attempt: transition.prior, maxAttempts: MAX_TASK_DONE_RETRIES, outcome: "exhausted" },
+            });
+            continue;
+          }
+
+          await this.store.logEntry(task.id, `Auto-recovered no-progress no-task_done failure — retry ${transition.prior + 1}/${MAX_TASK_DONE_RETRIES} in ${formatDelay(transition.delayMs)}, moved back to todo`);
+          // #1411: the locked status claim fences duplicate backward moves before this public move acquires its own lock.
           await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { moveSource: "engine", recoveryRehome: true });
+          await auditor.database({
+            type: "task:no-progress-no-task-done-requeue",
+            target: task.id,
+            metadata: { taskId: task.id, column: task.column, attempt: transition.prior + 1, maxAttempts: MAX_TASK_DONE_RETRIES, delayMs: transition.delayMs, outcome: "requeued" },
+          });
           recovered++;
         } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
           log.error(`Failed to recover no-progress no-task_done failure ${task.id}: ${errorMessage}`);
