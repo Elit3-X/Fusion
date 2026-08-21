@@ -38,6 +38,7 @@ import {
   type WorktreeOperationResult,
   type WorktrunkOpName,
 } from "./worktrunk-failure-handler.js";
+import { resolveWorkspaceReviewRemediationRepository } from "../executor/workspace-review-remediation.js";
 import type { RunAuditor } from "../util/run-audit.js";
 import { reconcileSecretsEnvFingerprint, writeSecretsEnvFile } from "./secrets-env-writer.js";
 import { removeDesktopBuildArtifacts } from "./worktree-desktop-artifacts.js";
@@ -1389,6 +1390,8 @@ export interface AcquireWorkspaceTaskWorktreesOptions {
   runConfiguredCommand?: AcquireTaskWorktreeOptions["runConfiguredCommand"];
   taskEnv?: NodeJS.ProcessEnv;
   addActiveWorktree?: (taskId: string, path: string) => void;
+  /** Current-scope failing review repository selected as the remediation session coordinator. */
+  remediationRepository?: string;
 }
 
 export interface AcquireWorkspaceRepoWorktreeOptions {
@@ -1860,9 +1863,20 @@ export async function acquireWorkspaceTaskWorktrees(
   }
 
   const entries = current.workspaceWorktrees ?? {};
-  const coordinatorWorktreePath = repoRelPaths
-    .map((repoRelPath) => entries[repoRelPath]?.worktreePath)
-    .find((path): path is string => typeof path === "string" && path.length > 0);
+  /*
+  FNXC:WorkspaceFinalization 2026-08-21-09:33:
+  Re-read the durable scope after acquiring the complete repository set. A scope mutation while
+  worktrees are acquired fences the saved REVISE target; never fall back to the first repository.
+  */
+  const remediationRepository = resolveWorkspaceReviewRemediationRepository(current, repoRelPaths);
+  if (opts.remediationRepository !== remediationRepository) {
+    throw new Error(`Workspace Code Review remediation target changed during acquisition for ${opts.task.id}`);
+  }
+  const coordinatorWorktreePath = remediationRepository
+    ? entries[remediationRepository]?.worktreePath
+    : repoRelPaths
+      .map((repoRelPath) => entries[repoRelPath]?.worktreePath)
+      .find((path): path is string => typeof path === "string" && path.length > 0);
   if (!coordinatorWorktreePath) {
     throw new Error(`Workspace task ${opts.task.id} did not acquire a declared repository worktree`);
   }

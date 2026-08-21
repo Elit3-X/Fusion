@@ -684,6 +684,12 @@ export function createMockStore() {
       });
       return store.getTask(id);
     }),
+    updateWorkspaceReviewState: vi.fn(async (id: string, _revision: number, reviewRemediation: unknown) => {
+      const current = await store.getTask(id);
+      const repositoryScope = { ...(current.repositoryScope ?? {}), reviewRemediation };
+      applyPatch(id, { repositoryScope });
+      return { task: { ...current, repositoryScope }, updated: true };
+    }),
     recordActivity: vi.fn().mockResolvedValue({}),
     moveTask: makeWriteThroughMoveTask(),
     handoffToReview: vi.fn().mockImplementation(async (id: string) => store.moveTask(id, "in-review")),

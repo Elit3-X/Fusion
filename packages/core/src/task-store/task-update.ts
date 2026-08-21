@@ -248,12 +248,12 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       } else if (updates.repositoryScope !== undefined) {
         /*
         FNXC:RepositoryScope 2026-08-21-02:48:
-        Prompt confirmation writes scope in the same task mutation. Its new revision
-        cannot inherit Code Review evidence captured for the old repository intent.
+        Prompt confirmation writes scope in the same task mutation. Its new revision cannot
+        inherit Code Review evidence or a remediation target captured for the old repository intent.
         */
         const scopeRevisionChanged = task.repositoryScope?.revision !== updates.repositoryScope.revision;
         task.repositoryScope = scopeRevisionChanged
-          ? { ...updates.repositoryScope, reviewEvidence: undefined }
+          ? { ...updates.repositoryScope, reviewEvidence: undefined, reviewRemediation: undefined }
           : updates.repositoryScope;
         if (scopeRevisionChanged) {
           task.workflowStepResults = invalidateSupersededRepositoryScopeReviews(

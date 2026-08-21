@@ -2452,3 +2452,9 @@ Review and landing use the intersection of confirmed scope and qualified changed
 ## Branch assignment provenance
 
 Every populated or cleared task `branch` mutation declares `branchWriteOrigin`: use `operator` only for a matching persisted override and `engine` for canonical, group-derived, recovery, and clear writes. Single-repository acquisition creates or attaches the checkout, persists its singular branch assignment, then exposes it. If that persistence fails, it removes only the checkout created by the attempt through the backend-aware removal path and preserves the branch. A provenance validation failure is deterministic and terminal, never a provider retry.
+
+## Workspace finalization readiness
+
+Workspace landing derives its repository obligations from confirmed repository scope and durable per-repository evidence. A repository with a recorded `landedSha` remains an obligation on a finalize-once retry even when its current task-branch diff is empty. Undefined scope, duplicate repository declarations or worktree paths, and unexplained empty obligations fail closed; only an explicit commit-free task may take the no-op path.
+
+Every land and recovery door evaluates graph-owned pre-merge blockers before changing merge state, acquiring leases, or writing Git. Recovery uses the persisted transient merge counter and reports scheduling separately from observed finalization. Main-checkout committed-work detection requires task ownership after the repository baseline; historical task-ID commits, recorded landings, and foreign shared-checkout commits do not become task violations. A scope revision atomically clears both its approval fingerprints and Code Review remediation target; a current-scope approval likewise clears that target, so a successor cannot inherit a stale remediation coordinator.
