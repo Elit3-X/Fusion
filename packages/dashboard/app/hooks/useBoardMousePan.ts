@@ -29,17 +29,17 @@ export interface BoardMousePanBindings {
 }
 
 /*
-FNXC:BoardNavigation 2026-08-20-04:47:
-Desktop and tablet Board navigation restores primary-mouse click-drag panning from safe,
-noninteractive descendants such as empty-column text. Interactive, editable, native-draggable,
-and task-card descendants keep their native behavior. Mobile owns touch scrolling and column snap,
-so this hook is disabled there; edge proximity and stationary pointers never continue scrolling.
+FNXC:BoardNavigation 2026-08-21-16:03:
+FN-109 permits desktop and tablet primary-mouse panning to begin on a canonical task card's
+noninteractive body or text now that task relocation is menu-only. Controls, editable content,
+native drag sources, and editing cards remain native; mobile retains touch scrolling and column
+snap ownership, while edge proximity and stationary pointers never continue scrolling.
 */
 function isExcludedBoardPanTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return true;
   return Boolean(
     target.closest(
-      "button, a, input, textarea, select, option, label, summary, [contenteditable='true'], [draggable='true'], [data-id], [role='button'], [role='link'], [role='textbox'], [role='menuitem'], [role='checkbox'], [role='combobox'], [role='radio'], [role='slider'], [role='switch']",
+      ".card-editing, button, a, input, textarea, select, option, label, summary, [contenteditable='true'], [draggable='true'], [role='button'], [role='link'], [role='textbox'], [role='menuitem'], [role='checkbox'], [role='combobox'], [role='radio'], [role='slider'], [role='switch']",
     ),
   );
 }

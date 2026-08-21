@@ -14,7 +14,15 @@ function PanHarness({ enabled = true, onClick = vi.fn() }: { enabled?: boolean; 
       <input aria-label="Editable" data-testid="input" />
       <div contentEditable data-testid="contenteditable">Editable content</div>
       <div draggable data-testid="draggable">Draggable</div>
-      <article data-id="FN-1" data-testid="card">Card</article>
+      <article data-id="FN-1" data-testid="card">
+        <span data-testid="card-title">Card</span>
+        <button type="button" data-testid="card-button">Card button</button>
+        <a href="#card-link" data-testid="card-link">Card link</a>
+        <input aria-label="Card editable" data-testid="card-input" />
+        <div contentEditable data-testid="card-contenteditable">Card editable content</div>
+        <div draggable data-testid="card-draggable">Card draggable</div>
+        <div role="button" data-testid="card-semantic-control">Card semantic control</div>
+      </article>
     </main>
   );
 }
@@ -58,15 +66,48 @@ describe("useBoardMousePan", () => {
     expect(board.scrollLeft).toBe(130);
   });
 
-  it("leaves excluded interactive, editable, native-draggable, and task surfaces native", () => {
+  it("pans task-card bodies and text while suppressing only the compatibility click", () => {
+    const onClick = vi.fn();
+    const { board, getByTestId } = renderPanHarness(true, onClick);
+    board.scrollLeft = 100;
+
+    pointerDown(getByTestId("card"));
+    pointerMove(getByTestId("card"), 40);
+    expect(board.scrollLeft).toBe(160);
+    expect(board).toHaveAttribute("data-panning", "true");
+    pointerUp(getByTestId("card"));
+    fireEvent.click(getByTestId("card"));
+    expect(onClick).not.toHaveBeenCalled();
+
+    board.scrollLeft = 100;
+    pointerDown(getByTestId("card-title"), 100, 50, 2);
+    pointerMove(getByTestId("card-title"), 140, 50, 2);
+    expect(board.scrollLeft).toBe(60);
+    pointerUp(getByTestId("card-title"), 2);
+    fireEvent.click(getByTestId("card-title"));
+    expect(onClick).not.toHaveBeenCalled();
+
+    fireEvent.click(getByTestId("card-title"));
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves interactive, editable, native-draggable, and editing-card surfaces native", () => {
     const { board, getByTestId } = renderPanHarness();
     board.scrollLeft = 100;
 
-    for (const [index, target] of ["button", "input", "contenteditable", "draggable", "card"].map(getByTestId).entries()) {
+    for (const [index, target] of [
+      "button", "input", "contenteditable", "draggable", "card-button", "card-link", "card-input",
+      "card-contenteditable", "card-draggable", "card-semantic-control",
+    ].map(getByTestId).entries()) {
       pointerDown(target, 100, 50, index + 1);
       pointerMove(target, 40, 50, index + 1);
       pointerUp(target, index + 1);
     }
+
+    getByTestId("card").classList.add("card-editing");
+    pointerDown(getByTestId("card"), 100, 50, 20);
+    pointerMove(getByTestId("card"), 40, 50, 20);
+    pointerUp(getByTestId("card"), 20);
 
     expect(board.scrollLeft).toBe(100);
     expect(board).toHaveAttribute("data-panning", "false");

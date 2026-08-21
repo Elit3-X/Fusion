@@ -161,7 +161,10 @@ When task detail is open from a board card, task popup, mobile list row, right-d
 <!-- FNXC:TaskDetailSwipeBackDocs 2026-07-15-10:36: Mobile task popups now register the same navigation entry as modal and full-panel task detail, so every Back delivery mechanism dismisses the popup before it can leave the originating Board or List. -->
 On mobile board-card detail, **Back to board** also restores the prior board/card scroll position so the same lane context remains visible.
 
-### Mobile Kanban column snapping
+### Board panning and mobile Kanban column snapping
+
+<!-- FNXC:BoardNavigationDocs 2026-08-21-16:09: FN-109 documents that desktop/tablet card-body panning moves only the Board viewport; controls, editing, contextual movement, and phone touch ownership remain independent. -->
+On desktop and tablet, drag horizontally from an empty Board surface or a task card's noninteractive body or text to pan the Board viewport. The gesture never moves a task: card controls, links, fields, editing, context menus, and file drops keep their normal behavior, and **Move to** in the task context menu remains the only relocation path. Fusion does not auto-scroll at Board edges. Phone touch scrolling and column snapping are unchanged.
 
 <!-- FNXC:BoardNavigationDocs 2026-08-18-19:10: Phone releases keep free finger scrolling, then use one smooth controlled normal-motion settle to the already-valid reachable column. Reduced-motion users still receive an immediate landing, while programmatic, refresh, resize, and restored-page scrolls remain unsnapped. -->
 On the mobile Kanban board, free-scroll while your finger is down. At release, Fusion resolves the existing directional or nearest-column target and moves continuously to that exact reachable column, so the board feels fluid instead of abruptly locking or visibly hard-jumping. Direction is locked at finger-up from the net swipe (not rubber-band ticks), and the result pins until the next touch. A direction-zero or off-center release uses the same controlled nearest-column settle, so the board never rests between columns. Reduced-motion preferences, negligible-distance corrections, or unavailable animation capability use an immediate safe landing instead.
