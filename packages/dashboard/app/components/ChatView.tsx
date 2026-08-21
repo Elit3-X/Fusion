@@ -1944,15 +1944,22 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       }
       clearComposerState();
       clearPendingMessage();
-      stopStreaming();
-      void createSession({
-        agentId: activeSession.agentId,
-        modelProvider: activeSession.modelProvider ?? undefined,
-        modelId: activeSession.modelId ?? undefined,
-        thinkingLevel: activeSession.thinkingLevel ?? undefined,
-      }).catch(() => {
-        addToast(t("chat.failedToClearConversation", "Failed to clear conversation"), "error");
-      });
+      /*
+      FNXC:ChatCancellation 2026-08-21-01:36:
+      `/new` and `/clear` cross the cancellation barrier even when local isStreaming is false,
+      because only the project-scoped manager can fence active work. Its idle success result means
+      no interrupted response exists to save, so session replacement must not show a recovery error.
+      */
+      void stopStreaming()
+        .then(() => createSession({
+          agentId: activeSession.agentId,
+          modelProvider: activeSession.modelProvider ?? undefined,
+          modelId: activeSession.modelId ?? undefined,
+          thinkingLevel: activeSession.thinkingLevel ?? undefined,
+        }))
+        .catch(() => {
+          addToast(t("chat.failedToClearConversation", "Failed to clear conversation"), "error");
+        });
       return;
     }
 
