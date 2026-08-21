@@ -16,6 +16,7 @@ type BoardMousePanSession = {
   startY: number;
   startScrollLeft: number;
   isPanning: boolean;
+  isCaptured: boolean;
 };
 
 export interface BoardMousePanBindings {
@@ -29,11 +30,11 @@ export interface BoardMousePanBindings {
 }
 
 /*
-FNXC:BoardNavigation 2026-08-21-16:03:
-FN-109 permits desktop and tablet primary-mouse panning to begin on a canonical task card's
-noninteractive body or text now that task relocation is menu-only. Controls, editable content,
-native drag sources, and editing cards remain native; mobile retains touch scrolling and column
-snap ownership, while edge proximity and stationary pointers never continue scrolling.
+FNXC:BoardNavigation 2026-08-21-18:12:
+FN-115 keeps native card activation responsible for stationary and below-threshold mouse input.
+Desktop and tablet Board capture begins only after horizontal pan intent, so card bodies/text still
+open the configured detail destination while controls, editing, native drag sources, and mobile
+column-snap ownership remain native.
 */
 function isExcludedBoardPanTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return true;
@@ -44,7 +45,20 @@ function isExcludedBoardPanTarget(target: EventTarget | null): boolean {
   );
 }
 
+function capturePointer(session: BoardMousePanSession): boolean {
+  try {
+    if (typeof session.element.setPointerCapture !== "function") return false;
+    session.element.setPointerCapture(session.pointerId);
+    session.isCaptured = true;
+    return true;
+  } catch {
+    // FNXC:BoardNavigation 2026-08-21-18:55: FN-115 returns this uncaptured candidate to native activation when the browser declines capture.
+    return false;
+  }
+}
+
 function releasePointerCapture(session: BoardMousePanSession): void {
+  if (!session.isCaptured) return;
   const { element, pointerId } = session;
   try {
     if (element.hasPointerCapture?.(pointerId)) {
@@ -81,6 +95,13 @@ export function useBoardMousePan(boardElement: HTMLElement | null, enabled: bool
       return;
     }
 
+    /*
+    FNXC:BoardNavigation 2026-08-21-21:32:
+    FN-115 fences the one active mouse candidate by pointer ID. A late or mismatched down event
+    must not replace the candidate whose eventual native click or captured pan still owns cleanup.
+    */
+    if (sessionRef.current) return;
+
     didPanRef.current = false;
     sessionRef.current = {
       element,
@@ -89,8 +110,8 @@ export function useBoardMousePan(boardElement: HTMLElement | null, enabled: bool
       startY: event.clientY,
       startScrollLeft: element.scrollLeft,
       isPanning: false,
+      isCaptured: false,
     };
-    element.setPointerCapture?.(event.pointerId);
   }, [enabled]);
 
   const onPointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -102,6 +123,12 @@ export function useBoardMousePan(boardElement: HTMLElement | null, enabled: bool
     const deltaY = event.clientY - session.startY;
     if (!session.isPanning) {
       if (Math.abs(deltaX) < BOARD_MOUSE_PAN_THRESHOLD || Math.abs(deltaX) <= Math.abs(deltaY)) {
+        return;
+      }
+      if (!capturePointer(session)) {
+        sessionRef.current = null;
+        didPanRef.current = false;
+        setIsPanning(false);
         return;
       }
       session.isPanning = true;
