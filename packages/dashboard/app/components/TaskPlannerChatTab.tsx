@@ -1592,6 +1592,11 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
             onChange={(value) => void handleTaskChatModelChange(value)}
             placeholder={t("model.selectPlaceholder", "Select a model…")}
             defaultOptionLabel={t("models.useDefault", "Use project default")}
+            /*
+            FNXC:TaskChatModelMenu 2026-08-21-01:12:
+            Task Chat keeps its compact composer trigger, but long provider/model names need Direct Chat's readable, viewport-clamped portaled menu on desktop and mobile.
+            */
+            menuWidth="readable"
             favoriteProviders={favoriteProviders}
             favoriteModels={favoriteModels}
             disabled={queueActionPending || composerState === "sending"}

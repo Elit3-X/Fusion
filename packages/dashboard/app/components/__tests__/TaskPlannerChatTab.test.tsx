@@ -13,7 +13,14 @@ const originalScrollTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.
 const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
 const originalClientHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
 
-const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockStreamChatResponse, mockAttachChatStream, mockCancelChatResponse, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
+const mockModelCatalog = vi.hoisted(() => ({
+  models: [
+    { provider: "anthropic", id: "claude-plan", name: "Claude Plan", reasoning: true, contextWindow: 200000 },
+    { provider: "enterprise-provider", id: "very-long-production-model", name: "Enterprise Production Model With A Readable Long Name", reasoning: true, contextWindow: 200000 },
+  ],
+}));
+
+const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockUpdateChatSession, mockStreamChatResponse, mockAttachChatStream, mockCancelChatResponse, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
   const translations = new Map<string, string>();
   return {
     mockEnsureTaskPlannerChatSession: vi.fn(),
@@ -21,14 +28,27 @@ const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockF
     mockFetchChatSession: vi.fn(),
     mockFetchChatMessages: vi.fn(),
     mockFetchTaskDetail: vi.fn(),
+    mockUpdateChatSession: vi.fn(),
     mockStreamChatResponse: vi.fn(),
     mockAttachChatStream: vi.fn(),
     mockCancelChatResponse: vi.fn(),
     mockAddSteeringComment: vi.fn(),
     mockTranslations: translations,
-    mockT: (key: string, fallback: string) => translations.get(key) ?? fallback,
+    mockT: (key: string, fallback: string | { defaultValue?: string; defaultValue_one?: string; defaultValue_other?: string; count?: number }) => {
+      if (translations.has(key)) return translations.get(key)!;
+      if (typeof fallback === "string") return fallback;
+      return (fallback.count === 1 ? fallback.defaultValue_one : fallback.defaultValue_other) ?? fallback.defaultValue ?? key;
+    },
   };
 });
+
+vi.mock("../../hooks/useModelsCache", () => ({
+  useModelsCache: () => ({
+    models: mockModelCatalog.models,
+    favoriteProviders: [],
+    favoriteModels: [],
+  }),
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -45,6 +65,7 @@ vi.mock("../../api", async (importOriginal) => {
     fetchChatSession: mockFetchChatSession,
     fetchChatMessages: mockFetchChatMessages,
     fetchTaskDetail: mockFetchTaskDetail,
+    updateChatSession: mockUpdateChatSession,
     streamChatResponse: mockStreamChatResponse,
     attachChatStream: mockAttachChatStream,
     cancelChatResponse: mockCancelChatResponse,
@@ -179,10 +200,15 @@ describe("TaskPlannerChatTab", () => {
     mockEnsureTaskPlannerChatSession.mockResolvedValue({ session: plannerSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
     mockFetchTaskDetail.mockResolvedValue(makeTask("FN-7310"));
+    mockUpdateChatSession.mockResolvedValue({ session: makePlannerSession() });
     mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
     mockAttachChatStream.mockReturnValue({ close: vi.fn(), isConnected: () => true });
     mockCancelChatResponse.mockResolvedValue({ success: true, interrupted: false });
     mockAddSteeringComment.mockResolvedValue(makeTask("FN-7310"));
+    mockModelCatalog.models = [
+      { provider: "anthropic", id: "claude-plan", name: "Claude Plan", reasoning: true, contextWindow: 200000 },
+      { provider: "enterprise-provider", id: "very-long-production-model", name: "Enterprise Production Model With A Readable Long Name", reasoning: true, contextWindow: 200000 },
+    ];
   });
 
   afterEach(() => {
@@ -246,6 +272,68 @@ describe("TaskPlannerChatTab", () => {
       undefined,
       { taskId: "FN-7310" },
     );
+  });
+
+  it("uses Direct Chat's readable portal for compact task-chat triggers and keeps long models searchable", async () => {
+    const user = userEvent.setup();
+    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1000);
+    Element.prototype.getBoundingClientRect = vi.fn(() => ({
+      top: 100, left: 50, bottom: 136, width: 200, height: 36, right: 250, x: 50, y: 100, toJSON: () => ({}),
+    } as DOMRect));
+
+    try {
+      renderPlannerChat();
+      await screen.findByTestId("task-planner-chat-empty");
+      await user.click(screen.getByRole("button", { name: "Chat model" }));
+      const portal = await screen.findByTestId("model-combobox-portal");
+
+      expect(portal).toHaveAttribute("data-menu-width", "readable");
+      expect(Number.parseFloat(portal.style.width)).toBeGreaterThan(200);
+      await user.type(within(portal).getByPlaceholderText("Filter models…"), "readable long");
+      expect(within(portal).getByText("Enterprise Production Model With A Readable Long Name")).toBeInTheDocument();
+      await user.click(within(portal).getByText("Enterprise Production Model With A Readable Long Name"));
+      await waitFor(() => expect(mockUpdateChatSession).toHaveBeenCalledWith(
+        "chat-planner",
+        expect.objectContaining({ modelProvider: "enterprise-provider", modelId: "very-long-production-model" }),
+        undefined,
+      ));
+    } finally {
+      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+    }
+  });
+
+  it("keeps readable task-chat menus viewport-clamped for undefined selections and duplicate mobile catalogues", async () => {
+    const user = userEvent.setup();
+    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    const originalVisualViewport = window.visualViewport;
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: { width: 320, height: 640, offsetTop: 0, offsetLeft: 20, addEventListener: vi.fn(), removeEventListener: vi.fn() },
+    });
+    mockModelCatalog.models = [
+      { provider: "anthropic", id: "claude-plan", name: "Claude Plan", reasoning: true, contextWindow: 200000 },
+      { provider: "anthropic", id: "claude-plan-copy", name: "Claude Plan", reasoning: true, contextWindow: 200000 },
+    ];
+    Element.prototype.getBoundingClientRect = vi.fn(() => ({
+      top: 100, left: 250, bottom: 136, width: 160, height: 36, right: 410, x: 250, y: 100, toJSON: () => ({}),
+    } as DOMRect));
+
+    try {
+      renderPlannerChat({ taskChatModel: {} });
+      await screen.findByTestId("task-planner-chat-empty");
+      await user.click(screen.getByRole("button", { name: "Chat model" }));
+      const portal = await screen.findByTestId("model-combobox-portal");
+      const left = Number.parseFloat(portal.style.left);
+      const width = Number.parseFloat(portal.style.width);
+
+      expect(portal).toHaveAttribute("data-menu-width", "readable");
+      expect(left - 20).toBeGreaterThanOrEqual(16);
+      expect(left - 20 + width).toBeLessThanOrEqual(320 - 16);
+    } finally {
+      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+      Object.defineProperty(window, "visualViewport", { configurable: true, value: originalVisualViewport });
+    }
   });
 
   /*
