@@ -98,6 +98,7 @@ export {
   mergeSupplementalOpenAiCodexModels,
 } from "./ai/openai-models.js";
 export type { OpenAiCodexProviderRegistration } from "./ai/openai-models.js";
+export { resolveUpdateAutomationSettings } from "./config/update-automation.js";
 export { resolveRequiredCheckNames } from "./config/required-checks.js";
 export { mergeIngestedCheckStates } from "./config/ingested-checks.js";
 export type { IngestedCheckState, IngestedCheckStateValue, MergeablePrCheck } from "./config/ingested-checks.js";

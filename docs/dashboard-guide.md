@@ -15,7 +15,7 @@ The Fusion dashboard is the main control plane for tasks, agents, missions, sett
 
 ## Dashboard Updates
 
-When Fusion detects a newer `@runfusion/fusion` release, the Settings modal footer shows the available version with **Learn more** and **Update now** actions. Every Update now result remains visible: install success offers **Restart Fusion**, a current version reports no update, failed checks and installs show errors, and unsupported source-checkout, Homebrew, or missing-npm hosts show guidance instead of running a meaningless global install. The unattended updater likewise skips unsupported hosts without restarting. When Fusion is unsupervised (for example, started with `--no-supervise`), the restart action remains available so the server can explain the refusal; restart Fusion manually when it cannot be scheduled.
+When Fusion detects a newer `@runfusion/fusion` release, the Settings modal footer shows the available version with **Learn more** and **Update now** actions. Every Update now result remains visible: install success offers **Restart Fusion**, a current version reports no update, failed checks and installs show errors, and unsupported source-checkout, Homebrew, or missing-npm hosts show guidance instead of running a meaningless global install. Settings exposes independent **Automatically install updates** and **Automatically restart after an update** choices for the selected stable or beta channel; the watcher checks about one minute after boot and every six hours. The unattended updater skips unsupported hosts without restarting. When Fusion is unsupervised (for example, started with `--no-supervise`), the restart action remains available so the server can explain the refusal; restart Fusion manually when it cannot be scheduled.
 
 ### Supervised source-checkout rebuilds
 
@@ -2567,3 +2567,7 @@ Task Detail shows each acquired workspace repository as **landed**, **pending**,
 ### Workspace task scope status
 
 Task Detail's workspace repository summary distinguishes acquired repositories from explicit task scope. Each repository shows whether it is modified, out of scope, or **No changes — not reviewed**, alongside landed, pending, or failed land state. An acquired repository outside the selected scope is informational only; it does not receive a review verdict or block task completion. The same summary remains readable in compact task-card presentation without adding empty controls on mobile.
+
+### Update restart recovery
+
+Settings separates automatic installation from automatic restart. Following an operator-requested dashboard update restart, the page waits for the replacement host to report the installed version through health before it reloads. Transitional, old, and unavailable responses do not complete recovery. If the host does not return before the bounded timeout, the update surface provides manual refresh guidance. This explicit recovery is independent from `autoReloadOnVersionChange` and does not change native Electron or standalone CLI update behavior.
