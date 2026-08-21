@@ -678,6 +678,47 @@ FNXC:ChatRenderToggle 2026-07-04-00:00:
 The thread-wide Markdown/plain render toggle (`.chat-thread-header-render-toggle*`, desktop + mobile floating variants) was removed per FN-7541. Chat always renders Markdown now; the button and its CSS shells no longer exist.
 */
 
+/*
+FNXC:ChatFind 2026-08-21-16:29:
+FN-110 keeps the conversation-local Find row compact across Chat hosts and distinguishes a matching row from the currently navigated result using existing semantic tokens.
+*/
+.chat-conversation-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.chat-conversation-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-conversation-search-status {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.chat-message--search-match {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warning) 55%, transparent);
+}
+
+.chat-message--search-active {
+  box-shadow: inset 0 0 0 2px var(--color-warning);
+}
+
+@media (max-width: 768px) {
+  .chat-conversation-search {
+    flex-wrap: wrap;
+  }
+
+  .chat-conversation-search-input {
+    min-inline-size: 0;
+  }
+}
+
 /* Messages */
 .chat-messages {
   flex: 1 1 auto;

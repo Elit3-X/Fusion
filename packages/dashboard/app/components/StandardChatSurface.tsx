@@ -65,6 +65,9 @@ export interface StandardChatMessageItemProps {
    * false or `onEditMessage` is absent, no affordance renders at all — never a disabled/dead one.
    */
   canEdit?: boolean;
+  /** Optional ChatView-only find presentation; omitted consumers remain unchanged. */
+  isSearchMatch?: boolean;
+  isSearchActive?: boolean;
 }
 
 export interface StandardStreamingMessageProps {
@@ -80,6 +83,9 @@ export interface StandardStreamingMessageProps {
   copyAction?: ReactNode;
   onQuestionSubmit?: (answerText: string, structured: Record<string, unknown>) => void;
   toolCallRenderer?: (toolCall: ToolCallInfo, index: number) => ReactNode | undefined;
+  /** Optional ChatView-only find presentation; omitted consumers remain unchanged. */
+  isSearchMatch?: boolean;
+  isSearchActive?: boolean;
 }
 
 export interface StandardChatActionButtonProps {
@@ -630,6 +636,8 @@ export const StandardChatMessageItem = memo(function StandardChatMessageItem({
   onEditMessage,
   canEdit = false,
   isTopClipped = false,
+  isSearchMatch = false,
+  isSearchActive = false,
   projectId,
 }: StandardChatMessageItemProps) {
   const { t } = useTranslation("app");
@@ -760,7 +768,7 @@ export const StandardChatMessageItem = memo(function StandardChatMessageItem({
   const hasVisibleAssistantFooterContent = Boolean(message.thinkingOutput || copyAction || (onScrollToTop && isTopClipped));
   const messageTime = <div className="chat-message-time">{formatRelativeTime(message.createdAt, t)}</div>;
   return (
-    <div className={`chat-message chat-message--${message.role}${failureInfo ? " chat-message--failure" : ""}${isEditing ? " chat-message--editing" : ""}`} data-testid={`chat-message-${message.id}`} data-message-id={message.id}>
+    <div className={`chat-message chat-message--${message.role}${failureInfo ? " chat-message--failure" : ""}${isEditing ? " chat-message--editing" : ""}${isSearchMatch ? " chat-message--search-match" : ""}${isSearchActive ? " chat-message--search-active" : ""}`} data-testid={`chat-message-${message.id}`} data-message-id={message.id}>
       {showAssistantIdentity && <div className="chat-message-avatar">{activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="sm" /> : <Bot size={14} />}<span>{agentName}</span>{showAssistantModelTag && activeModelTag && <span className="chat-model-tag">{activeModelTag}</span>}</div>}
       {isEditing ? (
         <StandardChatMessageEditComposer
@@ -799,10 +807,10 @@ export const StandardChatMessageItem = memo(function StandardChatMessageItem({
   );
 });
 
-export function StandardStreamingMessage({ streamingText, streamingThinking = "", streamingToolCalls = [], forcePlain, agentName, hideAssistantIdentity, showAssistantModelTag, activeModelTag, activeModelProvider, copyAction, onQuestionSubmit, toolCallRenderer }: StandardStreamingMessageProps) {
+export function StandardStreamingMessage({ streamingText, streamingThinking = "", streamingToolCalls = [], forcePlain, agentName, hideAssistantIdentity, showAssistantModelTag, activeModelTag, activeModelProvider, copyAction, onQuestionSubmit, toolCallRenderer, isSearchMatch = false, isSearchActive = false }: StandardStreamingMessageProps) {
   const { t } = useTranslation("app");
   return (
-    <div className="chat-message chat-message--assistant chat-message--streaming" data-testid="chat-message-__streaming__">
+    <div className={`chat-message chat-message--assistant chat-message--streaming${isSearchMatch ? " chat-message--search-match" : ""}${isSearchActive ? " chat-message--search-active" : ""}`} data-testid="chat-message-__streaming__" data-message-id="__streaming__">
       {!hideAssistantIdentity && <div className="chat-message-avatar">{activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="sm" /> : <Bot size={14} />}<span>{agentName}</span>{showAssistantModelTag && activeModelTag && <span className="chat-model-tag">{activeModelTag}</span>}</div>}
       {streamingText ? renderStandardAssistantContent(streamingText, forcePlain) : <div className="chat-message-content chat-message-content--waiting">{streamingThinking ? t("chat.thinkingStatus", "Thinking…") : t("chat.workingStatus", "Working…")}</div>}
       {copyAction}

@@ -2165,6 +2165,7 @@ function AppInner() {
               projectId={currentProject.id}
               experimentalFeatures={experimentalFeatures}
               floating
+              findActive={quickChatOpen}
               initialComposerDraft={chatComposerPrefill?.text}
               initialComposerDraftNonce={chatComposerPrefill?.nonce}
               onSendAsReport={handleSendChatMessageAsReport}

@@ -101,6 +101,11 @@ Every configured action toggles its interface: press once to open Quick Chat, Te
 
 Press `Escape` to close the current/topmost dashboard popup. Popped-out task windows and floating Quick Chat close before fixed app modals such as Terminal, Settings, Files, or Task Detail, and only one surface closes per key press. Nested editors and menus that already handle Escape keep first ownership by preventing the global handler.
 
+<!-- FNXC:ChatFindDocs 2026-08-21-16:29: FN-110 gives the active visible Chat host contextual Find ownership without adding a configurable dashboard shortcut. -->
+### Chat Find
+
+In an active visible Chat list, <kbd>Ctrl+F</kbd> or <kbd>Cmd+F</kbd> focuses the existing conversation search without changing its query. In a selected Direct conversation, Room, or native/hybrid CLI transcript, the same chord opens **Find in conversation**. Type a literal case-insensitive query, use Enter (Shift+Enter for previous) or the previous/next controls to move through matching message rows, and use Escape or Close search to dismiss it. Only the activated full, floating, or docked Chat host owns the chord; raw/generic CLI terminals and nested dialogs keep their own browser or terminal behavior.
+
 <!-- FNXC:ModalGeometryPersistenceDocs 2026-07-16-00:40: Full-screen mobile FloatingWindow sheets must preserve, rather than overwrite, the movable desktop geometry record so a later desktop reopen restores the user's chosen location and size. -->
 <!-- FNXC:GitHubImport 2026-08-02-02:51: FN-8722 confirms that standalone GitHub Import also uses the canonical width-or-height sheet contract, so the operator guide must not describe short-sheet preservation as Artifact Gallery-only. -->
 Movable dashboard pop-outs remember their last desktop location and size, while centered resizable dialogs remember their size. When a pop-out becomes a full-screen sheet at mobile widths or its configured short-height breakpoint, it leaves that desktop record untouched; reopening it on desktop restores the prior floating geometry.
