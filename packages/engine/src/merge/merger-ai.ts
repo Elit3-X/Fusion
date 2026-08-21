@@ -2152,11 +2152,32 @@ export async function landWorkspaceTask(
     .sort(([left], [right]) => left.localeCompare(right))) {
     if (!entry.branch) throw new Error(`Workspace repository ${repoRel} has no task branch for fresh merge evidence`);
     try {
-      const { stdout: mergeBase } = await execFileAsync("git", ["merge-base", "HEAD", entry.branch], { cwd: entry.worktreePath, encoding: "utf8" });
-      const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${mergeBase.trim()}..${entry.branch}`], { cwd: entry.worktreePath, encoding: "utf8" });
+      /*
+      FNXC:WorkspaceMergeEvidence 2026-08-21-17:33:
+      FN-112 requires landing evidence to compare the immutable acquisition baseline with the
+      persisted task branch. A linked task worktree has HEAD checked out at entry.branch, so the
+      former HEAD-to-entry.branch comparison self-compared the same commit and incorrectly erased
+      reviewed work. The range below intentionally matches Code Review's baseCommitSha..HEAD range.
+      */
+      const comparisonBase = entry.baseCommitSha
+        ? await git(["rev-parse", "--verify", `${entry.baseCommitSha}^{commit}`], entry.worktreePath)
+        : await (async () => {
+          const baseResolution = await resolveWorkspaceRepoBaseBranch({
+            mode: "recorded",
+            repoRootDir: join(workspaceRootDir, repoRel),
+            repoRelPath: repoRel,
+            task,
+            settings,
+            recordedBaseBranch: entry.baseBranch,
+          });
+          return git(["merge-base", baseResolution.branch, entry.branch!], entry.worktreePath);
+        })();
+      if (!comparisonBase) throw new Error("comparison base is empty");
+      const comparisonRange = `${comparisonBase}..${entry.branch}`;
+      const { stdout } = await execFileAsync("git", ["diff", "--name-only", comparisonRange], { cwd: entry.worktreePath, encoding: "utf8" });
       const files = stdout.split("\n").map((file) => file.trim()).filter(Boolean);
       if (files.length > 0) {
-        const { stdout: diffContent } = await execFileAsync("git", ["diff", "--binary", `${entry.baseCommitSha ?? mergeBase.trim()}..HEAD`], { cwd: entry.worktreePath, encoding: "utf8" });
+        const { stdout: diffContent } = await execFileAsync("git", ["diff", "--binary", comparisonRange], { cwd: entry.worktreePath, encoding: "utf8" });
         mergeBoundaryFingerprints[repoRel] = createHash("sha256").update(diffContent).digest("hex");
       }
       if (files.length > 0 && !confirmedScope?.has(repoRel)) {
@@ -2165,7 +2186,7 @@ export async function landWorkspaceTask(
         if (files.length > 0) mergeBoundaryModifiedRepositories.add(repoRel);
         mergeBoundaryModifiedFiles.push(...files.map((file) => `${repoRel}/${file}`));
         if (files.length === 0) {
-          const { stdout: aheadCount } = await execFileAsync("git", ["rev-list", "--count", `HEAD..${entry.branch}`], { cwd: entry.worktreePath, encoding: "utf8" });
+          const { stdout: aheadCount } = await execFileAsync("git", ["rev-list", "--count", comparisonRange], { cwd: entry.worktreePath, encoding: "utf8" });
           if (Number(aheadCount.trim()) > 0) netZeroBranchRepositories.add(repoRel);
         }
       }

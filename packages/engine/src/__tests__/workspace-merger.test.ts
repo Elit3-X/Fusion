@@ -104,6 +104,24 @@ function addRepoBranchWithEdit(fx: WorkspaceFixture, repoRel: string, content: s
   fx.git(repoRel, `git worktree remove --force ${worktreePath}`);
 }
 
+/** Create production-shaped evidence: the persisted path remains a live task worktree at its branch tip. */
+function addRegisteredTaskWorktreeWithEdit(
+  fx: WorkspaceFixture,
+  repoRel: string,
+  content: string,
+): { worktreePath: string; baseCommitSha: string } {
+  const repoDir = fx.repoPath(repoRel);
+  // Keep the linked checkout outside its main checkout so the production dirty-root guard stays meaningful.
+  const worktreePath = path.join(fx.rootDir, `.task-worktree-${repoRel}`);
+  const baseCommitSha = fx.git(repoRel, "git rev-parse HEAD");
+  fx.git(repoRel, `git worktree add -b ${BRANCH} ${worktreePath} HEAD`);
+  configureIdentity(worktreePath);
+  writeFileSync(path.join(worktreePath, "feature.txt"), content, "utf-8");
+  execSync("git add feature.txt", { cwd: worktreePath, stdio: "pipe" });
+  execSync(`git commit -m "feat(${TASK_ID}): linked task worktree feature"`, { cwd: worktreePath, stdio: "pipe" });
+  return { worktreePath, baseCommitSha };
+}
+
 /**
  * FN-8141 shape: a `fusion/<id>` branch that committed work then REVERTED it — AHEAD of the
  * integration tip (two real commits) but net-zero, so its tip is NOT an ancestor of main and the
@@ -184,7 +202,7 @@ function makeTask(workspaceWorktrees: Task["workspaceWorktrees"]): Task {
       // merge-boundary fingerprint that production requires from Code Review.
       reviewEvidence: Object.fromEntries(Object.entries(workspaceWorktrees ?? {}).map(([repo, entry]) => {
         const mergeBase = execSync(`git merge-base HEAD ${entry.branch}`, { cwd: entry.worktreePath, encoding: "utf8" }).trim();
-        const diff = execSync(`git diff --binary ${entry.baseCommitSha ?? mergeBase}..HEAD`, { cwd: entry.worktreePath, encoding: "utf8" });
+        const diff = execSync(`git diff --binary ${entry.baseCommitSha ?? mergeBase}..${entry.branch}`, { cwd: entry.worktreePath, encoding: "utf8" });
         return [repo, { fingerprint: createHash("sha256").update(diff).digest("hex"), approvedAt: new Date().toISOString() }];
       })),
     },
@@ -238,6 +256,31 @@ describeIfGit("landWorkspaceTask — per-repo merge loop (Phase C U1)", () => {
     // U2 finalize-once: every repo landed → the task moves to done exactly once.
     expect(store.moveTaskCalls).toEqual([{ id: TASK_ID, column: "done" }]);
     expect(store.emitted.filter((e) => e.event === "task:merged")).toHaveLength(1);
+  });
+
+  it("lands reviewed work from a live linked task worktree baseline", async () => {
+    fx = await createWorkspaceFixture(["repo-a"]);
+    const linked = addRegisteredTaskWorktreeWithEdit(fx, "repo-a", "linked feature\n");
+    const integrationTipBefore = fx.git("repo-a", "git rev-parse refs/heads/main");
+    const store = createStore();
+    const task = makeTask({
+      "repo-a": { worktreePath: linked.worktreePath, branch: BRANCH, baseCommitSha: linked.baseCommitSha },
+    });
+
+    // The production shape that regressed: HEAD and the branch name resolve to the same task tip.
+    expect(execSync("git rev-parse HEAD", { cwd: linked.worktreePath, encoding: "utf8" }).trim())
+      .toBe(execSync(`git rev-parse ${BRANCH}`, { cwd: linked.worktreePath, encoding: "utf8" }).trim());
+
+    const result = await landWorkspaceTask(store, task, fx.rootDir, {}, {
+      mergeAgent: squashMergeAgent(BRANCH),
+      reviewAgent: approveReviewAgent,
+    });
+
+    expect(result.repos[0]?.error).toBeUndefined();
+    expect(result.repos).toMatchObject([{ repo: "repo-a", status: "landed" }]);
+    expect(result.allLanded).toBe(true);
+    expect(fx.git("repo-a", "git rev-parse refs/heads/main")).not.toBe(integrationTipBefore);
+    expect(store.moveTaskCalls).toEqual([{ id: TASK_ID, column: "done" }]);
   });
 
   it("reuses reconciled review findings for a workspace sub-repository", async () => {

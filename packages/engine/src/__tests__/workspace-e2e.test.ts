@@ -120,7 +120,7 @@ function makeTask(workspaceWorktrees: Task["workspaceWorktrees"], extra: Partial
     .filter(([repo]) => scopedRepositories.includes(repo))
     .map(([repo, entry]) => {
       const mergeBase = execSync(`git merge-base HEAD ${entry.branch}`, { cwd: entry.worktreePath, encoding: "utf8" }).trim();
-      const diff = execSync(`git diff --binary ${entry.baseCommitSha ?? mergeBase}..HEAD`, { cwd: entry.worktreePath, encoding: "utf8" });
+      const diff = execSync(`git diff --binary ${entry.baseCommitSha ?? mergeBase}..${entry.branch}`, { cwd: entry.worktreePath, encoding: "utf8" });
       return [repo, { fingerprint: createHash("sha256").update(diff).digest("hex"), approvedAt: new Date().toISOString() }];
     }));
   const task = {
@@ -201,6 +201,19 @@ function addRepoBranchWithEdit(fx: WorkspaceFixture, repoRel: string, content: s
   fx.git(repoRel, `git worktree remove --force ${wt}`);
 }
 
+function addLinkedTaskWorktreeWithEdit(
+  fx: WorkspaceFixture,
+  repoRel: string,
+  content: string,
+): { worktreePath: string; branch: string; baseCommitSha: string } {
+  const linked = fx.createLinkedTaskWorktree(repoRel, BRANCH);
+  configureIdentity(linked.worktreePath);
+  writeFileSync(path.join(linked.worktreePath, "feature.txt"), content, "utf-8");
+  execSync("git add feature.txt", { cwd: linked.worktreePath, stdio: "pipe" });
+  execSync(`git commit -m "feat(${TASK_ID}): linked task worktree feature in ${repoRel}"`, { cwd: linked.worktreePath, stdio: "pipe" });
+  return { ...linked, branch: BRANCH };
+}
+
 /** Make a sub-repo's integration tip and the task branch BOTH edit README so the squash conflicts. */
 function makeConflictingRepo(fx: WorkspaceFixture, repoRel: string): void {
   const repoDir = fx.repoPath(repoRel);
@@ -249,8 +262,8 @@ describeIfGit("workspace e2e — merge (no-push) + partial-land recovery (Phase 
     fx = await createWorkspaceFixture(["repo-a", "repo-b"]);
     const originA = addOriginRemote(fx, "repo-a");
     const originB = addOriginRemote(fx, "repo-b");
-    addRepoBranchWithEdit(fx, "repo-a", "a feature\n");
-    addRepoBranchWithEdit(fx, "repo-b", "b feature\n");
+    const repoA = addLinkedTaskWorktreeWithEdit(fx, "repo-a", "a feature\n");
+    const repoB = addLinkedTaskWorktreeWithEdit(fx, "repo-b", "b feature\n");
 
     const tipABefore = fx.git("repo-a", "git rev-parse refs/heads/main");
     const tipBBefore = fx.git("repo-b", "git rev-parse refs/heads/main");
@@ -263,8 +276,8 @@ describeIfGit("workspace e2e — merge (no-push) + partial-land recovery (Phase 
 
     const store = createStore([
       makeTask({
-        "repo-a": { worktreePath: fx.repoPath("repo-a"), branch: BRANCH },
-        "repo-b": { worktreePath: fx.repoPath("repo-b"), branch: BRANCH },
+        "repo-a": repoA,
+        "repo-b": repoB,
       }),
     ]);
     const task = store.tasks.get(TASK_ID)!;
@@ -289,6 +302,12 @@ describeIfGit("workspace e2e — merge (no-push) + partial-land recovery (Phase 
     expect(persisted["repo-b"].landedSha).toBeTruthy();
     expect(persisted["repo-a"].landedSha).toBe(fx.git("repo-a", "git rev-parse refs/heads/main"));
     expect(persisted["repo-b"].landedSha).toBe(fx.git("repo-b", "git rev-parse refs/heads/main"));
+    const finalizedTask = store.tasks.get(TASK_ID)!;
+    expect(finalizedTask.mergeDetails?.workspaceLandedShas).toEqual({
+      "repo-a": persisted["repo-a"].landedSha,
+      "repo-b": persisted["repo-b"].landedSha,
+    });
+    expect(finalizedTask.mergeDetails?.mergeConfirmed).toBe(true);
 
     // Finalize EXACTLY once.
     expect(store.moveTaskCalls).toEqual([{ id: TASK_ID, column: "done" }]);
@@ -387,7 +406,7 @@ describeIfGit("workspace e2e — merge (no-push) + partial-land recovery (Phase 
     const repoB = recoveringTask.workspaceWorktrees!["repo-b"];
     const repoBMergeBase = execSync(`git merge-base HEAD ${repoB.branch}`, { cwd: repoB.worktreePath, encoding: "utf8" }).trim();
     recoveringTask.repositoryScope!.reviewEvidence!["repo-b"] = {
-      fingerprint: createHash("sha256").update(execSync(`git diff --binary ${repoB.baseCommitSha ?? repoBMergeBase}..HEAD`, { cwd: repoB.worktreePath, encoding: "utf8" })).digest("hex"),
+      fingerprint: createHash("sha256").update(execSync(`git diff --binary ${repoB.baseCommitSha ?? repoBMergeBase}..${repoB.branch}`, { cwd: repoB.worktreePath, encoding: "utf8" })).digest("hex"),
       approvedAt: new Date().toISOString(),
     };
 
