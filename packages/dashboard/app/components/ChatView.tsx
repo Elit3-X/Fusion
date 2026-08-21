@@ -20,10 +20,11 @@ import {
   Pin,
   PinOff,
   MoreHorizontal,
+  ExternalLink,
   Tag,
   FileText,
 } from "lucide-react";
-import { FN_AGENT_ID, TASK_PLANNER_CHAT_AGENT_ID_PREFIX, useChat, type ChatMessageInfo } from "../hooks/useChat";
+import { FN_AGENT_ID, TASK_PLANNER_CHAT_AGENT_ID_PREFIX, useChat, type ChatMessageInfo, type ChatSessionInfo } from "../hooks/useChat";
 import { RoomMessageDeliveredButReplyFailedError, useChatRooms } from "../hooks/useChatRooms";
 import { useChatUnread } from "../hooks/useChatUnread";
 import { useComposerDictation } from "../hooks/useComposerDictation";
@@ -120,6 +121,11 @@ export interface ChatViewProps {
   onPopOut?: () => void;
   onMaximize?: () => void;
   onClose?: () => void;
+  /** Opens this exact active Direct session in a separate in-app Quick Chat. */
+  onOpenSessionInNewWindow?: (session: ChatSessionInfo) => void;
+  /** Secondary windows start in Direct and keep selection/scope storage private. */
+  initialDirectSession?: ChatSessionInfo;
+  persistChatPreferences?: boolean;
   /** Optional external composer seed; paired with a nonce so repeated opens reseed intentionally. */
   initialComposerDraft?: string;
   initialComposerDraftNonce?: number;
@@ -557,7 +563,7 @@ interface RoomContext {
   memberIds: ReadonlySet<string>;
 }
 
-export function ChatView({ projectId, addToast, floating = false, compactLayout = false, findActive = true, onPopOut, onMaximize, onClose, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
+export function ChatView({ projectId, addToast, floating = false, compactLayout = false, findActive = true, onPopOut, onMaximize, onClose, onOpenSessionInNewWindow, initialDirectSession, persistChatPreferences = true, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
   const { t } = useTranslation("app");
   const chatMessageLayout = useChatMessageLayout();
   useEffect(() => {
@@ -670,12 +676,13 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     setSearchQuery,
     filteredSessions,
     agentsMap: chatAgentsMap,
-  } = useChat(projectId, addToast);
+  } = useChat(projectId, addToast, { initialSession: initialDirectSession, persistActiveSession: persistChatPreferences });
 
   const [showNewDialog, setShowNewDialog] = useState(false);
   /* FNXC:ChatRooms 2026-06-23-01:28: Chat Rooms graduated from Experimental; stale false flags should not hide rooms in the main view, popout modal, or quick-chat surfaces. */
   const chatRoomsEnabled = true;
   const [chatScope, setChatScope] = useState<"direct" | "rooms">(() => {
+    if (!persistChatPreferences || initialDirectSession) return "direct";
     try {
       const persistedScope = localStorage.getItem(CHAT_SCOPE_STORAGE_KEY);
       if (persistedScope === "rooms" && chatRoomsEnabled) {
@@ -933,6 +940,10 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
 
 
   useEffect(() => {
+    if (!persistChatPreferences || initialDirectSession) {
+      setChatScope("direct");
+      return;
+    }
     try {
       const persistedScope = localStorage.getItem(CHAT_SCOPE_STORAGE_KEY);
       if (persistedScope === "direct") {
@@ -945,19 +956,20 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     } catch {
       // Ignore storage errors.
     }
-  }, [chatRoomsEnabled]);
+  }, [chatRoomsEnabled, initialDirectSession, persistChatPreferences]);
 
   useEffect(() => {
     if (!chatRoomsEnabled && chatScope === "rooms") {
       setChatScope("direct");
       return;
     }
+    if (!persistChatPreferences) return;
     try {
       localStorage.setItem(CHAT_SCOPE_STORAGE_KEY, chatScope);
     } catch {
       // Ignore storage errors.
     }
-  }, [chatRoomsEnabled, chatScope]);
+  }, [chatRoomsEnabled, chatScope, persistChatPreferences]);
 
   const activeDraftKey = getChatDraftKey(
     chatScope,
@@ -3580,6 +3592,20 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
+          {onOpenSessionInNewWindow && chatScope === "direct" && !showArchivedSessions && contextMenuSession ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="chat-context-open-window"
+              onClick={() => {
+                onOpenSessionInNewWindow(contextMenuSession);
+                setContextMenu(null);
+              }}
+            >
+              <ExternalLink size={14} />
+              {t("chat.openInNewWindow", "Open in new window")}
+            </button>
+          ) : null}
           <button
             onClick={() => handlePin(
               contextMenu.sessionId,

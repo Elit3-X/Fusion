@@ -1263,6 +1263,7 @@
     "cancelButton": "Cancelar",
     "clearConversationFailed": "Falha ao limpar a conversa",
     "closeQuickChat": "Fechar chat rápido",
+    "openInNewWindow": "",
     "conversationArchived": "Conversa arquivada",
     "conversationDeleted": "Conversa excluída",
     "conversationName": "Nome da conversa",

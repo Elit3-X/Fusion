@@ -1253,6 +1253,7 @@
     "cancelButton": "Cancelar",
     "clearConversationFailed": "Error al borrar la conversación",
     "closeQuickChat": "Cerrar chat rápido",
+    "openInNewWindow": "",
     "conversationArchived": "Conversación archivada",
     "conversationDeleted": "Conversación eliminada",
     "conversationName": "",

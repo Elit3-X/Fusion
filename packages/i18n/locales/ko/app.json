@@ -1253,6 +1253,7 @@
     "cancelButton": "취소",
     "clearConversationFailed": "대화 초기화 실패",
     "closeQuickChat": "빠른 채팅 닫기",
+    "openInNewWindow": "",
     "conversationArchived": "대화가 보관되었습니다",
     "conversationDeleted": "대화가 삭제되었습니다",
     "conversationName": "",
