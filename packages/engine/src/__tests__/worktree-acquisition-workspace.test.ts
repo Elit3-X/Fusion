@@ -607,6 +607,10 @@ describeIfGit("acquireWorkspaceRepoWorktree (U2 per-repo hardening)", { timeout:
       settings: SETTINGS,
     });
 
-    expect(patches).toContainEqual({ worktree: result.worktreePath, branch: result.branch });
+    expect(patches).toContainEqual({
+      worktree: result.worktreePath,
+      branch: result.branch,
+      branchWriteOrigin: "engine",
+    });
   });
 });

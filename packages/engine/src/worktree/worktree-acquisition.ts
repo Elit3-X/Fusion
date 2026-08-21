@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile 
 import { exec } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { acquireWorktreePathReservation, assertWorkspaceRepoRelPath, canonicalizeWorktreePath, resolveEngineIncarnationId, resolveEngineNodeId, workspaceWorktreeGroupSegment, WORKSPACE_GROUP_MARKER_FILENAME, type RunMutationContext, type Settings, type Task, type TaskStore, type SecretsStore, type WorkspaceConfig, type WorkspaceLeaseHandle, type WorkspaceWorktreeContext } from "@fusion/core";
+import { acquireWorktreePathReservation, assertWorkspaceRepoRelPath, canonicalizeWorktreePath, classifyTaskBranchOrigin, resolveEngineIncarnationId, resolveEngineNodeId, workspaceWorktreeGroupSegment, WORKSPACE_GROUP_MARKER_FILENAME, type RunMutationContext, type Settings, type Task, type TaskStore, type SecretsStore, type WorkspaceConfig, type WorkspaceLeaseHandle, type WorkspaceWorktreeContext } from "@fusion/core";
 import { generateWorktreeName, resolveTaskWorkingBranchWithOrigin, slugify } from "./worktree-names.js";
 import { resolveTaskWorktreePathForBackend, resolveWorktreesDir, WORKTREE_RECOVERY_DIRNAME } from "./worktree-paths.js";
 import { hydrateWorktreeDb } from "./worktree-db-hydrate.js";
@@ -378,12 +378,24 @@ async function ensureWorkspaceGroupOwnership(
 
 export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Promise<AcquireTaskWorktreeResult> {
   const { task, rootDir, store, settings, pool, logger, audit, runContext, createWorktree, runConfiguredCommand, runInitCommand, taskEnv, secretsStore, workspaceContext } = opts;
+  /*
+   * FNXC:BranchNaming 2026-08-21-09:09:
+   * Singular assignment persistence is a real task-branch write. Derive its durable provenance
+   * from the recorded operator override, never from a branch prefix; workspace writes strip both
+   * singular fields and this transient provenance before publishing their per-repository entry.
+   */
   const persistWorktreeAssignment = async (patch: Parameters<TaskStore["updateTask"]>[1]): Promise<void> => {
+    const provenancePatch = patch.branch === undefined
+      ? patch
+      : {
+          ...patch,
+          branchWriteOrigin: patch.branchWriteOrigin ?? (classifyTaskBranchOrigin(task, patch.branch ?? undefined) === "operator-supplied" ? "operator" : "engine") as "operator" | "engine",
+        };
     if (!opts.suppressSingularWorktreePersist) {
-      await store.updateTask(task.id, patch);
+      await store.updateTask(task.id, provenancePatch);
       return;
     }
-    const { worktree: _worktree, branch: _branch, ...nonSingularPatch } = patch;
+    const { worktree: _worktree, branch: _branch, branchWriteOrigin: _origin, ...nonSingularPatch } = provenancePatch;
     if (Object.keys(nonSingularPatch).length > 0) {
       await store.updateTask(task.id, nonSingularPatch);
     }
@@ -720,7 +732,27 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
 
     worktreePath = created.path;
     branch = created.branch;
-    await persistWorktreeAssignment({ worktree: created.path, branch: created.branch });
+    try {
+      await persistWorktreeAssignment({ worktree: created.path, branch: created.branch });
+    } catch (error) {
+      /*
+       * FNXC:WorktreeAcquisition 2026-08-21-09:09:
+       * Git creation precedes the PostgreSQL assignment. Compensate only the checkout created by
+       * this attempt via the backend-aware remover; never invoke conflict cleanup or delete its branch.
+       */
+      try {
+        await removeWorktree({
+          worktreePath: created.path,
+          rootDir,
+          settings,
+          taskId: task.id,
+          reason: RemovalReason.ExecutorDispose,
+        });
+      } catch (cleanupError) {
+        logger?.warn(`${task.id}: failed to compensate unpersisted worktree ${created.path}: ${formatError(cleanupError)}`);
+      }
+      throw error;
+    }
     await audit?.git({ type: "worktree:create", target: created.path, metadata: { branch: created.branch, source: logOrigin === "return-guard" ? "acquire-return-guard" : undefined } });
     await audit?.git({ type: "branch:create", target: created.branch });
     if (created.branch !== branchName) {
@@ -1031,6 +1063,27 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     return acquirePinnedWorktree();
   }
 
+  if (!workspaceContext && !task.worktree && !(pool && settings.recycleWorktrees)) {
+    const registeredMatches = (await getRegisteredWorktreeBranches(rootDir))
+      .filter((entry) => entry.branch === branchName);
+    if (registeredMatches.length === 1) {
+      const registeredPath = registeredMatches[0].worktreePath;
+      const classification = await classifyTaskWorktree(rootDir, registeredPath);
+      if (classification.ok) {
+        /*
+         * FNXC:WorktreeAcquisition 2026-08-21-09:36:
+         * FN-107 repairs installations that created a Git checkout before the former task-row
+         * provenance validation rejected its assignment. Adopt the one registered checkout already
+         * on this task's selected branch before attempting `git worktree add`; this preserves its
+         * commits and avoids treating a recoverable registration as a branch conflict. Workspace
+         * members remain map-owned and never enter the singular adoption path.
+         */
+        await persistWorktreeAssignment({ worktree: registeredPath, branch: branchName });
+        return reuseWarmWorktree(registeredPath, branchName, "existing");
+      }
+    }
+  }
+
   if (task.worktree && isResume) {
     // FNXC:EngineDiagnostics 2026-08-03-05:54: resume reuses the pinned path — expected, not a default-visible event.
     if (logger?.debug) logger.debug(`Reusing existing worktree: ${worktreePath}`);
@@ -1069,6 +1122,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
       }
     }
     if (pooled) {
+      let poolAssignmentPersistenceStarted = false;
       try {
         const preparedRaw = await pool.prepareForTask(pooled, branchName, freshStartPoint, {
           allowSiblingBranchRename,
@@ -1134,7 +1188,14 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
           });
           acquiredFromPool = true;
           logger?.log(`Acquired worktree from pool: ${worktreePath}`);
+          /*
+           * FNXC:WorktreeAcquisition 2026-08-21-09:32:
+           * A lease-backed checkout is not a conflict or a candidate for fresh fallback when its
+           * task-row assignment fails. The outer handler releases the lease and preserves that error.
+           */
+          poolAssignmentPersistenceStarted = true;
           await persistWorktreeAssignment({ worktree: worktreePath, branch });
+          poolAssignmentPersistenceStarted = false;
           await audit?.git({ type: "worktree:reuse", target: worktreePath, metadata: { branch, reclaimed: prepared.reclaimed } });
           if (prepared.reclaimed) {
             await store.logEntry(task.id, `Acquired reclaimed worktree from pool: ${worktreePath} (${prepared.strandedCommitCount ?? 0} commits preserved)`, undefined, runContext);
@@ -1190,6 +1251,10 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
           });
         }
       } catch (poolErr) {
+        if (poolAssignmentPersistenceStarted) {
+          pool.release(pooled, task.id);
+          throw poolErr;
+        }
         if (poolErr instanceof WorktreeBaseRefreshError) {
           // FNXC:WorktreeBaseRefresh 2026-08-09-03:30: Clear every durable resume binding before returning the
           // checkout to the pool. If persistence fails, retain the lease so no other task can mutate it.

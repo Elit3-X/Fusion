@@ -36,7 +36,7 @@ import {hasOwnDeclaredSymbols, normalizeDeclaredSymbols, extractDeclaredSymbolsF
 import {assertValidProviderInstanceId} from "../provider-instance.js";
 import {supersedePlanReviewResults} from "../planner/plan-approval.js";
 import {PLAN_REVIEW_GROUP_ID} from "../workflows/builtin-plan-review-group.js";
-import {validateTaskBranchName} from "../branch/branch-assignment.js";
+import {BranchWriteProvenanceError, validateTaskBranchName} from "../branch/branch-assignment.js";
 import {withTaskBranchContextInSourceMetadata} from "./branch-context.js";
 import {invalidateSupersededRepositoryScopeReviews} from "../tasks/repository-scope.js";
 
@@ -89,7 +89,7 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
   if (updates.recommendations !== undefined) assertValidRecommendations(updates.recommendations);
   if (updates.branch !== undefined) {
     if (updates.branchWriteOrigin !== "operator" && updates.branchWriteOrigin !== "engine") {
-      throw new Error("branchWriteOrigin is required when branch is provided");
+      throw new BranchWriteProvenanceError();
     }
     if (updates.branch !== null) validateTaskBranchName(updates.branch);
   }
