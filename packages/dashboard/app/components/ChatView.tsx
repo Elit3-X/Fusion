@@ -1700,6 +1700,8 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     async (input: { agentId: string; modelProvider?: string; modelId?: string; thinkingLevel?: string }) => {
       try {
         await createSession(input);
+        // FNXC:ChatNavigation 2026-08-20-23:57: New Chat always creates a Direct session, so switch scopes only after persistence succeeds and let useChat select the new thread.
+        setChatScope("direct");
         setShowNewDialog(false);
         setDetailOpen(true);
         return true;
@@ -3131,6 +3133,9 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     /*
     FNXC:ChatNavigation 2026-08-20-05:25:
     FN-068 reserves the shared ViewHeader for view-level actions. A selected conversation owns its sole textual Back action in the thread row, preserving one list/detail state machine across desktop, floating, compact, and mobile hosts.
+
+    FNXC:ChatNavigation 2026-08-20-23:57:
+    FN-096 keeps the canonical New Chat action in this shared header for both list and selected-detail states. Embedded, floating, and dock hosts must reuse this one creation entry point while the thread row retains the sole Back action.
     */
     <div ref={chatViewRef} className={`chat-view${floating ? " chat-view--floating" : ""}${isChatMobile ? " chat-view--narrow" : ""}${hasDetailSelection ? " chat-view--detail" : ""}${chatMessageLayout === "full-width" ? " chat-view--full-width" : ""}`}>
       <ViewHeader
@@ -3139,16 +3144,14 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
         actions={
           <>
             {!hasDetailSelection ? scopeToggle : null}
-            {!hasDetailSelection ? (
-              <button
-                className="btn btn-sm btn-primary chat-view-header-new-chat"
-                onClick={handleNewChat}
-                data-testid="chat-new-btn"
-              >
-                <Plus size={14} />
-                {t("chat.newChat", "New Chat")}
-              </button>
-            ) : null}
+            <button
+              className="btn btn-sm btn-primary chat-view-header-new-chat"
+              onClick={handleNewChat}
+              data-testid="chat-new-btn"
+            >
+              <Plus size={14} />
+              {t("chat.newChat", "New Chat")}
+            </button>
             {!floating && onPopOut ? (
               <button
                 type="button"

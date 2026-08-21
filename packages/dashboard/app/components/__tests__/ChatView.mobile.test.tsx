@@ -59,6 +59,8 @@ describe("ChatView mobile list/detail navigation", () => {
     expect(back.closest(".view-header")).toBeNull();
     expect(screen.getAllByTestId("chat-back-btn")).toHaveLength(1);
     expect(screen.queryByTestId("chat-mobile-session-trigger")).toBeNull();
+    expect(document.querySelectorAll(".view-header [data-testid='chat-new-btn']")).toHaveLength(1);
+    expect(document.querySelector(".chat-thread-new-chat-btn")).toBeNull();
 
     await userEvent.click(back);
     expect(sidebar).not.toHaveClass("chat-sidebar--hidden");
@@ -78,6 +80,13 @@ describe("ChatView mobile list/detail navigation", () => {
     await userEvent.click(screen.getByTestId("chat-room-item-ops"));
     expect(screen.getByTestId("chat-back-btn")).toHaveAccessibleName("Back to conversations");
     expect(screen.queryByTestId("chat-mobile-session-trigger")).toBeNull();
+    expect(document.querySelectorAll(".view-header [data-testid='chat-new-btn']")).toHaveLength(1);
+
+    await userEvent.click(screen.getByTestId("chat-new-btn"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await userEvent.click(document.querySelector(".chat-new-dialog-backdrop") as HTMLElement);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("chat-back-btn")).toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("chat-back-btn"));
     expect(screen.getByTestId("chat-room-item-ops")).toBeInTheDocument();
@@ -93,7 +102,8 @@ describe("ChatView mobile list/detail navigation", () => {
     });
     setupMockRooms();
 
-    await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} floating />);
+    const onClose = vi.fn();
+    await renderWithAct(<ChatView projectId="proj-123" addToast={vi.fn()} floating onClose={onClose} />);
     await userEvent.click(screen.getByTestId("chat-session-session-001"));
 
     expect(document.querySelector(".chat-view--narrow .chat-sidebar")).toHaveClass("chat-sidebar--hidden");
@@ -101,6 +111,9 @@ describe("ChatView mobile list/detail navigation", () => {
     expect(back.closest(".chat-thread-header")).toBeInTheDocument();
     expect(screen.getAllByTestId("chat-back-btn")).toHaveLength(1);
     expect(screen.queryByTestId("chat-mobile-session-trigger")).toBeNull();
+    expect(document.querySelectorAll(".view-header [data-testid='chat-new-btn']")).toHaveLength(1);
+    expect(screen.getByTestId("chat-modal-close")).toBeInTheDocument();
+    expect(document.querySelector(".chat-thread-new-chat-btn")).toBeNull();
     viewportSpy.mockRestore();
   });
 });

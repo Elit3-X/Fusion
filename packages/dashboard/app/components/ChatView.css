@@ -510,6 +510,9 @@ The Direct-chat context budget indicator is a secondary desktop/tablet header af
 /*
 FNXC:ChatNavigation 2026-08-20-05:25:
 FN-068 puts the only Back action beside the selected conversation title. Do not override ViewHeader actions for detail mode: floating Open in Chat view and Close must retain ViewHeader's canonical right alignment.
+
+FNXC:ChatNavigation 2026-08-20-23:57:
+FN-096 keeps the shared-header New Chat action visible in selected detail as well as list mode. Its shrinkable token-based sizing preserves the floating Close and the thread-row Back action on narrow embedded, floating, and dock hosts.
 */
 .chat-thread-header-back {
   flex: 0 0 auto;
