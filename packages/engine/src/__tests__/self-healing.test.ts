@@ -2652,6 +2652,123 @@ describe("SelfHealingManager", () => {
       expect(store.archiveTaskAndCleanup).toHaveBeenCalledWith("FN-101");
       expect(store.archiveTaskAndCleanup).not.toHaveBeenCalledWith("FN-100");
     });
+
+    it("bounds same-reason archive failures and resets the budget when the failure class changes", async () => {
+      vi.setSystemTime(new Date("2026-01-04T00:00:00.000Z"));
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        autoArchiveDoneTasksEnabled: true,
+        autoArchiveDoneAfterMs: 24 * 60 * 60 * 1000,
+        doneAutoArchiveDays: 0,
+      } as unknown as Settings);
+      const stale = [{ id: "FN-RETRY", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" }];
+      (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue(stale);
+      (store.archiveTaskAndCleanup as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("disk busy"));
+
+      for (let index = 0; index < 10; index++) await manager.archiveStaleDoneTasks();
+
+      expect(store.archiveTaskAndCleanup).toHaveBeenCalledTimes(3);
+
+      (store.archiveTaskAndCleanup as ReturnType<typeof vi.fn>).mockClear();
+      const taskLive = Object.assign(new Error("live"), { name: "TaskIsLiveError" });
+      (store.archiveTaskAndCleanup as ReturnType<typeof vi.fn>)
+        .mockRejectedValueOnce(new Error("disk busy"))
+        .mockRejectedValueOnce(taskLive)
+        .mockRejectedValueOnce(new Error("disk busy"));
+      const managerWithChangingFailure = new SelfHealingManager(store, { rootDir: "/tmp/test-project" });
+
+      await managerWithChangingFailure.archiveStaleDoneTasks();
+      await managerWithChangingFailure.archiveStaleDoneTasks();
+      await managerWithChangingFailure.archiveStaleDoneTasks();
+
+      expect(store.archiveTaskAndCleanup).toHaveBeenCalledTimes(3);
+      managerWithChangingFailure.stop();
+    });
+
+    it("escalates an exhausted archive budget once without letting log or audit failures stop other archives", async () => {
+      vi.setSystemTime(new Date("2026-01-04T00:00:00.000Z"));
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        autoArchiveDoneTasksEnabled: true,
+        autoArchiveDoneAfterMs: 24 * 60 * 60 * 1000,
+        doneAutoArchiveDays: 0,
+      } as unknown as Settings);
+      (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { id: "FN-EXHAUSTED", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" },
+        { id: "FN-OTHER", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" },
+      ]);
+      (store.archiveTaskAndCleanup as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+        if (id === "FN-EXHAUSTED") throw new Error("disk busy");
+        return {};
+      });
+      (store.logEntry as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("log unavailable"));
+      (store.recordRunAuditEvent as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("audit unavailable"));
+      const priorErrorCalls = (getSelfHealingLogger().error as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      for (let index = 0; index < 10; index++) await manager.archiveStaleDoneTasks();
+
+      expect((store.archiveTaskAndCleanup as ReturnType<typeof vi.fn>).mock.calls.filter(([id]) => id === "FN-EXHAUSTED")).toHaveLength(3);
+      expect(store.logEntry).toHaveBeenCalledTimes(1);
+      const exhaustedEvents = (store.recordRunAuditEvent as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([event]) => (event as { mutationType?: string }).mutationType === "task:auto-archive-failure-budget-exhausted",
+      );
+      expect(exhaustedEvents).toHaveLength(1);
+      expect((getSelfHealingLogger().error as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(priorErrorCalls + 1);
+      expect(store.archiveTaskAndCleanup).toHaveBeenCalledWith("FN-OTHER");
+    });
+
+    it("clears an archive failure budget after success and when a task leaves the candidate set", async () => {
+      vi.setSystemTime(new Date("2026-01-04T00:00:00.000Z"));
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        autoArchiveDoneTasksEnabled: true,
+        autoArchiveDoneAfterMs: 24 * 60 * 60 * 1000,
+        doneAutoArchiveDays: 0,
+      } as unknown as Settings);
+      const stale = [{ id: "FN-RESET", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" }];
+      (store.listTasks as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(stale)
+        .mockResolvedValueOnce(stale)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(stale);
+      (store.archiveTaskAndCleanup as ReturnType<typeof vi.fn>)
+        .mockRejectedValueOnce(new Error("disk busy"))
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new Error("disk busy"));
+
+      await manager.archiveStaleDoneTasks();
+      await manager.archiveStaleDoneTasks();
+      await manager.archiveStaleDoneTasks();
+      await manager.archiveStaleDoneTasks();
+
+      expect(store.archiveTaskAndCleanup).toHaveBeenCalledTimes(3);
+    });
+
+    it("skips stale done lineage parents, including complete children, without blocking unrelated archives", async () => {
+      vi.setSystemTime(new Date("2026-01-04T00:00:00.000Z"));
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        autoArchiveDoneTasksEnabled: true,
+        autoArchiveDoneAfterMs: 24 * 60 * 60 * 1000,
+        doneAutoArchiveDays: 0,
+      } as unknown as Settings);
+      (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { id: "FN-PARENT-TODO", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" },
+        { id: "FN-PARENT-DONE", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" },
+        { id: "FN-PARENT-MULTI", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" },
+        { id: "FN-UNRELATED", column: "done", columnMovedAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" },
+        { id: "FN-CHILD-TODO", column: "todo", sourceParentTaskId: "FN-PARENT-TODO" },
+        { id: "FN-CHILD-DONE", column: "done", sourceParentTaskId: "FN-PARENT-DONE", columnMovedAt: "2026-01-03T23:00:00.000Z", updatedAt: "2026-01-03T23:00:00.000Z" },
+        { id: "FN-CHILD-ONE", column: "todo", sourceParentTaskId: "FN-PARENT-MULTI" },
+        { id: "FN-CHILD-TWO", column: "in-progress", sourceParentTaskId: "FN-PARENT-MULTI" },
+      ]);
+
+      const priorErrorCalls = (getSelfHealingLogger().error as ReturnType<typeof vi.fn>).mock.calls.length;
+      for (let index = 0; index < 6; index++) await manager.archiveStaleDoneTasks();
+
+      expect(store.archiveTaskAndCleanup).toHaveBeenCalledTimes(6);
+      expect(store.archiveTaskAndCleanup).toHaveBeenCalledWith("FN-UNRELATED");
+      expect(store.archiveTaskAndCleanup).not.toHaveBeenCalledWith("FN-PARENT-TODO");
+      expect(store.archiveTaskAndCleanup).not.toHaveBeenCalledWith("FN-PARENT-DONE");
+      expect(store.archiveTaskAndCleanup).not.toHaveBeenCalledWith("FN-PARENT-MULTI");
+      expect((getSelfHealingLogger().error as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(priorErrorCalls);
+    });
   });
 
   // ── Completed task recovery ─────────────────────────────────────────

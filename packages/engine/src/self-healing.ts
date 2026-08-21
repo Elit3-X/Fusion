@@ -608,6 +608,18 @@ const RECONCILE_SCOPE_OVERRIDE_MERGE_ACTIVE_STATUS_SET = new Set<string>(MERGE_A
 import { classifyTransientMergeError } from "./errors/transient-merge-error-classifier.js";
 export { classifyTransientMergeError } from "./errors/transient-merge-error-classifier.js";
 const MAX_STARVATION_DROPS = 3;
+type AutoArchiveFailureReason = "lineage-children" | "task-live" | "dependents" | "not-found" | "unknown";
+
+function classifyAutoArchiveFailure(err: unknown): AutoArchiveFailureReason {
+  if (!(err instanceof Error)) return "unknown";
+  switch (err.name) {
+    case "TaskHasLineageChildrenError": return "lineage-children";
+    case "TaskIsLiveError": return "task-live";
+    case "TaskHasDependentsError": return "dependents";
+    case "TaskNotFoundError": return "not-found";
+    default: return "unknown";
+  }
+}
 /*
 FNXC:Workspace 2026-08-15-05:13:
 Failed workspace tasks are routinely retried with their progress preserved. Terminal teardown therefore
@@ -742,6 +754,14 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
   // ── Per-task deadlock recovery cooldown ─────────────────────────────
   private deadlockRecoveryCooldown: Map<string, number> = new Map();
   private mergeStarvationDrops: Map<string, number> = new Map();
+  /*
+  FNXC:SelfHealing 2026-08-20-08:08:
+  Runfusion/Fusion#3497 requires a process-scoped budget for stale-archive failures: repeating a
+  permanent refusal floods logs and obscures actionable failures. Restarting gets a fresh budget
+  because an operator may have repaired the cause; the one-shot durable escalation carries the
+  unresolved finding across restarts.
+  */
+  private readonly autoArchiveFailures: Map<string, { count: number; signature: AutoArchiveFailureReason }> = new Map();
   /*
   FNXC:Workspace 2026-08-15-04:42:
   The partial-land reconciler separately bounds rejected merge enqueues and unavailable branch
@@ -3179,10 +3199,28 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       selection (docs/solutions/workflow-learnings/project-union-versus-per-task-lanes.md).
       */
       const dependentTerminalColumns = await resolveProjectColumnsForRoles(this.store, TERMINAL_ROLES);
+      // FNXC:SelfHealing 2026-08-20-08:02:
+      // Runfusion/Fusion#3497 found this retention sweep reissuing TaskHasLineageChildrenError every
+      // interval. Archive lanes alone mirror the store guard: a complete child still preserves lineage,
+      // while clearing sourceParentTaskId via removeLineageReferences is destructive provenance editing
+      // that retention automation is not authorized to perform.
+      const archivedColumns = await resolveProjectColumnsForRoles(this.store, ["archived"])
+        .catch(() => new Set<string>());
+      const tasksWithLiveLineageChildren = new Map<string, string[]>();
       for (const t of tasks) {
-        if (dependentTerminalColumns.has(t.column)) continue;
-        for (const depId of t.dependencies ?? []) {
-          tasksWithActiveDependents.add(depId);
+        if (!dependentTerminalColumns.has(t.column)) {
+          for (const depId of t.dependencies ?? []) {
+            tasksWithActiveDependents.add(depId);
+          }
+        }
+        if (
+          !archivedColumns.has(t.column)
+          && typeof t.sourceParentTaskId === "string"
+          && t.sourceParentTaskId.length > 0
+        ) {
+          const children = tasksWithLiveLineageChildren.get(t.sourceParentTaskId) ?? [];
+          children.push(t.id);
+          tasksWithLiveLineageChildren.set(t.sourceParentTaskId, children);
         }
       }
 
@@ -3203,9 +3241,18 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           log.debug(`Skipping auto-archive of ${t.id}: has active dependents`);
           return false;
         }
+        const lineageChildren = tasksWithLiveLineageChildren.get(t.id);
+        if (lineageChildren) {
+          log.debug(`Skipping auto-archive of ${t.id}: has live lineage children ${lineageChildren.join(", ")}`);
+          return false;
+        }
         return true;
       });
 
+      const staleTaskIds = new Set(stale.map((task) => task.id));
+      for (const taskId of this.autoArchiveFailures.keys()) {
+        if (!staleTaskIds.has(taskId)) this.autoArchiveFailures.delete(taskId);
+      }
       if (stale.length === 0) return 0;
 
       log.debug(`Auto-archiving ${stale.length} done task(s) older than ${archiveAfterMs}ms`);
@@ -3213,15 +3260,51 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       let archived = 0;
       const thresholdDays = Math.floor(archiveAfterMs / 86_400_000);
       for (const task of stale) {
+        if ((this.autoArchiveFailures.get(task.id)?.count ?? 0) >= MAX_STARVATION_DROPS) continue;
         try {
           await this.store.archiveTaskAndCleanup(task.id);
+          this.autoArchiveFailures.delete(task.id);
           archived++;
           const ts = task.columnMovedAt || task.updatedAt;
           const movedAt = ts ? Date.parse(ts) : NaN;
           const ageDays = Number.isFinite(movedAt) ? Math.floor((now - movedAt) / 86_400_000) : 0;
           log.debug(`auto-archive: archived ${task.id} (age ${ageDays}d, threshold ${thresholdDays}d)`);
-        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-          log.error(`Failed to auto-archive ${task.id}: ${errorMessage}`);
+        } catch (err: unknown) {
+          const reason = classifyAutoArchiveFailure(err);
+          const prior = this.autoArchiveFailures.get(task.id);
+          const count = prior?.signature === reason ? prior.count + 1 : 1;
+          this.autoArchiveFailures.set(task.id, { count, signature: reason });
+          if (count < MAX_STARVATION_DROPS) {
+            log.warn(`Failed to auto-archive ${task.id} (${count}/${MAX_STARVATION_DROPS}, ${reason})`);
+          } else {
+            log.error(`Auto-archive abandoned for ${task.id} after ${count}/${MAX_STARVATION_DROPS} failures (${reason})`);
+            /*
+            FNXC:SelfHealing 2026-08-20-08:13:
+            This one-shot log entry makes an abandoned retention action visible to operators. It bumps
+            updatedAt, but modern stale rows use columnMovedAt; legacy rows move out of retention once,
+            and the exhausted in-memory budget prevents further archive attempts or repeated escalation.
+            */
+            const remedy = reason === "lineage-children"
+              ? "Archive or unlink the referencing child, or use fn_task_archive with removeLineageReferences: true."
+              : "Inspect the task and resolve the reported archive guard before retrying manually.";
+            try {
+              await this.store.logEntry(
+                task.id,
+                `[self-healing] Auto-archive abandoned after ${count} consecutive ${reason} failures. ${remedy}`,
+              );
+            } catch (logErr: unknown) {
+              log.warn(`Could not record auto-archive escalation for ${task.id}: ${logErr instanceof Error ? logErr.message : String(logErr)}`);
+            }
+            await emitBoundedRunAudit(this.store, {
+              taskId: task.id,
+              agentId: "self-healing",
+              runId: generateSyntheticRunId("self-heal-auto-archive-exhausted", task.id),
+              domain: "database",
+              mutationType: "task:auto-archive-failure-budget-exhausted",
+              target: task.id,
+              metadata: { taskId: task.id, attempts: count, maxAttempts: MAX_STARVATION_DROPS, reason },
+            }, { log });
+          }
         }
       }
 
