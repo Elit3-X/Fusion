@@ -87,6 +87,10 @@ export const LEGACY_STATUS_ADOPTION: Readonly<Record<string, LegacyAdoptionActio
   after a restart). Preserve it: the status is self-resuming — triage picks it up as-is.
   */
   "needs-replan": { kind: "preserve", note: "live graph replan signal — triage todo-rediscovery consumes it" },
+  /* FNXC:WorkspaceReviewRecovery 2026-08-21-19:39: this live status holds an idle task while
+   * the merge bridge conditionally seeds its single Code Review continuation; legacy adoption
+   * must preserve it rather than erase the recovery owner after restart. */
+  "workspace-review-required": { kind: "preserve", note: "live workspace review re-entry signal — merge bridge seeds Code Review" },
   // ── Scheduler / dispatch states — queued has live writers → preserve ──────
   "queued": { kind: "preserve", note: "live scheduler capacity/dependency marker — scheduler re-evaluates each poll" },
   "triaged": { kind: "resume-graph", note: "scheduler re-pickup" },

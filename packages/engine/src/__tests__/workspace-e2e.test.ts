@@ -33,6 +33,9 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Settings, Task, TaskStore } from "@fusion/core";
 import { landWorkspaceTask } from "../merge/merger-ai.js";
+import { TaskExecutor } from "../executor.js";
+import { WorkflowReviewService } from "../workflows/workflow-review-service.js";
+import { FOREACH_ACTIVE_CONTEXT_KEY } from "../workflows/workflow-node-handlers.js";
 import { SelfHealingManager } from "../self-healing.js";
 import { activeSessionRegistry } from "../agents/active-session-registry.js";
 import { createWorkspaceFixture, hasGit, type WorkspaceFixture } from "./_workspace-fixture.js";
@@ -166,6 +169,28 @@ function squashMergeAgent(branch: string) {
 }
 
 const approveReviewAgent = async (): Promise<string> => "REVIEW_VERDICT: approve";
+
+/**
+ * FNXC:WorkspaceReviewEvidence 2026-08-21-20:11:
+ * The decisive landing regression crosses the production step-review seam, including its scoped
+ * callback fence and approval writer. Only the model-facing review service is faked.
+ */
+async function approveWorkspaceReview(store: RecordingStore, task: Task, workspaceRootDir: string): Promise<void> {
+  const executor = new TaskExecutor(store, workspaceRootDir);
+  (executor as any).workspaceConfig = { repos: Object.keys(task.workspaceWorktrees ?? {}) };
+  const reviewStep = vi.spyOn(WorkflowReviewService.prototype, "reviewStep")
+    .mockResolvedValue({ verdict: "APPROVE", review: "approved", summary: "approved" });
+  try {
+    const seams = executor.createAuthoritativeWorkflowSeams({ autoMerge: false } as any);
+    const result = await seams.stepReview!(task as any, {
+      [FOREACH_ACTIVE_CONTEXT_KEY]: { stepIndex: 0, worktreePath: Object.values(task.workspaceWorktrees ?? {})[0]?.worktreePath },
+    }, { type: "code", advisory: true } as any);
+    expect(result.verdict).toBe("APPROVE");
+    expect(reviewStep).toHaveBeenCalledTimes(1);
+  } finally {
+    reviewStep.mockRestore();
+  }
+}
 
 /**
  * Give a sub-repo a REAL bare `origin` remote and push its initial state. Returns the bare repo
@@ -347,6 +372,10 @@ describeIfGit("workspace e2e — merge (no-push) + partial-land recovery (Phase 
         modifiedFiles: ["repo-a/feature.txt"],
       }),
     ]);
+
+    // Produce the approval through the same per-repository capture landing consumes. repo-b
+    // remains a NOT_REVIEWED observation and receives no approval obligation.
+    await approveWorkspaceReview(store, store.tasks.get(TASK_ID)!, fx.rootDir);
 
     const result = await landWorkspaceTask(store, store.tasks.get(TASK_ID)!, fx.rootDir, {}, {
       mergeAgent: squashMergeAgent(BRANCH),

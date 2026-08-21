@@ -365,7 +365,7 @@ describeIfGit("landWorkspaceTask — per-repo merge loop (Phase C U1)", () => {
     await expect(landWorkspaceTask(store, task, fx.rootDir, {}, {
       mergeAgent: squashMergeAgent(BRANCH),
       reviewAgent: approveReviewAgent,
-    })).rejects.toThrow("changed after review");
+    })).rejects.toThrow("approval is missing");
     expect(store.mergeWorkspaceWorktreeEntry).not.toHaveBeenCalled();
   });
 
@@ -379,7 +379,7 @@ describeIfGit("landWorkspaceTask — per-repo merge loop (Phase C U1)", () => {
     await expect(landWorkspaceTask(store, task, fx.rootDir, {}, {
       mergeAgent: squashMergeAgent(BRANCH),
       reviewAgent: approveReviewAgent,
-    })).rejects.toThrow("changed after review");
+    })).rejects.toThrow("content changed after approval");
     expect(store.mergeWorkspaceWorktreeEntry).not.toHaveBeenCalled();
   });
 

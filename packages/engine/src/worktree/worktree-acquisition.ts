@@ -1907,7 +1907,12 @@ export async function acquireWorkspaceRepoWorktree(
         });
       });
     }
-    throw err;
+    if (err instanceof WorkspaceRepoAcquireBusyError || err instanceof WorkspacePreparationError) throw err;
+    throw new WorkspacePreparationError(
+      repoRelPath,
+      "acquire",
+      err instanceof Error ? err.message : String(err),
+    );
   } finally {
     /*
     FNXC:Workspace 2026-06-21-20:10:
@@ -1934,6 +1939,23 @@ another task's acquisition critical section (KTD4). Distinct from generic
 acquisition failures so the caller (and tests) can tell "serialized, retry later"
 apart from "this sub-repo is broken".
 */
+/*
+ * FNXC:WorkspacePreparation 2026-08-21-19:39:
+ * A Git/base-ref failure while acquiring a workspace repository is environment preparation,
+ * not a reviewer/provider failure. Preserve the repository and original Git cause so graph
+ * routing can recover without spending a model retry budget.
+ */
+export class WorkspacePreparationError extends Error {
+  constructor(
+    public readonly repoRelPath: string,
+    public readonly stage: "acquire",
+    public readonly causeMessage: string,
+  ) {
+    super(`Workspace repository preparation failed for ${repoRelPath} during ${stage}: ${causeMessage}`);
+    this.name = "WorkspacePreparationError";
+  }
+}
+
 export class WorkspaceRepoAcquireBusyError extends Error {
   constructor(
     public readonly repoRelPath: string,

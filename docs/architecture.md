@@ -2467,3 +2467,7 @@ Every land and recovery door evaluates graph-owned pre-merge blockers before cha
 ### Effective task concurrency
 
 Task admission resolves capacity from the live project-scoped settings blob (`TaskStore.getSettings()` or `getSettingsFast()`): configured `maxConcurrent`, optional `maxWorktrees`, effective ceiling, and binding knob come from the shared core resolver. When worktree limiting is enabled, the effective ceiling is the lower of the two settings; when disabled, worktree capacity is structurally absent. Registry snapshots are fallback-only and resolve through the same defaults. Queued reasons and reporting APIs include the effective ceiling and binding knob.
+
+### Workspace review evidence
+
+Workspace review and landing share one canonical base-to-task-branch binary-diff capture. The review callback persists repository-qualified files and per-repository fingerprints only for the current confirmed scope. Landing assesses clean peers as no obligation and routes missing or changed evidence back to the single Code Review continuation before leases, merge agents, or Git writes begin.

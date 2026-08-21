@@ -165,3 +165,9 @@ Workspace tasks retain the operator-supplied shared branch-name flow. When JIRA 
 Configured repositories are acquired before planning for availability, but acquisition is not task intent. Each workspace task starts with an explicit repository-scope proposal (an operator selection is already confirmed); planning confirms the final scope in `## Repository Scope`. A clean scoped repository is reported as **No changes — not reviewed** and creates no review, landing, or partial-land obligation. Reviews and landing use only scoped repositories with qualified modified-file evidence.
 
 An executor that needs another repository before landing records a scope extension and its reason. Once a land intent or landing exists, new acquisition remains refused and should be handled by a follow-up task. A workspace task normally has no singular `task.worktree`: member worktrees are the only routing authority, so Fusion never creates a worktree at the non-Git workspace root.
+
+## Workspace review evidence and landing
+
+Code Review captures the complete binary diff from each repository's recorded base to its task branch. Landing consumes that same repository-qualified file list and fingerprint. A clean acquired repository is recorded as `NOT_REVIEWED`; acquiring a checkout alone never creates a landing or approval obligation.
+
+If a modified repository lacks approval, Fusion reports `approval-missing`; if its approved diff no longer matches, it reports `content-changed`. Both diagnostics identify the repository and files, preserve completed work, and automatically route the task back through Code Review rather than exhausting merge retries. Repository/base-ref preparation errors are environment failures: Fusion keeps the Git cause, retries the environment lane only, and Retry resumes that lane without charging a reviewer provider.

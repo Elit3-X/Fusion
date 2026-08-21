@@ -957,3 +957,7 @@ The parity invariant is that a mono-repository task and a workspace task changin
 ### Branch-writer validation regressions
 
 When task-branch validation changes, test production acquisition and task creation callers in addition to the validation boundary. Keep a source census of direct and computed branch patches, and exercise single-repository assignment persistence failure plus workspace suppression so a caller cannot silently omit provenance.
+
+### Workspace review-to-land regression
+
+Workspace merge regressions must use the production per-repository review capture before landing. Cover a modified scoped repository, a clean acquired peer (`NOT_REVIEWED`), approval-missing, content-changed, and out-of-scope changes; do not manufacture the landing fingerprint as the decisive happy-path oracle.

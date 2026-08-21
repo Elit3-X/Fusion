@@ -46,6 +46,7 @@ import type { EngineRunContext } from "../util/run-audit.js";
 import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 import { takePreHeldExecutorSlot } from "../concurrency/concurrency.js";
 import { resolveCompleteColumnFor } from "./lifecycle-columns.js";
+import { workflowNodeRequiresWorktree } from "../workflows/workflow-node-execution-needs.js";
 import { nextPlanReviewAttemptCount, PLAN_REVIEW_FEEDBACK_HISTORY_LIMIT } from "../plan-review-feedback-history.js";
 import type { AgentSemaphore } from "../concurrency/concurrency.js";
 import type { WorkflowAgentCapacity } from "../agents/workflow-agent-capacity.js";
@@ -549,8 +550,8 @@ export async function executeWorkflowGraph(
         seams: deps.createAuthoritativeWorkflowSeams(settings, outputLanguage),
         prepareNodeExecution: (node, nodeTask, requirement) =>
           deps.prepareGraphNodeExecution(node, nodeTask, settings, requirement),
-        beforeNodeExecution: async (node, nodeTask, context) =>
-          admitWorkflowPrincipalBeforeNode(
+        beforeNodeExecution: async (node, nodeTask, context) => {
+          const principalAdmission = await admitWorkflowPrincipalBeforeNode(
             {
               store: deps.store,
               options: deps.options,
@@ -569,7 +570,29 @@ export async function executeWorkflowGraph(
             node,
             nodeTask,
             context,
-          ),
+          );
+          if (principalAdmission) return principalAdmission;
+          const live = await deps.store.getTask(nodeTask.id);
+          const name = typeof node.config?.name === "string" ? node.config.name : "";
+          const isCodeReview = node.id === "code-review" || node.config?.reviewKind === "code" || /code review/i.test(name);
+          const writeCapable = workflowNodeRequiresWorktree(node, { reviewerInlineFixes: settings.reviewerInlineFixes === false ? false : undefined }) || node.kind === "code";
+          const hasCurrentCodeReviewApproval = live.workflowStepResults?.some((result) =>
+            result.reviewKind === "code"
+            && result.status === "passed"
+            && result.verdict === "APPROVE"
+            && (live.repositoryScope === undefined || result.repositoryScopeRevision === undefined || result.repositoryScopeRevision === live.repositoryScope.revision),
+          ) === true;
+          if (!isCodeReview && writeCapable && hasCurrentCodeReviewApproval) {
+            /*
+            FNXC:WorkflowReviewSeal 2026-08-21-20:11:
+            A passed Code Review seals every task branch, not only workspace rows that carry
+            repository evidence. Refuse a later write-capable node before worktree preparation or
+            session creation so its explicit re-review route runs before any mutation.
+            */
+            return { outcome: "failure", value: "workspace-review-seal-required" };
+          }
+          return undefined;
+        },
         runCustomNode: customNodeExecution.runner(settings),
         publishTaskProjection: async (taskId, patch) => {
           await deps.store.updateTaskAtomic(taskId, (liveTask) => {

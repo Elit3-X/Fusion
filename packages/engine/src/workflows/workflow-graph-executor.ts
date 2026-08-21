@@ -48,7 +48,7 @@ import type { WorkflowNodeRunnerRegistry } from "./workflow-node-runner.js";
 import { workflowNodeRequiresWorktree } from "./workflow-node-execution-needs.js";
 import type { WorkflowColumnBoundary } from "./workflow-column-boundary.js";
 import { BranchWriteProvenanceError } from "@fusion/core";
-import { WorktreeBaseRefreshError } from "../worktree/worktree-acquisition.js";
+import { WorktreeBaseRefreshError, WorkspacePreparationError } from "../worktree/worktree-acquisition.js";
 
 export type WorkflowNodeOutcome = "success" | "failure";
 
@@ -60,6 +60,8 @@ type WorkflowNodeSettings = Pick<Settings, "experimentalFeatures"> & {
 export const PLAN_REVIEW_PROVIDER_FAILURE_HOLD_VALUE = "plan-review-provider-failure-hold";
 /** Deterministic task-row validation; it must never enter provider retry handling. */
 export const BRANCH_WRITE_PROVENANCE_FAILURE_VALUE = "branch-write-provenance-failure";
+/** Workspace Git/base-ref preparation failed before any provider session could start. */
+export const WORKSPACE_PREPARATION_FAILURE_HOLD_VALUE = "workspace-preparation-failure-hold";
 
 /*
 FNXC:PlanReviewLease 2026-07-18-23:45:
@@ -1932,6 +1934,30 @@ export class WorkflowGraphExecutor {
         the refresh kind lets the graph route/park it while preserving the checkout for a later,
         independently verified acquisition.
         */
+        if (error instanceof WorkspacePreparationError) {
+          /*
+           * FNXC:WorkspacePreparation 2026-08-21-19:39:
+           * Preparation errors are emitted as a typed graph value before generic exception handling.
+           * Plan Review must not relabel a failed `git worktree add` as a provider outage or invoke
+           * its model-retry lane when no reviewer session was created.
+           */
+          const failureResult: WorkflowNodeResult = {
+            outcome: "failure",
+            value: WORKSPACE_PREPARATION_FAILURE_HOLD_VALUE,
+            contextPatch: {
+              [`node:${node.id}:error`]: error.message,
+              [`node:${node.id}:workspacePreparation`]: {
+                repository: error.repoRelPath,
+                stage: error.stage,
+                cause: error.causeMessage,
+              },
+            },
+          };
+          if (recordProgress && this.shouldRecordNodeProgress(node)) {
+            await this.recordNodeProgressFinish(task.id, node, null, failureResult);
+          }
+          return failureResult;
+        }
         if (error instanceof WorktreeBaseRefreshError) {
           const failureResult: WorkflowNodeResult = {
             outcome: "failure",

@@ -14,6 +14,7 @@ import {
   WorkspaceFinalizeBlockedError,
   WorkspacePartialLandError,
   WorkspaceRepoLandBusyError,
+  WorkspaceReviewRequiredError,
 } from "../merge/merger-ai.js";
 import { runtimeLog } from "../logger.js";
 import { TunnelProcessManager } from "../remote-access/tunnel-process-manager.js";
@@ -136,6 +137,17 @@ vi.mock("../merge/merger-ai.js", () => {
       this.name = "WorkspaceFinalizeBlockedError";
     }
   }
+  class WorkspaceReviewRequiredError extends Error {
+    constructor(
+      public readonly taskId: string,
+      public readonly assessment: { kind: "approval-missing" | "content-changed"; repositories: string[]; files: string[] },
+    ) {
+      super(assessment.kind === "approval-missing"
+        ? `Workspace Code Review approval is missing for ${taskId}`
+        : `Workspace Code Review content changed after approval for ${taskId}`);
+      this.name = "WorkspaceReviewRequiredError";
+    }
+  }
   /*
   FNXC:WorkspaceMerge 2026-08-19-04:00:
   Production imports this error from merger-ai, so a factory that omits it makes the merge-queue
@@ -161,6 +173,7 @@ vi.mock("../merge/merger-ai.js", () => {
     WorkspaceRepoLandBusyError,
     WorkspacePartialLandError,
     WorkspaceFinalizeBlockedError,
+    WorkspaceReviewRequiredError,
     WorkspaceMergeDispatchSupersededError,
     WorkspaceMergeTechnicalError,
   };
@@ -1804,6 +1817,72 @@ describe("ProjectEngine workspace merge dispatch hardening (Phase C review)", ()
       owner: expect.objectContaining({ taskId: "FN-WSH" }),
     }));
     expect(releaseWorkspaceLease).toHaveBeenCalledWith(handle);
+    await engine.stop();
+  });
+
+  it("retries missing workspace approval through Code Review without merge retries", async () => {
+    const mockStore = createMockStore({ ...baseSettings, autoMerge: true });
+    mockStore.store.getTask.mockResolvedValue(workspaceTask() as any);
+    Object.assign(mockStore.store, {
+      getTaskWorkflowSelectionAsync: vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] })),
+      listWorkflowWorkItemsForTask: vi.fn(async () => []),
+      seedWorkspaceCodeReviewContinuationIfIdle: vi.fn(async () => ({ seeded: true, workItemId: "review-reroute" })),
+    });
+    mocks.currentStore = mockStore.store;
+    mocks.landWorkspaceTask.mockRejectedValue(new WorkspaceReviewRequiredError("FN-WSH", {
+      kind: "approval-missing",
+      repositories: ["repo-a"],
+      files: ["repo-a/src/example.ts"],
+    }));
+    const engine = createEngine();
+    await engine.start();
+
+    await expect(engine.onMerge("FN-WSH")).rejects.toMatchObject({
+      name: "WorkspaceReviewRequiredError",
+      assessment: expect.objectContaining({ kind: "approval-missing" }),
+    });
+    expect(mockStore.store.updateTask.mock.calls.some(([, patch]) =>
+      typeof (patch as { mergeRetries?: unknown }).mergeRetries === "number"
+        || (patch as { status?: unknown }).status === "failed",
+    )).toBe(false);
+    expect(mockStore.store.logEntry).toHaveBeenCalledWith(
+      "FN-WSH",
+      expect.stringContaining("Code Review re-entry scheduled"),
+      "WorkspaceReviewRequired",
+    );
+    expect((mockStore.store as any).seedWorkspaceCodeReviewContinuationIfIdle).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: "FN-WSH",
+      nodeId: "code-review",
+      kind: "task",
+    }));
+    await engine.stop();
+  });
+
+  it("returns a typed Code Review rework result to an active graph owner", async () => {
+    const mockStore = createMockStore({ ...baseSettings, autoMerge: true });
+    mockStore.store.getTask.mockResolvedValue(workspaceTask() as any);
+    Object.assign(mockStore.store, {
+      getTaskWorkflowSelectionAsync: vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] })),
+      listWorkflowWorkItemsForTask: vi.fn(async () => [{ id: "active-merge", state: "running" }]),
+      seedWorkspaceCodeReviewContinuationIfIdle: vi.fn(async () => ({ seeded: false, reason: "active-continuation" })),
+    });
+    mocks.currentStore = mockStore.store;
+    mocks.landWorkspaceTask.mockRejectedValue(new WorkspaceReviewRequiredError("FN-WSH", {
+      kind: "content-changed",
+      repositories: ["repo-a"],
+      files: ["repo-a/src/example.ts"],
+    }));
+    const engine = createEngine();
+    await engine.start();
+
+    await expect(engine.onMerge("FN-WSH")).resolves.toMatchObject({
+      merged: false,
+      reason: "workspace-review-required",
+    });
+    expect(mockStore.store.updateTask.mock.calls.some(([, patch]) =>
+      (patch as { status?: unknown }).status === "failed"
+        || typeof (patch as { mergeRetries?: unknown }).mergeRetries === "number",
+    )).toBe(false);
     await engine.stop();
   });
 

@@ -1024,3 +1024,7 @@ When the merge boundary cannot be proven, Fusion emits the terminal graph value 
 ### Workspace Code Review remediation
 
 Workspace Code Review carries repository-specific outcomes. A failed review is remediated from the failing repository's acquired worktree without persisting a singular workspace-root worktree. Repeated unchanged negative review input parks for operator approval; landing requires current approval evidence for every modified scoped repository. Scope changes clear both approval evidence and the remediation target atomically, while a current-scope APPROVE clears its matching target before graph completion.
+
+### Workspace Code Review seal
+
+For workspace tasks, Code Review is the final write-sensitive stage before landing. Completion and other write-capable finalization stages run before it. A missing or stale workspace approval returns the task to Code Review (`workspace-review-required`) so a new current-scope approval is produced before merge.

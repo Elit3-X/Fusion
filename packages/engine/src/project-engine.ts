@@ -87,12 +87,14 @@ import {
   AiMergeBlockedError,
   landWorkspaceTask,
   WorkspaceFinalizeBlockedError,
+  WorkspaceReviewRequiredError,
   WorkspaceMergeDispatchSupersededError,
   WorkspaceMergeTechnicalError,
   WorkspacePartialLandError,
   WorkspaceRepoLandBusyError,
 } from "./merge/merger-ai.js";
 import { promoteBranchGroup, type BranchGroupPromotionResult, type CreateGroupPrFn, type SyncGroupPrFn } from "./merge/group-merge-coordinator.js";
+import { rerouteWorkspaceReviewToCodeReview } from "./merge/workspace-review-reroute.js";
 import {
   formatAdmissionCapacityQueuedReason,
   persistedTopLevelAgentTaskIdsFromStore,
@@ -4692,6 +4694,51 @@ export class ProjectEngine {
           // is robust across the @fusion/core→@fusion/engine package boundary).
           const isWorkspaceMergeError =
             err instanceof Error && err.name === "WorkspaceTaskMergeError";
+          if (err instanceof WorkspaceReviewRequiredError) {
+            /*
+            FNXC:WorkspaceReviewReroute 2026-08-21-19:25:
+            Evidence rejection is a review obligation, not a non-conflict merge failure. Preserve
+            completed work and retry counters while exposing a distinct durable state for the graph
+            continuation/recovery owner; manual callers receive the same actionable diagnosis.
+            */
+            const reviewTask = await store.getTask(taskId).catch(() => null);
+            const reroute = reviewTask
+              ? await rerouteWorkspaceReviewToCodeReview(store, reviewTask).catch(() => ({ rerouted: false, reason: "no-code-review-route" as const }))
+              : { rerouted: false, reason: "no-code-review-route" as const };
+            await store.logEntry(
+              taskId,
+              `Workspace Code Review required: ${errorMsg}${reroute.rerouted ? " — Code Review re-entry scheduled" : " — configure or enable Code Review, then choose Retry"}`,
+              "WorkspaceReviewRequired",
+            ).catch(() => undefined);
+            await store.updateTask(taskId, {
+              status: "workspace-review-required",
+              error: reroute.rerouted ? null : errorMsg,
+            }).catch(() => undefined);
+            if (hasManualResolver) {
+              if (reroute.reason === "active-continuation" && reviewTask) {
+                /*
+                FNXC:WorkspaceReviewReroute 2026-08-21-20:11:
+                The active graph already owns the only continuation slot. Resolve its merge
+                requester with a typed rework value rather than rejecting into generic graph
+                exception handling; the merge-attempt outcome edge then returns to Code Review.
+                */
+                this.resolveMergeResolvers(taskId, {
+                  task: reviewTask,
+                  branch: reviewTask.branch ?? "",
+                  merged: false,
+                  noOp: false,
+                  worktreeRemoved: false,
+                  branchDeleted: false,
+                  reason: "workspace-review-required",
+                  error: errorMsg,
+                } as MergeResult);
+              } else {
+                this.rejectMergeResolvers(taskId, err);
+              }
+            }
+            continue;
+          }
+
           if (isWorkspaceMergeError) {
             runtimeLog.error(
               `${hasManualResolver ? "Manual" : "Auto"}-merge blocked for ${taskId}: workspace task reached a single-repo merge path and must land per-repo via landWorkspaceTask; parking as failed (manual retry still works) without exhausting mergeRetries: ${errorMsg}`,

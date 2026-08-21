@@ -67,6 +67,8 @@ function makeFingerprintableCheckout(): { path: string; baseCommitSha: string } 
   execFileSync("git", ["commit", "-m", "base"], { cwd: path, stdio: "ignore" });
   const baseCommitSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim();
   writeFileSync(join(path, "changed.ts"), "export const after = true;\n");
+  execFileSync("git", ["add", "changed.ts"], { cwd: path });
+  execFileSync("git", ["commit", "-m", "reviewable change"], { cwd: path, stdio: "ignore" });
   return { path, baseCommitSha };
 }
 

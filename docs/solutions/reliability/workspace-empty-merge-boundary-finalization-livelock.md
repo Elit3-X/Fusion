@@ -44,3 +44,7 @@ Landing now uses one range for all evidence: the immutable acquisition `baseComm
 ## Regression coverage
 
 Run the targeted engine workspace merger, self-healing, checkout-guard, review-routing, lease, real-Git slow, PostgreSQL workspace, CLI, and dashboard consumer tests listed in FN-106. The symptom fixture covers a pre-baseline same-ID commit, a previously landed scoped repository, an all-landed second pass, failed Code Review admission, recreated recovery owners, and the live linked-task-worktree shape repaired by FN-112.
+
+## FN-120: review producer and landing consumer must share evidence
+
+A valid merge boundary cannot be tested by constructing the verifier's fingerprint in fixtures. The production review capture must produce the approval consumed by landing, including the clean acquired-peer case. Otherwise attribution-aware review selection and raw branch-range landing can disagree while unit tests remain green.

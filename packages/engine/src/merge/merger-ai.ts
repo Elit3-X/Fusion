@@ -35,7 +35,6 @@ import { commitIdentityArgs, resolveCommitIdentity } from "../git-identity.js";
  * Pure helpers (prompt builders, verdict parser) are exported for unit testing;
  * the orchestrator accepts injectable agent functions for the same reason.
  */
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpathSync, readdirSync } from "node:fs";
@@ -73,6 +72,7 @@ import { resolveTaskWorkingBranch } from "../worktree/worktree-names.js";
 import { resolveIntegrationBranch } from "./integration-branch.js";
 import { shouldClearOrphanedMergeStamp } from "./merge-active-status.js";
 import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "../worktree/workspace-base-branch.js";
+import { captureWorkspaceReviewEvidence } from "../worktree/workspace-review-evidence.js";
 import { advanceIntegrationBranchRef } from "./merger-ref-update-advance.js";
 import { enforceAiMergeSquashGates } from "./merger-ai-squash-gates.js";
 import {
@@ -2057,6 +2057,29 @@ export class WorkspaceFinalizeBlockedError extends Error {
 }
 
 /** A fenced merge pushed successfully, but a successor owns terminal finalization. */
+export type WorkspaceReviewAssessment = {
+  kind: "approval-missing" | "content-changed";
+  repositories: string[];
+  files: string[];
+};
+
+/**
+ * FNXC:WorkspaceReviewReroute 2026-08-21-19:25:
+ * Missing approval and changed reviewed content are recoverable review obligations, not merge
+ * transport failures. Keep their repository-qualified diagnostics structured so every merge door
+ * can re-enter Code Review without consuming a merge retry budget.
+ */
+export class WorkspaceReviewRequiredError extends Error {
+  constructor(public readonly taskId: string, public readonly assessment: WorkspaceReviewAssessment) {
+    const repositories = assessment.repositories.join(", ");
+    const files = assessment.files.join(", ");
+    super(assessment.kind === "approval-missing"
+      ? `Workspace Code Review approval is missing for ${taskId}: ${repositories}${files ? ` (${files})` : ""}`
+      : `Workspace Code Review content changed after approval for ${taskId}: ${repositories}${files ? ` (${files})` : ""}`);
+    this.name = "WorkspaceReviewRequiredError";
+  }
+}
+
 export class WorkspaceMergeDispatchSupersededError extends Error {
   constructor(public readonly taskId: string) {
     super(`Workspace merge dispatch lease was superseded before finalization for ${taskId}`);
@@ -2136,68 +2159,23 @@ export async function landWorkspaceTask(
     });
     if (mergeBlocker) throw new WorkspaceFinalizeBlockedError(taskId, mergeBlocker);
   }
-  const confirmedScope = mergeBoundaryTask.repositoryScope?.state === "confirmed"
-    ? new Set(mergeBoundaryTask.repositoryScope.repositories)
-    : undefined;
-  const mergeBoundaryModifiedFiles: string[] = [];
-  const mergeBoundaryModifiedRepositories = new Set<string>();
-  const mergeBoundaryFingerprints: Record<string, string> = {};
-  const modifiedOutOfScopeRepositories = new Set<string>();
-  const netZeroBranchRepositories = new Set<string>();
-  for (const [repoRel, entry] of Object.entries(mergeBoundaryTask.workspaceWorktrees ?? {})
-    // FNXC:RepositoryScope 2026-08-21-02:17: every acquired checkout is inspected for dirty
-    // out-of-scope work before land selection. Acquisition is not intent, but it is still a
-    // completion safety surface; filtering it out here could erase unapproved changes on update.
-    .filter(([repoRel, entry]) => !entry.landedSha || !confirmedScope?.has(repoRel))
-    .sort(([left], [right]) => left.localeCompare(right))) {
-    if (!entry.branch) throw new Error(`Workspace repository ${repoRel} has no task branch for fresh merge evidence`);
-    try {
-      /*
-      FNXC:WorkspaceMergeEvidence 2026-08-21-17:33:
-      FN-112 requires landing evidence to compare the immutable acquisition baseline with the
-      persisted task branch. A linked task worktree has HEAD checked out at entry.branch, so the
-      former HEAD-to-entry.branch comparison self-compared the same commit and incorrectly erased
-      reviewed work. The range below intentionally matches Code Review's baseCommitSha..HEAD range.
-      */
-      const comparisonBase = entry.baseCommitSha
-        ? await git(["rev-parse", "--verify", `${entry.baseCommitSha}^{commit}`], entry.worktreePath)
-        : await (async () => {
-          const baseResolution = await resolveWorkspaceRepoBaseBranch({
-            mode: "recorded",
-            repoRootDir: join(workspaceRootDir, repoRel),
-            repoRelPath: repoRel,
-            task,
-            settings,
-            recordedBaseBranch: entry.baseBranch,
-          });
-          return git(["merge-base", baseResolution.branch, entry.branch!], entry.worktreePath);
-        })();
-      if (!comparisonBase) throw new Error("comparison base is empty");
-      const comparisonRange = `${comparisonBase}..${entry.branch}`;
-      const { stdout } = await execFileAsync("git", ["diff", "--name-only", comparisonRange], { cwd: entry.worktreePath, encoding: "utf8" });
-      const files = stdout.split("\n").map((file) => file.trim()).filter(Boolean);
-      if (files.length > 0) {
-        const { stdout: diffContent } = await execFileAsync("git", ["diff", "--binary", comparisonRange], { cwd: entry.worktreePath, encoding: "utf8" });
-        mergeBoundaryFingerprints[repoRel] = createHash("sha256").update(diffContent).digest("hex");
-      }
-      if (files.length > 0 && !confirmedScope?.has(repoRel)) {
-        modifiedOutOfScopeRepositories.add(repoRel);
-      } else if (confirmedScope?.has(repoRel)) {
-        if (files.length > 0) mergeBoundaryModifiedRepositories.add(repoRel);
-        mergeBoundaryModifiedFiles.push(...files.map((file) => `${repoRel}/${file}`));
-        if (files.length === 0) {
-          const { stdout: aheadCount } = await execFileAsync("git", ["rev-list", "--count", comparisonRange], { cwd: entry.worktreePath, encoding: "utf8" });
-          if (Number(aheadCount.trim()) > 0) netZeroBranchRepositories.add(repoRel);
-        }
-      }
-    } catch (error) {
-      throw new Error(`Cannot capture fresh merge evidence for workspace repository ${repoRel}: ${getErrorMessage(error)}`);
-    }
+  let mergeEvidence;
+  try {
+    mergeEvidence = await captureWorkspaceReviewEvidence({ task: mergeBoundaryTask, workspaceRootDir, settings });
+  } catch (error) {
+    throw new Error(`Cannot capture fresh merge evidence for workspace task ${taskId}: ${getErrorMessage(error)}`);
   }
-  if (modifiedOutOfScopeRepositories.size > 0) {
-    throw new Error(`Workspace repositories modified outside confirmed scope for ${taskId}: ${[...modifiedOutOfScopeRepositories].sort().join(", ")}`);
+  if (mergeEvidence.outOfScopeRepositories.size > 0) {
+    throw new Error(`Workspace repositories modified outside confirmed scope for ${taskId}: ${[...mergeEvidence.outOfScopeRepositories].sort().join(", ")}`);
   }
-  const normalizedMergeBoundaryFiles = [...new Set(mergeBoundaryModifiedFiles)].sort();
+  const mergeBoundaryModifiedRepositories = mergeEvidence.modifiedRepositories;
+  const mergeBoundaryFingerprints = Object.fromEntries(mergeEvidence.repositories
+    .filter((repository) => repository.fingerprint)
+    .map((repository) => [repository.repository, repository.fingerprint!]));
+  const netZeroBranchRepositories = new Set(mergeEvidence.repositories
+    .filter((repository) => repository.netZero && mergeBoundaryTask.repositoryScope?.repositories.includes(repository.repository))
+    .map((repository) => repository.repository));
+  const normalizedMergeBoundaryFiles = mergeEvidence.modifiedFiles;
   const persistedReviewFiles = [...new Set(mergeBoundaryTask.modifiedFiles ?? [])].sort();
   /*
   FNXC:RepositoryScope 2026-08-21-00:58:
@@ -2216,19 +2194,30 @@ export async function landWorkspaceTask(
   */
   const requiresRepositoryReviewEvidence = approvedReviewEvidence !== undefined
     || (mergeBoundaryTask.enabledWorkflowSteps ?? []).some((step) => /review/i.test(step));
-  const missingOrStaleReviewApproval = requiresRepositoryReviewEvidence && Object.entries(mergeBoundaryFingerprints)
-    .some(([repoRel, fingerprint]) => approvedReviewEvidence?.[repoRel]?.fingerprint !== fingerprint);
-  if (
-    (requiresRepositoryReviewEvidence && normalizedMergeBoundaryFiles.some((file) => !persistedReviewFiles.includes(file)))
-    || missingOrStaleReviewApproval
-  ) {
-    /*
-    FNXC:RepositoryScope 2026-08-21-01:36:
-    Every fresh land-required repository needs the exact fingerprint persisted by its approving
-    Code Review episode. An empty reviewEvidence map is missing approval evidence, not a legacy
-    exemption: otherwise a modified repository could publish without any reviewer authorization.
-    */
-    throw new Error(`Workspace merge evidence changed after review for ${taskId}; return the task to Code Review before landing`);
+  const approvalMissingRepositories = Object.entries(mergeBoundaryFingerprints)
+    .filter(([repoRel]) => requiresRepositoryReviewEvidence && !approvedReviewEvidence?.[repoRel])
+    .map(([repoRel]) => repoRel)
+    .sort();
+  const contentChangedRepositories = Object.entries(mergeBoundaryFingerprints)
+    .filter(([repoRel, fingerprint]) => requiresRepositoryReviewEvidence
+      && Boolean(approvedReviewEvidence?.[repoRel])
+      && approvedReviewEvidence?.[repoRel]?.fingerprint !== fingerprint)
+    .map(([repoRel]) => repoRel)
+    .sort();
+  const changedFiles = normalizedMergeBoundaryFiles.filter((file) => !persistedReviewFiles.includes(file)).sort();
+  if (approvalMissingRepositories.length > 0) {
+    throw new WorkspaceReviewRequiredError(taskId, {
+      kind: "approval-missing",
+      repositories: approvalMissingRepositories,
+      files: normalizedMergeBoundaryFiles.filter((file) => approvalMissingRepositories.some((repository) => file.startsWith(`${repository}/`))).sort(),
+    });
+  }
+  if (contentChangedRepositories.length > 0 || changedFiles.length > 0) {
+    throw new WorkspaceReviewRequiredError(taskId, {
+      kind: "content-changed",
+      repositories: [...new Set([...contentChangedRepositories, ...changedFiles.map((file) => file.split("/")[0])])].sort(),
+      files: [...new Set([...changedFiles, ...normalizedMergeBoundaryFiles.filter((file) => contentChangedRepositories.some((repository) => file.startsWith(`${repository}/`)))])].sort(),
+    });
   }
   /*
   FNXC:WorkspaceFinalization 2026-08-21-08:46:

@@ -521,7 +521,7 @@ export async function runGraphCustomNode(
             summary: repoOutcome.output ?? repoOutcome.error ?? "",
             retryable: !repoOutcome.success,
           };
-        }, { workspaceRepos: workspaceConfig.repos, workspaceRootDir: deps.rootDir });
+        }, { workspaceRepos: workspaceConfig.repos, workspaceRootDir: deps.rootDir, settings });
         /*
         FNXC:RepositoryScope 2026-08-21-02:35:
         Custom review nodes use the same generation fence as step-review. A callback from an
@@ -546,6 +546,8 @@ export async function runGraphCustomNode(
                 // FNXC:WorkspaceFinalization 2026-08-21-09:50: A current-scope APPROVE clears the durable REVISE coordinator before graph completion can schedule another run.
                 ...(currentScope.reviewRemediation?.scopeRevision === aggregate.repositoryScopeRevision ? { reviewRemediation: undefined } : {}),
               },
+              // FNXC:WorkspaceReviewEvidence 2026-08-21-19:25: graph reviews publish the same qualified capture atomically with their fingerprints.
+              ...(aggregate.repositoryModifiedFiles ? { modifiedFiles: aggregate.repositoryModifiedFiles } : {}),
             };
           });
           /* FNXC:RepositoryScope 2026-08-21-02:48: Fence the return handed to graph-result persistence as well as the evidence write. */
