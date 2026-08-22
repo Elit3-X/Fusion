@@ -31,6 +31,16 @@ FN-9131 retains `pg-connection-budget.ts` as a tested cluster-shared advisory-lo
 
 The initial harness wiring made a 27-worker PostgreSQL directory run worse, even after registry contention was changed from bounded rejection to queueing. Do not restore the wiring, alter test timeouts, add retries, or cap workers as a workaround. FN-9139 owns selecting a per-worker lifecycle point that is inert for non-PostgreSQL lanes and can charge admission wait outside individual test budgets. See [the terminal-negative record](solutions/test-failures/pg-harness-connection-budget.md).
 
+### Local PostgreSQL test server provisioning
+
+<!-- FNXC:PgTestProvisioning 2026-08-22-17:08: FN-152 makes a durable local PostgreSQL test server opt-in because a postmaster derives `$libdir` from its executable and cannot survive deletion of an in-worktree payload. -->
+
+Use `pnpm pg:test:up`, `pnpm pg:test:status`, and `pnpm pg:test:down`; forward flags as `pnpm pg:test:up -- --replace` and `pnpm pg:test:down -- --purge`. The script stages the pinned embedded PostgreSQL binaries under `~/.fusion/pg-test-server` (or `FUSION_PG_TEST_SERVER_HOME`) and never starts a relative or worktree-native executable. `dynamic_library_path` cannot repair `$libdir/plpgsql` because PostgreSQL resolves that path from its executable.
+
+The configured identity follows `postgres@3.4.9`: role is URL username, then `PGUSERNAME`, `PGUSER`, and the OS user; password is URL password then `PGPASSWORD`; database is URL path, then `PGDATABASE`, then the role name. A role-only repair therefore still fails when its role-named database is absent. The readiness gate runs configured login, PL/pgSQL, maintenance, and admin-DDL probes. A bare or CI-shaped probe is diagnostic-only unless its independently resolved role/database is one the script provisions; no harness connect dials a path-less base URL.
+
+`FUSION_PG_TEST_URL_BASE` is shared by `up`, `status`, and `down`; export the same non-default URL for all three. A path-bearing URL is provisionable but reports `harness-url-concat`, since `${PG_TEST_URL_BASE}/${dbName}` corrupts the 24 harness URL constructions. The script refuses URL/`--port` conflicts and `PGHOST`/`PGPORT` endpoint divergence. It reuses healthy servers, never mutates a foreign server's roles or databases, and requires a proven data-directory/PID ownership chain before `--replace` can stop a broken PostgreSQL server. `pg_ctl` daemonizes the postmaster, avoiding detached process spawning. A skipped `pgDescribe` block is not PostgreSQL verification evidence.
+
 ### PostgreSQL setup-boundary participation and measurement
 
 <!-- FNXC:PgTestPreAdmission 2026-08-17-03:20: FN-9139 requires the shared Vitest setup path to remain connectionless for every non-PostgreSQL lane. Participation is an explicit environment signal, rather than a reachability probe, because importing the harness itself performs a TCP probe. -->
