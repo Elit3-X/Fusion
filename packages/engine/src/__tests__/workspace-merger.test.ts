@@ -298,7 +298,7 @@ describeIfGit("landWorkspaceTask — per-repo merge loop (Phase C U1)", () => {
         reviewPrompts.push(prompt);
         reviews++;
         return reviews === 1
-          ? `${finding}\nSEVERITY: blocking\nREVIEW_VERDICT: reject`
+          ? `${finding}\n${PRIOR_FINDING_DISPOSITIONS_MARKER}\nfinding-1-1: still-present\nSEVERITY: blocking\nREVIEW_VERDICT: reject`
           : `${RESOLVED_PRIOR_FINDINGS_MARKER} ${finding}\n${PRIOR_FINDING_DISPOSITIONS_MARKER}\nfinding-1-1: corrected\nREVIEW_VERDICT: approve`;
       },
     });
@@ -307,6 +307,7 @@ describeIfGit("landWorkspaceTask — per-repo merge loop (Phase C U1)", () => {
     /* FNXC:WorkspaceMergeTests 2026-08-20-23:23: FN-090 requires two clean confirmations after a corrected finding, so the final approval pass is intentionally a second independent reviewer session. */
     expect(reviewPrompts).toHaveLength(3);
     expect(reviewPrompts[1]).toContain(finding);
+    expect(reviewPrompts[1]).not.toContain("finding-1-1: still-present");
   });
 
   it("per-repo resolution: each repo lands on its OWN origin/HEAD branch (override-stripping)", async () => {

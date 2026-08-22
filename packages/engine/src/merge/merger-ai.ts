@@ -135,6 +135,7 @@ import {
   buildReviewSystemPrompt,
   buildStashResolvePrompt,
   buildStashResolveSystemPrompt,
+  isAiMergeProtocolLine,
   parseReviewVerdict,
 } from "./merger-ai-prompts.js";
 
@@ -229,7 +230,7 @@ function boundBlockingReviewReasons(reasons: readonly string[]): string[] {
   for (const reason of reasons) {
     const display = reason.trim().replace(/\s+/g, " ");
     const key = normalizeBlockingReviewReason(display);
-    if (!key || seen.has(key)) continue;
+    if (!key || isAiMergeProtocolLine(display) || seen.has(key)) continue;
     seen.add(key);
     bounded.push(display);
     if (bounded.length === MAX_BLOCKING_REVIEW_REASONS) break;
@@ -428,14 +429,18 @@ async function ensureCommitTaskMetadata(
 // ---------------------------------------------------------------------------
 
 export {
+  AI_MERGE_PROTOCOL_MARKERS,
+  PRIOR_FINDING_DISPOSITIONS_MARKER,
   REVIEW_VERDICT_MARKER,
   RESOLVED_PRIOR_FINDINGS_MARKER,
+  SEVERITY_MARKER,
   buildMergePrompt,
   buildMergeSystemPrompt,
   buildReviewPrompt,
   buildReviewSystemPrompt,
   buildStashResolvePrompt,
   buildStashResolveSystemPrompt,
+  isAiMergeProtocolLine,
   parseReviewVerdict,
 } from "./merger-ai-prompts.js";
 export type { AiMergeReviewSeverity, AiMergeReviewVerdict } from "./merger-ai-prompts.js";
@@ -2951,7 +2956,7 @@ async function mergeAndReview(input: {
       await persistState(persistedState, state);
       needsMerge = false;
     }
-    const candidateSha = state.candidateSha!;
+    const candidateSha: string = state.candidateSha!;
     await assertCurrentEpisodeIdentity();
     await setStatus("reviewing");
     const diffStat = await git(["diff", "--stat", `${tipSha}..${candidateSha}`], mergeRoot);
@@ -2961,28 +2966,77 @@ async function mergeAndReview(input: {
     // A review response can arrive after an operator dismisses its finding or pushes a new source.
     await assertCurrentEpisodeIdentity();
     const ids = new Set(state.findings.map((finding) => finding.id));
-    const seen = new Set<string>();
-    const invalidAcknowledgement = (verdict.priorFindingDispositions ?? []).some(({ id }) => !ids.has(id) || seen.has(id) || !seen.add(id));
-    const dispositions = new Map((verdict.priorFindingDispositions ?? []).map((entry) => [entry.id, entry.disposition]));
-    const findings: NonNullable<Task["aiMergeReviewReconciliation"]>["findings"] = state.findings.map((finding) => {
+    const dispositionCounts = new Map<string, number>();
+    for (const { id } of verdict.priorFindingDispositions ?? []) {
+      dispositionCounts.set(id, (dispositionCounts.get(id) ?? 0) + 1);
+    }
+    const invalidAcknowledgement = [...dispositionCounts].some(([id, count]) => !ids.has(id) || count > 1);
+    /* FNXC:MergerAiReview 2026-08-22-22:26: Unknown and duplicate acknowledgements are unusable; a contradictory duplicate must never clear a real blocker. */
+    const dispositions = new Map((verdict.priorFindingDispositions ?? [])
+      .filter((entry) => ids.has(entry.id) && dispositionCounts.get(entry.id) === 1)
+      .map((entry) => [entry.id, entry.disposition]));
+    let findings: NonNullable<Task["aiMergeReviewReconciliation"]>["findings"] = state.findings.map((finding) => {
       const disposition = dispositions.get(finding.id);
       return disposition === "corrected" || disposition === "absent-from-squash" ? { ...finding, disposition } : disposition === "still-present" ? { ...finding, disposition } : finding;
     });
-    const newFindings = verdict.verdict === "reject" && verdict.severity !== "advisory" ? boundBlockingReviewReasons(verdict.reasons).map((text, index) => ({ id: `finding-${state!.correctivePasses + 1}-${index + 1}`, text, disposition: "still-present" as const })) : [];
+    /*
+    FNXC:MergerAiReview 2026-08-22-22:04:
+    FN-159 filters protocol at durable finding construction as defence in depth: R1 recognizes
+    today's markers, while this independent boundary prevents a future marker from polluting the
+    reconciliation corpus as FN-090 did after FN-062.
+    */
+    const recoveredReasons = boundBlockingReviewReasons(verdict.reasons);
+    const newFindings = verdict.verdict === "reject" && verdict.severity !== "advisory"
+      ? (recoveredReasons.length ? recoveredReasons : ["reviewer rejected the merge without a stated reason"])
+        .map((text, index) => ({ id: `finding-${state!.correctivePasses + 1}-${index + 1}`, text, disposition: "still-present" as const }))
+      : [];
+    if (verdict.verdict === "approve") {
+      /* FNXC:MergerAiReview 2026-08-22-22:26: A malformed duplicate that says still-present still retains the real blocker. */
+      const reConfirmed = new Set((verdict.priorFindingDispositions ?? [])
+        .filter((entry) => ids.has(entry.id) && entry.disposition === "still-present")
+        .map((entry) => entry.id));
+      const released = findings.filter((finding) => finding.disposition === "still-present" && !reConfirmed.has(finding.id));
+      if (released.length) {
+        const at = new Date().toISOString();
+        findings = findings.map((finding) => released.some(({ id }) => id === finding.id)
+          ? { ...finding, disposition: "absent-from-squash", audit: [...(finding.audit ?? []), { at, actor: "ai-merge-review", disposition: "absent-from-squash", reason: `not re-confirmed on approved candidate ${candidateSha}` }] }
+          : finding);
+        await log(`AI merge review: approved; released unreconfirmed finding(s): ${released.map(({ id }) => id).join(", ")}`);
+      }
+    }
     state = { ...state, findings: [...findings, ...newFindings] };
     const stillPresent: NonNullable<Task["aiMergeReviewReconciliation"]>["findings"] = state.findings.filter((finding) => finding.disposition === "still-present");
-    const clean = verdict.verdict === "approve" && !invalidAcknowledgement && stillPresent.length === 0;
+    const repeatedInvalidAcknowledgement: boolean = invalidAcknowledgement && state.invalidAcknowledgementCandidateSha === candidateSha;
+    const unusableAcknowledgement: boolean = invalidAcknowledgement && !repeatedInvalidAcknowledgement;
+    const clean: boolean = verdict.verdict === "approve" && !unusableAcknowledgement && stillPresent.length === 0;
     await audit.git({ type: "merge:ai-review-verdict", target: integrationBranch, metadata: { taskId, verdict: verdict.verdict, severity: verdict.severity, squashSha: candidateSha } });
     if (verdict.verdict === "approve") {
       const unconfirmed = state.findings.filter((finding) => finding.disposition === "pending").length;
-      state = { ...state, consecutiveCleanApprovals: clean ? state.consecutiveCleanApprovals + 1 : 0 };
+      state = {
+        ...state,
+        consecutiveCleanApprovals: clean ? state.consecutiveCleanApprovals + 1 : 0,
+        ...(unusableAcknowledgement ? { invalidAcknowledgementCandidateSha: candidateSha } : {}),
+      };
       await persistState(persistedState, state);
-      await log(clean ? `AI merge review: approved${unconfirmed ? ` — ${unconfirmed} prior finding(s) unconfirmed` : ""} squash ${candidateSha}` : `AI merge review: approved — reconciliation acknowledgement invalid`);
-      if (clean && state.consecutiveCleanApprovals >= 2) {
-        await assertCurrentEpisodeIdentity();
-        return { squashSha: candidateSha === tipSha ? null : candidateSha, priorReasons: [] };
+      if (clean) {
+        await log(repeatedInvalidAcknowledgement
+          ? "AI merge review: approved; ignoring repeated unusable prior-finding acknowledgement"
+          : `AI merge review: approved${unconfirmed ? ` — ${unconfirmed} prior finding(s) unconfirmed` : ""} squash ${candidateSha}`);
+        if (state.consecutiveCleanApprovals >= 2) {
+          await assertCurrentEpisodeIdentity();
+          return { squashSha: candidateSha === tipSha ? null : candidateSha, priorReasons: [] };
+        }
+        continue; // Direct confirmation review of exactly the same candidate; no merge agent and no budget spend.
       }
-      if (clean) continue; // direct confirmation review of exactly the same candidate; no merge agent and no budget spend.
+      if (unusableAcknowledgement && stillPresent.length === 0) {
+        await log("AI merge review: approved; prior-finding acknowledgement unusable (unknown or duplicated id) — re-asking on the same candidate");
+        continue;
+      }
+      if (repeatedInvalidAcknowledgement && stillPresent.length === 0) {
+        await log("AI merge review: approved; ignoring repeated unusable prior-finding acknowledgement");
+        continue;
+      }
+      if (stillPresent.length) await log(`AI merge review: approved but ${stillPresent.length} finding(s) re-confirmed still-present — corrective pass`);
     }
     if (verdict.verdict === "reject" && verdict.severity === "advisory" && stillPresent.length === 0) {
       await log(`AI merge: landing with unresolved advisory concern(s): ${verdict.reasons.join("; ")}`);
@@ -2990,7 +3044,7 @@ async function mergeAndReview(input: {
     }
     if (stillPresent.length === 0) {
       state = { ...state, terminal: true }; await persistState(persistedState, state);
-      throw new AiMergeBlockedError(taskId, ["review acknowledgement is malformed or non-actionable"]);
+      throw new AiMergeBlockedError(taskId, ["reviewer rejected the merge without a stated reason"]);
     }
     if (state.correctivePasses >= maxPasses) {
       state = { ...state, terminal: true }; await persistState(persistedState, state);

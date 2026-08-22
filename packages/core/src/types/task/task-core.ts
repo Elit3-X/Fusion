@@ -783,6 +783,12 @@ export interface AiMergeReviewReconciliation {
   findings: AiMergeReviewFinding[];
   consecutiveCleanApprovals: number;
   correctivePasses: number;
+  /*
+  FNXC:AIMergeReviewReconciliation 2026-08-22-22:04:
+  FN-159 permits one same-candidate re-ask for malformed acknowledgements so reviewer protocol
+  defects cannot reset clean approvals forever; omit the field until that first re-ask.
+  */
+  invalidAcknowledgementCandidateSha?: string;
   terminal?: boolean;
 }
 
