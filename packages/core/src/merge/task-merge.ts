@@ -348,7 +348,19 @@ export const TASK_DONE_BYPASS_BLOCKER_MESSAGE =
  */
 export function getTaskMergeBlocker(
   task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults">,
-  options: { manual?: boolean; skipColumnIdentityCheck?: boolean; reviewColumns?: ReadonlySet<string> } = {},
+  options: {
+    manual?: boolean;
+    skipColumnIdentityCheck?: boolean;
+    reviewColumns?: ReadonlySet<string>;
+    /*
+    FNXC:RequiredPreMergeSteps 2026-08-22-21:11:
+    Merge doors receive the workflow-resolved enabled pre-merge groups so an
+    unrun gate cannot be mistaken for approval. Recovery scanners deliberately
+    omit this input: they must still discover resultless cards and route them
+    back to their graph gate rather than hiding a recoverable wedge.
+    */
+    requiredPreMergeStepIds?: ReadonlySet<string>;
+  } = {},
 ): string | undefined {
   /*
   FNXC:WorkflowTransitionPolicy 2026-07-19-13:30 (PR #2341 review):
@@ -404,6 +416,17 @@ export function getTaskMergeBlocker(
 
   if (task.steps.length > 0 && task.steps.some((step) => NON_TERMINAL_STEP_STATUSES.has(step.status))) {
     return "task has incomplete steps";
+  }
+
+  // A merge door must not pass an enabled pre-merge group that never ran.
+  // Omitted input preserves legacy result-only semantics for recovery callers.
+  if (
+    options.requiredPreMergeStepIds?.size
+    && [...options.requiredPreMergeStepIds].some(
+      (workflowStepId) => !(task.workflowStepResults ?? []).some((result) => result.workflowStepId === workflowStepId),
+    )
+  ) {
+    return "task has enabled pre-merge workflow steps that never ran";
   }
 
   // Only pre-merge workflow step failures block merge.
@@ -515,7 +538,7 @@ export function clearMergeConfirmedTransientStatus(status: string | undefined): 
 
 export function getTaskHardMergeBlocker(
   task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults">,
-  options: { reviewColumns?: ReadonlySet<string> } = {},
+  options: { reviewColumns?: ReadonlySet<string>; requiredPreMergeStepIds?: ReadonlySet<string> } = {},
 ): string | undefined {
   return getTaskMergeBlocker({
     ...task,
@@ -523,7 +546,10 @@ export function getTaskHardMergeBlocker(
     paused: false,
     status: task.status === "failed" ? undefined : task.status,
     error: undefined,
-  }, { reviewColumns: options.reviewColumns });
+  }, {
+    reviewColumns: options.reviewColumns,
+    requiredPreMergeStepIds: options.requiredPreMergeStepIds,
+  });
 }
 
 export function getTaskDoneBypassBlocker(
@@ -538,8 +564,9 @@ export function getTaskDoneBypassBlocker(
 
 export function isTaskReadyForMerge(
   task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults">,
+  options: { requiredPreMergeStepIds?: ReadonlySet<string> } = {},
 ): boolean {
-  return getTaskMergeBlocker(task) === undefined;
+  return getTaskMergeBlocker(task, options) === undefined;
 }
 
 export interface TaskCompletionBlockerOptions {

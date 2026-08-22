@@ -121,6 +121,7 @@ import {
   isMergeRequestContractShadowEnabled,
   resolveMergerFallbackModel,
   resolveWorkflowIrForTask,
+  resolveRequiredPreMergeStepIds,
   resolveReboundTarget,
   resolveCompleteColumn,
   resolveMergeOrchestrationColumn,
@@ -6797,11 +6798,24 @@ export async function aiMergeTask(
   entry points were missed. Resolve the task's own review lanes and pass them.
   */
   const mergeReviewColumns = new Set<string>(["in-review"]);
+  let requiredPreMergeStepIds: ReadonlySet<string> | undefined;
   try {
-    const mergeIr = await resolveWorkflowIrForTask(store, taskId);
-    if (mergeIr) for (const id of resolveReviewColumns(mergeIr)) mergeReviewColumns.add(id);
+    // Legacy direct-merger callers have no workflow selection to resolve. Keep
+    // their historical admission semantics; graph-owned tasks supply one.
+    const selection = store.getTaskWorkflowSelectionAsync
+      ? await store.getTaskWorkflowSelectionAsync(taskId)
+      : store.getTaskWorkflowSelection?.(taskId);
+    const mergeIr = selection ? await resolveWorkflowIrForTask(store, taskId) : null;
+    if (mergeIr) {
+      for (const id of resolveReviewColumns(mergeIr)) mergeReviewColumns.add(id);
+      requiredPreMergeStepIds = resolveRequiredPreMergeStepIds(mergeIr, task.enabledWorkflowSteps);
+    }
   } catch { /* degraded: the legacy id above still answers */ }
-  const mergeBlocker = getTaskMergeBlocker(task, { manual: options.manual === true, reviewColumns: mergeReviewColumns });
+  const mergeBlocker = getTaskMergeBlocker(task, {
+    manual: options.manual === true,
+    reviewColumns: mergeReviewColumns,
+    requiredPreMergeStepIds,
+  });
   if (mergeBlocker) {
     throw new Error(`Cannot merge ${taskId}: ${mergeBlocker}`);
   }

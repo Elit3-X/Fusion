@@ -7708,6 +7708,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           const plan = planLegacyAdoption(
             {
               status: task.status,
+              column: task.column,
               reviewLevel: task.reviewLevel,
               enabledWorkflowSteps: task.enabledWorkflowSteps,
               legacyAdoptedAt: task.legacyAdoptedAt,

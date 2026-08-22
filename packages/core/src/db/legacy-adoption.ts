@@ -207,9 +207,15 @@ export interface LegacyAdoptionPlan {
 /** The subset of a task the planner needs. Keeps the planner storage-agnostic. */
 export interface LegacyAdoptionCandidate {
   status?: string | null;
+  /** The persisted board lane is needed to avoid retroactive merge gates. */
+  column?: string | null;
   reviewLevel?: number | null;
   enabledWorkflowSteps?: string[] | null;
   legacyAdoptedAt?: string | null;
+}
+
+function isAtOrPastReviewLane(column: string | null | undefined): boolean {
+  return column === "in-review" || column === "done" || column === "archived";
 }
 
 /**
@@ -230,7 +236,19 @@ export function planLegacyAdoption(
   }
 
   const statusAction = resolveLegacyStatusAdoption(task.status);
-  const backfill = resolveReviewLevelBackfill(task);
+  let backfill = resolveReviewLevelBackfill(task);
+
+  /*
+  FNXC:LegacyAdoption 2026-08-22-22:49:
+  FN-158's merge door blocks an enabled pre-merge group that has no result. A legacy
+  reviewLevel backfill must therefore not add groups after a task has reached review,
+  completion, or archive: those lanes can legitimately predate workflow-step results.
+  Withhold only that metadata patch: status adoption still runs, because suppressing the
+  whole plan would strand a row that also carries a migratable legacy status.
+  */
+  if (backfill.kind === "backfill" && isAtOrPastReviewLane(task.column)) {
+    backfill = { kind: "no-op" };
+  }
 
   // A preserve gate is untouchable, but a reviewLevel backfill is orthogonal metadata and
   // is still safe to land on it.

@@ -4706,14 +4706,20 @@ export class ProjectEngine {
             const reroute = reviewTask
               ? await rerouteWorkspaceReviewToCodeReview(store, reviewTask).catch(() => ({ rerouted: false, reason: "no-code-review-route" as const }))
               : { rerouted: false, reason: "no-code-review-route" as const };
+            const graphOwnsReentry = reroute.rerouted || reroute.reason === "active-continuation";
+            /*
+            FNXC:WorkspaceReviewReroute 2026-08-22-22:30:
+            An active continuation already owns the graph rework edge. It is a
+            neutral routing state, not an operator configuration error.
+            */
             await store.logEntry(
               taskId,
-              `Workspace Code Review required: ${errorMsg}${reroute.rerouted ? " — Code Review re-entry scheduled" : " — configure or enable Code Review, then choose Retry"}`,
+              `Workspace Code Review required: ${errorMsg}${graphOwnsReentry ? " — Code Review re-entry is owned by the workflow graph" : " — configure or enable Code Review, then choose Retry"}`,
               "WorkspaceReviewRequired",
             ).catch(() => undefined);
             await store.updateTask(taskId, {
               status: "workspace-review-required",
-              error: reroute.rerouted ? null : errorMsg,
+              error: graphOwnsReentry ? null : errorMsg,
             }).catch(() => undefined);
             if (hasManualResolver) {
               if (reroute.reason === "active-continuation" && reviewTask) {

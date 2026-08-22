@@ -1847,7 +1847,7 @@ describe("ProjectEngine workspace merge dispatch hardening (Phase C review)", ()
     )).toBe(false);
     expect(mockStore.store.logEntry).toHaveBeenCalledWith(
       "FN-WSH",
-      expect.stringContaining("Code Review re-entry scheduled"),
+      expect.stringContaining("Code Review re-entry is owned by the workflow graph"),
       "WorkspaceReviewRequired",
     );
     expect((mockStore.store as any).seedWorkspaceCodeReviewContinuationIfIdle).toHaveBeenCalledWith(expect.objectContaining({
@@ -1855,6 +1855,15 @@ describe("ProjectEngine workspace merge dispatch hardening (Phase C review)", ()
       nodeId: "code-review",
       kind: "task",
     }));
+    expect(mockStore.store.updateTask).toHaveBeenCalledWith("FN-WSH", {
+      status: "workspace-review-required",
+      error: null,
+    });
+    expect(mockStore.store.logEntry).not.toHaveBeenCalledWith(
+      "FN-WSH",
+      expect.stringContaining("configure or enable Code Review"),
+      "WorkspaceReviewRequired",
+    );
     await engine.stop();
   });
 
@@ -1883,6 +1892,15 @@ describe("ProjectEngine workspace merge dispatch hardening (Phase C review)", ()
       (patch as { status?: unknown }).status === "failed"
         || typeof (patch as { mergeRetries?: unknown }).mergeRetries === "number",
     )).toBe(false);
+    expect(mockStore.store.updateTask).toHaveBeenCalledWith("FN-WSH", {
+      status: "workspace-review-required",
+      error: null,
+    });
+    expect(mockStore.store.logEntry).toHaveBeenCalledWith(
+      "FN-WSH",
+      expect.stringContaining("Code Review re-entry is owned by the workflow graph"),
+      "WorkspaceReviewRequired",
+    );
     await engine.stop();
   });
 

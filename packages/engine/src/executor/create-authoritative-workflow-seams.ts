@@ -385,15 +385,6 @@ export function createAuthoritativeWorkflowSeams(
         const workspaceConfig = deps.ensureWorkspaceConfig
           ? await deps.ensureWorkspaceConfig()
           : deps.workspaceConfig;
-        const workspaceCoordinator = workspaceConfig
-          ? Object.keys(detail.workspaceWorktrees ?? {})
-            // FNXC:RepositoryScope 2026-08-20-23:40: Plan Review needs one real scoped checkout for
-            // task-document context; acquisition alone never authorizes a reviewer cwd.
-            .filter((repoRelPath) => workspaceConfig.repos.includes(repoRelPath) && detail.repositoryScope?.repositories.includes(repoRelPath))
-            .sort()
-            .map((repoRelPath) => detail.workspaceWorktrees?.[repoRelPath]?.worktreePath)
-            .find((path): path is string => typeof path === "string" && path.length > 0)
-          : undefined;
         if (workspaceConfig) {
           /*
           FNXC:WorkspaceRootRouting 2026-08-19-12:15:
@@ -403,12 +394,11 @@ export function createAuthoritativeWorkflowSeams(
           */
           detail = await normalizeWorkspaceTaskRouting(deps.store, seamTask.id) as typeof detail;
         }
-        // Worktree isolation (KTD-11): workspace review uses the durable per-repo set; single-repo
-        // review uses the instance's own worktree. Neither path falls back to the workspace root.
-        const worktreePath = workspaceCoordinator || active.worktreePath || detail.worktree || deps.rootDir;
-        const reviewCwd = workspaceConfig
-          ? workspaceCoordinator ?? ""
-          : resolveReviewCheckoutCwd(detail, worktreePath);
+        // Workspace Code Review fans out over durable repository entries. Plan Review
+        // reads the workspace under its declared read-only boundary; only single-repo
+        // review resolves a checkout here.
+        const worktreePath = active.worktreePath || detail.worktree || deps.rootDir;
+        const reviewCwd = workspaceConfig ? deps.rootDir : resolveReviewCheckoutCwd(detail, worktreePath);
         if (reviewCwd) logReviewCheckoutRouting(seamTask.id, detail, reviewCwd, worktreePath);
         const stepName = detail.steps[stepIndex]?.name ?? `Step ${stepIndex}`;
         const promptContent = detail.prompt ?? "";

@@ -35,6 +35,7 @@ import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-age
 import { createTaskPromptWriteTool } from "./shared-worker-tools.js";
 import type { PluginRunner } from "../plugins/plugin-runner.js";
 import { AgentLogger } from "../agents/agent-logger.js";
+import type { SessionBoundaryDescriptor } from "../agents/agent-runtime.js";
 import { buildSystemPromptWithInstructions } from "../agents/agent-instructions.js";
 import {
   createResolvedAgentSession,
@@ -129,7 +130,7 @@ export async function executeWorkflowStep(
   worktreePath: string,
   settings: Settings,
   taskEnv?: NodeJS.ProcessEnv,
-  stepOptions?: { unattended?: boolean; principalAgentId?: string; outputLanguage?: ResolvedTaskOutputLanguage },
+  stepOptions?: { unattended?: boolean; principalAgentId?: string; outputLanguage?: ResolvedTaskOutputLanguage; sessionBoundary?: SessionBoundaryDescriptor },
 ): Promise<WorkflowStepOutcome> {
     let toolMode: "coding" | "readonly" = workflowStep.toolMode || "readonly";
     // (U3) Genuinely-unattended run — set FUSION_HEADLESS=1 below so skills record
@@ -705,6 +706,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
         runtimeHint: workflowRuntimeHint,
         pluginRunner: deps.options.pluginRunner,
         cwd: worktreePath,
+        ...(stepOptions?.sessionBoundary ? { sessionBoundary: stepOptions.sessionBoundary } : {}),
         systemPrompt: stepSystemPrompt,
         tools: toolMode,
         defaultProvider: provider,

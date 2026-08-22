@@ -61,6 +61,7 @@ import {
   deriveFallbackTaskTitle,
   resolveTaskOutputLanguage,
   parsePlanningPlanMd,
+  loadWorkspaceConfig,
   type NearDuplicateCandidate,
 } from "@fusion/core";
 
@@ -3093,6 +3094,14 @@ export class TriageProcessor {
         here is the one Plan Review and the implementation session then reuse.
         */
         let planningCwd = (await this.options.acquirePlanningWorktree?.(task.id).catch(() => null)) || this.rootDir;
+        const workspacePlanningConfig = planningCwd === this.rootDir
+          ? await loadWorkspaceConfig(this.rootDir).catch(() => null)
+          : null;
+        const planningSessionBoundary = workspacePlanningConfig?.repos.length
+          ? { kind: "read-only-root" as const, writableRoot: null, projectRoot: this.rootDir, readOnlyRoots: [this.rootDir] }
+          : planningCwd === this.rootDir
+            ? undefined
+            : { kind: "task-worktree" as const, writableRoot: planningCwd, projectRoot: this.rootDir };
         if (planningCwd !== this.rootDir) {
           /*
           FNXC:NodeWorktreeIsolation 2026-07-26-09:10:
@@ -3179,6 +3188,7 @@ export class TriageProcessor {
           runtimeHint: triageRuntimeHint,
           pluginRunner: this.options.pluginRunner,
           cwd: planningCwd,
+          sessionBoundary: planningSessionBoundary,
           systemPrompt: triageSystemPromptFinal,
           systemPromptLayers: triageLayers,
           tools: "coding",

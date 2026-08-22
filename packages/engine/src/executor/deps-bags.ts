@@ -1155,7 +1155,10 @@ export function buildEnsureTaskWorktreeForPlanningDeps(host: any): any {
 
 export function buildPrepareGraphNodeExecutionDeps(host: any): any {
   return {
-    ...facadeFields(host, ["store"]),
+    ...facadeFields(host, ["rootDir", "store"]),
+    workspaceConfigOwner: host,
+    getWorkspaceConfig: () => host.workspaceConfig,
+    setWorkspaceConfig: (cfg: unknown) => { host.workspaceConfig = cfg; },
     ...facadeMethods(host, ["getRunContextFor", "ensureGraphCustomNodeWorktree"]),
   };
 }

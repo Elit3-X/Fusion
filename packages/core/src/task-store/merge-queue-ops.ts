@@ -12,6 +12,7 @@ import type {Task, MergeResult, MergeQueueEntry, MergeQueueAcquireOptions} from 
 import {assertNotWorkspaceTaskMerge} from "../types.js";
 import "../builtin-traits.js";
 import {getTaskMergeBlocker, resolveTaskMergeTarget} from "../merge/task-merge.js";
+import {resolveRequiredPreMergeStepIds} from "../merge/required-pre-merge-steps.js";
 import {resolveWorkflowIrForTask} from "../workflows/workflow-ir-resolver.js";
 import {resolveReviewColumns, resolveTaskLifecycleColumns} from "../workflows/workflow-lifecycle-traits.js";
 import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
@@ -430,12 +431,14 @@ export async function mergeTaskImpl(store: TaskStore, id: string): Promise<Merge
       "unscoped legacy acceptance" the glasses plugin's own review caught, and I reintroduced it here.
       */
       let reviewColumns: ReadonlySet<string> = new Set<string>(["in-review"]);
+      let requiredPreMergeStepIds: ReadonlySet<string> | undefined;
       try {
         const ir = await resolveWorkflowIrForTask(store, id);
         const resolved = ir ? resolveReviewColumns(ir) : [];
         if (resolved.length > 0) reviewColumns = new Set(resolved);
+        if (ir) requiredPreMergeStepIds = resolveRequiredPreMergeStepIds(ir, task.enabledWorkflowSteps);
       } catch { /* degraded: the board told us nothing, so the legacy id stands */ }
-      const mergeBlocker = getTaskMergeBlocker(task, { reviewColumns });
+      const mergeBlocker = getTaskMergeBlocker(task, { reviewColumns, requiredPreMergeStepIds });
       if (mergeBlocker) {
         throw new Error(`Cannot merge ${id}: ${mergeBlocker}`);
       }

@@ -56,6 +56,7 @@ import {
   resolveReboundTarget,
   resolveTerminalColumns,
   resolveWorkflowIrForTask,
+  resolveRequiredPreMergeStepIds,
   type MergeDetails,
   type MergeResult,
   type MergeTargetResolution,
@@ -1418,11 +1419,19 @@ export async function runAiMerge(
   entry points were missed. Resolve the task's own review lanes and pass them.
   */
   const aiReviewColumns = new Set<string>(["in-review"]);
+  let requiredPreMergeStepIds: ReadonlySet<string> | undefined;
   try {
     const aiIr = await resolveWorkflowIrForTask(store, taskId);
-    if (aiIr) for (const id of resolveReviewColumns(aiIr)) aiReviewColumns.add(id);
+    if (aiIr) {
+      for (const id of resolveReviewColumns(aiIr)) aiReviewColumns.add(id);
+      requiredPreMergeStepIds = resolveRequiredPreMergeStepIds(aiIr, task.enabledWorkflowSteps);
+    }
   } catch { /* degraded: the legacy id above still answers */ }
-  const blocker = getTaskMergeBlocker(task, { manual: options.manual === true, reviewColumns: aiReviewColumns });
+  const blocker = getTaskMergeBlocker(task, {
+    manual: options.manual === true,
+    reviewColumns: aiReviewColumns,
+    requiredPreMergeStepIds,
+  });
   if (blocker) throw new Error(`Cannot merge ${taskId}: ${blocker}`);
 
   const settings = await store.getSettings();
@@ -2163,6 +2172,9 @@ export async function landWorkspaceTask(
     const mergeBlocker = getTaskMergeBlocker(mergeBoundaryTask, {
       manual: options.manual === true,
       reviewColumns,
+      requiredPreMergeStepIds: workflowIr
+        ? resolveRequiredPreMergeStepIds(workflowIr, mergeBoundaryTask.enabledWorkflowSteps)
+        : undefined,
     });
     if (mergeBlocker) throw new WorkspaceFinalizeBlockedError(taskId, mergeBlocker);
   }

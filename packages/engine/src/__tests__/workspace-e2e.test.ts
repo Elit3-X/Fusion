@@ -132,6 +132,7 @@ function makeTask(workspaceWorktrees: Task["workspaceWorktrees"], extra: Partial
     description: "",
     column: "in-review",
     branch: BRANCH,
+    branchWriteOrigin: "engine",
     worktree: null,
     dependencies: [],
     steps: [],
@@ -139,6 +140,9 @@ function makeTask(workspaceWorktrees: Task["workspaceWorktrees"], extra: Partial
     log: [],
     paused: false,
     workspaceWorktrees,
+    // Direct landing fixtures model an explicit Review Level 0 opt-out; graph
+    // fixtures that exercise review gates provide their own enabled step state.
+    enabledWorkflowSteps: [],
     // FNXC:RepositoryScope 2026-08-21-01:36: workspace e2e fixtures model the
     // exact fingerprint that the production Code Review episode must approve before land.
     repositoryScope: { repositories: Object.keys(workspaceWorktrees ?? {}).sort(), state: "confirmed" as const, revision: 1, reviewEvidence },
@@ -402,12 +406,9 @@ describeIfGit("workspace e2e — local-only merge + partial-land recovery", () =
     // the intervening Code Review that records the new merge boundary before recovery.
     const recoveringTask = store.tasks.get(TASK_ID)!;
     recoveringTask.modifiedFiles = ["repo-a/feature.txt", "repo-b/README.md", "repo-b/feature.txt"];
-    const repoB = recoveringTask.workspaceWorktrees!["repo-b"];
-    const repoBMergeBase = execSync(`git merge-base HEAD ${repoB.branch}`, { cwd: repoB.worktreePath, encoding: "utf8" }).trim();
-    recoveringTask.repositoryScope!.reviewEvidence!["repo-b"] = {
-      fingerprint: createHash("sha256").update(execSync(`git diff --binary ${repoB.baseCommitSha ?? repoBMergeBase}..${repoB.branch}`, { cwd: repoB.worktreePath, encoding: "utf8" })).digest("hex"),
-      approvedAt: new Date().toISOString(),
-    };
+    // Re-run the production review helper after resolving the conflict so its
+    // fingerprint matches the current branch rather than a hand-built stale diff.
+    await approveWorkspaceReview(store, recoveringTask, fx.rootDir);
 
     // Wire enqueueMerge to the REAL in-process route: re-run landWorkspaceTask (idempotent — A is
     // skipped via isRepoLanded). Capture the routed promise so the test can await completion.

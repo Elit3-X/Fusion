@@ -100,6 +100,7 @@ import { AsyncEvalStore } from "./async-stores/async-eval-store.js";
 import { CentralCore } from "./central/central-core.js";
 import { SecretsStore } from "./secrets/secrets-store.js";
 import { getLatestFailedPreMergeReviewStep, findPendingPreMergeStep } from "./merge/task-merge.js";
+import { resolveRequiredPreMergeStepIds } from "./merge/required-pre-merge-steps.js";
 import { createLogger } from "./process/logger.js";
 import { type UsageEventInput } from "./tasks/usage-events.js";
 import { assertNotLinkedWorktreeOfExistingProject, assertProjectRootDir } from "./central/project-root-guard.js";
@@ -2265,32 +2266,58 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         throw new Error(`Cannot bypass review lane for ${id}: task is paused`);
       }
 
-      const target = getLatestFailedPreMergeReviewStep(task);
-      if (!target) {
+      const results = task.workflowStepResults ?? [];
+      const failedTarget = getLatestFailedPreMergeReviewStep(task);
+      const reviewIrForBypass = failedTarget
+        ? undefined
+        : await resolveWorkflowIrForTask(this, task.id);
+      const absentStepId = reviewIrForBypass
+        ? [...resolveRequiredPreMergeStepIds(reviewIrForBypass, task.enabledWorkflowSteps)]
+          .find((workflowStepId) => !results.some((result) => result.workflowStepId === workflowStepId))
+        : undefined;
+      if (!failedTarget && !absentStepId) {
+        // Preserve the established refusal for cards with neither escape target.
         throw new Error(`Cannot bypass review lane for ${id}: no failed pre-merge review step found`);
       }
 
-      const results = task.workflowStepResults ?? [];
-      const targetIndex = results.indexOf(target);
-      if (targetIndex === -1) {
+      const target = failedTarget ?? {
+        workflowStepId: absentStepId!,
+        workflowStepName: absentStepId!,
+        phase: "pre-merge" as const,
+        status: "absent" as const,
+      };
+      const targetIndex = failedTarget ? results.indexOf(failedTarget) : -1;
+      if (failedTarget && targetIndex === -1) {
         throw new Error(`Cannot bypass review lane for ${id}: failed step result not found`);
       }
 
       const now = new Date().toISOString();
-      const bypassed: import("./types.js").WorkflowStepResult = {
-        ...target,
-        status: "skipped",
-        bypassedBy: actor,
-        bypassedAt: now,
-        bypassReason: reason,
-        bypassedFromStatus: target.status,
-        bypassedFromVerdict: target.verdict,
-      };
+      const bypassed: import("./types.js").WorkflowStepResult = failedTarget
+        ? {
+          ...failedTarget,
+          status: "skipped",
+          bypassedBy: actor,
+          bypassedAt: now,
+          bypassReason: reason,
+          bypassedFromStatus: failedTarget.status,
+          bypassedFromVerdict: failedTarget.verdict,
+        }
+        : {
+          workflowStepId: absentStepId!,
+          workflowStepName: absentStepId!,
+          phase: "pre-merge",
+          status: "skipped",
+          bypassedBy: actor,
+          bypassedAt: now,
+          bypassReason: reason,
+          bypassedFromStatus: "absent",
+        };
       // A bypass never fabricates a reviewer verdict.
       delete bypassed.verdict;
 
       const nextResults = [...results];
-      nextResults[targetIndex] = bypassed;
+      if (targetIndex === -1) nextResults.push(bypassed);
+      else nextResults[targetIndex] = bypassed;
       task.workflowStepResults = nextResults;
 
       if (!task.log) {
@@ -2315,7 +2342,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
           workflowStepId: target.workflowStepId,
           workflowStepName: target.workflowStepName,
           bypassedFromStatus: target.status,
-          bypassedFromVerdict: target.verdict ?? null,
+          bypassedFromVerdict: failedTarget?.verdict ?? null,
           reason,
         },
       });

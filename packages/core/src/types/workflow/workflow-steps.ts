@@ -388,7 +388,8 @@ export interface WorkflowStepResult {
   /** Mandatory operator-supplied justification for the bypass. */
   bypassReason?: string;
   /** The `status` this result carried immediately before the bypass rewrote it (always `"failed"` for the supported bypass path). */
-  bypassedFromStatus?: WorkflowStepResult["status"];
+  /** `absent` records an operator bypass of an enabled gate that never produced a result. */
+  bypassedFromStatus?: WorkflowStepResult["status"] | "absent";
   /** The `verdict` (if any) this result carried immediately before the bypass, preserved for audit only — never promoted to `verdict`. */
   bypassedFromVerdict?: WorkflowStepResult["verdict"];
   /*

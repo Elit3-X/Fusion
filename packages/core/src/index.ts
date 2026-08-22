@@ -350,6 +350,7 @@ export {
   isWorkflowOptionalGroupEnabled,
 } from "./workflows/workflow-optional-steps.js";
 export type { ResolvedWorkflowOptionalStep } from "./workflows/workflow-optional-steps.js";
+export { resolveRequiredPreMergeStepIds } from "./merge/required-pre-merge-steps.js";
 export {
   applyPromptOverridesToIr,
   enumeratePromptBearingWorkflowNodes,
@@ -2924,6 +2925,9 @@ export {
   workspaceWorktreeGroupSegment,
   workspaceRepoSegment,
   resolveWorktreesDirLayout,
+  resolveWorkspaceTaskWorktreeDir,
+  resolveWorkspaceRepoWorktreePath,
+  isLegacyWorkspaceWorktreeLayout,
 } from "./tasks/worktree-layout.js";
 export type { WorkspaceWorktreeContext } from "./tasks/worktree-layout.js";
 export type { AgentActivityEventType, AgentActivityAttribution, AgentActivityIdProvenance, AgentActivityIdCandidate, AgentActivityAttributionClaim, AgentActivityMetadataValueSpec, AgentActivityEvent, AgentActivityEventInput, AgentActivityQuery } from "./types/agents/agents.js";
