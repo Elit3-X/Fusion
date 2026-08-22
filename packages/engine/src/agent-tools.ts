@@ -2202,10 +2202,23 @@ export function createTaskPromptWriteTool(store: TaskStore, taskId: string, runC
               extensions: current?.repositoryScope?.extensions,
             }
           : undefined;
-        const persisted = await store.updateTask(taskId, {
+        await store.updateTask(taskId, {
           prompt: params.content,
           ...(repositoryScope ? { repositoryScope } : {}),
         }, runContext);
+        /*
+        FNXC:PlanArtifactPersistence 2026-08-22-03:37:
+        FN-094 repointed this fail-closed check at updateTask's task-row return value after adding
+        workspace-scope publication. The row has no prompt column, so it can never verify PROMPT.md.
+        Re-read through getTask after the write because it hydrates the filesystem-backed artifact;
+        missing, unreadable, or changed content must still reject publication.
+        */
+        let persisted: Awaited<ReturnType<TaskStore["getTask"]>>;
+        try {
+          persisted = await store.getTask(taskId);
+        } catch {
+          throw new Error("authoritative PROMPT.md read-back did not match the requested content; persistence could not be verified");
+        }
         if (persisted?.prompt !== params.content) {
           throw new Error("authoritative PROMPT.md read-back did not match the requested content; persistence could not be verified");
         }
