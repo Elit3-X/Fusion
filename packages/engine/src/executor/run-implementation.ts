@@ -66,7 +66,6 @@ import {
   createArtifactListTool,
   createArtifactRegisterTool,
   createArtifactViewTool,
-  createTaskCreateTool,
   createTaskDocumentReadTool,
   createTaskDocumentWriteTool,
   createTaskFileScopeAddTool,
@@ -87,7 +86,6 @@ import {
   createAcquireRepoWorktreeTool,
   createAgentCreateTool,
   createAgentDeleteTool,
-  createDelegateTaskTool,
   createGetAgentConfigTool,
   createGoalRetrievalTools,
   createIdeationTools,
@@ -1859,8 +1857,8 @@ export async function runImplementation(
       every other policy decision in this engine leaves that trail.
       */
       const executionCallerIsEphemeral = !identityAgent || isEphemeralAgent(identityAgent);
-      const taskCreateWithheld = !isAgentTaskCreateToolAvailable(settings, executionCallerIsEphemeral);
-      const delegateWithheld = !isAgentDelegateTaskToolAvailable(settings, executionCallerIsEphemeral);
+      const taskCreateWithheld = !isAgentTaskCreateToolAvailable(settings, executionCallerIsEphemeral, "task-execution");
+      const delegateWithheld = !isAgentDelegateTaskToolAvailable(settings, executionCallerIsEphemeral, "task-execution");
       if (taskCreateWithheld || delegateWithheld) {
         await emitBoundedRunAudit(deps.store, {
           taskId: task.id,
@@ -1875,6 +1873,8 @@ export async function runImplementation(
             withheldTaskCreate: taskCreateWithheld,
             withheldDelegateTask: delegateWithheld,
             lane: "execution-session",
+            reason: "task-execution-lane",
+            principalEphemeral: executionCallerIsEphemeral,
           },
         });
       }
@@ -1896,9 +1896,7 @@ export async function runImplementation(
         deps.createTaskUpdateTool(task.id, codeReviewVerdicts, sessionRef, stuckDetector),
         createTaskLogTool(tools, task.id),
         createTaskLogsReadTool(tools, task.id),
-        ...(taskCreateWithheld
-          ? []
-          : [createTaskCreateTool(tools, executionCallerIsEphemeral, task.id, identityAgent?.id)]),
+        // FN-125: execution sessions never receive task creation tools.
         deps.createTaskAddDepTool(task.id),
         deps.createTaskDoneTool(task.id, worktreePath, detail.prompt ?? "", codeReviewVerdicts, () => { taskDone = true; }, audit),
         createRunVerificationTool({
@@ -1980,9 +1978,7 @@ export async function runImplementation(
         // Agent delegation tools — discover and delegate work to other agents.
         ...(deps.options.agentStore ? [
           createListAgentsTool(deps.options.agentStore),
-          ...(delegateWithheld
-            ? []
-            : [createDelegateTaskTool(deps.options.agentStore, deps.store, { rootDir: deps.rootDir, sourceTaskId: task.id, sourceAgentId: assignedAgentId, callerIsEphemeral: executionCallerIsEphemeral })]),
+          // FN-125: execution sessions never receive delegation tools.
           createTaskAssignTool(deps.options.agentStore, deps.store),
           ...(assignedAgentId ? [
             createGetAgentConfigTool(deps.options.agentStore, assignedAgentId),
@@ -2196,6 +2192,7 @@ export async function runImplementation(
         try {
           const createdSession = await createResolvedAgentSession({
             sessionPurpose: "executor",
+        taskExecutionSession: true,
             runtimeHint: executorRuntimeHint,
             pluginRunner: deps.options.pluginRunner,
             cwd: worktreePath,
@@ -2669,6 +2666,7 @@ export async function runImplementation(
               try {
                 const createdRetrySession = await createResolvedAgentSession({
                   sessionPurpose: "executor",
+            taskExecutionSession: true,
                   runtimeHint: executorRuntimeHint,
                   pluginRunner: deps.options.pluginRunner,
                   cwd: worktreePath,

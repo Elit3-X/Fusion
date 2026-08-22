@@ -928,6 +928,8 @@ export {
   detectSelfDefeatingDependency,
   detectDependencyCycle,
   SelfDefeatingDependencyError,
+  SelfSpawnedDependencyError,
+  detectSelfSpawnedDependency,
   DependencyCycleError,
   TaskDeletedError,
   // FNXC:TaskLookup404 2026-07-26-11:20: typed task-miss signal + guard so API
@@ -2895,6 +2897,11 @@ export {
   type FusionSessionIdentity,
   type FusionSessionPrincipal,
 } from "./session-identity-registry.js";
+export {
+  TASK_EXECUTION_WITHHELD_TASK_CREATION_TOOLS,
+  isTaskExecutionSessionPrincipal,
+  taskExecutionTaskCreationRefusalText,
+} from "./agents/task-execution-task-creation.js";
 
 export { pruneTaskLifecycleEvents } from "./task-store/task-lifecycle-event-retention.js";
 

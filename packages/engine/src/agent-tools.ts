@@ -1073,7 +1073,9 @@ async function getAgentMemoryWindow(rootDir: string, agentMemory: AgentMemoryCon
 export function isAgentTaskCreateToolAvailable(
   settings: Pick<Settings, "ephemeralAgentTaskCreationPolicy" | "ephemeralAgentsCanCreateTasks"> | undefined | null,
   callerIsEphemeral: boolean | undefined,
+  lane: "task-execution" | "agent-session" = "agent-session",
 ): boolean {
+  if (lane === "task-execution") return false;
   if (!callerIsEphemeral) return true;
   return fusionCore.resolveEphemeralTaskCreationPolicy(settings ?? {}) !== "deny";
 }
@@ -1096,7 +1098,9 @@ export function isAgentTaskCreateToolAvailable(
 export function isAgentDelegateTaskToolAvailable(
   settings: Pick<Settings, "ephemeralAgentTaskCreationPolicy" | "ephemeralAgentsCanCreateTasks"> | undefined | null,
   callerIsEphemeral: boolean | undefined,
+  lane: "task-execution" | "agent-session" = "agent-session",
 ): boolean {
+  if (lane === "task-execution") return false;
   if (!callerIsEphemeral) return true;
   return fusionCore.resolveEphemeralTaskCreationPolicy(settings ?? {}) === "allow";
 }

@@ -74,6 +74,8 @@ export interface AgentRuntimeOptions {
   */
   /** Lane purpose (executor/merger/triage/…). Used for host-extension policy and diagnostics. */
   sessionPurpose?: string;
+  /** True only when this session is executing a board task (FN-125). */
+  taskExecutionSession?: boolean;
   /**
    * Optional structured prompt layers for cross-session caching.
    * When present, runtimes that support prompt caching use the `stable`

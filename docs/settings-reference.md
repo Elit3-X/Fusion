@@ -1850,13 +1850,13 @@ Project-scoped default permission policy for agent runtime action gates. It appl
 
 ### `ephemeralAgentTaskCreationPolicy`
 
-Project-scoped policy for ephemeral/runtime-managed task workers calling `fn_task_create` or `fn_delegate_task` (delegation creates a task through the same path, so the policy governs both).
+Project-scoped policy for ephemeral/runtime-managed non-execution task workers calling `fn_task_create` or `fn_delegate_task` (delegation creates a task through the same path, so the policy governs both). Task-execution sessions never receive either tool regardless of this policy or principal ephemerality.
 
 - `allow` creates follow-up tasks immediately.
 - `upon_validation` sends a structured proposal to the operator mailbox. The operator can create the proposed task from the message; repeated requests reuse a durable proposal key so one proposal materializes at most one task. `fn_delegate_task` is withheld under this policy — delegation has no proposal channel, so allowing it would bypass the operator review this policy exists to require.
 - `deny` withholds both tools from the agent's tool list entirely: an ephemeral session never sees `fn_task_create` or `fn_delegate_task`, and the session prompt states that creation is disabled and points the agent at `fn_task_log` instead. An execute-time refusal is retained as defense in depth. Permanent agents and human/dashboard callers are unaffected.
-  - Suppression emits an `agent:task-create-withheld` run-audit event (ids/policy/outcomes only) so an operator can tell "policy suppressed the tool" apart from "the agent had nothing to file".
-  - Known gap: the `fn_task_create` registered by the pi extension is gated only at execute time, and that gate does not currently fire because pi's extension context carries no agent identity. Enforcement today comes from the engine session lanes, which withhold the tools outright.
+  - Suppression emits an `agent:task-create-withheld` run-audit event with `reason: "task-execution-lane"` and `principalEphemeral` for executor-lane withholding.
+  - Implementation, retry, spawned-child, verification-fix, and both workflow-step execution lanes never receive either tool. The host extension copies execute-time refuse these marked principals, including the durable Workflow Executor.
 - The setting deliberately has no materialized default. The resolver falls back to `allow`; legacy persisted `ephemeralAgentsCanCreateTasks: false` still resolves to `deny` (and legacy `true` resolves to `allow`).
 - The unified runtime policy still applies: `defaultAgentPermissionPolicy.toolRules.fn_task_create = "block"` blocks ephemeral and permanent agents, and `"require-approval"` creates an approval request before the tool can run.
 

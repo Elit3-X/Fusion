@@ -692,6 +692,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
         : resolveExecutorFallbackThinkingLevel(workflowStepThinkingSource, settings);
       const { session } = await createResolvedAgentSession({
         sessionPurpose: "executor",
+        taskExecutionSession: true,
         runtimeHint: workflowRuntimeHint,
         pluginRunner: deps.options.pluginRunner,
         cwd: worktreePath,

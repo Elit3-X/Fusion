@@ -1130,6 +1130,8 @@ export interface AgentOptions {
   onFallbackModelUsed?: (payload: FallbackModelUsedPayload) => Promise<void> | void;
   /** Optional task context for fallback notifications. */
   taskId?: string;
+  /** True only for sessions actively executing a board task (FN-125). */
+  taskExecutionSession?: boolean;
   taskTitle?: string;
   actionGateContext?: AgentActionGateContext;
   /** Permanent-agent action gating context forwarded by runtime/session helpers. */
@@ -3092,11 +3094,22 @@ export async function createPiAgentSessionRaw(options: AgentOptions): Promise<Ag
       ...(principalAgentName ? { agentName: principalAgentName } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),
       ...(options.sessionPurpose ? { purpose: options.sessionPurpose } : {}),
+      ...(options.taskExecutionSession ? { taskExecutionSession: true } : {}),
     };
   })();
   const sessionIdentityKeys = [...new Set([options.cwd, resolvedProjectRoot].filter((key): key is string => Boolean(key)))];
   const attachSessionIdentity = (session: PromptableSession & { dispose?: () => void | Promise<void> }): void => {
-    const identityDisposers = sessionIdentityKeys.map((key) => registerFusionSessionIdentity(key, sessionIdentity));
+    /*
+    FNXC:TaskExecutionTaskCreation 2026-08-21-23:16:
+    Task-execution markers must not occupy the shared project-root registry key:
+    concurrent heartbeat or triage lookup would become ambiguous and fail closed.
+    ALS retains the marker during this session's own invocation.
+    */
+    const identityDisposers = sessionIdentityKeys.map((key) => {
+      if (key === options.cwd || !options.taskExecutionSession) return registerFusionSessionIdentity(key, sessionIdentity);
+      const { taskExecutionSession: _marker, ...projectRootIdentity } = sessionIdentity;
+      return registerFusionSessionIdentity(key, projectRootIdentity);
+    });
     const sessionInvocations = session as unknown as Partial<Record<"prompt" | "promptWithFallback", (...args: unknown[]) => unknown>>;
     const wrapInvocation = (methodName: "prompt" | "promptWithFallback"): void => {
       const original = sessionInvocations[methodName];
