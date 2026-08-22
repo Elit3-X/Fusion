@@ -9668,5 +9668,13 @@
     "status": "",
     "waitConnected": "",
     "waitingQr": ""
+  },
+  "thinking": {
+    "expandAll": "Tout développer",
+    "collapseAll": "Tout réduire",
+    "noDetail": "Aucun raisonnement capturé pour cette étape",
+    "untitledSection": "Raisonnement sans titre",
+    "sectionCount": "{{count}} section",
+    "sectionCountPlural": "{{count}} sections"
   }
 }

@@ -106,6 +106,10 @@ Every configured action toggles its interface: press once to open Quick Chat, Te
 Press `Escape` to close the current/topmost dashboard popup. Popped-out task windows and floating Quick Chat close before fixed app modals such as Terminal, Settings, Files, or Task Detail, and only one surface closes per key press. Nested editors and menus that already handle Escape keep first ownership by preventing the global handler.
 
 <!-- FNXC:ChatFindDocs 2026-08-21-16:29: FN-110 gives the active visible Chat host contextual Find ownership without adding a configurable dashboard shortcut. -->
+### Thinking traces
+
+Thinking panes split titled reasoning traces into independently expandable sections, with **Collapse all** and **Expand all** controls. Sections start expanded, so reasoning already visible remains visible; sections with no captured body say so explicitly. Untitled traces remain a single block. The same behavior applies while Planning Mode, Mission Interview, and Milestone/Slice Interview stream a generation.
+
 ### Chat Find
 
 In an active visible Chat list, <kbd>Ctrl+F</kbd> or <kbd>Cmd+F</kbd> focuses the existing conversation search without changing its query. In a selected Direct conversation, Room, or native/hybrid CLI transcript, the same chord opens **Find in conversation**. Type a literal case-insensitive query, use Enter (Shift+Enter for previous) or the previous/next controls to move through matching message rows, and use Escape or Close search to dismiss it. Only the activated full, floating, or docked Chat host owns the chord; raw/generic CLI terminals and nested dialogs keep their own browser or terminal behavior.

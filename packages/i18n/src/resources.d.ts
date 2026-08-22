@@ -10158,6 +10158,14 @@ export default interface Resources {
       "summarySeamReview": "Review (engine)",
       "summarySeamStepExecute": "Step execute (engine)",
       "summarySeamUnknown": "Seam: {{seam}}"
+    },
+    "thinking": {
+      "expandAll": "Expand all",
+      "collapseAll": "Collapse all",
+      "noDetail": "No reasoning captured for this step",
+      "untitledSection": "Untitled reasoning",
+      "sectionCount": "{{count}} section",
+      "sectionCountPlural": "{{count}} sections"
     }
   },
   "errors": {

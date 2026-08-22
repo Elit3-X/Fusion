@@ -9686,5 +9686,13 @@
     "status": "Status:",
     "waitConnected": "Wait for the status above to become {{status}}.",
     "waitingQr": "Waiting for a fresh QR code. Keep this panel open and refresh if needed."
+  },
+  "thinking": {
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "noDetail": "No reasoning captured for this step",
+    "untitledSection": "Untitled reasoning",
+    "sectionCount": "{{count}} section",
+    "sectionCountPlural": "{{count}} sections"
   }
 }

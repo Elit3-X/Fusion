@@ -799,6 +799,17 @@ describe("ChatManager.sendMessage", () => {
     expect(assistantCall?.[1].content).toBe("Hello world!");
   });
 
+  it("persists multi-section streamed thinking byte-for-byte", async () => {
+    const fixture = "Preamble.\n\n**Ensuring Docker build includes dev dependencies for tests**\n\nFirst rationale.\n\nSecond rationale.\n\n**Planning deployment commit structure**\n\nDeployment rationale.\n\nSecond deployment rationale.\n\n**Editing README content**\n\nDocumentation rationale.\n\nSecond documentation rationale.";
+    __setCreateFnAgent(async (options: any) => ({ session: { prompt: vi.fn().mockImplementation(async () => {
+      options.onText?.("Done");
+      for (const delta of [fixture.slice(0, 61), fixture.slice(61, 142), fixture.slice(142)]) options.onThinking?.(delta);
+    }), dispose: vi.fn(), state: { messages: [] } } }));
+    await createChatManager().sendMessage("chat-001", "Hello");
+    const assistantCall = mockChatStore.addMessage.mock.calls.find((call) => call[1].role === "assistant");
+    expect(assistantCall?.[1].thinkingOutput).toBe(fixture);
+  });
+
   it("persists streamed replies and broadcasts done for no-state plugin runtime sessions", async () => {
     const events: Array<{ type: string; data: any }> = [];
     const unsubscribe = chatStreamManager.subscribe("chat-001", (event) => {

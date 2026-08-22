@@ -16,6 +16,7 @@ import { nativeStructureChatRefMatcher, parseNativeStructureChatRef, splitNative
 import { MicButton } from "./MicButton";
 import { useComposerDictation } from "../hooks/useComposerDictation";
 import { ToolCallDetails, formatToolArgsPreview, formatToolPreview, hasToolCallDetails } from "./ToolCallDetails";
+import { isInteractiveDisclosureTarget, ThinkingTrace } from "./ThinkingTrace";
 import {
   createChatInputAutosizeController,
   type ChatInputAutosizeController,
@@ -164,27 +165,23 @@ function formatToolResultSummary(result: unknown): string | null {
   return formatToolPreview(result, 200);
 }
 
-function isInteractiveDisclosureTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return Boolean(target.closest("a,button,input,textarea,select,summary,[role=\"button\"],[contenteditable=\"true\"]"));
-}
-
 /*
 FNXC:ChatDisclosure 2026-08-19-02:42:
-Streaming status is presentation-only: disclosure state belongs to the user and must not be taken over by a running tool or thinking delta. Keep the native summary interaction while allowing a click on non-interactive thinking content to dismiss an expanded block.
+Streaming status is presentation-only: disclosure state belongs to the user and must not be taken over by a running tool or thinking delta. The nested ThinkingTrace owns per-section body interaction while this host disclosure retains its existing default.
 */
 function StandardThinkingDisclosure({ thinking }: { thinking: string }) {
   const { t } = useTranslation("app");
-  const handleBodyClick = useCallback((event: React.MouseEvent<HTMLPreElement>) => {
+  const [open, setOpen] = useState(false);
+  const handleBodyClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (isInteractiveDisclosureTarget(event.target)) return;
-    const details = event.currentTarget.closest("details");
-    if (details?.open) details.open = false;
+    // FNXC:ThinkingTrace 2026-08-22-16:56: Per-title bodies own their click-to-collapse action; preserve the host disclosure's established body-click behavior for untitled traces.
+    if (event.target instanceof Element && event.target.closest(".thinking-trace-section-body")) return;
+    setOpen(false);
   }, []);
-
   return (
-    <details className="chat-message-thinking">
+    <details className="chat-message-thinking" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>{t("chat.thinking", "Thinking")}</summary>
-      <pre className="chat-message-thinking-content" onClick={handleBodyClick}>{linkifyFilePaths(thinking)}</pre>
+      <div onClick={handleBodyClick}><ThinkingTrace className="chat-message-thinking-content" text={thinking} format="plain" /></div>
     </details>
   );
 }

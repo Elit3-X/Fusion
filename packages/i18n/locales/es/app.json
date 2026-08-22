@@ -9668,5 +9668,13 @@
     "status": "",
     "waitConnected": "",
     "waitingQr": ""
+  },
+  "thinking": {
+    "expandAll": "",
+    "collapseAll": "",
+    "noDetail": "",
+    "untitledSection": "",
+    "sectionCount": "",
+    "sectionCountPlural": ""
   }
 }
