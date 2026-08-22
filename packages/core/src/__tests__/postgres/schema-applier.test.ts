@@ -25,7 +25,7 @@ import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   applySchemaBaseline,
@@ -104,6 +104,10 @@ import {
   TASK_SOURCE_AGENT_INDEX_VERSION,
   WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION,
   ACTIVITY_LOG_TASK_ID_INDEX_VERSION,
+  REMOVE_TASK_SUBTASK_SPLITTING_VERSION,
+  AI_MERGE_REVIEW_RECONCILIATION_VERSION,
+  TASK_REPOSITORY_SCOPE_VERSION,
+  REVIEW_CONVERGENCE_STAGE_VERSION,
 } from "../../postgres/schema-applier.js";
 import { ProjectPartitionRekeyError, rekeyFallbackProjectPartition } from "../../postgres/migration-stamping.js";
 import type { PluginSchemaInitHook } from "../../postgres/plugin-schema-hook.js";
@@ -139,7 +143,18 @@ describe("schema-applier: immutable migration identities", () => {
     expect(TASK_SOURCE_AGENT_INDEX_VERSION).toBe("0059");
     expect(WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION).toBe("0060");
     expect(ACTIVITY_LOG_TASK_ID_INDEX_VERSION).toBe("0061");
-    expect(SCHEMA_BASELINE_VERSION).toBe("0063");
+    /*
+    FNXC:ReviewConvergence 2026-08-22-18:58:
+    The tail of this list went stale twice in a row (it still asserted 0063 while the ceiling was
+    0064), so it stopped being the tripwire it exists to be. Assert every identity through the
+    current head and keep the ceiling equal to the newest one — FN-149 shipped 0065 with the marker
+    left at 0064, and that mismatch made the binary reject its own database at startup.
+    */
+    expect(REMOVE_TASK_SUBTASK_SPLITTING_VERSION).toBe("0062");
+    expect(AI_MERGE_REVIEW_RECONCILIATION_VERSION).toBe("0063");
+    expect(TASK_REPOSITORY_SCOPE_VERSION).toBe("0064");
+    expect(REVIEW_CONVERGENCE_STAGE_VERSION).toBe("0065");
+    expect(SCHEMA_BASELINE_VERSION).toBe("0065");
   });
 
   it("keeps monitor and approval isolation assigned to version 0003", () => {
@@ -272,39 +287,13 @@ describe("schema-applier: immutable migration identities", () => {
 });
 
 /*
-FNXC:Lifecycle 2026-07-16-22:40:
-Migration wiring integrity — the class guard for the FN-8141 crash. Migrations are
-registered EXPLICITLY in schema-applier.ts (not auto-discovered), so a new .sql
-file that is not wired through a version constant + bookkeeping check silently
-never runs (documented hazard). PR #2260 tripped the adjacent trap: it added a
-column to the model + 0000 baseline and bumped nothing, so existing DBs never got
-it. These pure (no-PostgreSQL) assertions run in the merge gate and fail fast when
-the baseline marker and the on-disk migration set drift out of sync.
+FNXC:ReviewConvergence 2026-08-22-18:58:
+The pure "migration wiring integrity" assertions (baseline ceiling == highest migration file, and
+every .sql wired into the applier) MOVED to src/__tests__/migration-wiring-integrity.test.ts. They
+need no PostgreSQL, and living in this integration file kept them out of the merge gate — which is
+how FN-149 shipped migration 0065 with the ceiling left at 0064 and made every startup reject its
+own database. The new home is wired into `test:unit-gate`. Do not re-add them here.
 */
-describe("schema-applier: migration wiring integrity", () => {
-  const migrationsDir = fileURLToPath(new URL("../../postgres/migrations", import.meta.url));
-  const applierSource = readFileSync(
-    fileURLToPath(new URL("../../postgres/schema-applier.ts", import.meta.url)),
-    "utf8",
-  );
-  const migrationFiles = readdirSync(migrationsDir)
-    .filter((f) => /^\d{4}_.*\.sql$/.test(f))
-    .sort();
-
-  it("advances SCHEMA_BASELINE_VERSION to the highest-numbered migration file", () => {
-    const highest = migrationFiles[migrationFiles.length - 1]!.slice(0, 4);
-    // A new column that ships a migration file must also bump the baseline marker
-    // (else the "all markers recorded" fast-path and upgrade bookkeeping drift).
-    expect(SCHEMA_BASELINE_VERSION).toBe(highest);
-  });
-
-  it("wires every migration .sql file into the applier so none silently never runs", () => {
-    // The applier references each migration by its exact basename in a path
-    // constant. A file present on disk but absent from the source is unwired.
-    const unwired = migrationFiles.filter((f) => !applierSource.includes(f));
-    expect(unwired).toEqual([]);
-  });
-});
 
 interface TestContext {
   testUrl: string;

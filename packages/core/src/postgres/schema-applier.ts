@@ -66,7 +66,18 @@ capacity-model table drop that landed while this PR was open.
 /* FNXC:TaskRecommendations 2026-08-13-22:23: upgrades must install the source-agent index before duplicate intake queries it. */
 /* FNXC:WorkspaceLease 2026-08-15-12:00: the baseline ceiling must include durable coordination tables so an upgraded database is never rejected by the current binary. */
 /* FNXC:ActivityLogTaskSearch 2026-08-20-04:17: advance the schema ceiling so durable central task-ID lookups receive their indexed upgrade. */
-export const SCHEMA_BASELINE_VERSION = "0064";
+/*
+FNXC:ReviewConvergence 2026-08-22-18:58:
+Advance the ceiling to 0065 for FN-149's review-convergence columns. FN-149 registered
+REVIEW_CONVERGENCE_STAGE_VERSION and wired the migration but left this marker at 0064, which is a
+SELF-REJECTION rather than a compatibility guard: the first open applies 0065 and records it in
+fusion_schema_migrations, then the NEXT open (the project store, in the same boot) hits
+assertBinaryNotOlderThanDatabase, sees 0065 > 0064, and throws StaleBinarySchemaError. Every
+startup died with "this binary only knows up to 0064" on fresh and upgraded databases alike. This
+marker is ONLY the binary's "highest migration I know" claim — bumping it applies no SQL and
+touches no data; it must advance in the same change that ships a new migration file.
+*/
+export const SCHEMA_BASELINE_VERSION = "0065";
 /** FNXC:SymbolLock 2026-07-20-10:00: upgrades need durable task declarations before admission resolves symbols. */
 export const TASK_DECLARED_SYMBOLS_VERSION = "0028";
 const INITIAL_SCHEMA_VERSION = "0000";
