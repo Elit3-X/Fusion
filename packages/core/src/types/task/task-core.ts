@@ -738,6 +738,19 @@ export interface TaskRepositoryScope {
   }>;
 }
 
+export interface WorkspaceLandFailure {
+  /** Safe operator-facing failure family; technical detail is deliberately separate. */
+  category: "environment" | "review" | "content-conflict" | "internal-technical";
+  message: string;
+  at: string;
+  branch?: string;
+  repository?: string;
+  resource?: string;
+  action?: string;
+  /** Bounded diagnostics for agent logs only; never primary dashboard or CLI copy. */
+  technicalDetail?: string;
+}
+
 export interface WorkspaceWorktreeEntry {
   worktreePath: string;
   branch: string;
@@ -748,7 +761,8 @@ export interface WorkspaceWorktreeEntry {
   baseCommitSha?: string;
   landedSha?: string;
   revertBoundarySha?: string;
-  landFailure?: { message: string; at: string; branch?: string };
+  /** Legacy rows containing only message/at/branch remain readable. */
+  landFailure?: WorkspaceLandFailure;
 }
 
 export type AiMergeFindingDisposition = "pending" | "corrected" | "absent-from-squash" | "still-present" | "dismissed";

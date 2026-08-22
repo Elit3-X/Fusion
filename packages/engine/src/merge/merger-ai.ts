@@ -119,6 +119,7 @@ import { isRepoLanded, findProvenLandedCommit, FUSION_TASK_ID_TRAILER_KEY } from
 import { resolveWorkspaceMergeReadiness } from "./workspace-merge-readiness.js";
 import { persistWorkspaceRepoLandFailure } from "./workspace-land-failure.js";
 import { ensureTenancyFenceRef, mergeDispatchFenceRef, pushWithWorkspaceFence, WorkspaceFenceRefError, workspaceLandFenceRef } from "./workspace-fence-ref.js";
+import { resolveWorkspaceIntegrationTarget, WorkspaceEnvironmentError, WorkspaceIntegrationTargetError, type WorkspaceIntegrationTarget } from "./workspace-integration-target.js";
 import { finalizeProvenAutoMergeTask } from "./auto-merge-finalization.js";
 import { getCommitTaskOwnership, detectAlreadyLandedOnMain } from "./already-merged-detector.js";
 import { resolveLegacyAiMergeRootPath } from "../worktree/worktree-paths.js";
@@ -2022,7 +2023,8 @@ those implementation markers as a repository/task identity sent operators to non
 */
 export class WorkspaceMergeTechnicalError extends Error {
   public readonly retryable = true;
-  constructor(public readonly kind: "dispatch-fence-publication" | "repository-fence-publication" | "durable-lease", message: string) {
+  /* FNXC:WorkspaceIntegration 2026-08-21-21:46: target planning faults are internal-technical, while a user-correctable remote choice is represented by WorkspaceIntegrationTargetError. */
+  constructor(public readonly kind: "dispatch-fence-publication" | "repository-fence-publication" | "durable-lease" | "workspace-entry" | "integration-target", message: string) {
     super(message);
     this.name = "WorkspaceMergeTechnicalError";
   }
@@ -2240,6 +2242,47 @@ export async function landWorkspaceTask(
   task = { ...mergeBoundaryTask, modifiedFiles: retainedModifiedFiles };
   const workspaceWorktrees = task.workspaceWorktrees ?? {};
   const repoKeys = readiness.repositories;
+  /*
+  FNXC:WorkspaceIntegration 2026-08-21-21:46:
+  Plan every modified confirmed-scope repository before the first status, fence, intent, or ref
+  write. The dispatch fence is published only to remote targets; local-only repositories retain
+  durable leases and local CAS without running any remote Git command.
+  */
+  const workspaceTargets = new Map<string, { integrationBranch: string; target: WorkspaceIntegrationTarget }>();
+  for (const repoRel of repoKeys) {
+    const entry = workspaceWorktrees[repoRel];
+    if (!entry) throw new WorkspaceMergeTechnicalError("workspace-entry", `Workspace repository entry is missing for ${repoRel}`);
+    const repoRootDir = join(workspaceRootDir, repoRel);
+    try {
+      const baseResolution = await resolveWorkspaceRepoBaseBranch({
+        mode: "recorded", repoRootDir, repoRelPath: repoRel, task, settings, recordedBaseBranch: entry.baseBranch,
+      });
+      await recordWorkspaceBaseBranchDecision({ store, audit, task, repoRelPath: repoRel, repoAbsPath: repoRootDir, resolution: baseResolution, stage: "land" });
+      const target = await resolveWorkspaceIntegrationTarget({
+        repository: repoRel,
+        cwd: repoRootDir,
+        integrationBranch: baseResolution.branch,
+        worktreeRebaseRemote: settings.worktreeRebaseRemote,
+      });
+      workspaceTargets.set(repoRel, { integrationBranch: baseResolution.branch, target });
+    } catch (error) {
+      if (error instanceof WorkspaceIntegrationTargetError) {
+        const message = `Workspace repository ${error.repository} needs ${error.resource}: ${error.action}.`;
+        await persistWorkspaceRepoLandFailure(store, taskId, repoRel, {
+          category: "environment",
+          message,
+          at: new Date().toISOString(),
+          branch: entry.branch,
+          repository: error.repository,
+          resource: error.resource,
+          action: error.action,
+          technicalDetail: error.message.slice(0, 2_000),
+        }).catch(() => undefined);
+        throw error;
+      }
+      throw new WorkspaceMergeTechnicalError("integration-target", `Cannot plan workspace integration for ${repoRel}: ${getErrorMessage(error)}`);
+    }
+  }
   const repos: WorkspaceRepoLandResult[] = [];
   let allLanded = true;
 
@@ -2247,8 +2290,9 @@ export async function landWorkspaceTask(
   try {
 
   let workspaceDispatchFence: { fenceRefName: string; fenceRefSha: string } | undefined;
+  const hasRemoteWorkspaceTarget = [...workspaceTargets.values()].some(({ target }) => target.kind === "remote");
   const recordDispatchFence = (store as Partial<TaskStore>).recordWorkspaceLeaseFenceRef;
-  if (options.workspaceDispatchFence && typeof recordDispatchFence === "function") {
+  if (hasRemoteWorkspaceTarget && options.workspaceDispatchFence && typeof recordDispatchFence === "function") {
     /*
     FNXC:WorkspaceMergeDispatch 2026-08-15-10:18:
     A successor must publish its dispatch pin to EVERY workspace target remote before any land
@@ -2257,11 +2301,13 @@ export async function landWorkspaceTask(
     */
     try {
       for (const repoRel of repoKeys) {
+        const target = workspaceTargets.get(repoRel)?.target;
+        if (!target || target.kind === "local") continue;
         const ensuredDispatchFence = await ensureTenancyFenceRef({
           store,
           handle: options.workspaceDispatchFence,
           claimOutcome: "reentrant",
-          remote: "origin",
+          remote: target.remote,
           cwd: join(workspaceRootDir, repoRel),
           fenceRefName: mergeDispatchFenceRef(taskId),
         });
@@ -2276,6 +2322,13 @@ export async function landWorkspaceTask(
       };
     } catch (error) {
       if (error instanceof WorkspaceFenceRefError) {
+        const failedTarget = [...workspaceTargets.entries()].find(([, value]) => value.target.kind === "remote");
+        if (error.kind === "transport" && failedTarget?.[1].target.kind === "remote") {
+          throw new WorkspaceEnvironmentError(
+            failedTarget[0], `remote '${failedTarget[1].target.remote}'`,
+            `restore access to remote '${failedTarget[1].target.remote}' and choose Retry`, error.message,
+          );
+        }
         throw new WorkspaceMergeTechnicalError("dispatch-fence-publication", `Workspace merge dispatch fence publication failed for ${taskId}: ${error.message}`);
       }
       throw error;
@@ -2304,36 +2357,9 @@ export async function landWorkspaceTask(
     release/x lands on release/x, while a legacy or acquisition-fallback entry remains on its
     own integration branch even if task.baseBranch has since changed.
     */
-    let integrationBranch: string;
-    try {
-      const baseResolution = await resolveWorkspaceRepoBaseBranch({
-        mode: "recorded",
-        repoRootDir,
-        repoRelPath: repoRel,
-        task,
-        settings,
-        recordedBaseBranch: entry.baseBranch,
-      });
-      integrationBranch = baseResolution.branch;
-      await recordWorkspaceBaseBranchDecision({
-        store,
-        audit,
-        task,
-        repoRelPath: repoRel,
-        repoAbsPath: repoRootDir,
-        resolution: baseResolution,
-        stage: "land",
-      });
-    } catch (err: unknown) {
-      const message = getErrorMessage(err);
-      await log(`AI merge (workspace): failed to resolve integration branch for sub-repo ${repoRel}: ${message}`);
-      // FNXC:Workspace 2026-08-15-07:05: failure breadcrumbs are UI-only best effort; unlike
-      // landedSha, losing one cannot cause a double squash, so it must not affect this result.
-      await persistWorkspaceRepoLandFailure(store, taskId, repoRel, { message, at: new Date().toISOString(), branch: entry.branch }).catch(() => undefined);
-      repos.push({ repo: repoRel, repoRootDir, integrationBranch: "", branch: entry.branch, status: "failed", error: message });
-      allLanded = false;
-      break;
-    }
+    const workspaceTarget = workspaceTargets.get(repoRel);
+    if (!workspaceTarget) throw new WorkspaceMergeTechnicalError("integration-target", `Workspace integration plan is missing for ${repoRel}`);
+    const integrationBranch = workspaceTarget.integrationBranch;
 
     // U2 landed predicate + skip (KTD3): a repo whose recorded `landedSha` is an
     // ancestor of (or equals) its CURRENT integration tip is already landed — SKIP
@@ -2426,18 +2452,37 @@ export async function landWorkspaceTask(
           throw new WorkspaceRepoLandBusyError(repoRel, claim.conflict.taskId, taskId);
         }
         durableLandLease = claim.handle;
-        durableLandLease = await ensureTenancyFenceRef({
-          store,
-          handle: durableLandLease,
-          claimOutcome: claim.outcome,
-          remote: "origin",
-          cwd: repoRootDir,
-          fenceRefName: workspaceLandFenceRef(repoRel),
-        });
+        if (workspaceTarget.target.kind === "remote") {
+          durableLandLease = await ensureTenancyFenceRef({
+            store,
+            handle: durableLandLease,
+            claimOutcome: claim.outcome,
+            remote: workspaceTarget.target.remote,
+            cwd: repoRootDir,
+            fenceRefName: workspaceLandFenceRef(repoRel),
+          });
+        }
       }
     } catch (error) {
       if (durableLandLease) await store.releaseWorkspaceLease(durableLandLease).catch(() => undefined);
       if (error instanceof WorkspaceRepoLandBusyError) throw error;
+      /*
+      FNXC:WorkspaceIntegration 2026-08-21-22:20:
+      A repository fence transport failure means the selected remote cannot be reached, not that
+      its durable lease is defective. Preserve the environment classification here because this
+      catch surrounds fence publication before the normal per-repository land body; ProjectEngine
+      can then park it for Retry without consuming the technical retry budget.
+      */
+      if (error instanceof WorkspaceFenceRefError && error.kind === "transport" && workspaceTarget.target.kind === "remote") {
+        const action = `restore access to remote '${workspaceTarget.target.remote}' and choose Retry`;
+        const operatorMessage = `Workspace repository ${repoRel} needs remote '${workspaceTarget.target.remote}': ${action}.`;
+        await persistWorkspaceRepoLandFailure(store, taskId, repoRel, {
+          category: "environment", message: operatorMessage, at: new Date().toISOString(), branch: entry.branch,
+          repository: repoRel, resource: `remote '${workspaceTarget.target.remote}'`, action,
+          technicalDetail: error.message.slice(0, 2_000),
+        }).catch(() => undefined);
+        throw new WorkspaceEnvironmentError(repoRel, `remote '${workspaceTarget.target.remote}'`, action, error.message);
+      }
       throw new WorkspaceMergeTechnicalError("durable-lease", `Workspace repository lease unavailable for ${repoRel}: ${getErrorMessage(error)}`);
     }
     try {
@@ -2498,7 +2543,7 @@ export async function landWorkspaceTask(
         noCommitsExpected: task.noCommitsExpected === true,
         repoRel,
         repoKeys,
-        ...(durableLandLease ? { workspaceLand: { getHandle: () => { assertLeaseLive(); return durableLandLease!; }, repoRelPath: repoRel, remote: "origin", assertLive: assertLeaseLive } } : {}),
+        ...(durableLandLease && workspaceTarget.target.kind === "remote" ? { workspaceLand: { getHandle: () => { assertLeaseLive(); return durableLandLease!; }, repoRelPath: repoRel, remote: workspaceTarget.target.remote, assertLive: assertLeaseLive } } : {}),
         ...(workspaceDispatchFence ? { workspaceDispatchFence } : {}),
         store,
       });
@@ -2567,13 +2612,32 @@ export async function landWorkspaceTask(
       // A dispatch-fence publication failure is contention/transport at the resource boundary,
       // not a sub-repo merge failure. This body never reached its fenced push.
       if (err instanceof WorkspaceFenceRefError) {
+        const target = workspaceTargets.get(repoRel)?.target;
+        if (err.kind === "transport" && target?.kind === "remote") {
+          const operatorMessage = `Workspace repository ${repoRel} needs remote '${target.remote}': restore access to remote '${target.remote}' and choose Retry.`;
+          await persistWorkspaceRepoLandFailure(store, taskId, repoRel, {
+            category: "environment", message: operatorMessage, at: new Date().toISOString(), branch: entry.branch,
+            repository: repoRel, resource: `remote '${target.remote}'`,
+            action: `restore access to remote '${target.remote}' and choose Retry`, technicalDetail: err.message.slice(0, 2_000),
+          }).catch(() => undefined);
+          throw new WorkspaceEnvironmentError(repoRel, `remote '${target.remote}'`, `restore access to remote '${target.remote}' and choose Retry`, err.message);
+        }
         throw new WorkspaceMergeTechnicalError("repository-fence-publication", `Workspace repository fence publication failed for ${repoRel}: ${err.message}`);
       }
       const message = getErrorMessage(err);
       await log(`AI merge (workspace): sub-repo ${repoRel} land failed: ${message}`);
       await audit.git({ type: "merge:ai-no-branch", target: entry.branch, metadata: { taskId, kind: "workspace-repo-land-failed", repo: repoRel, error: message } }).catch(() => undefined);
-      await persistWorkspaceRepoLandFailure(store, taskId, repoRel, { message, at: new Date().toISOString(), branch: entry.branch }).catch(() => undefined);
-      repos.push({ repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch, status: "failed", error: message });
+      const operatorMessage = `Workspace repository ${repoRel} could not land. Retry after resolving the repository environment or conflict.`;
+      await persistWorkspaceRepoLandFailure(store, taskId, repoRel, {
+        category: /conflict/i.test(message) ? "content-conflict" : "internal-technical",
+        message: operatorMessage,
+        at: new Date().toISOString(),
+        branch: entry.branch,
+        repository: repoRel,
+        action: "Retry after resolving the reported repository issue",
+        technicalDetail: message.slice(0, 2_000),
+      }).catch(() => undefined);
+      repos.push({ repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch, status: "failed", error: operatorMessage });
       allLanded = false;
       // Stop on first failure and return a partial result. The already-landed repos'
       // `landedSha` is persisted, so the engine dispatch's auto-retry re-runs this

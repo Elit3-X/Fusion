@@ -95,6 +95,7 @@ import {
 } from "./merge/merger-ai.js";
 import { promoteBranchGroup, type BranchGroupPromotionResult, type CreateGroupPrFn, type SyncGroupPrFn } from "./merge/group-merge-coordinator.js";
 import { rerouteWorkspaceReviewToCodeReview } from "./merge/workspace-review-reroute.js";
+import { WorkspaceEnvironmentError } from "./merge/workspace-integration-target.js";
 import {
   formatAdmissionCapacityQueuedReason,
   persistedTopLevelAgentTaskIdsFromStore,
@@ -4780,6 +4781,30 @@ export class ProjectEngine {
           retry budget. They must never enter the contention branch, which is reserved for a concrete
           repository lease conflict naming a real holder task.
           */
+          if (err instanceof WorkspaceEnvironmentError) {
+            /*
+            FNXC:WorkspaceIntegration 2026-08-21-21:46:
+            A missing or ambiguous remote is an environment repair, not a merge failure. Keep the
+            repository/resource/action message safe for operators and preserve both merge budgets
+            so Retry resumes only after the configured remote is corrected.
+            */
+            const operatorMessage = `Workspace repository ${err.repository} needs ${err.resource}: ${err.action}.`;
+            const dedupeKey = `workspace-environment:${err.repository}:${err.resource}:${err.action}`;
+            const logOnce = (store as Partial<TaskStore>).logEntryOnce;
+            if (typeof logOnce === "function") {
+              await logOnce.call(store, taskId, { action: operatorMessage, outcome: "WorkspaceEnvironmentRequired", dedupeKey, windowMs: 5 * 60_000 }).catch(() => undefined);
+            } else {
+              await store.logEntry(taskId, operatorMessage, "WorkspaceEnvironmentRequired").catch(() => undefined);
+            }
+            await store.updateTask(taskId, {
+              // Keep the card in its review lane; Retry owns the next attempt after repair.
+              status: null,
+              error: operatorMessage,
+            }).catch(() => undefined);
+            if (hasManualResolver) this.rejectMergeResolvers(taskId, new Error(operatorMessage));
+            continue;
+          }
+
           if (err instanceof WorkspaceMergeTechnicalError) {
             await store.logEntry(taskId, `Workspace merge technical failure (${err.kind}): ${err.message}`, "WorkspaceMergeTechnicalFailure").catch(() => undefined);
             if (hasManualResolver) {
