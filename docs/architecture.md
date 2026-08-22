@@ -32,6 +32,9 @@ The dashboard completes an ordinary approval through the public `@fusion/engine`
 
 The conservative stranded-shape recovery claims only a complete non-seed prompt after planner staleness grace, with no live/finalizing session, approval park, handoff, graph continuation/work item evidence, or any persisted workflow-run step instance; those step instances are graph-owned evidence even before a result or continuation exists. Automatic unplanned release refusals atomically claim a project/task episode and append one durable task-log diagnostic; changed prompt, dependency, status, fingerprint, or Plan Review node state starts a new episode. Direct-session validation compares PostgreSQL server identity as well as database name, preventing a same-named database on another cluster from becoming the lifecycle lock namespace.
 
+<!-- FNXC:TaskReset 2026-08-22-18:15: Reset holds this non-reentrant lock while it cancels planner ownership and clears discarded output, so planner publications re-check their attempt generation inside the authoritative lock-held mutation. The reset disposer only aborts/disposes and unregisters its own planning paths; it never waits for a finalizer that needs this lock. -->
+A task Reset is therefore a planner-inclusive but lock-free cancellation fence. A surviving self-owned worktree registration is reconciled only after normal live-owner and idle checks, while live or foreign holders remain conflicts rather than force-removal candidates.
+
 ## 1) Overview
 
 Fusion is an AI-orchestrated task board. It takes tasks through a structured lifecycle (`planning → todo → in-progress → in-review → done → archived`) and automates planning, execution, review, merge, and operational recovery.

@@ -1,4 +1,8 @@
 export { AgentLogger, type AgentLoggerOptions, summarizeToolArgs } from "./agents/agent-logger.js";
+export { PlanningResetFence, PLANNING_RESET_HOLD_MS } from "./planning-reset-fence.js";
+export { removeTaskResetWorktree, ResetWorktreeForeignSessionError } from "./worktree/remove-reset-worktree.js";
+export { ActiveSessionWorktreeRemovalError } from "./worktree/worktree-backend.js";
+export { planningLivenessRegistry, registerPlanningLivenessProbe, isPlanningLive } from "./agents/planning-liveness.js";
 export {
   classifyReportHealth,
   type ReportHealthBucket,

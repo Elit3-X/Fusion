@@ -2150,7 +2150,12 @@ function parsePlanRepositoryScope(content: string, configured: readonly string[]
   return [...new Set(repositories)].sort();
 }
 
-export function createTaskPromptWriteTool(store: TaskStore, taskId: string, runContext?: RunMutationContext): ToolDefinition {
+export function createTaskPromptWriteTool(
+  store: TaskStore,
+  taskId: string,
+  runContext?: RunMutationContext,
+  canPersist?: () => boolean,
+): ToolDefinition {
   return {
     name: "fn_task_prompt_write",
     label: "Write PROMPT.md",
@@ -2202,10 +2207,45 @@ export function createTaskPromptWriteTool(store: TaskStore, taskId: string, runC
               extensions: current?.repositoryScope?.extensions,
             }
           : undefined;
-        await store.updateTask(taskId, {
+        /*
+        FNXC:TaskReset 2026-08-22-04:49:
+        A triage attempt captured before Reset can outlive the route's non-reentrant planning lock.
+        Check its generation immediately before the authoritative write so a stale planner cannot
+        recreate PROMPT.md after Reset publishes the description-only state.
+        */
+        if (canPersist && !canPersist()) {
+          throw new Error(`Planning for ${taskId} was reset before PROMPT.md could be persisted`);
+        }
+        const promptUpdate = {
           prompt: params.content,
           ...(repositoryScope ? { repositoryScope } : {}),
-        }, runContext);
+        };
+        if (canPersist) {
+          /*
+          FNXC:TaskReset 2026-08-22-18:07:
+          Reset serializes its publication with the non-reentrant planning lifecycle lock. A
+          generation check before `updateTask` is insufficient because that writer can queue behind
+          Reset and recreate PROMPT.md after reset commits. Check and write under the same lock,
+          using the lock-held TaskStore variants so this tool never re-enters the advisory lock.
+          */
+          await store.withPlanningLifecycleLock(taskId, async () => {
+            if (!canPersist()) {
+              throw new Error(`Planning for ${taskId} was reset before PROMPT.md could be persisted`);
+            }
+            const updated = await store.withTaskLock(taskId, () => store.updateTaskUnlocked(taskId, promptUpdate, runContext));
+            if (store.isBackendMode()) {
+              await store.reconcileSpecDriftWhilePlanningLocked(updated).catch((error: unknown) => {
+                log.warn(`[spec-lock] deferred drift reconciliation for ${updated.id}: ${error instanceof Error ? error.message : String(error)}`);
+              });
+            }
+            /* FNXC:TaskReset 2026-08-22-18:15: Reset clears agent-authored plan documents under this lifecycle lock. */
+            await mirrorPlanToProjectDb(store, taskId, params.content, {
+              author: runContext?.agentId ?? "agent",
+            });
+          });
+        } else {
+          await store.updateTask(taskId, promptUpdate, runContext);
+        }
         /*
         FNXC:PlanArtifactPersistence 2026-08-22-03:37:
         FN-094 repointed this fail-closed check at updateTask's task-row return value after adding
@@ -2225,13 +2265,15 @@ export function createTaskPromptWriteTool(store: TaskStore, taskId: string, runC
         /*
         FNXC:PlanArtifactPersistence 2026-07-26-03:55:
         `updateTask({ prompt })` writes the project-root PROMPT.md and task.json, but `project.tasks` has
-        no `prompt` column — the spec would live only as a file in the project checkout. Mirror it into the
-        `plan` task document so the plan is durable in the project database too. Best-effort: a mirror
-        failure must not fail a write whose authoritative persistence was just verified above.
+        no `prompt` column — the spec would live only as a file in the project checkout. Reset-fenced
+        planners mirror it inside the serialized prompt publication above, preventing Reset from clearing
+        the document and then observing a stale mirror recreated after its transaction commits.
         */
-        await mirrorPlanToProjectDb(store, taskId, params.content, {
-          author: runContext?.agentId ?? "agent",
-        });
+        if (!canPersist) {
+          await mirrorPlanToProjectDb(store, taskId, params.content, {
+            author: runContext?.agentId ?? "agent",
+          });
+        }
         return {
           content: [{ type: "text" as const, text: `Updated PROMPT.md for ${taskId}.` }],
           details: {},

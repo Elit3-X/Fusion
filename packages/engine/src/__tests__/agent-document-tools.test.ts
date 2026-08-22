@@ -207,6 +207,55 @@ describe("task_prompt_write tool", () => {
     expect(getText(result)).toBe(`Updated PROMPT.md for ${TASK_ID}.`);
   });
 
+  it("refuses a reset-fenced planning write before durable prompt persistence", async () => {
+    const updateTask = vi.fn();
+    const store = { updateTask, getTask: vi.fn().mockResolvedValue({ id: TASK_ID }) } as unknown as TaskStore;
+
+    const result = await runTool(
+      createTaskPromptWriteTool(store, TASK_ID, undefined, () => false),
+      "call-reset-fenced",
+      { content: "# Stale plan" },
+    );
+
+    expect(getText(result)).toContain("was reset before PROMPT.md could be persisted");
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses a pre-reset planner write after it queues behind the reset lifecycle lock", async () => {
+    let releaseReset!: () => void;
+    let enteredQueue!: () => void;
+    const resetPublication = new Promise<void>((resolve) => { releaseReset = resolve; });
+    const queuedBehindReset = new Promise<void>((resolve) => { enteredQueue = resolve; });
+    let generationCurrent = true;
+    const updateTask = vi.fn();
+    const store = {
+      getTask: vi.fn().mockResolvedValue({ id: TASK_ID }),
+      updateTask,
+      withPlanningLifecycleLock: vi.fn(async (_id: string, write: () => Promise<void>) => {
+        enteredQueue();
+        await resetPublication;
+        await write();
+      }),
+      withTaskLock: vi.fn(async (_id: string, write: () => Promise<void>) => await write()),
+      updateTaskUnlocked: vi.fn(),
+      isBackendMode: vi.fn(() => false),
+    } as unknown as TaskStore;
+
+    const resultPromise = runTool(
+      createTaskPromptWriteTool(store, TASK_ID, undefined, () => generationCurrent),
+      "call-queued-before-reset",
+      { content: "# Discarded plan" },
+    );
+    await queuedBehindReset;
+    generationCurrent = false;
+    releaseReset();
+
+    const result = await resultPromise;
+    expect(getText(result)).toContain("was reset before PROMPT.md could be persisted");
+    expect(store.updateTaskUnlocked).not.toHaveBeenCalled();
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the authoritative prompt read-back is missing or different", async () => {
     const updateTask = vi.fn().mockResolvedValue({});
     const getTask = vi.fn().mockResolvedValue({ id: TASK_ID, prompt: "" });
