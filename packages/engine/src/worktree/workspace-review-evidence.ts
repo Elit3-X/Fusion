@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import type { Settings, Task } from "@fusion/core";
 import { resolveWorkspaceRepoBaseBranch } from "./workspace-base-branch.js";
+import { computeReviewDiffFingerprint } from "./review-diff-fingerprint.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,11 +28,6 @@ export interface WorkspaceReviewEvidenceCapture {
 async function git(args: string[], cwd: string): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd, encoding: "utf8" });
   return stdout.trim();
-}
-
-async function gitBinaryDiff(range: string, cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["diff", "--binary", range], { cwd, encoding: "utf8" });
-  return stdout;
 }
 
 /**
@@ -87,7 +82,7 @@ export async function captureWorkspaceReviewEvidence(options: {
     const ahead = Number(await git(["rev-list", "--count", range], entry.worktreePath)) > 0;
     const qualifiedFiles = files.map((file) => `${repository}/${file}`);
     const fingerprint = files.length > 0
-      ? createHash("sha256").update(await gitBinaryDiff(range, entry.worktreePath)).digest("hex")
+      ? await computeReviewDiffFingerprint(entry.worktreePath, baseCommitSha)
       : undefined;
     const netZero = ahead && files.length === 0;
     repositories.push({ repository, baseCommitSha, branch, files, qualifiedFiles, fingerprint, ahead, netZero });

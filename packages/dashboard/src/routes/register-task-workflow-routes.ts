@@ -6922,8 +6922,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
 
       const canonicalById = new Map(reviewState.items.map((item) => [item.id, item] as const));
       const resolvedSelection = selectedItems.find((selected) => {
-        const item = canonicalById.get(selected.id);
-        return item?.resolution === "resolved-in-review" || item?.resolution === "superseded";
+        const resolution = canonicalById.get(selected.id)?.resolution as string | undefined;
+        return resolution === "resolved-in-review" || resolution === "superseded" || resolution === "dispute-upheld";
       });
       if (resolvedSelection) {
         throw badRequest("Review items already resolved during review cannot be selected for revision");

@@ -2016,3 +2016,7 @@ JIRA branch derivation is opt-in. Configure `jiraEnabled`, `jiraBaseUrl`, option
 The deprecated `autoUpdateAndRestart` key remains a hidden compatibility fallback. Each explicit new key, including `false`, wins independently; when a new key is absent, legacy `true` supplies its effective value. Unsupervised hosts never report a scheduled restart and retain manual restart guidance.
 
 After an operator-requested update restart, the dashboard polls health and system identity until the target version is non-transitional, then reloads once. A bounded timeout restores manual refresh guidance. This recovery is independent of passive `autoReloadOnVersionChange`; standalone `fn update` and native Electron updating are separate flows.
+
+### Review convergence workflow settings
+
+`reviewConvergenceEscalationEnabled` enables the bounded escalation stage. `reviewConvergenceEscalationProvider` and `reviewConvergenceEscalationModelId` select its alternate model. `reviewArbitrationEnabled`, `reviewArbitrationProvider`, and `reviewArbitrationModelId` control the arbitration stage. These workflow-native settings apply after ordinary `codeReviewMaxRevisions` and `planReviewReplanCap` limits: an exhausted limit can schedule one bounded AI action, while the convergence cycle ceiling prevents repeated escalation from becoming unbounded.

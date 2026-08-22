@@ -101,6 +101,8 @@ function buildResetTask(task: Task, intakeColumn: ColumnId): Task {
     branchConflictRecoveryCount: 0,
     reviewerContextRetryCount: 0,
     reviewerFallbackRetryCount: 0,
+    reviewConvergenceStage: 0,
+    reviewConvergenceEscalationCount: 0,
     nextRecoveryAt: undefined,
     workflowIrPin: undefined,
     workflowIrPinNodeId: undefined,

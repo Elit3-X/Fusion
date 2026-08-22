@@ -2472,3 +2472,7 @@ Task admission resolves capacity from the live project-scoped settings blob (`Ta
 ### Workspace review evidence
 
 Workspace review and landing share one canonical base-to-task-branch binary-diff capture. The review callback persists repository-qualified files and per-repository fingerprints only for the current confirmed scope. Landing assesses clean peers as no obligation and routes missing or changed evidence back to the single Code Review continuation before leases, merge agents, or Git writes begin.
+
+### Review convergence invariant
+
+Automatic review remediation archives rather than erases failure history on the bounce, graph-failure resume, and remediation-owned replan paths; explicit operator retry clears it. A carrier is non-blocking and cannot satisfy a gate without complete arbitration provenance. Every automatic remediation stop point uses the convergence ladder before a human park. A dispute remains open until adjudicated, preserving its blocking power, implementer obligation, reviewer visibility, and supersession eligibility. Arbitration releases one fenced adjudicated gate only and refuses partial rulings with binding findings. Review-convergence audit emission is bounded best-effort telemetry: it cannot alter, delay past its bound, or abort a ladder, arbitration, or dispute lifecycle outcome.

@@ -9392,7 +9392,10 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
         if (executingIds.has(task.id)) return false;
         const budget = revisionBudgetFor(task.id);
         if (!budget.unbounded && (!Number.isFinite(budget.max) || budget.max <= 0)) return false;
-        if (!budget.unbounded && budget.attempts >= budget.max) return false;
+        // FNXC:ReviewConvergence 2026-08-22-06:05: exhausted failures must reach the
+        // shared ladder in recoverFailedPreMergeWorkflowStep; filtering them here recreates
+        // the terminal human-only park FN-149 removes.
+        if (!budget.unbounded && budget.attempts >= budget.max && (task.reviewConvergenceStage ?? 0) >= 3) return false;
 
         // Must have at least one failed pre-merge workflow step result.
         if (!latestFailedPreMergeStep(task)) return false;

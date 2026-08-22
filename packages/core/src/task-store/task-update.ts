@@ -871,6 +871,10 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       } else if (updates.reviewerFallbackRetryCount !== undefined) {
         task.reviewerFallbackRetryCount = updates.reviewerFallbackRetryCount;
       }
+      if (updates.reviewConvergenceStage === null) task.reviewConvergenceStage = undefined;
+      else if (updates.reviewConvergenceStage !== undefined) task.reviewConvergenceStage = updates.reviewConvergenceStage;
+      if (updates.reviewConvergenceEscalationCount === null) task.reviewConvergenceEscalationCount = undefined;
+      else if (updates.reviewConvergenceEscalationCount !== undefined) task.reviewConvergenceEscalationCount = updates.reviewConvergenceEscalationCount;
       if (updates.nextRecoveryAt === null) {
         task.nextRecoveryAt = undefined;
       } else if (updates.nextRecoveryAt !== undefined) {

@@ -295,7 +295,7 @@ export function buildRunImplementationDeps(
       "emitWorktreeReanchoredAudit", "buildInjectedRuntimeEnv", "reconcileStepsFromGitHistory",
       "setActiveStepExecutor", "captureWorkspaceModifiedFiles", "runExecutorDeterministicVerification",
       "attemptExecutorVerificationFix", "deleteActiveStepExecutor", "createTaskUpdateTool",
-      "createTaskAddDepTool", "createTaskDoneTool", "createSpawnAgentTool",
+      "createTaskAddDepTool", "createTaskDoneTool", "createReviewDisputeTool", "createSpawnAgentTool",
       "resolveInstructionsForRole", "finalizeAlreadyReviewedTask",
       "handleBranchConflict", "handleNonContinuableSessionRetry", "resumeApprovalAfterUnwindIfNeeded",
     ]),

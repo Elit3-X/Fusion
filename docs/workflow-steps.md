@@ -1028,3 +1028,11 @@ Workspace Code Review carries repository-specific outcomes. A failed review is r
 ### Workspace Code Review seal
 
 For workspace tasks, Code Review is the final write-sensitive stage before landing. Completion and other write-capable finalization stages run before it. A missing or stale workspace approval returns the task to Code Review (`workspace-review-required`) so a new current-scope approval is produced before merge.
+
+## Review convergence
+
+Automatic remediation retains a failed review as a non-blocking `skipped` carrier. The carrier stores the failed verdict, findings, and bounded prior-attempt ledger, but never bypass metadata, so it cannot satisfy a review gate by itself. This applies to remediation bounces, graph-failure resumes, and remediation-owned replans; explicit operator retry remains a clean slate.
+
+The next reviewer receives the same-gate attempt history and open findings. An implementer may call `fn_review_dispute(findingId, rationale)`: this records a contested-but-open annotation, so the finding remains blocking and visible. The reviewer must supersede it or rebut it with `rebutsDisputedFindingId`; only a terminal same-gate verdict that does neither marks it `dispute-upheld`.
+
+Repeated unchanged review input routes through the shared convergence ladder: one bounded escalation/replan, then arbitration, then a loud human escalation only after the automatic stages are spent. A non-declining stage performs a real re-dispatch and its requester succeeds rather than terminalizing the remediation node. Arbitration may release only its exact fenced failed gate; it cannot release sibling gates, and a split with binding findings remains blocking.

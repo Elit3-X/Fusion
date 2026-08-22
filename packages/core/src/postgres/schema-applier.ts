@@ -233,6 +233,8 @@ export const REMOVE_TASK_SUBTASK_SPLITTING_VERSION = "0062";
 export const AI_MERGE_REVIEW_RECONCILIATION_VERSION = "0063";
 /** FNXC:RepositoryScope 2026-08-20-23:07: upgraded projects need explicit task repository intent before workspace lifecycle readers use it. */
 export const TASK_REPOSITORY_SCOPE_VERSION = "0064";
+/** FNXC:ReviewConvergence 2026-08-22-05:42: explicit migration registration preserves bounded review recovery state on upgraded projects. */
+export const REVIEW_CONVERGENCE_STAGE_VERSION = "0065";
 
 /** SECURITY DEFINER helper that only inserts LEGACY_ADOPTION_DRAINED_MARKER. */
 export const LEGACY_ADOPTION_DRAINED_MARKER_FUNCTION = "fusion_mark_legacy_adoption_drained";
@@ -471,6 +473,7 @@ const ACTIVITY_LOG_TASK_ID_INDEX_MIGRATION_PATH = join(MIGRATIONS_DIR, "0061_fn_
 const REMOVE_TASK_SUBTASK_SPLITTING_MIGRATION_PATH = join(MIGRATIONS_DIR, "0062_remove_task_subtask_splitting.sql");
 const AI_MERGE_REVIEW_RECONCILIATION_MIGRATION_PATH = join(MIGRATIONS_DIR, "0063_fn_090_ai_merge_review_reconciliation.sql");
 const TASK_REPOSITORY_SCOPE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0064_fn_094_task_repository_scope.sql");
+const REVIEW_CONVERGENCE_STAGE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0065_fn_149_review_convergence_stage.sql");
 
 /**
  * Ensure the migration bookkeeping table exists. Lives in the public schema so
@@ -605,6 +608,7 @@ export async function applySchemaBaseline(
     const removeTaskSubtaskSplittingAlreadyApplied = applied.includes(REMOVE_TASK_SUBTASK_SPLITTING_VERSION);
     const aiMergeReviewReconciliationAlreadyApplied = applied.includes(AI_MERGE_REVIEW_RECONCILIATION_VERSION);
     const taskRepositoryScopeAlreadyApplied = applied.includes(TASK_REPOSITORY_SCOPE_VERSION);
+    const reviewConvergenceStageAlreadyApplied = applied.includes(REVIEW_CONVERGENCE_STAGE_VERSION);
     assertBinaryNotOlderThanDatabase(applied);
     let schemaChanged = false;
 
@@ -1348,6 +1352,12 @@ export async function applySchemaBaseline(
       const migrationSql = await readFile(TASK_REPOSITORY_SCOPE_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${TASK_REPOSITORY_SCOPE_VERSION}) ON CONFLICT (version) DO NOTHING`);
+      schemaChanged = true;
+    }
+    if (!reviewConvergenceStageAlreadyApplied) {
+      const migrationSql = await readFile(REVIEW_CONVERGENCE_STAGE_MIGRATION_PATH, "utf8");
+      await tx.execute(sql.raw(migrationSql));
+      await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${REVIEW_CONVERGENCE_STAGE_VERSION}) ON CONFLICT (version) DO NOTHING`);
       schemaChanged = true;
     }
     return { applied: schemaChanged, pluginHooksRun: pluginHooks.length };

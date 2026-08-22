@@ -1149,6 +1149,8 @@ export {
   resolveConsecutiveToolFailureRetryBackoffMs,
   resolveConsecutiveToolFailureThreshold,
   resolveExecutorEscalationTarget,
+  resolveReviewConvergenceEscalationTarget,
+  resolveReviewArbitrationTarget,
 } from "./tasks/in-review-stall.js";
 export type { ExecutorEscalationTarget, InReviewStallSignal, InReviewStallCode, ProviderErrorClassification } from "./tasks/in-review-stall.js";
 export {
@@ -2378,6 +2380,12 @@ export {
   isOpenWorkflowReviewFinding,
   normalizeSupersededFindingIds,
   applySupersededFindingIds,
+  applySupersededPriorAttemptFindingIds,
+  archiveTerminalWorkflowStepFailures,
+  archiveArbitratedWorkflowStepFailure,
+  isArchivedRemediationCarrier,
+  collectDisputedFindings,
+  closeUnrebuttedDisputedFindings,
   MAX_WORKFLOW_REVIEW_FINDINGS,
   WORKFLOW_REVIEW_FINDING_SEVERITIES,
   WORKFLOW_REVIEW_FINDING_RESOLUTIONS,
@@ -2387,6 +2395,7 @@ export {
   makeReviewLeaseRecord,
   isTerminalStepResult,
   type ReviewLeaseDisposition,
+  type ArbitrationFailureFence,
 } from "./workflows/workflow-step-results.js";
 export { PLAN_REVIEW_COMPLETENESS_POLICY } from "./agents/planning-review-policy.js";
 /*

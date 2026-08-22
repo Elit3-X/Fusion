@@ -261,6 +261,7 @@ export type RunImplementationDeps = {
   createSpawnAgentTool: AnyFn;
   createTaskAddDepTool: AnyFn;
   createTaskDoneTool: AnyFn;
+  createReviewDisputeTool: AnyFn;
   createTaskUpdateTool: AnyFn;
   createWorktree: AnyFn;
   deleteActiveSession: AnyFn;
@@ -1899,6 +1900,7 @@ export async function runImplementation(
         // FN-125: execution sessions never receive task creation tools.
         deps.createTaskAddDepTool(task.id),
         deps.createTaskDoneTool(task.id, worktreePath, detail.prompt ?? "", codeReviewVerdicts, () => { taskDone = true; }, audit),
+        deps.createReviewDisputeTool(task.id),
         createRunVerificationTool({
           worktreePath,
           rootDir: deps.rootDir,

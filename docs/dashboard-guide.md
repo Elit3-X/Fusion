@@ -2593,3 +2593,7 @@ Task Detail's workspace repository summary distinguishes acquired repositories f
 ### Update restart recovery
 
 Settings separates automatic installation from automatic restart. Following an operator-requested dashboard update restart, the page waits for the replacement host to report the installed version through health before it reloads. Transitional, old, and unavailable responses do not complete recovery. If the host does not return before the bounded timeout, the update surface provides manual refresh guidance. This explicit recovery is independent from `autoReloadOnVersionChange` and does not change native Electron or standalone CLI update behavior.
+
+### Review finding resolutions
+
+The Review tab renders the `dispute-upheld` badge for an adjudicated finding. It is a terminal resolution and cannot be selected for a further revision; it is distinct from the existing Superseded badge.
