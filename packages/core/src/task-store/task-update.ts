@@ -1338,7 +1338,8 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
 
            FNXC:WorkflowEvents 2026-08-03-02:16: emit only when respecifyMoveLanes is present from the
            same IR used for the relocation — never a second IR lookup that can fail after the move. */
-        store.laneCache.set(task.id, respecifyMoveLanes);
+        /* FNXC:WorkflowEvents 2026-08-22-00:13: an unresolved payload is unknown; retain a warm real cache answer until its TTL expires. */
+      if (respecifyMoveLanes) store.laneCache.set(task.id, respecifyMoveLanes);
         store.emit("task:moved", {
           task,
           from: respecifyFromColumn as Column,

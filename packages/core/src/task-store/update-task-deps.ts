@@ -575,7 +575,8 @@ async function updateTaskDependenciesWithTaskLockImpl(store: TaskStore, id: stri
       */
       if (movedToTriage && respecifyFromColumn !== task.column) {
         const lanes = toTaskMoveLanes(await resolveWorkflowIrForTask(store, task.id).catch(() => undefined));
-        store.laneCache.set(task.id, lanes);
+        /* FNXC:WorkflowEvents 2026-08-22-00:13: an unresolved payload is unknown; retain a warm real cache answer until its TTL expires. */
+      if (lanes) store.laneCache.set(task.id, lanes);
         store.emit("task:moved", {
           task,
           from: respecifyFromColumn as Column,
