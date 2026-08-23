@@ -37,6 +37,10 @@
 FNXC:ViewportChrome 2026-08-23-03:40:
 FN-9193 tablet-class touch devices can be 768 CSS pixels wide, so this scoped docked rule
 must override the mobile one-pane rule while phone mode remains unchanged.
+
+FNXC:ViewportChrome 2026-08-23-17:07:
+FN-9200 keeps the docked pane width exclusively in its inline width and min-width style because
+no docked-sidebar custom-property producer exists; the tablet cascade only restores its layout bounds.
 */
 .chat-view--docked-list .chat-sidebar--docked {
   flex: 0 0 auto;
@@ -69,7 +73,6 @@ must override the mobile one-pane rule while phone mode remains unchanged.
 }
 
 html[data-viewport-mode="tablet"] .chat-view--docked-list .chat-sidebar--docked {
-  width: var(--chat-docked-sidebar-width, auto);
   min-width: 0;
   max-width: none;
   height: auto;
