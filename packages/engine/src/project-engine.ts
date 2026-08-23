@@ -33,7 +33,8 @@ import {
   emitOverseerRecoveryAttempt,
   emitOverseerRetry,
   emitOverseerSteering,
-  getTaskHardMergeBlocker,
+  getMergeConfirmedFinalizationBlocker,
+  getUnfinishedStepTitles,
   PreMergeStepsNotRunError,
   PRE_MERGE_STEPS_NOT_RUN_BLOCKER,
   classifyMergeSweepAdmission,
@@ -4369,7 +4370,7 @@ export class ProjectEngine {
                 continue;
               }
               } // end !isWorkspaceTask reachability gate (B2): workspace tasks skip the root-cwd commitSha check
-              const blockerReason = getTaskHardMergeBlocker({
+              const blockerReason = getMergeConfirmedFinalizationBlocker({
                 ...(task as Task),
                 /*
                 FNXC:WorkflowResolvedColumns 2026-07-30-18:05 (this parked ALREADY-MERGED work as failed):
@@ -4383,7 +4384,13 @@ export class ProjectEngine {
                 and for the reason recorded there: `"in-review"` is the review-eligible SENTINEL for this
                 helper, not a lifecycle column, so a merge-confirmed card evaluates the same blocker set
                 on a custom workflow as on the builtin one. The column identity of an already-landed card
-                is not what this check is for — paused / error / incomplete steps still apply.
+                is not what this check is for.
+
+                FNXC:MergeConfirmedFinalization 2026-08-23-21:40 (FN-9193): incomplete steps NO LONGER
+                apply here. The fast path above already proved this merge landed, and holding a landed
+                card out of `done` for unfinished steps is what left FN-9193 permanently unfinalizable —
+                a restart then replanned fresh pending steps and re-created the very block it was meant
+                to clear. Paused/error/pre-merge-step blockers still apply.
                 */
                 column: REVIEW_ELIGIBLE_SENTINEL_COLUMN,
                 // Merge-confirmed tasks have already landed. Treat stale merge
@@ -4393,6 +4400,14 @@ export class ProjectEngine {
                 status: clearMergeConfirmedTransientStatus(task.status),
                 error: undefined,
               });
+              const unfinishedFastPathSteps = getUnfinishedStepTitles(task as Task);
+              if (unfinishedFastPathSteps.length > 0) {
+                await store.logEntry(
+                  taskId,
+                  `Finalizing proven merge with ${unfinishedFastPathSteps.length} unfinished step(s) — the branch already landed, so these did not run: ${unfinishedFastPathSteps.slice(0, 8).join("; ")}`,
+                  "MergeConfirmedFinalizeUnfinishedSteps",
+                ).catch(() => undefined);
+              }
               if (blockerReason) {
                 await store.updateTask(taskId, {
                   status: "failed",

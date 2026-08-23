@@ -590,6 +590,48 @@ export function getTaskHardMergeBlocker(
   });
 }
 
+/*
+FNXC:MergeConfirmedFinalization 2026-08-23-21:40 (FN-9193 aftermath — the wedge that outlived the race):
+A CARD WHOSE BRANCH IS ALREADY ON THE TARGET MUST ALWAYS BE ABLE TO FINALIZE. FN-9193 landed
+eaa1d47c on main and was then left `mergeConfirmed: true` WITH incomplete steps, because a Code
+Review revision request reset its steps while the approved merge was in flight. Every finalization
+site evaluated `getTaskHardMergeBlocker`, which counts incomplete steps, so the card could never
+reach `done` — it sat `failed` re-reading its own contradiction for five hours, and a RESTART made it
+strictly worse: replanning issued seven fresh `pending` steps, so the retry that was supposed to
+rescue the card re-created the exact condition blocking it. A self-defeating loop with no exit.
+
+Incomplete steps are not a safety property here. Holding the card out of `done` does not un-merge
+anything; the code is live on the target branch either way. The only thing the hold buys is an
+inconsistent board and an alarming failed card. Landing proof is established BEFORE this check by
+the callers' `hasDurableMergeProof` / reachability verification, so this is not a laundering path:
+`mergeConfirmed` alone never reaches here.
+
+What still blocks: a failed or pending PRE-MERGE workflow step (a review that actually rejected this
+content is a real signal even post-landing, and the operator-bypass path exists for it). What no
+longer blocks: incomplete `steps`, which describe implementation work that the landed branch has
+already superseded. Callers must surface the unfinished steps rather than silently dropping them.
+*/
+export function getMergeConfirmedFinalizationBlocker(
+  task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults" | "mergeDetails">,
+  options: { reviewColumns?: ReadonlySet<string>; requiredPreMergeStepIds?: ReadonlySet<string> } = {},
+): string | undefined {
+  /*
+  The exemption is scoped to a merge that actually LANDED CONTENT. A no-op merge with no commit sha
+  landed nothing, so its card is not "already done however you look at it" — there incomplete steps
+  are the honest signal that the work is unfinished, and the executor's own no-op branch
+  (`merge-confirmed-finalize.ts`) depends on that blocker still firing.
+  */
+  const landedNothing = task.mergeDetails?.noOpMerge === true && !task.mergeDetails?.commitSha;
+  return getTaskHardMergeBlocker(landedNothing ? task : { ...task, steps: [] }, options);
+}
+
+/** Non-terminal steps on a card being finalized after a proven merge — recorded, never silently dropped. */
+export function getUnfinishedStepTitles(task: Pick<Task, "steps">): string[] {
+  return (task.steps ?? [])
+    .filter((step) => NON_TERMINAL_STEP_STATUSES.has(step.status))
+    .map((step, index) => step.name?.trim() || `step ${index + 1}`);
+}
+
 export function getTaskDoneBypassBlocker(
   task: Pick<Task, "noCommitsExpected" | "mergeDetails" | "prInfo" | "prInfos">,
 ): string | undefined {
