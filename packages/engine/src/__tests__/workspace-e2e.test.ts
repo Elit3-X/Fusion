@@ -477,7 +477,8 @@ pgDescribeIfGit("workspace local-only PostgreSQL landing", () => {
   it("lands one reviewed local repository through durable coordination without a remote operation", async () => {
     const taskId = "FN-122-PG-LOCAL";
     const repoA = addLinkedTaskWorktreeWithEdit(fx, "repo-a", "postgres local feature\n");
-    const repoB = fx.createLinkedTaskWorktree("repo-b", BRANCH);
+    /* FNXC:WorkspaceReviewEvidence 2026-08-23-22:25: `createLinkedTaskWorktree` returns only path+base, but every workspace entry must name its task branch — `captureWorkspaceReviewEvidence` fails closed on an entry with no branch, and production acquisition always records one. */
+    const repoB = { ...fx.createLinkedTaskWorktree("repo-b", BRANCH), branch: BRANCH };
     const source = makeTask({ "repo-a": repoA, "repo-b": repoB }, {
       id: taskId,
       repositoryScope: { repositories: ["repo-a"], state: "confirmed", revision: 1 },
@@ -490,6 +491,16 @@ pgDescribeIfGit("workspace local-only PostgreSQL landing", () => {
     );
     await store.updateTask(taskId, {
       branch: BRANCH,
+      // FNXC:WorkspaceIntegration 2026-08-23-21:30: writing `branch` is a provenance boundary; these fixtures bind the task to the branch the ENGINE created for it.
+      branchWriteOrigin: "engine",
+      /*
+      FNXC:WorkspaceIntegration 2026-08-23-21:34:
+      Reserved-ID creation seeds the default implementation steps (`applyDefaultWorkflowSteps:false`
+      governs the review-gate list, not the card's steps), and the merge door refuses a card with a
+      non-terminal step. These fixtures exercise LANDING, which a real card reaches only after its
+      implementation steps completed, so complete them here rather than fighting the seeding.
+      */
+      steps: ((await store.getTask(taskId))?.steps ?? []).map((step) => ({ ...step, status: "done" as const })),
       workspaceWorktrees: source.workspaceWorktrees,
       repositoryScope: source.repositoryScope,
       modifiedFiles: source.modifiedFiles,
@@ -518,7 +529,8 @@ pgDescribeIfGit("workspace local-only PostgreSQL landing", () => {
   it("drives the local-only durable land through ProjectEngine's merge route", async () => {
     const taskId = "FN-122-PG-ENGINE";
     const repoA = addLinkedTaskWorktreeWithEdit(fx, "repo-a", "project engine local feature\n");
-    const repoB = fx.createLinkedTaskWorktree("repo-b", BRANCH);
+    /* FNXC:WorkspaceReviewEvidence 2026-08-23-22:25: `createLinkedTaskWorktree` returns only path+base, but every workspace entry must name its task branch — `captureWorkspaceReviewEvidence` fails closed on an entry with no branch, and production acquisition always records one. */
+    const repoB = { ...fx.createLinkedTaskWorktree("repo-b", BRANCH), branch: BRANCH };
     const source = makeTask({ "repo-a": repoA, "repo-b": repoB }, {
       id: taskId,
       repositoryScope: { repositories: ["repo-a"], state: "confirmed", revision: 1 },
@@ -531,6 +543,16 @@ pgDescribeIfGit("workspace local-only PostgreSQL landing", () => {
     );
     await store.updateTask(taskId, {
       branch: BRANCH,
+      // FNXC:WorkspaceIntegration 2026-08-23-21:30: writing `branch` is a provenance boundary; these fixtures bind the task to the branch the ENGINE created for it.
+      branchWriteOrigin: "engine",
+      /*
+      FNXC:WorkspaceIntegration 2026-08-23-21:34:
+      Reserved-ID creation seeds the default implementation steps (`applyDefaultWorkflowSteps:false`
+      governs the review-gate list, not the card's steps), and the merge door refuses a card with a
+      non-terminal step. These fixtures exercise LANDING, which a real card reaches only after its
+      implementation steps completed, so complete them here rather than fighting the seeding.
+      */
+      steps: ((await store.getTask(taskId))?.steps ?? []).map((step) => ({ ...step, status: "done" as const })),
       workspaceWorktrees: source.workspaceWorktrees,
       repositoryScope: source.repositoryScope,
       modifiedFiles: source.modifiedFiles,

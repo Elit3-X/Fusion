@@ -2227,7 +2227,18 @@ export async function landWorkspaceTask(
       && approvedReviewEvidence?.[repoRel]?.fingerprint !== fingerprint)
     .map(([repoRel]) => repoRel)
     .sort();
-  const changedFiles = normalizedMergeBoundaryFiles.filter((file) => !persistedReviewFiles.includes(file)).sort();
+  /*
+  FNXC:WorkspaceFinalization 2026-08-23-21:55:
+  Gate the file comparison on the SAME `requiresRepositoryReviewEvidence` fence as the two repository
+  comparisons above. Without it a legacy/direct workspace caller — no recorded review evidence and no
+  enabled review step — was compared against an empty `task.modifiedFiles` and hard-failed with
+  `content-changed` for every file it touched, which contradicts the 2026-08-21-08:52 rule directly
+  above that such callers retain the established merge-agent review path. A card that DOES carry a
+  review episode still has every file compared, so the post-approval drift fence is unchanged.
+  */
+  const changedFiles = requiresRepositoryReviewEvidence
+    ? normalizedMergeBoundaryFiles.filter((file) => !persistedReviewFiles.includes(file)).sort()
+    : [];
   if (approvalMissingRepositories.length > 0) {
     throw new WorkspaceReviewRequiredError(taskId, {
       kind: "approval-missing",
