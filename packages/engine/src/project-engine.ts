@@ -21,6 +21,7 @@ import {
   resolveProjectColumnsForRoles,
   REVIEW_ROLES,
   resolveWorkflowIrForTask,
+  resolveWorkflowIrForTaskWithProvenance,
   resolveColumnFlags,
   type TraitFlags,
   allowsAutoMergeProcessing,
@@ -35,7 +36,14 @@ import {
   getTaskHardMergeBlocker,
   PreMergeStepsNotRunError,
   PRE_MERGE_STEPS_NOT_RUN_BLOCKER,
-  findUnrunRequiredPreMergeStepIds,
+  classifyMergeSweepAdmission,
+  classifyWorkflowNodeMergeRegion,
+  isActiveMergeStatus,
+  resolveRequiredPreMergeStepIds,
+  getTaskMergeBlocker,
+  ACTIVE_WORKFLOW_WORK_ITEM_STATES,
+  type MergeRegionPosition,
+  type MergeSweepAdmission,
   isLiveSharedBranchGroupMemberIntegration,
   isSharedBranchGroupMemberIntegration,
   isWorkspaceTask,
@@ -74,6 +82,7 @@ import {
 } from "./overseer/overseer-advisor-service.js";
 import { extractAdvisorAssistantText } from "./overseer/overseer-advise-tool.js";
 import { createResolvedAgentSession } from "./agents/agent-session-helpers.js";
+import { activeSessionRegistry, executingTaskLock } from "./agents/active-session-registry.js";
 import type { PrNodeGithubOps } from "./merge/pr-nodes.js";
 import { PrReconciler, type PrReconcileGithubOps } from "./merge/pr-reconcile.js";
 import { PrCommentHandler } from "./merge/pr-comment-handler.js";
@@ -194,6 +203,19 @@ const execFileAsync = promisify(execFile);
  * FN-2910 for the observed overlap symptom.
  */
 const MERGE_HANDOFF_GRACE_MS = 300;
+
+/* FNXC:MergeAuthority 2026-08-23-20:05: sweep-wide batched reads for merge-sweep admission. */
+interface MergeSweepBatch {
+  continuations?: Map<string, Array<{ taskId: string; nodeId: string; state: string }>>;
+  mergeRequests?: Map<string, { state: string }>;
+  /** False when the batched continuation read failed — treated as unreadable, never as empty. */
+  continuationsReadable: boolean;
+}
+
+/** A merge request the graph is actively driving; either state proves an interrupted attempt. */
+function isActiveMergeRequestState(state: string | undefined): boolean {
+  return state === "running" || state === "retrying";
+}
 
 const PR_MERGE_RETRY_BACKOFF_BASE_MS = 5_000;
 
@@ -552,6 +574,12 @@ export class ProjectEngine {
 
   // ── Auto-merge state ──
   private mergeQueue: string[] = [];
+  /* FNXC:MergeAuthority 2026-08-23-18:05: last logged sweep-hold reason per task, so a held card is
+     reported once per reason change instead of every 15s poll. In-memory by design — it is a log
+     de-duplicator, not state anything reads back. Pruned each sweep to the current candidate set
+     (review finding #11), so a card that leaves review by ANY route drops out; admission and
+     soft-delete also clear their entry directly. */
+  private readonly mergeSweepHoldReasons = new Map<string, string>();
   private mergeActive = new Set<string>();
   /** Capacity-deferred ids stay out of the runnable queue until their retry timer fires. */
   private readonly capacityDeferredMergeTaskIds = new Set<string>();
@@ -3436,35 +3464,251 @@ export class ProjectEngine {
     }) as Task[];
     const allowFlags = await Promise.all(candidates.map((t) => this.allowInReviewMergeProcessing(t, settings, this.runtime.getTaskStore())));
     /*
-    FNXC:RequiredPreMergeSteps 2026-08-22-22:40 (FN-9191 wedge):
-    Admission cannot see unrun pre-merge gates: `canMergeTask` is sync and the injected
-    `getTaskMergeBlocker` has no workflow IR, so it answers on RESULT ROWS only — and a gate that
-    has not started yet has no row. FN-9191 was enqueued ~2s after `fn_task_done`, ~18s before its
-    Code Review node started, and the door then had to refuse it.
+    FNXC:MergeAuthority 2026-08-23-18:05 (FN-9191 + FN-9193 wedges):
+    THIS SWEEP NO LONGER INITIATES MERGES. The workflow graph owns the decision — its `merge-attempt`
+    node calls `requestInterpreterMerge` directly — and this sweep is demoted to servicing merges the
+    graph already authorized (see `classifyMergeSweepAdmission`). Everything it used to judge on
+    (column, steps, status, retry budget) is still applied above by `canMergeTask`; this gate is the
+    additional proof of graph authority that column/step state cannot supply.
 
-    This sweep already resolves each card's IR, so ask the same question the door asks and hold the
-    card out of the queue until every enabled pre-merge group has a result. Failure to resolve the
-    IR admits the card (the door remains the authority); this filter exists to stop the race, not
-    to become a second gate.
+    Refusals are logged per card, once per (task, reason), because a card silently held out of the
+    merge queue is the exact failure mode this whole area keeps producing: no error, no event, just a
+    card that never merges. `mergeSweepHoldReasons` is in-memory and cleared when the card is admitted
+    or leaves the sweep, so a genuine long hold does not re-log every 15s.
     */
-    const unrunGateFlags = await Promise.all(
-      candidates.map(async (t) => {
-        try {
-          const ir = await resolveWorkflowIrForTask(this.runtime.getTaskStore(), t.id, reviewLaneIrCache);
-          if (!ir) return false;
-          return findUnrunRequiredPreMergeStepIds(ir, t).length > 0;
-        } catch {
+    const sweepBatch = await this.loadMergeSweepBatch(candidates);
+    const admissions = await Promise.all(
+      candidates.map((t) => this.classifyMergeSweepCandidate(t, reviewLaneIrCache, sweepBatch)),
+    );
+    /* Prune the log de-duplicator to this sweep's candidates (review finding #11): a card that left
+       review by ANY route — merged, rebounded, paused, replanned — drops its entry here, so the
+       map cannot accumulate ids for cards this sweep no longer sees. */
+    const candidateIds = new Set(candidates.map((t) => t.id));
+    for (const heldTaskId of [...this.mergeSweepHoldReasons.keys()]) {
+      if (!candidateIds.has(heldTaskId)) this.mergeSweepHoldReasons.delete(heldTaskId);
+    }
+    const eligible = sortTasksByPriorityThenAgeAndId(
+      candidates.filter((t, i) => {
+        if (!allowFlags[i]) return false;
+        const admission = admissions[i]!;
+        if (!admission.admit) {
+          const previous = this.mergeSweepHoldReasons.get(t.id);
+          if (previous !== admission.reason) {
+            this.mergeSweepHoldReasons.set(t.id, admission.reason);
+            runtimeLog.log(`Auto-merge sweep holding ${t.id}: ${admission.reason} (graph owns the merge decision)`);
+          }
           return false;
         }
+        this.mergeSweepHoldReasons.delete(t.id);
+        return true;
       }),
-    );
-    const eligible = sortTasksByPriorityThenAgeAndId(
-      candidates.filter((_, i) => allowFlags[i] && !unrunGateFlags[i]),
     );
     for (const t of eligible) {
       this.internalEnqueueMerge(t.id);
     }
     return eligible.length;
+  }
+
+  /*
+  FNXC:MergeAuthority 2026-08-23-18:05 (FN-9191 + FN-9193 wedges):
+  Gather the sweep-admission inputs for one candidate. Probes are best-effort, but they do NOT all
+  degrade in the same direction — the direction is chosen per probe by what a wrong answer costs:
+
+    - liveness, continuations: a throw must not wedge the whole lane, and the classifier's other
+      fences still hold, so they degrade toward "not live" / "unreadable" (the latter refuses
+      initiation on its own — see `continuationsReadable`).
+    - `gatesSatisfied`: the ONE deliberate fail-CLOSED probe (review finding #8). If we cannot prove
+      the pre-merge gates are satisfied we must not start a merge; withholding costs a delay, while
+      admitting costs an unreviewed branch on the target. The real door re-checks authoritatively.
+
+  MULTI-REPO / WORKSPACE (and shared-branch groups) resolve through the SAME rules, deliberately:
+    - `branch-group-member-integration` and `branch-group-promotion` are merge-region kinds, so a
+      shared-branch member parked at either is admitted like any other merge-region card.
+    - A workspace sub-repo land registers `workspace-repo-land` / `workspace-repo-acquire` paths in
+      `activeSessionRegistry`, so a task mid-land reads as live and is held — this is what stops a
+      second dispatch racing a partial land.
+    - A workspace partial land re-enqueues through `internalEnqueueMerge` directly (the error path
+      below), which never consults this gate; the merging status it leaves also satisfies
+      `interruptedMergeAttempt` so a restarted engine re-drives the same land.
+    - `isMergePending` covers the cross-node case: another engine holding a durable merge-dispatch
+      lease reads as live here, so two nodes on one central DB cannot both dispatch the same land.
+      NOTE it answers `true` from its OWN catch on an unreadable lease probe (see its FNXC note), so
+      a persistently broken lease read holds every card in this lane rather than racing another
+      node. That is the intended conservative direction; it is not a silent no-op.
+
+  `batch` carries the sweep-wide batched reads (review finding #10) so this runs at O(1) queries per
+  poll instead of O(cards). It is optional: single-card callers (the column-entry handoff, the
+  unpause re-enqueue, the pre-dispatch re-check) pass nothing and fall back to per-task reads.
+  */
+  private async classifyMergeSweepCandidate(
+    task: Task,
+    irCache: Map<string, WorkflowIr>,
+    batch?: MergeSweepBatch,
+    opts: { ignoreOwnMergePipeline?: boolean } = {},
+  ): Promise<MergeSweepAdmission> {
+    const store = this.runtime.getTaskStore();
+
+    /*
+    WHOSE GRAPH IS THIS? (review finding #5) `resolveWorkflowIrForTask` never returns null — it
+    degrades to `builtin:coding` — so `!!ir` was always true and a card on a missing/malformed
+    workflow was judged against a graph that is not its own. `selectionAbsent` separates "no
+    selection stored, so the project default IS this card's workflow" (trustworthy) from "a named
+    selection that failed to resolve" (not this card's graph; positions unusable).
+    */
+    let irTrust: "cards-own" | "effective-default" | "unresolved-selection" = "unresolved-selection";
+    let ir: WorkflowIr | null = null;
+    try {
+      const resolved = await resolveWorkflowIrForTaskWithProvenance(store, task.id, irCache);
+      ir = resolved.ir;
+      irTrust = resolved.source === "selection"
+        ? "cards-own"
+        : resolved.selectionAbsent === true ? "effective-default" : "unresolved-selection";
+    } catch {
+      ir = null;
+      irTrust = "unresolved-selection";
+    }
+
+    /* Any live surface owned by this task, plus the pump's own in-flight window and the durable
+       cross-node merge-dispatch lease. Probe failures read as NOT live: a broken probe must not
+       wedge every card, and the graph-position checks below still carry the invariant. */
+    let hasLiveSession = false;
+    try {
+      /*
+      FNXC:MergeAuthority 2026-08-23-20:05 (FN-3900 interaction):
+      TWO DIFFERENT QUESTIONS wear the word "live". Session liveness — an executor remediating, a
+      review step running, a workspace sub-repo land — means SOMEONE ELSE owns this card, and that
+      is the FN-9193 window; it always defers. This engine's own merge pipeline state
+      (`activeMergeTaskId` / `isMergePending`) means only "this card's merge is already queued or
+      running", which is queue DEDUPE — and `internalEnqueueMerge` already reconciles that. Callers
+      whose whole job is to (re-)enqueue a card the pump may already hold, like the FN-3900 leaked
+      `mergeActive` rescue on column entry, pass `ignoreOwnMergePipeline` so pipeline state does not
+      read as someone else's work. Authority and session liveness still apply to them.
+      */
+      hasLiveSession = executingTaskLock.has(task.id)
+        || activeSessionRegistry.pathsForTask(task.id).length > 0
+        || (!opts.ignoreOwnMergePipeline
+          && (this.activeMergeTaskId === task.id || await this.isMergePending(task.id)));
+    } catch {
+      hasLiveSession = false;
+    }
+
+    /* ACTIVE `kind:"task"` continuations only. A cancelled/exhausted row is finished work, not a
+       live wait — the same reading `onSuspend` uses when it decides whether to seed a successor.
+       An unreadable read is reported as such (review finding #4), never as "none scheduled". */
+    let continuationPositions: MergeRegionPosition[] = [];
+    let continuationsReadable = true;
+    try {
+      /* A store with no continuation API cannot HAVE continuations — that is an empty answer, not
+         an unreadable one. Only a throw from a method that exists means "we could not find out". */
+      const readContinuations = (store as Partial<TaskStore>).listWorkflowWorkItemsForTask;
+      const items = batch?.continuations
+        ? batch.continuations.get(task.id) ?? []
+        : typeof readContinuations === "function"
+          ? await readContinuations.call(store, task.id, { kinds: ["task"] })
+          : [];
+      continuationPositions = items
+        .filter((item) => (ACTIVE_WORKFLOW_WORK_ITEM_STATES as readonly string[]).includes(item.state))
+        .map((item) => (ir ? classifyWorkflowNodeMergeRegion(ir, item.nodeId) : "unknown"));
+    } catch {
+      continuationsReadable = false;
+      continuationPositions = [];
+    }
+    if (batch && !batch.continuationsReadable) continuationsReadable = false;
+
+    /* Only consulted when the task's own status is not already merge-active, since either proves
+       the same thing and the status needs no query. */
+    let mergeRequestActive = false;
+    if (!isActiveMergeStatus(task.status)) {
+      try {
+        mergeRequestActive = batch?.mergeRequests
+          ? isActiveMergeRequestState(batch.mergeRequests.get(task.id)?.state)
+          : isActiveMergeRequestState((await store.getMergeRequestRecordAsync?.(task.id))?.state);
+      } catch {
+        mergeRequestActive = false;
+      }
+    }
+
+    let gatesSatisfied = true;
+    try {
+      const reviewColumns = new Set<string>([task.column]);
+      /* `steps` is optional on partially-hydrated rows; the door dereferences it unconditionally. */
+      gatesSatisfied = !getTaskMergeBlocker({ ...task, steps: task.steps ?? [] }, {
+        reviewColumns,
+        requiredPreMergeStepIds: ir ? resolveRequiredPreMergeStepIds(ir, task.enabledWorkflowSteps) : undefined,
+      });
+    } catch {
+      gatesSatisfied = false;
+    }
+
+    const updatedAtMs = Date.parse(task.updatedAt ?? "");
+    const quiescentMs = Number.isFinite(updatedAtMs) ? Math.max(0, Date.now() - updatedAtMs) : Number.POSITIVE_INFINITY;
+
+    return classifyMergeSweepAdmission({
+      irTrust,
+      continuationPositions,
+      continuationsReadable,
+      mergeConfirmed: task.mergeDetails?.mergeConfirmed === true,
+      hasLiveSession,
+      interruptedMergeAttempt: isActiveMergeStatus(task.status) || mergeRequestActive,
+      quiescentMs,
+      gatesSatisfied,
+    });
+  }
+
+  /*
+  FNXC:MergeAuthority 2026-08-23-20:05 (review finding #10):
+  One batched read per sweep instead of one per card. The sweep asks the same two questions of every
+  review-lane card on every 15s poll; per-task reads made that 2N queries. A failed batch read is
+  reported as unreadable rather than as empty, so it refuses initiation exactly like the per-task
+  failure path does.
+  */
+  /*
+  FNXC:MergeAuthority 2026-08-23-20:05 (review finding #2):
+  Position-only dispatch guard. Answers ONE question — "do this card's active continuations still
+  place it inside its workflow's merge region?" — and fails OPEN on every uncertainty (unreadable
+  continuations, an unresolvable workflow, no continuation at all), because the merge door behind it
+  is the authority on everything else. A card with NO active continuation is authorized here by
+  design: that is the shape of the interrupted-merge and quiescent-stall recoveries.
+  */
+  private async isDispatchStillGraphAuthorized(task: Task): Promise<boolean> {
+    const store = this.runtime.getTaskStore() as Partial<TaskStore>;
+    try {
+      const readContinuations = store.listWorkflowWorkItemsForTask;
+      if (typeof readContinuations !== "function") return true;
+      const items = await readContinuations.call(this.runtime.getTaskStore(), task.id, { kinds: ["task"] });
+      const active = items.filter((item) => (ACTIVE_WORKFLOW_WORK_ITEM_STATES as readonly string[]).includes(item.state));
+      if (active.length === 0) return true;
+      const resolved = await resolveWorkflowIrForTaskWithProvenance(this.runtime.getTaskStore(), task.id);
+      if (resolved.source !== "selection" && resolved.selectionAbsent !== true) return true;
+      return active.some((item) => classifyWorkflowNodeMergeRegion(resolved.ir, item.nodeId) !== "outside-merge-region");
+    } catch {
+      return true;
+    }
+  }
+
+  private async loadMergeSweepBatch(candidates: readonly Task[]): Promise<MergeSweepBatch> {
+    const store = this.runtime.getTaskStore() as Partial<TaskStore>;
+    const ids = candidates.map((t) => t.id);
+    const batch: MergeSweepBatch = { continuationsReadable: true };
+    if (ids.length === 0) return batch;
+    try {
+      batch.continuations = typeof store.listWorkflowWorkItemsForTasks === "function"
+        ? await store.listWorkflowWorkItemsForTasks.call(this.runtime.getTaskStore(), ids, { kinds: ["task"] })
+        : undefined;
+    } catch {
+      batch.continuations = undefined;
+      batch.continuationsReadable = false;
+    }
+    /* A merge-request read failure only costs the `interrupted-merge-attempt` reason, which the
+       merging status also proves, so it degrades to "no record" rather than to unreadable. */
+    try {
+      batch.mergeRequests = typeof store.getMergeRequestRecordsAsync === "function"
+        ? await store.getMergeRequestRecordsAsync.call(this.runtime.getTaskStore(), ids)
+        : undefined;
+    } catch {
+      batch.mergeRequests = undefined;
+    }
+    return batch;
   }
 
   private reconcileStaleMergeActive(): number {
@@ -3909,6 +4153,26 @@ export class ProjectEngine {
                   this.schedulePrMergeRetry(taskId, notBefore);
                 }
               }
+              continue;
+            }
+
+            /*
+            FNXC:MergeAuthority 2026-08-23-20:05 (review finding #2 — TOCTOU AT DISPATCH):
+            Graph POSITION is re-proved here, not only at enqueue. The queue is single-flight and can
+            be minutes deep, so a card admitted while parked at `merge-gate` can be bounced back to a
+            revision node before its turn arrives — same column, same null status, so the
+            `canMergeTask` re-check above cannot see the difference. That is FN-9193's shape: an
+            authorized merge that stops being authorized while it waits.
+
+            Deliberately NARROWER than the sweep's admission: position is the only question the merge
+            door itself cannot answer. The door re-reads the task and re-checks gates, blockers, and
+            lane identity authoritatively (returning the FN-9191 typed deferral for an unrun gate), so
+            re-imposing those here would only duplicate it — and would wrongly refuse the interrupted
+            and merge-confirmed recoveries that legitimately have no continuation at all.
+            */
+            if (!task.mergeDetails?.mergeConfirmed && !(await this.isDispatchStillGraphAuthorized(task as Task))) {
+              runtimeLog.log(`Auto-merge dispatch skipped for ${taskId}: graph moved the card out of its merge region while it was queued`);
+              this.clearMergeActive(taskId);
               continue;
             }
 
@@ -5129,8 +5393,11 @@ export class ProjectEngine {
           merge — including the graph's own merge node — died on `task is marked 'failed'`.
 
           Deferral semantics: no status write, no `mergeRetries` burn, no operator handoff. The
-          card stays merge-eligible and the admission filter in `enqueueEligibleInReviewTasks`
-          holds it out of the queue until the gate reports, so this cannot spin.
+          card stays merge-eligible, and it cannot spin because `classifyMergeSweepAdmission` fences
+          EVERY initiation on `gatesSatisfied` (2026-08-23-20:05, review finding #6) — the same
+          unrun-gate condition that produced this deferral also refuses the next admission, at every
+          door, until the gate actually reports. An earlier version fenced only the quiescent path,
+          which left this re-enqueueing every sweep forever.
           */
           if (err instanceof PreMergeStepsNotRunError) {
             await store
@@ -5876,6 +6143,20 @@ export class ProjectEngine {
             runtimeLog.warn(`Auto-merge handoff (${task.id}): clearing stale mergeActive before enqueue`);
             this.clearMergeActive(task.id);
           }
+          /*
+          FNXC:MergeAuthority 2026-08-23-20:05 (review finding #1 — THE FASTER DOOR):
+          This handoff, not the 15s sweep, is the door FN-9191 actually came through: it fires
+          MERGE_HANDOFF_GRACE_MS (300ms) after the card enters the review column, which matches that
+          task's "merge attempted ~2s after fn_task_done" far better than any sweep tick. Gating only
+          `enqueueEligibleInReviewTasks` would have left the faster path wide open — the graph would
+          still not be the single merge authority. Its pre-existing `options.getTaskMergeBlocker`
+          check is the RESULT-ROWS-ONLY blocker that cannot see a gate which has not started.
+          */
+          const handoffAdmission = await this.classifyMergeSweepCandidate(latestTask, new Map(), undefined, { ignoreOwnMergePipeline: true });
+          if (!handoffAdmission.admit) {
+            runtimeLog.log(`Auto-merge handoff (${task.id}) skipped: ${handoffAdmission.reason} (graph owns the merge decision)`);
+            return;
+          }
           this.internalEnqueueMerge(task.id);
         } catch (err: unknown) {
           runtimeLog.warn(
@@ -5999,6 +6280,14 @@ export class ProjectEngine {
           return;
         }
 
+        /* FNXC:MergeAuthority 2026-08-23-20:05 (review finding #9): same authority proof as the
+           sweep and the column-entry handoff — unpausing resumes a card, it does not authorize a
+           merge the graph never reached. The periodic sweep picks it up once the graph does. */
+        const unpauseAdmission = await this.classifyMergeSweepCandidate(task, new Map(), undefined, { ignoreOwnMergePipeline: true });
+        if (!unpauseAdmission.admit) {
+          runtimeLog.log(`In-review unpause: ${task.id} not re-enqueued: ${unpauseAdmission.reason} (graph owns the merge decision)`);
+          return;
+        }
         runtimeLog.log(`Unpaused in-review task re-enqueued for auto-merge: ${task.id}`);
         this.internalEnqueueMerge(task.id);
       } catch (err: unknown) {
@@ -6010,6 +6299,7 @@ export class ProjectEngine {
 
     this.taskDeletedHandler = (task: Task) => {
       this.pausedReviewTaskIds.delete(task.id);
+      this.mergeSweepHoldReasons.delete(task.id);
 
       const queueLengthBefore = this.mergeQueue.length;
       this.mergeQueue = this.mergeQueue.filter((queuedTaskId) => queuedTaskId !== task.id);

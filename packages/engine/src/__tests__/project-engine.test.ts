@@ -2401,34 +2401,22 @@ describe("ProjectEngine merge queue priority ordering", () => {
     // Tasks returned in createdAt ASC order (matches store.listTasks contract).
     // Priority order is interleaved so a naive iteration would merge FN-low
     // first; priority-aware sorting must reorder to urgent → normal → low.
+    /* FNXC:MergeAuthority 2026-08-23-18:05: the sweep now also proves graph authority per card, so a
+       fixture expected to reach the queue must look mergeable — no outstanding optional gates, and
+       quiet long enough for stall recovery. Priority ordering is what this test is about. */
+    const mergeable = {
+      column: "in-review",
+      paused: false,
+      mergeRetries: 0,
+      status: null,
+      steps: [],
+      enabledWorkflowSteps: [],
+      updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+    };
     const sweptTasks = [
-      {
-        id: "FN-low",
-        column: "in-review",
-        paused: false,
-        mergeRetries: 0,
-        status: null,
-        priority: "low",
-        createdAt: "2026-04-01T00:00:00.000Z",
-      },
-      {
-        id: "FN-urgent",
-        column: "in-review",
-        paused: false,
-        mergeRetries: 0,
-        status: null,
-        priority: "urgent",
-        createdAt: "2026-04-02T00:00:00.000Z",
-      },
-      {
-        id: "FN-normal",
-        column: "in-review",
-        paused: false,
-        mergeRetries: 0,
-        status: null,
-        priority: "normal",
-        createdAt: "2026-04-03T00:00:00.000Z",
-      },
+      { ...mergeable, id: "FN-low", priority: "low", createdAt: "2026-04-01T00:00:00.000Z" },
+      { ...mergeable, id: "FN-urgent", priority: "urgent", createdAt: "2026-04-02T00:00:00.000Z" },
+      { ...mergeable, id: "FN-normal", priority: "normal", createdAt: "2026-04-03T00:00:00.000Z" },
     ];
     const tasksById: Record<string, Record<string, unknown>> = Object.fromEntries(
       sweptTasks.map((t) => [t.id, t]),
@@ -2462,9 +2450,9 @@ describe("ProjectEngine merge queue priority ordering", () => {
   it("picker falls back to next-priority task when the chosen one is removed from the queue during getTask awaits", async () => {
     const mockStore = createMockStore({ ...baseSettings, autoMerge: true });
     const tasksById: Record<string, Record<string, unknown>> = {
-      "FN-urgent": { id: "FN-urgent", column: "in-review", paused: false, mergeRetries: 0, status: null, priority: "urgent", createdAt: "2026-04-01T00:00:00.000Z" },
-      "FN-normal-a": { id: "FN-normal-a", column: "in-review", paused: false, mergeRetries: 0, status: null, priority: "normal", createdAt: "2026-04-02T00:00:00.000Z" },
-      "FN-normal-b": { id: "FN-normal-b", column: "in-review", paused: false, mergeRetries: 0, status: null, priority: "normal", createdAt: "2026-04-03T00:00:00.000Z" },
+      "FN-urgent": { id: "FN-urgent", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, priority: "urgent", createdAt: "2026-04-01T00:00:00.000Z", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      "FN-normal-a": { id: "FN-normal-a", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, priority: "normal", createdAt: "2026-04-02T00:00:00.000Z", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      "FN-normal-b": { id: "FN-normal-b", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, priority: "normal", createdAt: "2026-04-03T00:00:00.000Z", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     };
 
     let releaseUrgent: (() => void) = () => {};
@@ -2516,8 +2504,8 @@ describe("ProjectEngine merge queue priority ordering", () => {
   it("picker returns undefined when shutdown lands during getTask awaits", async () => {
     const mockStore = createMockStore({ ...baseSettings, autoMerge: true });
     const tasksById: Record<string, Record<string, unknown>> = {
-      "FN-a": { id: "FN-a", column: "in-review", paused: false, mergeRetries: 0, status: null, priority: "high", createdAt: "2026-04-01T00:00:00.000Z" },
-      "FN-b": { id: "FN-b", column: "in-review", paused: false, mergeRetries: 0, status: null, priority: "normal", createdAt: "2026-04-02T00:00:00.000Z" },
+      "FN-a": { id: "FN-a", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, priority: "high", createdAt: "2026-04-01T00:00:00.000Z", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      "FN-b": { id: "FN-b", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, priority: "normal", createdAt: "2026-04-02T00:00:00.000Z", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     };
 
     let release: (() => void) = () => {};
@@ -2618,7 +2606,7 @@ describe("ProjectEngine paused in-review auto-merge behavior", () => {
     if (!taskUpdatedHandler) throw new Error("task:updated handler was not registered");
 
     await taskUpdatedHandler({ id: "FN-unpause", column: "in-review", paused: true, status: "paused" });
-    await taskUpdatedHandler({ id: "FN-unpause", column: "in-review", paused: false, status: null });
+    await taskUpdatedHandler({ id: "FN-unpause", column: "in-review", paused: false, status: null, enabledWorkflowSteps: [], steps: [], updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() });
 
     expect(enqueueSpy).toHaveBeenCalledWith("FN-unpause");
 
@@ -3196,7 +3184,7 @@ describe("ProjectEngine paused in-review auto-merge behavior", () => {
     const mockStore = createMockStore({ ...baseSettings, autoMerge: true });
     const inReviewTasks = [
       { id: "FN-paused", column: "in-review", paused: true, mergeRetries: 0, status: null },
-      { id: "FN-ready", column: "in-review", paused: false, mergeRetries: 0, status: null },
+      { id: "FN-ready", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     ];
     /*
     FNXC:EngineTests 2026-08-10-10:34:
@@ -3239,8 +3227,8 @@ describe("ProjectEngine paused in-review auto-merge behavior", () => {
         status: null,
         branchContext: { assignmentMode: "shared", groupId: "BG-5819", source: "planning" },
       },
-      { id: "FN-opted-in", column: "in-review", paused: false, mergeRetries: 0, status: null, autoMerge: true, branchContext: { assignmentMode: "shared", groupId: "BG-5819", source: "planning" } },
-      { id: "FN-plain", column: "in-review", paused: false, mergeRetries: 0, status: null },
+      { id: "FN-opted-in", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, autoMerge: true, branchContext: { assignmentMode: "shared", groupId: "BG-5819", source: "planning" }, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      { id: "FN-plain", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     ];
     /*
     FNXC:EngineTests 2026-08-10-10:34:
@@ -3313,7 +3301,7 @@ describe("ProjectEngine paused in-review auto-merge behavior", () => {
     enqueueSpy.mockClear();
     mockStore.store.listTasks.mockResolvedValueOnce([
       { id: "FN-paused", column: "in-review", paused: true, mergeRetries: 0, status: null },
-      { id: "FN-ready", column: "in-review", paused: false, mergeRetries: 0, status: null },
+      { id: "FN-ready", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     ]);
 
     await mockStore.emitSettingsUpdated(
@@ -3340,10 +3328,10 @@ describe("ProjectEngine paused in-review auto-merge behavior", () => {
 
     mockStore.store.listTasks.mockResolvedValueOnce([
       // Retry exhausted + failed (FN-2997 observed state after merge error)
-      { id: "FN-failed", column: "in-review", paused: false, mergeRetries: 3, status: "failed", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      { id: "FN-failed", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 3, status: "failed", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
       // Failed status must block even when retries are below the cap.
-      { id: "FN-failed-low-retries", column: "in-review", paused: false, mergeRetries: 0, status: "failed", updatedAt: new Date().toISOString() },
-      { id: "FN-ready", column: "in-review", paused: false, mergeRetries: 0, status: null, updatedAt: new Date().toISOString() },
+      { id: "FN-failed-low-retries", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: "failed", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      { id: "FN-ready", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     ]);
 
     await vi.advanceTimersByTimeAsync(15_000);
@@ -3369,9 +3357,9 @@ describe("ProjectEngine paused in-review auto-merge behavior", () => {
     enqueueSpy.mockClear();
     mockStore.store.listTasks.mockResolvedValueOnce([
       { id: "FN-paused", column: "in-review", paused: true, mergeRetries: 0, status: null },
-      { id: "FN-failed", column: "in-review", paused: false, mergeRetries: 0, status: "failed" },
-      { id: "FN-blocked", column: "in-review", paused: false, mergeRetries: 0, status: null },
-      { id: "FN-ready", column: "in-review", paused: false, mergeRetries: 0, status: null },
+      { id: "FN-failed", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: "failed", updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      { id: "FN-blocked", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+      { id: "FN-ready", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], mergeRetries: 0, status: null, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     ]);
 
     await mockStore.emitSettingsUpdated(
@@ -3999,12 +3987,18 @@ describe("ProjectEngine stale mergeActive rescue (FN-3900)", () => {
     vi.useFakeTimers();
 
     const mockStore = createMockStore({ ...baseSettings, autoMerge: true });
+    /* FNXC:MergeAuthority 2026-08-23-20:05: the column-entry handoff now proves graph authority
+       before enqueueing, so a fixture expected to reach the queue must look mergeable — no
+       outstanding optional gates, and quiet long enough for stall recovery. */
     mockStore.store.getTask.mockResolvedValue({
       id: "FN-leaked",
       column: "in-review",
       paused: false,
       status: null,
       mergeRetries: 0,
+      steps: [],
+      enabledWorkflowSteps: [],
+      updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
     });
     mocks.currentStore = mockStore.store;
 
@@ -4034,7 +4028,7 @@ describe("ProjectEngine stale mergeActive rescue (FN-3900)", () => {
     if (!taskMovedHandler) throw new Error("task:moved handler was not registered");
 
     await taskMovedHandler({
-      task: { id: "FN-leaked", column: "in-review", paused: false },
+      task: { id: "FN-leaked", column: "in-review", paused: false, enabledWorkflowSteps: [], steps: [], updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
       to: "in-review",
     });
 
@@ -4121,6 +4115,9 @@ describe("ProjectEngine stale mergeActive rescue (FN-3900)", () => {
       paused: false,
       status: null,
       mergeRetries: 0,
+      steps: [],
+      enabledWorkflowSteps: [],
+      updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
     });
     mocks.currentStore = mockStore.store;
 
@@ -4146,7 +4143,7 @@ describe("ProjectEngine stale mergeActive rescue (FN-3900)", () => {
     if (!taskMovedHandler) throw new Error("task:moved handler was not registered");
 
     await taskMovedHandler({
-      task: { id: "FN-busy", column: "in-review", paused: false },
+      task: { id: "FN-busy", column: "in-review", paused: false, updatedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
       to: "in-review",
     });
 
@@ -4302,6 +4299,15 @@ describe("allowInReviewMergeProcessing per-task autoMerge override", () => {
 // tests above.
 
 describe("enqueueEligibleInReviewTasks honors per-task autoMerge override (shared sweep funnel)", () => {
+  /*
+  FNXC:MergeAuthority 2026-08-23-18:05:
+  These fixtures test the autoMerge-override contract, so they must clear the sweep's graph-authority
+  gate for an unrelated reason. `enabledWorkflowSteps: []` (no optional gates to wait on) plus an old
+  `updatedAt` puts them on the quiescent-stall recovery path — the one admission that does not
+  require a merge-region continuation. Without this they are refused as `gates-unsatisfied`, which is
+  correct behaviour for a card whose default-on Plan/Code Review have not run, but says nothing about
+  the override being tested here.
+  */
   const inReview = (id: string, overrides: Partial<Task> = {}): Task =>
     ({
       id,
@@ -4309,6 +4315,8 @@ describe("enqueueEligibleInReviewTasks honors per-task autoMerge override (share
       paused: false,
       mergeRetries: 0,
       status: null,
+      enabledWorkflowSteps: [],
+      updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
       ...overrides,
     }) as unknown as Task;
 

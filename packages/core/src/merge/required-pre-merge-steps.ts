@@ -24,24 +24,3 @@ export function resolveRequiredPreMergeStepIds(
       .map((step) => step.templateId),
   );
 }
-
-/*
-FNXC:RequiredPreMergeSteps 2026-08-22-22:40 (FN-9191 wedge):
-Admission-side twin of the door's check. The in-review auto-merge sweep must be able to ask
-"has every enabled pre-merge gate reported yet?" BEFORE it queues a card, because its sync
-`canMergeTask` admission sees result rows only — and a gate that has not started has no row.
-FN-9191 was queued ~2s after `fn_task_done` and ~18s before its own Code Review node started.
-Shared with the door so the two can never answer differently.
-*/
-/** Enabled pre-merge group ids that have produced no result row on this task yet. */
-export function findUnrunRequiredPreMergeStepIds(
-  ir: WorkflowIr,
-  task: {
-    enabledWorkflowSteps?: readonly string[];
-    workflowStepResults?: ReadonlyArray<{ workflowStepId?: string }>;
-  },
-): string[] {
-  const results = task.workflowStepResults ?? [];
-  return [...resolveRequiredPreMergeStepIds(ir, task.enabledWorkflowSteps)]
-    .filter((workflowStepId) => !results.some((result) => result.workflowStepId === workflowStepId));
-}

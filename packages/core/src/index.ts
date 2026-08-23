@@ -350,7 +350,22 @@ export {
   isWorkflowOptionalGroupEnabled,
 } from "./workflows/workflow-optional-steps.js";
 export type { ResolvedWorkflowOptionalStep } from "./workflows/workflow-optional-steps.js";
-export { resolveRequiredPreMergeStepIds, findUnrunRequiredPreMergeStepIds } from "./merge/required-pre-merge-steps.js";
+export { resolveRequiredPreMergeStepIds } from "./merge/required-pre-merge-steps.js";
+export {
+  classifyMergeSweepAdmission,
+  DEFAULT_MERGE_SWEEP_QUIESCENCE_MS,
+} from "./merge/merge-sweep-admission.js";
+export type {
+  MergeRegionPosition,
+  MergeSweepAdmission,
+  MergeSweepAdmissionInput,
+  MergeSweepAdmissionReason,
+} from "./merge/merge-sweep-admission.js";
+export {
+  classifyWorkflowNodeMergeRegion,
+  isMergeRegionNode,
+  MERGE_REGION_ENTRY_NODE_KINDS,
+} from "./workflows/workflow-merge-region.js";
 export {
   applyPromptOverridesToIr,
   enumeratePromptBearingWorkflowNodes,
