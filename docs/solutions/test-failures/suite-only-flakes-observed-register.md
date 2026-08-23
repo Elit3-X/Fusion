@@ -479,3 +479,25 @@ AssertionError: expected 2 to be 1 // Object.is equality
 Reads as cross-test state bleed into the reconciler's marker selection (an expected-1 selection saw 2),
 not a timing wait — so no timeout, retry, or assertion change was made. A SECOND sighting is an
 ordinary on-sight quarantine with no further discretion, per the standing rule in AGENTS.md.
+
+---
+
+## Entry: `spec-drift-reconciler` exponential-backoff case (first sighting)
+
+- **File:** `packages/engine/src/__tests__/spec-drift-reconciler.test.ts`
+- **Exact test:** `SpecDriftReconciler > backs a persistent outage off exponentially instead of re-firing every second`
+- **Owner:** unowned — first sighting, recorded rather than quarantined because the file's other 9–13 tests are substantial coverage and quarantine is file-level.
+- **Observed tree/SHA:** `a97aa84a20`, full `@fusion/engine` suite run.
+- **Observed frequency:** once in a full-suite run; also failed once when run in the same command as `self-healing-pending-wedge-notification.test.ts`, and passes deterministically alone (10/10) and in other pairings.
+
+Verbatim observed failure context:
+
+```
+FAIL  |engine-default| src/__tests__/spec-drift-reconciler.test.ts > SpecDriftReconciler > backs a persistent outage off exponentially instead of re-firing every second
+```
+
+Both this and the quarantined `self-healing-pending-wedge-notification` case are timer-driven
+reconciler tests that fail only alongside other suites, which points at shared fake-timer or
+cross-file state rather than a product defect. No timeout was widened, no retry added, and no
+assertion relaxed. A SECOND sighting is an ordinary on-sight quarantine with no further discretion,
+per the standing rule in AGENTS.md.
