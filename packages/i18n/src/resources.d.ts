@@ -1249,6 +1249,7 @@ export default interface Resources {
       "toggleWrap": "Toggle word wrap"
     },
     "chat": {
+      "agentRepliesFailed": "Some agents could not reply: {{agents}}",
       "archive": "Archive",
       "attachFiles": "Attach files",
       "cancel": "Cancel",
@@ -1329,6 +1330,7 @@ export default interface Resources {
       "newNotAllowedForTaskChat": "This chat is tied to a task — /new and /clear can't clear it",
       "noAgentsAvailable": "No agents available",
       "noConversationsYet": "No conversations yet",
+      "noDefaultModelConfigured": "Configure a default chat model in Settings before creating a conversation.",
       "noMessage": "No message",
       "noMessages": "No messages",
       "noMessagesYet": "No messages yet. Start the conversation!",
@@ -1353,6 +1355,7 @@ export default interface Resources {
       "questionTextPlaceholder": "Type your answer here…",
       "queuedMessage": "Queued: {{preview}}",
       "quickChatTitle": "Quick Chat",
+      "quoteMessage": "Quote message",
       "recent": "Recent",
       "relativeTimeDays_one": "{{count}}d ago",
       "relativeTimeDays_other": "{{count}}d ago",
@@ -10095,6 +10098,7 @@ export default interface Resources {
         "ollama": "Ollama Endpoint",
         "openai": "OpenAI API Key",
         "openrouter": "OpenRouter API Key",
+        "orcarouter": "OrcaRouter API Key",
         "zai": "Zhipu AI API Key"
       },
       "apiKeyPlaceholder": {
@@ -10111,6 +10115,7 @@ export default interface Resources {
         "ollama": "Enter your Ollama endpoint URL (for example http://localhost:11434).",
         "openai": "Create an API key from your OpenAI dashboard under API keys.",
         "openrouter": "Create an API key from your OpenRouter account key management page.",
+        "orcarouter": "Create an API key from your OrcaRouter dashboard.",
         "zai": "Create an API key in the Zhipu AI open platform account settings."
       },
       "apiKeyUsage": {
@@ -10120,6 +10125,7 @@ export default interface Resources {
         "ollama": "Connects to your local Ollama instance",
         "openai": "Used for GPT models in task execution and planning",
         "openrouter": "Routes to multiple AI model providers through a single key",
+        "orcarouter": "Routes to multiple AI model providers through a single key",
         "zai": "Used for GLM models in task execution"
       },
       "providerDesc": {
@@ -10135,6 +10141,7 @@ export default interface Resources {
         "openai": "GPT models — versatile for a wide range of tasks",
         "openaiCodex": "Codex models by OpenAI — optimized for coding tasks",
         "openrouter": "OpenRouter — route requests across multiple AI providers",
+        "orcarouter": "OrcaRouter — one gateway for multiple AI providers with gateway-level agent security",
         "zai": "GLM models by Zhipu AI — strong multilingual support"
       }
     },

@@ -835,13 +835,13 @@ Mailbox Inbox, Outbox, and agent lists exclude archived correspondence and unrea
 
 ![Chat view](./screenshots/chat-view.png)
 
-### Chat Rooms
+### Direct Chat and Agent Mentions
 
-Chat Rooms are project-scoped group conversations for multiple agents. They are separate from one-on-one direct chat sessions.
+Chat View exposes Direct conversations only. The retained Rooms APIs and storage are not presented as a persistent Chat View scope.
 
-- Chat Rooms are currently gated behind the `chatRooms` experimental feature flag. Enable it in **Settings → Experimental Features → Chat Rooms**.
-- Use the **Direct / Rooms** toggle in the Chat sidebar to switch scopes. The selected scope is saved and restored the next time you open Chat.
-- In **Rooms**, click **Create room** to open the room-creation modal.
+- **New Chat** immediately creates a Direct conversation from the Settings-configured default agent or model. Use the Brain control beside the composer to retarget an existing conversation.
+- Mention one or more agents with `@Agent_Name` in a message to summon them for that turn. Each mentioned agent answers with its own configured model and thinking level; an unmentioned turn uses the conversation model as usual.
+- Every persisted message has a quote control. Quoting an agent reply seeds the composer as `"<excerpt>" - @Agent_Name , `, so the next turn explicitly cites and re-summons that agent.
 - Room names follow strict validation: a leading `#` is removed automatically, names must be lowercase, up to 80 characters, use only `a-z`, `0-9`, `-`, or `_`, cannot start or end with `-`/`_`, and must be unique in the current project.
 - The modal includes a member picker with search + multi-select from project agents. You must pick at least one member before creating the room.
 - Members are currently chosen during room creation. The shipped UI does not yet provide full post-creation member management in Chat View.

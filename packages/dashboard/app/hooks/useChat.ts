@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { SetStateAction } from "react";
 import {
   fetchChatSessions,
@@ -426,6 +427,7 @@ export function useChat(
   addToast?: (msg: string, type?: "success" | "error" | "warning") => void,
   options: UseChatOptions = {},
 ): UseChatReturn {
+  const { t } = useTranslation("app");
   const persistActiveSession = options.persistActiveSession !== false;
   const initialSession = options.initialSession;
   // Note: We use i18n lazy - the t function is only used for fallback messages
@@ -1754,8 +1756,32 @@ export function useChat(
           ));
           setActiveSession((prev) => prev && prev.id === sessionId ? { ...prev, ...nextModel } : prev);
         },
-        onDone: ({ messageId, message: finalMessage, accumulated }) => {
+        onAgentMessage: ({ message }) => {
           if (!ownsStream()) return;
+          const agentMessage = mapChatMessageToInfo(message);
+          streamingMessageIdsRef.current.add(agentMessage.id);
+          setMessages((previous) => appendChatMessageChronologically(previous, agentMessage));
+          setStreamingText("");
+          setStreamingThinking("");
+          setStreamingToolCalls([]);
+          setTimeout(() => streamingMessageIdsRef.current.delete(agentMessage.id), 1000);
+        },
+        onDone: ({ messageId, message: finalMessage, dispatch, failedAgentNames, accumulated }) => {
+          if (!ownsStream()) return;
+          if (dispatch === "agents") {
+            setStreamingText("");
+            setStreamingThinking("");
+            setStreamingToolCalls([]);
+            setIsStreaming(false);
+            isStreamingRef.current = false;
+            streamRef.current = null;
+            lastAttachedGenerationRef.current = null;
+            callbacks?.onDelivered?.();
+            if (failedAgentNames?.length) addToast?.(t("chat.agentRepliesFailed", { agents: failedAgentNames.join(", ") }), "warning");
+            refreshSessions();
+            flushPendingMessage();
+            return;
+          }
           const assistantMessage: ChatMessageInfo = finalMessage
             ? {
                 ...mapChatMessageToInfo(finalMessage),

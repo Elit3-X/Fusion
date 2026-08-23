@@ -1166,6 +1166,25 @@ export type ChatStreamEvent =
         };
         attachments?: ChatAttachment[];
         interrupted?: boolean;
+        dispatch?: "agents";
+        failedAgentNames?: string[];
+      };
+    }
+  | {
+      type: "agent_message";
+      data: {
+        message: {
+          id: string;
+          sessionId: string;
+          role: "assistant";
+          content: string;
+          thinkingOutput: string | null;
+          metadata: Record<string, unknown> | null;
+          attachments?: ChatAttachment[];
+          createdAt: string;
+        };
+        senderAgentId: string;
+        senderAgentName: string;
       };
     }
   | { type: "error"; data: string | ChatFailureInfo };
@@ -2456,6 +2475,128 @@ export class ChatManager {
     }
   }
 
+  /*
+  FNXC:ChatMentionDispatch 2026-08-23-02:31:
+  Direct-chat mentions summon permanent agents for that message instead of depending on room membership.
+  Each responder resolves its own model and thinking configuration; unmentioned turns keep the direct model loop.
+  */
+  private async dispatchMentionedAgentReplies(input: {
+    session: ChatSession;
+    sessionId: string;
+    content: string;
+    attachments?: ChatAttachment[];
+    mentions: ChatMention[];
+    latestUserMessageId: string;
+    generationId: number;
+  }): Promise<void> {
+    const failedAgentNames: string[] = [];
+    let replies = 0;
+    for (const mention of input.mentions) {
+      const responder = await this.getAgentById(mention.agentId);
+      if (!responder) continue;
+      try {
+        const response = await this.generateMentionedAgentReply({ ...input, responder });
+        if (isRoomSkipSentinel(response.content)) continue;
+        const message = await this.chatStore.addMessage(input.sessionId, {
+          role: "assistant", content: response.content, thinkingOutput: response.thinkingOutput ?? undefined,
+          metadata: { senderAgentId: responder.id, senderAgentName: responder.name, ...(response.fallback ? { fallback: response.fallback } : {}) },
+        });
+        if (response.tokenUsage) {
+          await this.chatStore.recordTokenUsage({ sourceKind: "chat", chatSessionId: input.sessionId, messageId: message.id, projectId: input.session.projectId ?? null, agentId: responder.id, createdAt: message.createdAt, ...response.tokenUsage });
+        }
+        replies++;
+        chatStreamManager.broadcast(input.sessionId, {
+          type: "agent_message",
+          data: { message: { id: message.id, sessionId: message.sessionId, role: "assistant", content: message.content, thinkingOutput: message.thinkingOutput ?? null, metadata: message.metadata ?? null, attachments: message.attachments, createdAt: message.createdAt }, senderAgentId: responder.id, senderAgentName: responder.name },
+        }, { generationId: input.generationId });
+      } catch (error) {
+        diagnostics.error(`Mentioned chat responder ${responder.id} failed in ${input.sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+        failedAgentNames.push(responder.name);
+      }
+    }
+    await this.flushInFlightGenerationPersist(input.sessionId, null, input.generationId);
+    if (replies === 0 && failedAgentNames.length > 0) {
+      chatStreamManager.broadcast(input.sessionId, { type: "error", data: { summary: `Failed to generate replies from ${failedAgentNames.join(", ")}` } }, { generationId: input.generationId });
+      return;
+    }
+    chatStreamManager.broadcast(input.sessionId, { type: "done", data: { messageId: "", dispatch: "agents", ...(failedAgentNames.length > 0 ? { failedAgentNames } : {}) } }, { generationId: input.generationId });
+  }
+
+  private async generateMentionedAgentReply(input: {
+    session: ChatSession;
+    sessionId: string;
+    content: string;
+    attachments?: ChatAttachment[];
+    mentions: ChatMention[];
+    latestUserMessageId: string;
+    generationId: number;
+    responder: Agent;
+  }): Promise<{ content: string; thinkingOutput: string | null; fallback?: { primaryModel: string; fallbackModel: string; triggerPoint: "session-creation" | "prompt-time" }; tokenUsage?: ChatTokenDelta & { modelProvider: string | null; modelId: string | null } }> {
+    await ensureEngineReady();
+    let systemPrompt = CHAT_SYSTEM_PROMPT;
+    if (buildAgentChatPromptFn) {
+      try { systemPrompt = await buildAgentChatPromptFn({ agent: input.responder, rootDir: this.rootDir, agentStore: this.agentStore, basePrompt: CHAT_SYSTEM_PROMPT, includeProjectMemory: true }); }
+      catch (error) { diagnostics.warn(`Failed to build mentioned chat prompt for ${input.responder.id}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    const mentionContext = await this.buildMentionContext(input.mentions);
+    systemPrompt = `${systemPrompt}${mentionContext ? `\n\n${mentionContext}` : ""}\n\n${CHAT_AGENT_MESSAGE_ROUTING_GUIDANCE}\n\n${CHAT_CODEBASE_ACCURACY_GUIDANCE}`;
+    const limits = await this.getRoomCompactionSettings();
+    const history = await this.chatStore.getMessages(input.sessionId, { limit: limits.fetchLimit, order: "desc" });
+    const transcript = buildCompactedRoomTranscript([...history].reverse().map((message) => ({ id: message.id, role: message.role, content: message.content, createdAt: message.createdAt, senderAgentId: typeof message.metadata?.senderAgentId === "string" ? message.metadata.senderAgentId : null })), input.latestUserMessageId, limits);
+    const { attachmentContents, imageContents } = await readChatAttachmentContents(this.rootDir, { kind: "session", sessionId: input.sessionId }, input.attachments, diagnostics);
+    const skills = parseSkillCommands(input.content);
+    const prompt = [`You are replying as ${input.responder.name} in direct chat after being explicitly mentioned.`, "Direct-chat transcript (oldest to newest, bounded):", transcript, "Latest user message to answer:", skills.strippedContent, formatChatAttachmentContents(attachmentContents), formatChatImageAttachmentHints(imageContents)].filter(Boolean).join("\n\n");
+    const settings = await this.getChatModelSettings();
+    const runtimeModel = extractRuntimeModel(input.responder.runtimeConfig);
+    const inheritedModel = resolvePermanentAgentEffectiveModel(input.responder, settings);
+    const hasRuntimeModel = !!runtimeModel.provider && !!runtimeModel.modelId;
+    const skillContext = buildSessionSkillContextSync(input.responder, "heartbeat", this.rootDir, this.getPluginRunnerForSkillSelection());
+    const skillSelection = mergeTypedSkillCommands(skillContext.skillSelectionContext, skills.requestedSkillNames, this.rootDir, "heartbeat");
+    const workflowTools = createChatWorkflowAuthoringTools(this.taskStore, input.session.projectId ?? null);
+    const gates = await createChatMissionGateContexts(this.taskStore, this.agentStore, input.responder);
+    const fusionTools = await createChatFusionToolset({ taskStore: this.taskStore, agentStore: this.agentStore, rootDir: this.rootDir, agentId: input.responder.id, missionMutationGated: gates.missionMutationGated, actionGateContext: gates.actionGateContext });
+    let fallback: { primaryModel: string; fallbackModel: string; triggerPoint: "session-creation" | "prompt-time" } | undefined;
+    const resolved = await createResolvedAgentSession({
+      sessionPurpose: "heartbeat", pluginRunner: this.pluginRunner, runtimeHint: extractRuntimeHint(input.responder.runtimeConfig), cwd: this.rootDir, systemPrompt, tools: CHAT_CODING_TOOLS,
+      ...(skillSelection ? { skillSelection } : {}), ...(skillContext.additionalSkillPaths.length > 0 ? { additionalSkillPaths: skillContext.additionalSkillPaths } : {}),
+      ...(workflowTools.length + fusionTools.length > 0 ? { customTools: dedupeChatTools([...workflowTools, ...fusionTools]) } : {}),
+      ...((hasRuntimeModel ? runtimeModel.provider : inheritedModel.provider) && (hasRuntimeModel ? runtimeModel.modelId : inheritedModel.modelId) ? { defaultProvider: hasRuntimeModel ? runtimeModel.provider : inheritedModel.provider, defaultModelId: hasRuntimeModel ? runtimeModel.modelId : inheritedModel.modelId } : {}),
+      ...(resolvePermanentAgentEffectiveThinkingLevel(input.responder, settings) ? { defaultThinkingLevel: resolvePermanentAgentEffectiveThinkingLevel(input.responder, settings) } : {}),
+      ...(settings.fallbackProvider && settings.fallbackModelId ? { fallbackProvider: settings.fallbackProvider, fallbackModelId: settings.fallbackModelId } : {}),
+      ...(gates.actionGateContext ? { actionGateContext: gates.actionGateContext } : {}), ...(gates.permanentAgentGating ? { permanentAgentGating: gates.permanentAgentGating } : {}),
+      onFallbackModelUsed: (payload: typeof fallback) => { fallback = payload; },
+    });
+    const generationEntry = this.activeGenerations.get(input.sessionId);
+    if (!generationEntry || generationEntry.generationId !== input.generationId) {
+      resolved.session.dispose?.();
+      throw new Error("Generation cancelled");
+    }
+    /*
+    FNXC:ChatCancellation 2026-08-23-03:29:
+    Explicitly mentioned-agent replies share the chat generation cancellation barrier. Register
+    the resolved runtime session before prompting so Stop/Force can interrupt and dispose the
+    actual responder rather than an unused controller slot.
+    */
+    generationEntry.agentResult = resolved;
+    if (generationEntry.abortController.signal.aborted) {
+      resolved.session.dispose?.();
+      throw new Error("Generation cancelled");
+    }
+    try {
+      await enginePromptWithFallback(resolved.session, prompt, imageContents.length > 0 ? { images: imageContents } : undefined);
+      type AgentMessage = { role?: string; type?: string; content?: string | Array<{ type?: string; text?: string }> };
+      const state = resolved.session.state as { messages?: AgentMessage[]; errorMessage?: string } | undefined;
+      if (state?.errorMessage?.trim()) throw new Error(state.errorMessage.trim());
+      const messages = state?.messages ?? (resolved.session as { messages?: AgentMessage[] }).messages ?? [];
+      const answer = [...messages].reverse().find((message) => message.role === "assistant" || message.type === "assistant");
+      const content = typeof answer?.content === "string" ? answer.content : Array.isArray(answer?.content) ? answer.content.map((part) => part?.type === "text" ? part.text ?? "" : "").join("") : "";
+      if (!content.trim()) throw new Error("Mentioned responder returned an empty reply");
+      const { tokens } = await readChatSessionUsageSnapshot(resolved.session);
+      const model = modelSnapshotForTokenUsage(resolved.session, fallback);
+      return { content: content.trim(), thinkingOutput: null, ...(fallback ? { fallback } : {}), ...(tokens ? { tokenUsage: { ...tokens, modelProvider: model.provider, modelId: model.modelId } } : {}) };
+    } finally { resolved.session.dispose?.(); }
+  }
+
   /**
    * Preserve the newest room turns verbatim while compacting older history into
    * a deterministic summary block so long-running rooms keep continuity.
@@ -2670,6 +2811,19 @@ export class ChatManager {
           type: "error",
           data: `Failed to save message: ${err instanceof Error ? err.message : "Unknown error"}`,
         }, broadcastOptions);
+        return;
+      }
+
+      if (mentions.length > 0 && this.activeGenerations.get(sessionId)?.generationId === generationId) {
+        await this.dispatchMentionedAgentReplies({
+          session,
+          sessionId,
+          content,
+          attachments,
+          mentions,
+          latestUserMessageId: persistedUserMessageId!,
+          generationId,
+        });
         return;
       }
 

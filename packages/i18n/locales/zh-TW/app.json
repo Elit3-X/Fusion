@@ -1418,7 +1418,10 @@
     "currentModelTarget": "Current model: {{model}}",
     "currentDefaultTarget": "Using the default chat target",
     "newNotAllowedForTaskChat": "",
-    "restore": ""
+    "restore": "",
+    "quoteMessage": "引用訊息",
+    "agentRepliesFailed": "部分代理無法回覆：{{agents}}",
+    "noDefaultModelConfigured": "請先在設定中設定預設聊天模型，再建立對話。"
   },
   "chatRooms": {
     "error": {
@@ -6279,8 +6282,7 @@
       "openRouterRoutingOnlyHint": "",
       "openRouterAllowFallbacksHint": "",
       "openRouterRoutingSortHint": "",
-      "requireParametersHint": "",
-      "modelOverrides": ""
+      "requireParametersHint": ""
     },
     "header": {
       "discord": "Discord",
@@ -6730,11 +6732,7 @@
       "executorEscalationModel": "",
       "executorEscalationModelHelp": "",
       "selectExecutorEscalationModel": "",
-      "noExecutorEscalationModel": "",
-      "modelOverrides": "",
-      "projectLanesSubheading": "",
-      "workflowLanesSubheading": "",
-      "summarizationPointer": ""
+      "noExecutorEscalationModel": ""
     },
     "remote": {
       "acceptRoutes": "",
@@ -7133,6 +7131,29 @@
       "runtimeIncompatible": "The installed voice runtime is incompatible. Repair it, then re-check the runtime.",
       "recheckRuntime": "Re-check runtime",
       "recheckingRuntime": "Re-checking runtime…"
+    },
+    "jira": {
+      "configuration": "",
+      "enable": "",
+      "enabledHelp": "",
+      "baseUrl": "",
+      "globalBaseUrl": "",
+      "baseUrlHelp": "",
+      "apiBaseUrl": "",
+      "globalApiBaseUrl": "",
+      "apiBaseUrlHelp": "",
+      "email": "",
+      "globalEmail": "",
+      "emailHelp": "",
+      "secretKey": "",
+      "globalSecretKey": "",
+      "secretHelp": "",
+      "secretScope": "",
+      "globalSecretScope": "",
+      "scopeHelp": "",
+      "template": "",
+      "globalTemplate": "",
+      "templateHelp": ""
     }
   },
   "setup": {
