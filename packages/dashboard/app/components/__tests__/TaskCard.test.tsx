@@ -54,6 +54,8 @@ vi.mock("lucide-react", () => ({
   Eye: () => <svg data-testid="icon-eye" />,
   // FNXC:TaskCardMenu 2026-07-10-12:00: visible ⋯ card-actions button icon.
   MoreHorizontal: () => <svg data-testid="icon-more-horizontal" />,
+  // FNXC:NearDuplicateDetection 2026-08-23-04:53: This mock factory is closed-world; every icon imported by TaskCard must be declared here or conditional branches resolve it to undefined and React throws only when they render.
+  X: () => <svg data-testid="icon-x" />,
 }));
 
 vi.mock("../ProviderIcon", () => ({
@@ -7359,7 +7361,8 @@ describe("TaskCard near-duplicate chip", () => {
     );
 
     expect(screen.getByText("Duplicate of FN-1234")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Keep this task and dismiss duplicate warning" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark the duplicate flag for FN-1234 as read" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /keep/i })).toBeNull();
   });
 
   it("hides duplicate chip when nearDuplicateDismissed is true", () => {
@@ -7386,6 +7389,7 @@ describe("TaskCard near-duplicate chip", () => {
     );
 
     expect(screen.queryByText("Duplicate of FN-1234")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark the duplicate flag for FN-1234 as read" })).toBeNull();
   });
 
   it("renders duplicate chip when canonical activity is unknown", () => {
@@ -7426,7 +7430,7 @@ describe("TaskCard near-duplicate chip", () => {
     expect(screen.queryByText("Duplicate of FN-1234")).toBeNull();
   });
 
-  it("clicking Keep calls updateTask dismissNearDuplicate", async () => {
+  it("clearing the duplicate flag calls updateTask dismissNearDuplicate", async () => {
     const onUpdateTask = vi.fn().mockResolvedValue(makeTask());
 
     render(
@@ -7438,7 +7442,7 @@ describe("TaskCard near-duplicate chip", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Keep this task and dismiss duplicate warning" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark the duplicate flag for FN-1234 as read" }));
 
     await waitFor(() => {
       expect(onUpdateTask).toHaveBeenCalledWith("FN-001", { dismissNearDuplicate: true });

@@ -14,6 +14,7 @@ export interface DockTaskListProps {
   projectId?: string;
   onOpenTask?: (task: Task | TaskDetail) => void;
   onReviseTask?: (task: Task) => void;
+  onUpdateTask?: (id: string, updates: { title?: string; description?: string; dependencies?: string[]; dismissNearDuplicate?: boolean; githubTracking?: { enabled?: boolean } }) => Promise<Task>;
   onDeleteTask?: (id: string, options?: { removeDependencyReferences?: boolean; removeLineageReferences?: boolean; githubIssueAction?: GithubIssueAction; allowResurrection?: boolean }) => Promise<Task>;
   addToast?: (message: string, type?: ToastType) => void;
   prAuthAvailable?: boolean;
@@ -45,10 +46,15 @@ export function DockTaskList({ columnFlagsByTaskId,
   onOpenTask,
   onDeleteTask,
   onReviseTask,
+  onUpdateTask,
   addToast = () => {},
   prAuthAvailable = false,
   autoMergeEnabled = false,
 }: DockTaskListProps) {
+  /*
+  FNXC:NearDuplicateDetection 2026-08-23-04:10:
+  A host that renders a duplicate tag must also pass its clear action, otherwise a triage hold has no UI release.
+  */
   const { t } = useTranslation("app");
   const [showDone, setShowDone] = useState(false);
 
@@ -113,7 +119,7 @@ export function DockTaskList({ columnFlagsByTaskId,
       {revertedTasks.length > 0 && (
         <section className="dock-task-list__reverted" aria-label={t("tasks.revertedTasks", "Reverted Tasks")} data-testid="dock-reverted-tasks">
           <h3>{t("tasks.revertedTasks", "Reverted Tasks")}</h3>
-          {revertedTasks.map((task) => <TaskCard key={`reverted-${task.id}`} task={task} taskColumnFlags={columnFlagsByTaskId?.get(task.id)} projectId={projectId} onOpenDetail={handleOpenTask} onDeleteTask={onDeleteTask} onReviseTask={onReviseTask} addToast={addToast} />)}
+          {revertedTasks.map((task) => <TaskCard key={`reverted-${task.id}`} task={task} taskColumnFlags={columnFlagsByTaskId?.get(task.id)} projectId={projectId} onOpenDetail={handleOpenTask} onDeleteTask={onDeleteTask} onReviseTask={onReviseTask} onUpdateTask={onUpdateTask} addToast={addToast} />)}
         </section>
       )}
       {isEmpty ? (
@@ -138,6 +144,7 @@ export function DockTaskList({ columnFlagsByTaskId,
             Every task Delete affordance must reach the shared confirm→delete flow. The right-dock Tasks list is a TaskCard host, so it must pass onDeleteTask instead of rendering cards that silently lack/delete-disable the destructive path.
             */
             onDeleteTask={onDeleteTask}
+            onUpdateTask={onUpdateTask}
             addToast={addToast}
             prAuthAvailable={prAuthAvailable}
             autoMergeEnabled={autoMergeEnabled}

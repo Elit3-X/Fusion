@@ -8089,7 +8089,7 @@
       "resetProgressTitle": "Redefinir progresso?"
     },
     "nearDuplicate": {
-      "actions": "Escolha Arquivar para mover esta tarefa para arquivadas, ou Manter para continuar com esta tarefa.",
+      "actions": "This task continues normally. Archive it if the work is already covered, or clear this flag once you have read it.",
       "archiveBtn": "Arquivar",
       "archiveConfirm": "Arquivar",
       "archived": "{{id}} arquivada",
@@ -8102,9 +8102,9 @@
       "deleteMessage": "Excluir {{id}} como duplicado de {{duplicateOf}}?",
       "deleteTitle": "Excluir tarefa duplicada",
       "headline": "Possível duplicado detectado",
-      "keepBtn": "Manter",
-      "kept": "{{id}} mantida e aviso de duplicado dispensado",
-      "triageActions": "Escolha Excluir para remover este duplicado, ou Manter para continuar mesmo assim."
+      "triageActions": "This task stays paused until you clear this flag or delete it. Delete it if the work is already covered.",
+      "dismissBtn": "Mark the duplicate flag for {{id}} as read",
+      "dismissed": "Duplicate flag cleared for {{id}}"
     },
     "nextRecoveryAt": "Próxima recuperação às {{time}}",
     "no": "Não",
@@ -8677,7 +8677,7 @@
     "descriptionRefined": "Descrição refinada com IA",
     "doneNoMerge": "Concluída (sem merge)",
     "duplicateCheckFailed": "Falha na verificação de duplicados; criando a tarefa mesmo assim.",
-    "duplicateDismissed": "{{taskId}} mantida; aviso de duplicado descartado",
+    "duplicateDismissed": "Duplicate flag cleared for {{taskId}}",
     "duplicateOf": "Duplicada de {{id}}",
     "editTask": "Editar tarefa",
     "enterDescriptionFirst": "Insira uma descrição primeiro",
@@ -8713,10 +8713,7 @@
     "issueClosed": "fechado",
     "issueDeleted": "excluído",
     "issueLeft": "mantido",
-    "keep": "Manter",
-    "keepFailed": "Falha ao manter {{taskId}}: {{error}}",
     "keepProgress": "Manter progresso",
-    "keepTaskTitle": "Manter esta tarefa e descartar o aviso de duplicado",
     "leaveUnchanged": "Deixar sem alterações",
     "lineageConflict": "{{taskId}} possui tarefas descendentes de linhagem ({{children}}) que a referenciam como tarefa de origem.\n\nExcluir mesmo assim, desvinculando essas referências primeiro?",
     "linkedIssueChipAriaLabel": "Issue do GitHub vinculado #{{number}}",
@@ -8740,7 +8737,7 @@
     "moved": "{{taskId}} movida para {{column}}",
     "moveFailed": "Falha ao mover {{taskId}}: {{error}}",
     "moveTask": "Mover tarefa",
-    "nearDuplicateTitle": "Possível quase duplicata de {{id}}",
+    "nearDuplicateTitle": "Flagged as a possible duplicate of {{id}}. This task continues normally; clear the flag once you have read it.",
     "needsInput": "Precisa de entrada",
     "noAgentsAvailable": "Nenhum agente disponível",
     "node": "Nó",
@@ -8836,7 +8833,10 @@
     "workflow": "fluxo de trabalho",
     "workflowCheck": "Verificação de fluxo de trabalho",
     "costBadgeTitle": "Custo estimado {{amount}}",
-    "costBadgeAriaLabel": "Custo estimado {{amount}}"
+    "costBadgeAriaLabel": "Custo estimado {{amount}}",
+    "dismissDuplicateFlag": "Mark the duplicate flag for {{id}} as read",
+    "nearDuplicateHeldTitle": "Flagged as a duplicate of {{id}}. This task stays paused until you clear this flag or delete it.",
+    "duplicateDismissFailed": "Failed to clear the duplicate flag for {{taskId}}: {{error}}"
   },
   "terminal": {
     "arrowKeysLabel": "Teclas de seta do terminal",

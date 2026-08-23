@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { memo, useCallback, useState, useRef, useEffect, useLayoutEffect, useMemo, type CSSProperties, type ReactElement } from "react";
 import { createPortal } from "react-dom";
-import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch, GitPullRequest, AlertTriangle, ArrowUpRight, Eye, MoreHorizontal, Sparkles } from "lucide-react";
+import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch, GitPullRequest, AlertTriangle, ArrowUpRight, Eye, MoreHorizontal, Sparkles, X } from "lucide-react";
 import type { Task, TaskDetail, Column, ColumnId, PrInfo, IssueInfo, TaskPriority, GithubIssueAction, MergeResult, PlannerOversightLevel } from "@fusion/core";
 import {
   DEFAULT_PLANNER_OVERSIGHT_LEVEL,
@@ -2264,9 +2264,9 @@ function TaskCardComponent({
 
     try {
       await onUpdateTask(task.id, { dismissNearDuplicate: true });
-      addToast(t("tasks.duplicateDismissed", "Kept {{taskId}}; duplicate warning dismissed", { taskId: task.id }), "success");
+      addToast(t("tasks.duplicateDismissed", "Duplicate flag cleared for {{taskId}}", { taskId: task.id }), "success");
     } catch (err) {
-      addToast(t("tasks.keepFailed", "Failed to keep {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(err) }), "error");
+      addToast(t("tasks.duplicateDismissFailed", "Failed to clear the duplicate flag for {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(err) }), "error");
     }
   }, [addToast, onUpdateTask, task.id]);
 
@@ -3272,26 +3272,35 @@ function TaskCardComponent({
         </span>
       )}
       {showNearDuplicateChip && (
-        <>
+        /*
+        FNXC:NearDuplicateDetection 2026-08-23-04:10:
+        FN-173 removed the undiscoverable Keep decision button. The tag is an acknowledgeable notification;
+        clearing it deliberately uses dismissNearDuplicate so triage-marker holds release instead of stranding paused cards.
+        */
+        <span className="card-duplicate-chip-group">
           <span
             className="card-duplicate-chip"
-            title={t("tasks.nearDuplicateTitle", "Potential near-duplicate of {{id}}", { id: String(task.sourceMetadata?.nearDuplicateOf) })}
-            aria-label={t("tasks.nearDuplicateTitle", "Potential near-duplicate of {{id}}", { id: String(task.sourceMetadata?.nearDuplicateOf) })}
+            title={isTriageDuplicateDecision
+              ? t("tasks.nearDuplicateHeldTitle", "Flagged as a duplicate of {{id}}. This task stays paused until you clear this flag or delete it.", { id: String(task.sourceMetadata?.nearDuplicateOf) })
+              : t("tasks.nearDuplicateTitle", "Flagged as a possible duplicate of {{id}}. This task continues normally; clear the flag once you have read it.", { id: String(task.sourceMetadata?.nearDuplicateOf) })}
+            aria-label={isTriageDuplicateDecision
+              ? t("tasks.nearDuplicateHeldTitle", "Flagged as a duplicate of {{id}}. This task stays paused until you clear this flag or delete it.", { id: String(task.sourceMetadata?.nearDuplicateOf) })
+              : t("tasks.nearDuplicateTitle", "Flagged as a possible duplicate of {{id}}. This task continues normally; clear the flag once you have read it.", { id: String(task.sourceMetadata?.nearDuplicateOf) })}
           >
             <span>{t("tasks.duplicateOf", "Duplicate of {{id}}", { id: String(task.sourceMetadata?.nearDuplicateOf) })}</span>
           </span>
           {onUpdateTask && (
             <button
               type="button"
-              className="card-duplicate-keep"
+              className="card-duplicate-dismiss"
               onClick={(e) => void handleDismissNearDuplicate(e)}
-              title={t("tasks.keepTaskTitle", "Keep this task and dismiss duplicate warning")}
-              aria-label={t("tasks.keepTaskTitle", "Keep this task and dismiss duplicate warning")}
+              title={t("tasks.dismissDuplicateFlag", "Mark the duplicate flag for {{id}} as read", { id: String(task.sourceMetadata?.nearDuplicateOf) })}
+              aria-label={t("tasks.dismissDuplicateFlag", "Mark the duplicate flag for {{id}} as read", { id: String(task.sourceMetadata?.nearDuplicateOf) })}
             >
-              {t("tasks.keep", "Keep")}
+              <X size={11} aria-hidden="true" />
             </button>
           )}
-        </>
+        </span>
       )}
       {chipFarRight && (showTrackingIndicator || showLinkedIssueChipForImport) && githubTrackedIssue && (
         <a

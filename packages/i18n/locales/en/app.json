@@ -8089,7 +8089,7 @@
       "resetProgressTitle": "Reset Progress?"
     },
     "nearDuplicate": {
-      "actions": "Choose Archive to move this task to archived, or Keep to continue with this task.",
+      "actions": "This task continues normally. Archive it if the work is already covered, or clear this flag once you have read it.",
       "archiveBtn": "Archive",
       "archiveConfirm": "Archive",
       "archived": "Archived {{id}}",
@@ -8102,9 +8102,9 @@
       "deleteMessage": "Delete {{id}} as a duplicate of {{duplicateOf}}?",
       "deleteTitle": "Delete duplicate task",
       "headline": "Potential duplicate detected",
-      "keepBtn": "Keep",
-      "kept": "Kept {{id}} and dismissed duplicate warning",
-      "triageActions": "Choose Delete to remove this duplicate, or Keep to continue anyway."
+      "triageActions": "This task stays paused until you clear this flag or delete it. Delete it if the work is already covered.",
+      "dismissBtn": "Mark the duplicate flag for {{id}} as read",
+      "dismissed": "Duplicate flag cleared for {{id}}"
     },
     "nextRecoveryAt": "Next recovery at {{time}}",
     "no": "No",
@@ -8677,7 +8677,7 @@
     "descriptionRefined": "Description refined with AI",
     "doneNoMerge": "Done (no merge)",
     "duplicateCheckFailed": "Duplicate check failed; creating task anyway.",
-    "duplicateDismissed": "Kept {{taskId}}; duplicate warning dismissed",
+    "duplicateDismissed": "Duplicate flag cleared for {{taskId}}",
     "duplicateOf": "Duplicate of {{id}}",
     "editTask": "Edit task",
     "enterDescriptionFirst": "Enter a description first",
@@ -8713,10 +8713,7 @@
     "issueClosed": "closed",
     "issueDeleted": "deleted",
     "issueLeft": "left",
-    "keep": "Keep",
-    "keepFailed": "Failed to keep {{taskId}}: {{error}}",
     "keepProgress": "Keep Progress",
-    "keepTaskTitle": "Keep this task and dismiss duplicate warning",
     "leaveUnchanged": "Leave Unchanged",
     "lineageConflict": "{{taskId}} has lineage children ({{children}}) that reference it as a source parent.\n\nDelete anyway by unlinking these references first?",
     "linkedIssueChipAriaLabel": "Linked GitHub issue #{{number}}",
@@ -8740,7 +8737,7 @@
     "moved": "Moved {{taskId}} to {{column}}",
     "moveFailed": "Failed to move {{taskId}}: {{error}}",
     "moveTask": "Move task",
-    "nearDuplicateTitle": "Potential near-duplicate of {{id}}",
+    "nearDuplicateTitle": "Flagged as a possible duplicate of {{id}}. This task continues normally; clear the flag once you have read it.",
     "needsInput": "Needs input",
     "noAgentsAvailable": "No agents available",
     "node": "Node",
@@ -8836,7 +8833,10 @@
     "workflow": "workflow",
     "workflowCheck": "Workflow check",
     "costBadgeTitle": "Estimated cost {{amount}}",
-    "costBadgeAriaLabel": "Estimated cost {{amount}}"
+    "costBadgeAriaLabel": "Estimated cost {{amount}}",
+    "dismissDuplicateFlag": "Mark the duplicate flag for {{id}} as read",
+    "nearDuplicateHeldTitle": "Flagged as a duplicate of {{id}}. This task stays paused until you clear this flag or delete it.",
+    "duplicateDismissFailed": "Failed to clear the duplicate flag for {{taskId}}: {{error}}"
   },
   "terminal": {
     "arrowKeysLabel": "Terminal arrow keys",
