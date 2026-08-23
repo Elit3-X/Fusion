@@ -34,6 +34,7 @@ import { type Agent, type ChatTag, type Settings } from "@fusion/core";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { MicButton } from "./MicButton";
 import { ChatThinkingLevelControl } from "./ChatThinkingLevelControl";
+import { ChatThreadTitleSwitcher } from "./ChatThreadTitleSwitcher";
 import { PendingChatMessageQueue } from "./PendingChatMessageQueue";
 import { AgentMentionPopup } from "./AgentMentionPopup";
 import { AgentAvatar } from "./AgentAvatar";
@@ -636,6 +637,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
 
   const {
     activeSession,
+    sessions,
     sessionsLoading,
     messages,
     messagesLoading,
@@ -4039,7 +4041,20 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
             </button>
             <div className="chat-thread-header-identity" data-testid="chat-thread-header-identity">
               {activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="md" /> : <Bot size={16} />}
-              <span className="chat-thread-header-title" title={threadHeaderTitle}>{threadHeaderTitle}</span>
+              {/*
+              FNXC:ChatTitleSwitcher 2026-08-23-03:13:
+              FN-9192 makes the Direct title the in-place conversation switcher because the detail
+              view hides the sidebar on every host. Selection must use handleSessionClick so unread
+              state, selectSession, and detail-open behavior remain owned by the existing path.
+              */}
+              <ChatThreadTitleSwitcher
+                title={threadHeaderTitle}
+                sessions={sessions}
+                activeSessionId={activeSession?.id ?? null}
+                onSelect={handleSessionClick}
+                onViewAll={handleBack}
+                isUnread={(session) => isUnread("direct", session.id, session.lastMessageAt ?? session.updatedAt)}
+              />
               {showThreadHeaderModelTag && <span className="chat-model-tag">{activeModelTag}</span>}
               {showThreadHeaderContextWindow && threadHeaderContextValue && threadHeaderContextLabel && chatContextUsage ? (
                 <span

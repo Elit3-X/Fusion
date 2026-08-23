@@ -116,6 +116,10 @@ Thinking panes split titled reasoning traces into independently expandable secti
 
 In an active visible Chat list, <kbd>Ctrl+F</kbd> or <kbd>Cmd+F</kbd> focuses the existing conversation search without changing its query. In a selected Direct conversation, Room, or native/hybrid CLI transcript, the same chord opens **Find in conversation**. Type a literal case-insensitive query, use Enter (Shift+Enter for previous) or the previous/next controls to move through matching message rows, and use Escape or Close search to dismiss it. Only the activated full, floating, or docked Chat host owns the chord; raw/generic CLI terminals and nested dialogs keep their own browser or terminal behavior.
 
+### Direct conversation switcher
+
+When a Direct conversation is open, click its thread title or activate it with the keyboard to open the conversation switcher. Pick a listed conversation to switch in place, or choose **All conversations** to return to the full list. The menu shows pinned conversations first and then recent conversations, with up to 12 entries; the current conversation is marked. Room titles remain plain text and do not open this switcher.
+
 <!-- FNXC:ModalGeometryPersistenceDocs 2026-07-16-00:40: Full-screen mobile FloatingWindow sheets must preserve, rather than overwrite, the movable desktop geometry record so a later desktop reopen restores the user's chosen location and size. -->
 <!-- FNXC:GitHubImport 2026-08-02-02:51: FN-8722 confirms that standalone GitHub Import also uses the canonical width-or-height sheet contract, so the operator guide must not describe short-sheet preservation as Artifact Gallery-only. -->
 Movable dashboard pop-outs remember their last desktop location and size, while centered resizable dialogs remember their size. When a pop-out becomes a full-screen sheet at mobile widths or its configured short-height breakpoint, it leaves that desktop record untouched; reopening it on desktop restores the prior floating geometry.
