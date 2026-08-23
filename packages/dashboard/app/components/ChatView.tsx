@@ -7,6 +7,7 @@ import {
   Search,
   Trash2,
   Archive,
+  ArrowLeft,
   Pencil,
   Bot,
   Paperclip,
@@ -3911,6 +3912,13 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
           {rooms.activeRoom ? (
             <>
               <div className="chat-room-thread-header">
+                {/*
+                FNXC:ChatNavigation 2026-08-23-15:54:
+                FN-9199 requires the chat detail Back affordance to render a real lucide ArrowLeft
+                glyph, never a literal less-than text character. Both Rooms and Direct thread
+                headers use this same icon-and-translated-label pattern on every chat host and
+                breakpoint, while aria-label retains the fuller accessible name.
+                */}
                 {!dockedSidebarVisible ? <button
                   type="button"
                   className="btn btn-sm chat-thread-header-back chat-back-btn"
@@ -3918,7 +3926,8 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                   data-testid="chat-back-btn"
                   aria-label={t("chat.backToConversations", "Back to conversations")}
                 >
-                  {"< BACK"}
+                  <ArrowLeft size={14} aria-hidden="true" />
+                  <span>{t("chat.back", "Back")}</span>
                 </button> : null}
                 <span className="chat-thread-header-title">#{rooms.activeRoom.name}</span>
                 <div className="chat-room-thread-members">
@@ -4131,7 +4140,8 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
               data-testid="chat-back-btn"
               aria-label={t("chat.backToConversations", "Back to conversations")}
             >
-              {"< BACK"}
+              <ArrowLeft size={14} aria-hidden="true" />
+              <span>{t("chat.back", "Back")}</span>
             </button> : null}
             <div className="chat-thread-header-identity" data-testid="chat-thread-header-identity">
               {activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="md" /> : <Bot size={16} />}

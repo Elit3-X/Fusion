@@ -2181,7 +2181,7 @@ Thinking-section text uses the defined muted text token across all themes. The m
    visible, the thread is hidden; when the sidebar is hidden (a session is
    open), the sidebar is collapsed via .chat-sidebar--hidden and the
    thread takes the full viewport. The thread already renders a back
-   button (ChevronLeft) on mobile to flip back to the session list. */
+   button (ArrowLeft) on mobile to flip back to the session list. */
 @media (max-width: 768px) {
   html[data-viewport-mode="tablet"] .chat-view--docked-list .chat-view__body {
     flex-direction: row;
