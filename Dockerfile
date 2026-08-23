@@ -204,8 +204,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # FNXC:DockerRun 2026-07-23-00:00: Entrypoint uses the absolute app path so it works
 # regardless of the working directory or any volume mounted at /workspace.
-# FNXC:DockerRun 2026-08-23-02:03: The wrapper script best-effort starts tailscaled and then `exec`s
-# that same absolute-path node invocation with CMD verbatim, so PID 1, signal handling, and every
-# documented `docker run ... dashboard --host 0.0.0.0` argument list behave exactly as before.
+# FNXC:DockerRun 2026-08-23-02:03: The wrapper script consumes its own opt-in `--tailscale` flag and
+# then `exec`s that same absolute-path node invocation with the REMAINING args verbatim, so PID 1,
+# signal handling, and every documented `docker run ... dashboard --host 0.0.0.0` argument list behave
+# exactly as before.
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["dashboard", "--host", "0.0.0.0"]
