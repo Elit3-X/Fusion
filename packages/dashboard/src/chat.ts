@@ -172,6 +172,44 @@ const diagnostics: DiagnosticsLogger = {
 };
 
 const SKILL_COMMAND_PATTERN = /(^|\s)\/skill:([^\s]+)/gi;
+const CHAT_RUNTIME_INTERRUPT_TIMEOUT_MS = 5_000;
+
+/**
+ * FNXC:ChatCancellation 2026-08-23-02:53:
+ * Force send and Stop must ask a running runtime to interrupt through its own API,
+ * not only a local AbortController that the runtime never receives. Plugin sessions
+ * such as ACP and Grok expose no interrupt, so this guard is duck-typed; a stalled or
+ * rejecting runtime is bounded so existing disposal and durable reconciliation proceed.
+ */
+async function requestRuntimeSessionInterrupt(session: unknown): Promise<void> {
+  const sessionWithAbort = session as { abort?: () => Promise<void> | void } | undefined;
+  if (typeof sessionWithAbort?.abort !== "function") {
+    return;
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const outcome = await Promise.race([
+      Promise.resolve()
+        .then(() => sessionWithAbort.abort!())
+        .then(() => "completed" as const, (err) => ({ error: err })),
+      new Promise<"timed-out">((resolve) => {
+        timeout = setTimeout(() => resolve("timed-out"), CHAT_RUNTIME_INTERRUPT_TIMEOUT_MS);
+      }),
+    ]);
+    if (outcome === "timed-out") {
+      diagnostics.error("Timed out requesting runtime session interrupt during chat cancellation");
+    } else if (typeof outcome === "object" && "error" in outcome) {
+      diagnostics.error("Failed to request runtime session interrupt during chat cancellation:", outcome.error);
+    }
+  } catch (err) {
+    diagnostics.error("Failed to request runtime session interrupt during chat cancellation:", err);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 function bareChatSkillCommandName(name: string): string {
   return name
@@ -1815,10 +1853,10 @@ export class ChatManager {
     // controller so it stops issuing further prompts/tool calls that would
     // race against the new generation for the same CLI session file.
     //
-    // We deliberately do NOT dispose its agent here — the previous generation
-    // owns its own dispose in its `finally`. Calling dispose pre-emptively can
-    // yank the underlying CLI process out from under the new generation's
-    // freshly-opened SessionManager pointing at the same session file.
+    // We deliberately do NOT request the runtime-native interrupt or dispose its agent here —
+    // the previous generation owns both in its own teardown. Calling dispose pre-emptively can
+    // yank the underlying CLI process out from under the new generation's freshly-opened
+    // SessionManager pointing at the same session file.
     const existing = this.activeGenerations.get(sessionId);
     if (existing) {
       existing.abortController.abort();
@@ -3421,6 +3459,15 @@ export class ChatManager {
       entry.abortController.abort();
 
       if (entry.agentResult) {
+        /*
+         * FNXC:ChatCancellation 2026-08-23-02:53:
+         * Force send and Stop must request the runtime-native interrupt before disposal because
+         * the local controller is not passed to prompt(). ACP/Grok sessions lack abort(), and
+         * this bounded request must finish before the existing durable settled barrier can wait.
+         */
+        if (typeof (entry.agentResult.session as { abort?: unknown }).abort === "function") {
+          await requestRuntimeSessionInterrupt(entry.agentResult.session);
+        }
         try {
           entry.agentResult.session.dispose?.();
         } catch (err) {

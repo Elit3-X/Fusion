@@ -282,7 +282,7 @@ Direct Chat and task-detail Chat share one browser-local, text-only pending queu
 
 Both model-loop surfaces expose the same queue controls: edit an entry, move it earlier or later, delete it, or **Force send** a selected entry. Duplicate text is selected by its position in the list, not by its content. A blank edit is rejected without deleting the queued entry, and queue controls remain named and touch-reachable on narrow screens.
 
-Normal completion and **Stop** release only the FIFO front after cancellation and authoritative history reconciliation. **Force send** first fences and cancels the active stream, waits for cancellation plus reconciliation, then dispatches only the selected entry; failures keep the entry in its original queue position. Attachments are never queued. Activity task chat, Chat Rooms, and CLI-backed chat intentionally keep their separate interaction and transport contracts and do not inherit these model-loop queue controls.
+Normal completion and **Stop** release only the FIFO front after cancellation and authoritative history reconciliation. **Stop** and **Force send** first ask the running model runtime to interrupt through its own interrupt before the response is torn down; runtimes without an interrupt continue through the existing teardown. A runtime that stalls or fails to answer that request cannot delay or break cancellation, history reconciliation, or the queue's failure behavior. **Force send** then dispatches only the selected entry; failures keep the entry in its original queue position. Attachments are never queued. Activity task chat, Chat Rooms, and CLI-backed chat intentionally keep their separate interaction and transport contracts and do not inherit these model-loop queue controls.
 
 ## Automations
 
