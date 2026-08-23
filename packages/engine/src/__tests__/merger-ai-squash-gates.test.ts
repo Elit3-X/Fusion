@@ -38,6 +38,11 @@ function createRepo(change: (dir: string) => void): string {
 
 function makeStore(scope: string[], overrides: Record<string, unknown> = {}) {
   const task: any = {
+    /* FNXC:RequiredPreMergeSteps 2026-08-24-00:20: merge-mechanics fixture, not a review-gating one.
+       The door refuses a card whose enabled optional pre-merge groups produced no result, and the
+       built-in workflow enables Plan and Code Review by default, so an unspecified list failed the
+       door before the behaviour under test ran. An explicit empty list states the intent. */
+    enabledWorkflowSteps: [],
     id: "FN-9050", title: "squash gates", column: "in-review", branch: "fusion/fn-9050",
     comments: [], steeringComments: [], steps: [], log: [], ...overrides,
   };

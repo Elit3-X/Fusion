@@ -451,3 +451,31 @@ AssertionError: expected [ 'approved', 'created' ] to deeply equal [ 'created', 
 This resolves the previously unclassified “unrelated satellite-store ordering failure” mentions in entry 1's 12-worker verification table, entry 2's 12-worker verification table, and entry 11's FN-9129 4-worker run table. Those sightings are now classified separately from their entries' identity and DDL investigations.
 
 **Terminal negative 2026-08-17 (FN-9131):** The reproduced 27-worker PostgreSQL-directory symptom was investigated with a cluster-shared connection-budget primitive. The first harness wiring and a follow-up that queued registry over-subscription while retaining leases both made the loaded run worse (135 failed files in 174.1s, then 144 failed files in 223.3s); the subject itself was not the only failure. The harness wiring was reverted, the primitive remains characterized independently, and FN-9139 owns a setup-safe admission boundary. No quarantine, timeout change, test retry, skip, worker cap, or assertion change was made.
+
+---
+
+## Entry: `self-healing-pending-wedge-notification` marker-selection count (first sighting)
+
+- **File:** `packages/engine/src/__tests__/self-healing-pending-wedge-notification.test.ts`
+- **Exact test:** `reconcile pending wedge notifications > selects elapsed markers and audits the completion outcome verbatim`
+- **Owner:** unowned — first sighting, recorded rather than quarantined because the file's remaining coverage (4 tests over the pending-wedge reconciler) is substantial and quarantine is file-level.
+- **Observed tree/SHA:** `ea48af7ab5`, during a full `@fusion/engine` suite run while auditing pre-existing failures.
+- **Observed frequency:** once, suite-only. Passes deterministically in isolation.
+
+Verbatim observed failure:
+
+```
+FAIL  |engine-default| src/__tests__/self-healing-pending-wedge-notification.test.ts > reconcile pending wedge notifications > selects elapsed markers and audits the completion outcome verbatim
+AssertionError: expected 2 to be 1 // Object.is equality
+ ❯ src/__tests__/self-healing-pending-wedge-notification.test.ts:50:62
+```
+
+| run | result |
+|---|---|
+| full engine suite (967 files), `ea48af7ab5` | **failed** with the verbatim count assertion |
+| same file in isolation, same tree | **passed** (4/4) |
+| full engine suite, baseline `3f448f7292` | not observed |
+
+Reads as cross-test state bleed into the reconciler's marker selection (an expected-1 selection saw 2),
+not a timing wait — so no timeout, retry, or assertion change was made. A SECOND sighting is an
+ordinary on-sight quarantine with no further discretion, per the standing rule in AGENTS.md.

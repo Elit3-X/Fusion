@@ -78,6 +78,11 @@ const approveReviewAgent = async (): Promise<string> => "REVIEW_VERDICT: approve
 
 function makeTask(workspaceWorktrees: Task["workspaceWorktrees"]): Task {
   return {
+    /* FNXC:RequiredPreMergeSteps 2026-08-24-00:20: merge-mechanics fixture, not a review-gating one.
+       The door refuses a card whose enabled optional pre-merge groups produced no result, and the
+       built-in workflow enables Plan and Code Review by default, so an unspecified list failed the
+       door before the behaviour under test ran. An explicit empty list states the intent. */
+    enabledWorkflowSteps: [],
     id: TASK_ID, title: "Workspace merge task", description: "", column: "in-review",
     branch: BRANCH, dependencies: [], steps: [], currentStep: 0, log: [], workspaceWorktrees,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
