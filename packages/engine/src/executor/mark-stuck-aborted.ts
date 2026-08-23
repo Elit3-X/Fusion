@@ -56,12 +56,14 @@ export function markStuckAborted(
   if (shouldRequeue && deps.executing.has(taskId)) {
     const FORCE_REQUEUE_GRACE_MS = 60_000; // 60 s — generous, but bounded
     setTimeout(async () => {
+      process.stderr.write('[F] timer fired\n');
       if (!deps.executing.has(taskId)) return; // executor unwound normally — nothing to do
       // Re-check the latest column: self-healing may have already moved the
       // task out of in-progress (e.g. recoverCompletedTasks → in-review).
       // Force-requeueing in that case would clobber a valid recovery, undo
       // the worktree/branch state that recovery now relies on, and reset
       // step progress.
+      process.stderr.write('[F] pre-getTask\n');
       let latestColumn: string | undefined;
       try {
         const latestTask = await deps.store.getTask(taskId);
@@ -87,6 +89,7 @@ export function markStuckAborted(
         `(likely a hung subprocess) — force-requeueing`,
       );
       try {
+        process.stderr.write('[F] pre-settings\n');
         const settings = await deps.store.getSettings();
         const preserveProgress = settings.preserveProgressOnStuckRequeue !== false;
         const latestTask = await deps.store.getTask(taskId);
@@ -122,10 +125,13 @@ export function markStuckAborted(
 
         // Spawned children must be terminated before the canonical reaper clears
         // spawnedAgents bookkeeping; otherwise child agent sessions would be orphaned.
+        process.stderr.write('[F] pre-terminateChildren\n');
         await deps.terminateAllChildren(taskId).catch((err: unknown) => {
           executorLog.warn(`${taskId}: spawned child cleanup failed during force-requeue: ${err instanceof Error ? err.message : String(err)}`);
         });
+        process.stderr.write('[F] pre-abortInFlight\n');
         await deps.awaitAbortInFlightTaskWork(taskId, "force-requeue after stuck-kill unwind timeout");
+        process.stderr.write('[F] post-abortInFlight\n');
         // awaitAbortInFlightTaskWork marks pausedAborted as a generic abort
         // signal (KB-PROV 2026-07-26: `engine-abort`, since the force-requeue is
         // engine-initiated and passes no `userCanceled`).
@@ -138,7 +144,9 @@ export function markStuckAborted(
         The force path mirrors normal stuck-requeue cleanup: before reaping a hung executor's worktree, reconcile step progress against committed branch state so preserved progress never points at deleted uncommitted work.
         */
         if (!externalExecutionRoute.configured) {
+          process.stderr.write('[F] pre-reset\n');
           await deps.resetStepsIfWorkLost(latestTask);
+          process.stderr.write('[F] post-reset\n');
         }
 
         let cleanupFailed = false;
