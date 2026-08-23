@@ -488,6 +488,95 @@ describe("ChatManager.sendMessage", () => {
     expect(createResolvedSpy).not.toHaveBeenCalled();
   });
 
+  it("persists normalized pi context usage from session stats on assistant messages", async () => {
+    __setCreateResolvedAgentSession(async () => ({
+      session: {
+        prompt: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+        getSessionStats: () => ({
+          tokens: { input: 21, output: 13 },
+          contextUsage: { tokens: 61_234.9, contextWindow: 200_000, percent: 30.617 },
+        }),
+        state: { messages: [{ role: "assistant", content: "Measured response" }] },
+      },
+    }));
+
+    await createChatManager().sendMessage("chat-001", "Hello");
+
+    expect(mockChatStore.addMessage).toHaveBeenLastCalledWith("chat-001", expect.objectContaining({
+      role: "assistant",
+      metadata: expect.objectContaining({
+        contextUsage: { tokens: 61_234, contextWindow: 200_000, percent: 30.617 },
+      }),
+    }));
+  });
+
+  it("falls back to pi getContextUsage and preserves post-compaction context usage", async () => {
+    __setCreateResolvedAgentSession(async () => ({
+      session: {
+        prompt: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+        getSessionStats: () => ({ tokens: { input: 4, output: 2 } }),
+        getContextUsage: () => ({ tokens: null, contextWindow: 200_000, percent: null }),
+        state: { messages: [{ role: "assistant", content: "Compacted response" }] },
+      },
+    }));
+
+    await createChatManager().sendMessage("chat-001", "Hello");
+
+    expect(mockChatStore.addMessage).toHaveBeenLastCalledWith("chat-001", expect.objectContaining({
+      metadata: expect.objectContaining({
+        contextUsage: { tokens: null, contextWindow: 200_000, percent: null },
+      }),
+    }));
+    expect(mockChatStore.recordTokenUsage).toHaveBeenCalledWith(expect.objectContaining({ totalTokens: 6 }));
+  });
+
+  it("drops malformed pi context usage without changing token accounting", async () => {
+    __setCreateResolvedAgentSession(async () => ({
+      session: {
+        prompt: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+        getSessionStats: () => ({
+          tokens: { input: 7, output: 3 },
+          contextUsage: { tokens: "invalid", contextWindow: 0, percent: 10 },
+        }),
+        getContextUsage: () => ({ tokens: "also-invalid", contextWindow: 0, percent: null }),
+        state: { messages: [{ role: "assistant", content: "Malformed response" }] },
+      },
+    }));
+
+    await createChatManager().sendMessage("chat-001", "Hello");
+
+    expect(mockChatStore.addMessage).toHaveBeenLastCalledWith("chat-001", expect.objectContaining({ metadata: undefined }));
+    expect(mockChatStore.recordTokenUsage).toHaveBeenCalledWith(expect.objectContaining({
+      inputTokens: 7,
+      outputTokens: 3,
+      totalTokens: 10,
+    }));
+  });
+
+  it("keeps token accounting when an optional context accessor fails", async () => {
+    __setCreateResolvedAgentSession(async () => ({
+      session: {
+        prompt: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+        getSessionStats: () => ({ tokens: { input: 7, output: 3 } }),
+        getContextUsage: () => { throw new Error("optional context unavailable"); },
+        state: { messages: [{ role: "assistant", content: "Fallback failure" }] },
+      },
+    }));
+
+    await createChatManager().sendMessage("chat-001", "Hello");
+
+    expect(mockChatStore.addMessage).toHaveBeenLastCalledWith("chat-001", expect.objectContaining({ metadata: undefined }));
+    expect(mockChatStore.recordTokenUsage).toHaveBeenCalledWith(expect.objectContaining({
+      inputTokens: 7,
+      outputTokens: 3,
+      totalTokens: 10,
+    }));
+  });
+
   it("records successful chat session token usage from provider stats", async () => {
     __setCreateResolvedAgentSession(async () => ({
       session: {

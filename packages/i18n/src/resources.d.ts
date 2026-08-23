@@ -1257,6 +1257,9 @@ export default interface Resources {
       "clearConversationFailed": "Failed to clear conversation",
       "closeQuickChat": "Close quick chat",
       "contextWindowAria": "Estimated {{used}} of {{total}} context tokens",
+      "contextWindowMeasuredAria": "Session context {{used}} of {{total}} tokens ({{percent}}%), provider-reported input and output",
+      "contextWindowPendingAria": "Session context unknown until the next reply — {{total}} token window",
+      "contextWindowPendingValue": "— / {{total}}",
       "conversationArchived": "Conversation archived",
       "conversationDeleted": "Conversation deleted",
       "conversationName": "Conversation name",
@@ -9063,6 +9066,14 @@ export default interface Resources {
       "resetButton": "Reset to defaults",
       "resetLabel": "Reset to default theme"
     },
+    "thinking": {
+      "collapseAll": "Collapse all",
+      "expandAll": "Expand all",
+      "noDetail": "No reasoning captured for this step",
+      "sectionCount": "{{count}} section",
+      "sectionCountPlural": "{{count}} sections",
+      "untitledSection": "Untitled reasoning"
+    },
     "todo": {
       "addItemPlaceholder": "Add a todo item",
       "addList": "Add list",
@@ -10158,14 +10169,6 @@ export default interface Resources {
       "summarySeamReview": "Review (engine)",
       "summarySeamStepExecute": "Step execute (engine)",
       "summarySeamUnknown": "Seam: {{seam}}"
-    },
-    "thinking": {
-      "expandAll": "Expand all",
-      "collapseAll": "Collapse all",
-      "noDetail": "No reasoning captured for this step",
-      "untitledSection": "Untitled reasoning",
-      "sectionCount": "{{count}} section",
-      "sectionCountPlural": "{{count}} sections"
     }
   },
   "errors": {

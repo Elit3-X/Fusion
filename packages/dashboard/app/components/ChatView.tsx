@@ -51,7 +51,8 @@ import { useOverlayDismiss } from "../hooks/useOverlayDismiss";
 import { matchesAgentMentionFilter } from "./mentionMatching";
 import { useNavigationHistoryContext } from "../hooks/useNavigationHistory";
 import { recordResumeEvent } from "../utils/resumeInstrumentation";
-import { estimateChatTokens, formatTokenCount } from "../utils/estimateChatTokens";
+import { formatTokenCount } from "../utils/estimateChatTokens";
+import { resolveChatContextUsage } from "../utils/chatContextUsage";
 import { copyTextToClipboard } from "../utils/copyToClipboard";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -2656,9 +2657,13 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     );
     return matchedModel?.contextWindow ? matchedModel.contextWindow : null;
   }, [activeResolvedModel?.modelId, activeResolvedModel?.provider, models]);
-  const estimatedChatTokens = useMemo(
-    () => estimateChatTokens(messages, isStreaming ? streamingText : undefined),
-    [isStreaming, messages, streamingText],
+  const chatContextUsage = useMemo(
+    () => resolveChatContextUsage({
+      messages,
+      streamingText: isStreaming ? streamingText : null,
+      fallbackContextWindow: activeContextWindow,
+    }),
+    [activeContextWindow, isStreaming, messages, streamingText],
   );
   const activeModelTag = formatModelTag(activeResolvedModel?.provider, activeResolvedModel?.modelId);
   const activeModelProvider = activeResolvedModel?.provider ?? null;
@@ -2784,14 +2789,29 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   const threadHeaderTitle = activeSession?.title?.trim() || t("chat.untitledConversation", "Untitled conversation");
 
   const showThreadHeaderModelTag = Boolean(activeModelTag);
-  const showThreadHeaderContextWindow = !isChatMobile && hasThreadInView && activeContextWindow !== null;
-  const threadHeaderContextUsed = formatTokenCount(estimatedChatTokens);
-  const threadHeaderContextTotal = activeContextWindow !== null ? formatTokenCount(activeContextWindow) : null;
-  const threadHeaderContextLabel = threadHeaderContextTotal
-    ? t("chat.contextWindowAria", "Estimated {{used}} of {{total}} context tokens", {
-      used: threadHeaderContextUsed,
-      total: threadHeaderContextTotal,
-    })
+  const showThreadHeaderContextWindow = !isChatMobile && hasThreadInView && chatContextUsage !== null;
+  const threadHeaderContextTotal = chatContextUsage ? formatTokenCount(chatContextUsage.total, { approximate: false }) : null;
+  const threadHeaderContextUsed = chatContextUsage?.used === null || chatContextUsage?.used === undefined
+    ? null
+    : formatTokenCount(chatContextUsage.used, { approximate: chatContextUsage.approximate });
+  const threadHeaderContextValue = chatContextUsage?.source === "pending" && threadHeaderContextTotal
+    ? t("chat.contextWindowPendingValue", "— / {{total}}", { total: threadHeaderContextTotal })
+    : threadHeaderContextUsed && threadHeaderContextTotal
+      ? `${threadHeaderContextUsed} / ${threadHeaderContextTotal}`
+      : null;
+  const threadHeaderContextLabel = chatContextUsage && threadHeaderContextTotal
+    ? chatContextUsage.source === "measured"
+      ? t("chat.contextWindowMeasuredAria", "Session context {{used}} of {{total}} tokens ({{percent}}%), provider-reported input and output", {
+        used: threadHeaderContextUsed,
+        total: threadHeaderContextTotal,
+        percent: Number((chatContextUsage.percent ?? 0).toFixed(1)),
+      })
+      : chatContextUsage.source === "pending"
+        ? t("chat.contextWindowPendingAria", "Session context unknown until the next reply — {{total}} token window", { total: threadHeaderContextTotal })
+        : t("chat.contextWindowAria", "Estimated {{used}} of {{total}} context tokens", {
+          used: threadHeaderContextUsed,
+          total: threadHeaderContextTotal,
+        })
     : null;
 
   const agentName =
@@ -4021,14 +4041,15 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
               {activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="md" /> : <Bot size={16} />}
               <span className="chat-thread-header-title" title={threadHeaderTitle}>{threadHeaderTitle}</span>
               {showThreadHeaderModelTag && <span className="chat-model-tag">{activeModelTag}</span>}
-              {showThreadHeaderContextWindow && threadHeaderContextTotal && threadHeaderContextLabel ? (
+              {showThreadHeaderContextWindow && threadHeaderContextValue && threadHeaderContextLabel && chatContextUsage ? (
                 <span
                   className="chat-thread-header-context"
                   data-testid="chat-thread-context-window"
+                  data-context-source={chatContextUsage.source}
                   title={threadHeaderContextLabel}
                   aria-label={threadHeaderContextLabel}
                 >
-                  {threadHeaderContextUsed} / {threadHeaderContextTotal}
+                  {threadHeaderContextValue}
                 </span>
               ) : null}
             </div>
