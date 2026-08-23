@@ -1583,6 +1583,23 @@ pgDescribe("schema-applier: automation project-isolation upgrade", () => {
         created_at text NOT NULL,
         updated_at text NOT NULL
       );
+      /*
+      FNXC:PgSchemaApplier 2026-08-23-00:06:
+      Migration 0061 (activity-log task-id index) builds an index on central.central_activity_log,
+      a table real 0000 databases have from 0000_initial.sql. This historical fixture must retain it
+      so upgrade-from-0000 reaches the current baseline instead of failing on a missing relation.
+      */
+      CREATE TABLE central.central_activity_log (
+        id text PRIMARY KEY,
+        timestamp text NOT NULL,
+        type text NOT NULL,
+        project_id text NOT NULL,
+        project_name text NOT NULL,
+        task_id text,
+        task_title text,
+        details text NOT NULL,
+        metadata jsonb
+      );
       /* FNXC:GitHubImportTranslate 2026-07-16-23:30: Later durable-task migrations run after this historical 0000 fixture, so retain their required task table surface. */
       /*
       FNXC:PgSchemaApplier 2026-08-15-22:10:
@@ -1757,6 +1774,11 @@ pgDescribe("schema-applier: automation project-isolation upgrade", () => {
       MESSAGE_ARCHIVE_SCHEMA_VERSION,
       TASK_SOURCE_AGENT_INDEX_VERSION,
       WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION,
+      ACTIVITY_LOG_TASK_ID_INDEX_VERSION,
+      REMOVE_TASK_SUBTASK_SPLITTING_VERSION,
+      AI_MERGE_REVIEW_RECONCILIATION_VERSION,
+      TASK_REPOSITORY_SCOPE_VERSION,
+      REVIEW_CONVERGENCE_STAGE_VERSION,
     ]);
     expect((await applySchemaBaseline(ctx.db, { pluginHooks: [] })).applied).toBe(false);
   });
@@ -1843,6 +1865,11 @@ pgDescribe("schema-applier: automation project-isolation upgrade", () => {
       MESSAGE_ARCHIVE_SCHEMA_VERSION,
       TASK_SOURCE_AGENT_INDEX_VERSION,
       WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION,
+      ACTIVITY_LOG_TASK_ID_INDEX_VERSION,
+      REMOVE_TASK_SUBTASK_SPLITTING_VERSION,
+      AI_MERGE_REVIEW_RECONCILIATION_VERSION,
+      TASK_REPOSITORY_SCOPE_VERSION,
+      REVIEW_CONVERGENCE_STAGE_VERSION,
     ]);
   });
 
@@ -2062,6 +2089,11 @@ pgDescribe("schema-applier: automation project-isolation upgrade", () => {
       MESSAGE_ARCHIVE_SCHEMA_VERSION,
       TASK_SOURCE_AGENT_INDEX_VERSION,
       WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION,
+      ACTIVITY_LOG_TASK_ID_INDEX_VERSION,
+      REMOVE_TASK_SUBTASK_SPLITTING_VERSION,
+      AI_MERGE_REVIEW_RECONCILIATION_VERSION,
+      TASK_REPOSITORY_SCOPE_VERSION,
+      REVIEW_CONVERGENCE_STAGE_VERSION,
     ]);
   });
 
@@ -2162,6 +2194,11 @@ pgDescribe("schema-applier: automation project-isolation upgrade", () => {
       MESSAGE_ARCHIVE_SCHEMA_VERSION,
       TASK_SOURCE_AGENT_INDEX_VERSION,
       WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION,
+      ACTIVITY_LOG_TASK_ID_INDEX_VERSION,
+      REMOVE_TASK_SUBTASK_SPLITTING_VERSION,
+      AI_MERGE_REVIEW_RECONCILIATION_VERSION,
+      TASK_REPOSITORY_SCOPE_VERSION,
+      REVIEW_CONVERGENCE_STAGE_VERSION,
     ]);
   });
 
@@ -2262,6 +2299,11 @@ pgDescribe("schema-applier: automation project-isolation upgrade", () => {
       MESSAGE_ARCHIVE_SCHEMA_VERSION,
       TASK_SOURCE_AGENT_INDEX_VERSION,
       WORKSPACE_COORDINATION_LEASES_SCHEMA_VERSION,
+      ACTIVITY_LOG_TASK_ID_INDEX_VERSION,
+      REMOVE_TASK_SUBTASK_SPLITTING_VERSION,
+      AI_MERGE_REVIEW_RECONCILIATION_VERSION,
+      TASK_REPOSITORY_SCOPE_VERSION,
+      REVIEW_CONVERGENCE_STAGE_VERSION,
     ]);
   });
 });
