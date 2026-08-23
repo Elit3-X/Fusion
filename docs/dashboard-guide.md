@@ -754,7 +754,7 @@ The full **New Task** dialog includes a compact **GitHub issue or PR** picker ne
 
 ## Chat View
 
-Chat view provides project-scoped conversations with agents. Every host—embedded Chat, Quick Chat, and the dock—starts at the conversation list. Select a conversation to open its thread.
+Chat view provides project-scoped conversations with agents. Every host—embedded Chat, Quick Chat, and the dock—starts at the conversation list. Select a conversation to open its thread. When the software keyboard is open, the composer remains visible on phones in portrait and landscape, tablets/iPad, compact right-dock Chat, and narrow floating Quick Chat; desktop Chat is unaffected.
 
 ### Docked conversation sidebar
 

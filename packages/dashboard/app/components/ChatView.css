@@ -496,6 +496,31 @@ FN-8191 gives the conversation action menu a token-composed border-box width. Ch
   position: relative;
 }
 
+/*
+FNXC:ChatComposer 2026-08-23-16:07:
+This clamp is class-gated rather than width-gated: iPhone landscape, iPad, compact dock, and
+narrow floating Chat can all have a visible keyboard outside a phone-width media query. The
+measured thread top accounts for host chrome above Chat instead of assuming only the app header.
+*/
+.chat-thread--keyboard-active {
+  height: calc(var(--vv-height, calc(100dvh - var(--keyboard-overlap, 0px))) - var(--chat-thread-viewport-top, var(--header-height)));
+  max-height: calc(var(--vv-height, calc(100dvh - var(--keyboard-overlap, 0px))) - var(--chat-thread-viewport-top, var(--header-height)));
+  /* NOTE: the translateY drift compensation is applied imperatively in
+     JS (see ChatView's vv `apply()`), NOT here. Declaring
+     `transform`/`will-change: transform` in CSS keeps a non-`none`
+     transform on .chat-thread for the entire keyboard-active window —
+     and since .chat-thread is an ancestor of the focused composer
+     textarea, iOS Safari treats establishing that containing block as a
+     reason to blur the input and collapse the keyboard the instant it
+     opens. JS only sets a transform when there is real viewport drift
+     (offsetTop > 0); at the focus moment offsetTop is 0, so the
+     ancestor stays `transform: none` and the keyboard stays up. */
+}
+
+.chat-thread--keyboard-active .chat-input-area {
+  padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-accessory-clearance, 0px));
+}
+
 .chat-thread-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
@@ -2222,25 +2247,6 @@ Thinking-section text uses the defined muted text token across all themes. The m
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-  }
-
-  .chat-thread--keyboard-active {
-    height: calc(var(--vv-height, calc(100dvh - var(--keyboard-overlap, 0px))) - var(--header-height));
-    max-height: calc(var(--vv-height, calc(100dvh - var(--keyboard-overlap, 0px))) - var(--header-height));
-    /* NOTE: the translateY drift compensation is applied imperatively in
-       JS (see ChatView's vv `apply()`), NOT here. Declaring
-       `transform`/`will-change: transform` in CSS keeps a non-`none`
-       transform on .chat-thread for the entire keyboard-active window —
-       and since .chat-thread is an ancestor of the focused composer
-       textarea, iOS Safari treats establishing that containing block as a
-       reason to blur the input and collapse the keyboard the instant it
-       opens. JS only sets a transform when there is real viewport drift
-       (offsetTop > 0); at the focus moment offsetTop is 0, so the
-       ancestor stays `transform: none` and the keyboard stays up. */
-  }
-
-  .chat-thread--keyboard-active .chat-input-area {
-    padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-accessory-clearance, 0px));
   }
 
   /* On mobile, the active scope affordance uses a full-width pinned footer. */

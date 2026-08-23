@@ -912,6 +912,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   const isMobile = mode === "mobile";
   const isTablet = mode === "tablet";
   const chatViewRef = useRef<HTMLDivElement>(null);
+  const appliedThreadTranslateYRef = useRef(0);
   const [floatingNarrow, setFloatingNarrow] = useState(false);
   /*
   FNXC:ChatModal 2026-06-22-14:38:
@@ -938,6 +939,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     return () => observer.disconnect();
   }, [floating]);
   const isChatMobile = isMobile || floatingNarrow || compactLayout;
+  const keyboardTrackedHost = isChatMobile || isTablet;
   /*
   FNXC:ChatNavigation 2026-08-23-03:40:
   FN-9193 restores an optional conversation list only for non-floating tablet-or-wider hosts.
@@ -1053,9 +1055,15 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   }, [activeDraftKey, messageInput]);
 
   const roomThreadActive = chatRoomsEnabled && chatScope === "rooms" && !!rooms.activeRoom;
+  /*
+  FNXC:ChatComposer 2026-08-23-16:07:
+  The composer must track the soft keyboard on every Fusion-classified Chat host, not only a
+  phone-width viewport. Keep enabled and allowNonMobileViewport on keyboardTrackedHost so the
+  hook's internal width heuristic cannot disagree with Chat's tablet, dock, or floating host.
+  */
   const { keyboardOverlap, keyboardOpen } = useMobileKeyboard({
-    enabled: (isChatMobile || isTablet) && (!!activeSession || roomThreadActive),
-    allowNonMobileViewport: isTablet,
+    enabled: keyboardTrackedHost && (!!activeSession || roomThreadActive),
+    allowNonMobileViewport: keyboardTrackedHost,
   });
 
   const filteredSkills = useMemo(() => {
@@ -1496,10 +1504,18 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   // window.scrollTo(0, 0) on cleanup to recover from any iOS drift.
   useMobileKeyboardViewportLock(isMobile && keyboardOpen);
 
-  // FN-5365: mirror QuickChatFAB keyboard handling by writing visualViewport
-  // metrics directly to .chat-thread, avoiding React commit lag/jitter.
+  /*
+  FNXC:ChatComposer 2026-08-23-16:07:
+  The composer must remain inside the visual viewport whenever Fusion knows a soft keyboard is
+  up on phone portrait/landscape, tablet, compact dock, or narrow floating Chat. The writer,
+  hook enabled state, and allowNonMobileViewport deliberately share keyboardTrackedHost so their
+  host gates cannot drift. Detection remains a layout-height-minus-visual-height gap; the measured
+  thread top lets CSS account for dock/floating chrome instead of assuming only the app header.
+  Landscape-phone keyboard state newly reaches the existing touch guard while its body lock keeps
+  its own phone-width iOS gate, so this does not add body pinning on wide hosts.
+  */
   useLayoutEffect(() => {
-    if (!isMobile || (!activeSession && !roomThreadActive)) return;
+    if (!keyboardTrackedHost || (!activeSession && !roomThreadActive)) return;
     if (typeof window === "undefined") return;
 
     const thread = chatThreadRef.current;
@@ -1518,8 +1534,10 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       if (suppressVvShrinkRef.current) {
         thread.classList.remove("chat-thread--keyboard-active");
         thread.style.setProperty("--chat-keyboard-accessory-clearance", "0px");
+        thread.style.removeProperty("--chat-thread-viewport-top");
         thread.style.transform = "";
         thread.style.willChange = "";
+        appliedThreadTranslateYRef.current = 0;
         return;
       }
       const overlap = Math.max(0, window.innerHeight - vv.offsetTop - vv.height);
@@ -1527,6 +1545,15 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       thread.style.setProperty("--vv-height", `${vv.height}px`);
       thread.style.setProperty("--vv-offset-top", `${offsetTop}px`);
       thread.style.setProperty("--keyboard-overlap", `${overlap}px`);
+
+      const threadRect = thread.getBoundingClientRect();
+      if (threadRect.height > 0) {
+        const untransformedTop = Math.max(0, threadRect.top - appliedThreadTranslateYRef.current - offsetTop);
+        const viewportTop = Math.min(vv.height, untransformedTop);
+        thread.style.setProperty("--chat-thread-viewport-top", `${viewportTop}px`);
+      } else {
+        thread.style.removeProperty("--chat-thread-viewport-top");
+      }
 
       const keyboardActive = (overlap > 0 || offsetTop > 0) && isKeyboardTrackingFocusable(document.activeElement);
       thread.classList.toggle("chat-thread--keyboard-active", keyboardActive);
@@ -1550,9 +1577,11 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       if (keyboardActive && offsetTop > 0) {
         thread.style.transform = `translateY(${offsetTop}px)`;
         thread.style.willChange = "transform";
+        appliedThreadTranslateYRef.current = offsetTop;
       } else {
         thread.style.transform = "";
         thread.style.willChange = "";
+        appliedThreadTranslateYRef.current = 0;
       }
     };
 
@@ -1572,10 +1601,12 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       document.removeEventListener("visibilitychange", apply);
       thread.classList.remove("chat-thread--keyboard-active");
       thread.style.setProperty("--chat-keyboard-accessory-clearance", "0px");
+      thread.style.removeProperty("--chat-thread-viewport-top");
       thread.style.transform = "";
       thread.style.willChange = "";
+      appliedThreadTranslateYRef.current = 0;
     };
-  }, [activeSession, isMobile, roomThreadActive]);
+  }, [activeSession, keyboardTrackedHost, roomThreadActive]);
 
   // Close context menu on outside click
   useEffect(() => {
