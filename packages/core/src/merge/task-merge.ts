@@ -616,6 +616,7 @@ export function getMergeConfirmedFinalizationBlocker(
   options: { reviewColumns?: ReadonlySet<string>; requiredPreMergeStepIds?: ReadonlySet<string> } = {},
 ): string | undefined {
   /*
+  FNXC:MergeConfirmedFinalization 2026-08-23-17:55:
   THE EXEMPTION NEEDS A DURABLE MERGE RECORD, not merely a belief that content landed. Two nearby
   paths look similar and are not:
 
@@ -635,7 +636,14 @@ export function getMergeConfirmedFinalizationBlocker(
   const hasDurableMergeRecord = task.mergeDetails?.mergeConfirmed === true
     && typeof task.mergeDetails.commitSha === "string"
     && task.mergeDetails.commitSha.length > 0;
-  return getTaskHardMergeBlocker(hasDurableMergeRecord ? { ...task, steps: [] } : task, options);
+  /*
+  FNXC:MergeConfirmedFinalization 2026-08-23-09:38:
+  Forward the resolved review-lane context explicitly so finalization keeps project workflow semantics and the lane-wiring ratchet can prove the seam is active.
+  */
+  return getTaskHardMergeBlocker(hasDurableMergeRecord ? { ...task, steps: [] } : task, {
+    reviewColumns: options.reviewColumns,
+    requiredPreMergeStepIds: options.requiredPreMergeStepIds,
+  });
 }
 
 /** Non-terminal steps on a card being finalized after a proven merge — recorded, never silently dropped. */

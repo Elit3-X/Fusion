@@ -1125,12 +1125,13 @@ describe("getMergeConfirmedFinalizationBlocker", () => {
     expect(getMergeConfirmedFinalizationBlocker(replanned)).toBeUndefined();
   });
 
-  /* A no-op merge with no commit sha landed NOTHING, so incomplete steps stay an honest blocker —
-     and the executor's no-op branch depends on that reason still firing. */
-  /* The exemption needs a DURABLE merge record naming the landed commit. A no-op merge with no sha
-     landed nothing, and the content-scan recovery path (mergeDetails absent, landing inferred from
-     branch content) must keep the blocker or it would launder an unfinished task to done on a
-     heuristic — see `landed-content-soft-blocker.real-git.test.ts`. */
+  /*
+  FNXC:MergeConfirmedFinalization 2026-08-23-17:55:
+  The exemption needs a DURABLE merge record naming the landed commit. A no-op merge with no sha
+  landed nothing, and the content-scan recovery path (mergeDetails absent, landing inferred from
+  branch content) must keep the blocker or it would launder an unfinished task to done on a
+  heuristic — see `landed-content-soft-blocker.real-git.test.ts`.
+  */
   it("still blocks incomplete steps without a durable merge record", () => {
     expect(getMergeConfirmedFinalizationBlocker({
       ...landedWithUnfinishedWork,
@@ -1145,6 +1146,30 @@ describe("getMergeConfirmedFinalizationBlocker", () => {
       ...landedWithUnfinishedWork,
       mergeDetails: { mergeConfirmed: true, noOpMerge: true, commitSha: "abc123" } as never,
     })).toBeUndefined();
+  });
+
+  /*
+  FNXC:MergeConfirmedFinalization 2026-08-23-09:48:
+  Resolved review lanes and required pre-merge steps must reach the hard blocker on both durable-merge and non-durable finalization paths; neither path may fall back to default lane vocabulary.
+  */
+  it("forwards resolved lane options across durable and non-durable finalization", () => {
+    const customReviewTask = {
+      ...baseTask,
+      column: "approval",
+    };
+    const options = {
+      reviewColumns: new Set(["approval"]),
+      requiredPreMergeStepIds: new Set(["code-review"]),
+    };
+
+    expect(getMergeConfirmedFinalizationBlocker({
+      ...customReviewTask,
+      mergeDetails: { mergeConfirmed: true, commitSha: "abc123" } as never,
+    }, options)).toBe(PRE_MERGE_STEPS_NOT_RUN_BLOCKER);
+    expect(getMergeConfirmedFinalizationBlocker({
+      ...customReviewTask,
+      mergeDetails: { mergeConfirmed: true, noOpMerge: true } as never,
+    }, options)).toBe(PRE_MERGE_STEPS_NOT_RUN_BLOCKER);
   });
 
   it("still blocks on a failed pre-merge review", () => {
