@@ -445,21 +445,33 @@ beforeEach(() => {
   mocks.oauthRefreshSchedulerStart.mockClear();
   mocks.oauthRefreshSchedulerStop.mockClear();
 
+  /*
+  FNXC:EngineTests 2026-08-23-02:03:
+  The default exec seam answers TWO different probes now. `which <bin>` still resolves to a stub path,
+  but the tailscale preflight additionally runs `tailscale status --json` and PARSES the result, so a
+  path string on that call reads as an unreadable daemon rather than a ready one. Branching on the
+  argv keeps "tools are present and healthy" as the suite-wide default; the prerequisite-failure cases
+  override this mock per test.
+  */
   mocks.execFile.mockImplementation((
     _file: string,
     _args: string[],
     _options: unknown,
     callback?: (error: Error | null, result: { stdout: string; stderr: string }) => void,
   ) => {
+    const stdout = _args?.includes("status") && _args?.includes("--json")
+      ? JSON.stringify({ BackendState: "Running" })
+      : "/usr/bin/mock\n";
+
     if (typeof _options === "function") {
       (_options as (error: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
-        stdout: "/usr/bin/mock\n",
+        stdout,
         stderr: "",
       });
       return {} as never;
     }
 
-    callback?.(null, { stdout: "/usr/bin/mock\n", stderr: "" });
+    callback?.(null, { stdout, stderr: "" });
     return {} as never;
   });
 });
@@ -1369,6 +1381,94 @@ describe("ProjectEngine remote lifecycle quick tunnel mode", () => {
     await engine.start();
     await expect(engine.startRemoteTunnel()).rejects.toThrow(
       "runtime_prerequisite_missing:cloudflared is not available on PATH",
+    );
+    await engine.stop();
+  });
+
+  /*
+  FNXC:RemoteAccess 2026-08-23-02:03:
+  Surface enumeration for the tailscaled-readiness preflight. The reported symptom was ONE of these
+  (daemon absent in a container), but all three reach the tunnel spawn through the same path and all
+  three previously produced an unexplained "process exited 1", so the invariant under test is
+  "an unusable tailscale backend fails preflight with an actionable message", not the single repro.
+  Cases: daemon unreachable (exec fails, no stdout), logged out (non-zero exit but JSON on stdout —
+  the reason stdout is trusted over exit code), and stopped.
+  */
+  const tailscaleSettings = () => ({
+    ...baseSettings,
+    remoteAccess: {
+      ...baseRemoteAccess,
+      activeProvider: "tailscale" as const,
+    },
+  });
+
+  const mockTailscaleStatus = (
+    outcome: { error?: Error; stdout?: string; stderr?: string },
+  ): void => {
+    mocks.execFile.mockImplementation((
+      _file: string,
+      _args: string[],
+      _options: unknown,
+      callback?: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+    ) => {
+      const isStatusProbe = _args?.includes("status") && _args?.includes("--json");
+      const error = isStatusProbe ? outcome.error ?? null : null;
+      const result = isStatusProbe
+        ? { stdout: outcome.stdout ?? "", stderr: outcome.stderr ?? "" }
+        : { stdout: "/usr/bin/mock\n", stderr: "" };
+
+      const done = typeof _options === "function"
+        ? _options as (error: Error | null, result: { stdout: string; stderr: string }) => void
+        : callback;
+
+      // execFile's promisified form attaches stdout/stderr to the rejection, which is exactly how the
+      // logged-out case delivers its JSON; mirror that shape instead of a bare Error.
+      if (error) {
+        Object.assign(error, result);
+      }
+      done?.(error, result);
+      return {} as never;
+    });
+  };
+
+  it("fails tailscale preflight with an actionable message when tailscaled is unreachable", async () => {
+    mockTailscaleStatus({
+      error: new Error("exit 1"),
+      stderr: "failed to connect to local tailscaled; it doesn't appear to be running",
+    });
+    mocks.currentStore = createMockStore(tailscaleSettings()).store;
+
+    const engine = createEngine();
+    await engine.start();
+    await expect(engine.startRemoteTunnel()).rejects.toThrow(
+      /runtime_prerequisite_missing:tailscaled is not reachable: failed to connect to local tailscaled/,
+    );
+    await engine.stop();
+  });
+
+  it("fails tailscale preflight when the daemon runs but the node is logged out", async () => {
+    mockTailscaleStatus({
+      error: new Error("exit 1"),
+      stdout: JSON.stringify({ BackendState: "NeedsLogin" }),
+    });
+    mocks.currentStore = createMockStore(tailscaleSettings()).store;
+
+    const engine = createEngine();
+    await engine.start();
+    await expect(engine.startRemoteTunnel()).rejects.toThrow(
+      /runtime_prerequisite_missing:Tailscale is not logged in/,
+    );
+    await engine.stop();
+  });
+
+  it("fails tailscale preflight when the backend is stopped", async () => {
+    mockTailscaleStatus({ stdout: JSON.stringify({ BackendState: "Stopped" }) });
+    mocks.currentStore = createMockStore(tailscaleSettings()).store;
+
+    const engine = createEngine();
+    await engine.start();
+    await expect(engine.startRemoteTunnel()).rejects.toThrow(
+      /runtime_prerequisite_missing:Tailscale is stopped/,
     );
     await engine.stop();
   });

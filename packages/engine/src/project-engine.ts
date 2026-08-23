@@ -33,6 +33,9 @@ import {
   emitOverseerRetry,
   emitOverseerSteering,
   getTaskHardMergeBlocker,
+  PreMergeStepsNotRunError,
+  PRE_MERGE_STEPS_NOT_RUN_BLOCKER,
+  resolveRequiredPreMergeStepIds,
   isLiveSharedBranchGroupMemberIntegration,
   isSharedBranchGroupMemberIntegration,
   isWorkspaceTask,
@@ -2897,6 +2900,24 @@ export class ProjectEngine {
         return { provider, reason: "runtime_prerequisite_missing", message: executable.message };
       }
 
+      /*
+      FNXC:RemoteAccess 2026-08-23-02:03:
+      Binary presence is NOT readiness. `tailscale funnel <port>` is a thin client that talks to the
+      `tailscaled` daemon over a local socket, so a box with the CLI installed but no running daemon
+      (every slim container — the image ships the binary, the daemon is a separate process) fails the
+      instant it spawns: "failed to connect to local tailscaled", exit 1, no URL. Preflighting only
+      `which tailscale` let that reach the UI as a bare process-exited-1 with nothing actionable in it
+      (operator report). The same is true of a daemon that is running but logged out or stopped.
+
+      Checking the backend state here converts all three into a named prerequisite failure carrying
+      the command that fixes it, on the same `runtime_prerequisite_missing` channel the missing-binary
+      case already uses — so no new UI state is needed to show it.
+      */
+      const daemon = await this.checkTailscaleDaemonReady();
+      if (!daemon.ready) {
+        return { provider, reason: "runtime_prerequisite_missing", message: daemon.message };
+      }
+
       return {
         provider,
         config: {
@@ -2953,6 +2974,73 @@ export class ProjectEngine {
           TUNNEL_TOKEN: cloudflare.tunnelToken,
         },
       },
+    };
+  }
+
+  /**
+   * FNXC:RemoteAccess 2026-08-23-02:03:
+   * Resolve whether `tailscaled` is reachable AND its backend is usable for a tunnel.
+   *
+   * `tailscale status --json` is the probe because it answers both questions in one call and, unlike
+   * the human-readable form, keeps printing parseable JSON while logged out — it merely exits
+   * non-zero. So a non-zero exit WITH stdout is a state answer, not a transport failure; only an
+   * empty stdout means the daemon could not be reached at all. The stderr first line is carried into
+   * the message because it is where the real cause lands ("it doesn't appear to be running").
+   *
+   * Bounded by a short timeout: this runs on the tunnel-start path, and a wedged daemon socket must
+   * fail the preflight rather than hang the operator's click.
+   */
+  private async checkTailscaleDaemonReady(): Promise<{ ready: boolean; message?: string }> {
+    let stdout = "";
+    try {
+      const result = await execFileAsync("tailscale", ["status", "--json"], {
+        timeout: 5_000,
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      stdout = result.stdout ?? "";
+    } catch (error) {
+      const failure = error as { stdout?: string; stderr?: string; message?: string };
+      stdout = failure.stdout ?? "";
+      if (!stdout.trim()) {
+        const detail = (failure.stderr ?? failure.message ?? "").trim().split("\n")[0] ?? "";
+        return {
+          ready: false,
+          message: `tailscaled is not reachable${detail ? `: ${detail}` : ""}. Start the daemon before enabling the tunnel (in a container: tailscaled --tun=userspace-networking).`,
+        };
+      }
+    }
+
+    let backendState: string | undefined;
+    try {
+      backendState = (JSON.parse(stdout) as { BackendState?: string }).BackendState;
+    } catch {
+      return {
+        ready: false,
+        message: "tailscale status returned unreadable output, so tailscaled readiness could not be confirmed",
+      };
+    }
+
+    if (backendState === "Running") {
+      return { ready: true };
+    }
+
+    if (backendState === "NeedsLogin" || backendState === "NoState") {
+      return {
+        ready: false,
+        message: "Tailscale is not logged in — run `tailscale up` to authenticate this machine, then start the tunnel again.",
+      };
+    }
+
+    if (backendState === "Stopped") {
+      return {
+        ready: false,
+        message: "Tailscale is stopped — run `tailscale up` to bring this machine back online.",
+      };
+    }
+
+    return {
+      ready: false,
+      message: `Tailscale is not ready (backend state: ${backendState ?? "unknown"})`,
     };
   }
 
@@ -5007,6 +5095,33 @@ export class ProjectEngine {
                 `Auto-merge: failed to log merge-failure entry on ${taskId}: ${logErr instanceof Error ? logErr.message : String(logErr)}`,
               );
             });
+
+          /*
+          FNXC:RequiredPreMergeSteps 2026-08-22-22:40 (FN-9191 wedge):
+          A merge door that refused ONLY because an enabled pre-merge gate has not reported yet
+          is a NOT-YET answer, so it must not park the card. FN-9191: this sweep enqueued the
+          card ~2s after `fn_task_done` and ~18s before the graph started its own Code Review
+          node; the door refused correctly, the generic non-conflict branch below wrote
+          `status:"failed"`, and when Code Review APPROVED two minutes later every remaining
+          merge — including the graph's own merge node — died on `task is marked 'failed'`.
+
+          Deferral semantics: no status write, no `mergeRetries` burn, no operator handoff. The
+          card stays merge-eligible and the admission filter in `enqueueEligibleInReviewTasks`
+          holds it out of the queue until the gate reports, so this cannot spin.
+          */
+          if (err instanceof PreMergeStepsNotRunError) {
+            await store
+              .logEntry(
+                taskId,
+                `Merge deferred: ${PRE_MERGE_STEPS_NOT_RUN_BLOCKER} — waiting for the enabled pre-merge gate(s) to report (no retry consumed)`,
+                "MergeDeferredPendingPreMergeSteps",
+              )
+              .catch(() => undefined);
+            if (hasManualResolver) {
+              this.rejectMergeResolvers(taskId, err);
+            }
+            continue;
+          }
 
           // A manual policy-resume attempt must re-park through the same durable
           // handoff path; other manual merge failures still reject their caller.
