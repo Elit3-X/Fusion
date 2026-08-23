@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readAppFile } from "../../test/cssFixture";
 
-const source = readFileSync(resolve(process.cwd(), "app/components/ChatView.tsx"), "utf8");
+const source = readAppFile("components/ChatView.tsx");
 
 describe("ChatView direct thread scroll control remains available", () => {
   it("keeps removed Rooms UI out of the direct chat surface", () => {

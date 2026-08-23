@@ -50,6 +50,8 @@ interface RecordingStore extends EventEmitter {
   emitted: Array<{ event: string; payload: unknown }>;
 }
 
+let currentWorkspaceTask: Task | undefined;
+
 function createStore(settings: Record<string, unknown> = {}): TaskStore & RecordingStore {
   const emitter = new EventEmitter();
   const moveTaskCalls: Array<{ id: string; column: string }> = [];
@@ -73,7 +75,7 @@ function createStore(settings: Record<string, unknown> = {}): TaskStore & Record
     // FNXC:Test 2026-06-24-23:50: mergeAndReview reads store.getTask().comments for merge/review
     // prompt context (selectUserCommentsForAgentContext); an undefined return throws mid-land. Return
     // a real task shape so the per-repo land reaches landSquash.
-    getTask: vi.fn().mockResolvedValue({ id: TASK_ID, column: "in-review", branch: BRANCH, comments: [], steeringComments: [], steps: [], log: [] }),
+    getTask: vi.fn(async () => currentWorkspaceTask ?? { id: TASK_ID, column: "in-review", branch: BRANCH, comments: [], steeringComments: [], steps: [], log: [] }),
     moveTask: vi.fn((id: string, column: string) => {
       moveTaskCalls.push({ id, column });
       return Promise.resolve({ id, column } as Task);
@@ -182,7 +184,7 @@ function squashMergeAgent(branch: string) {
 const approveReviewAgent = async (): Promise<string> => "REVIEW_VERDICT: approve";
 
 function makeTask(workspaceWorktrees: Task["workspaceWorktrees"]): Task {
-  return {
+  const task = {
     id: TASK_ID,
     title: "Workspace merge task",
     description: "",
@@ -210,11 +212,16 @@ function makeTask(workspaceWorktrees: Task["workspaceWorktrees"]): Task {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   } as Task;
+  currentWorkspaceTask = task;
+  return task;
 }
 
 describeIfGit("landWorkspaceTask — per-repo merge loop (Phase C U1)", () => {
   let fx: WorkspaceFixture;
-  afterEach(() => fx?.cleanup());
+  afterEach(() => {
+    fx?.cleanup();
+    currentWorkspaceTask = undefined;
+  });
 
   it("happy: both clean repos advance their OWN local integration ref with NO push", async () => {
     fx = await createWorkspaceFixture(["repo-a", "repo-b"]);

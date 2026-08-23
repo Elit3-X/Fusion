@@ -44,6 +44,8 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENTS_LITERALS = [
   "task:empty-merge-finalize-blocked-no-landed-proof",
   "task:finalize-unproven-blocked",
   "task:merge-boundary-unproven-parked",
+  "task:merge-admission-deferred-live-execution",
+  "task:reconcile-confirmed-merge-checklist",
   "task:finalize-lost-work-blocked",
   "task:auto-recover-stale-merger-status",
 
@@ -51,6 +53,8 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENTS_LITERALS = [
   "task:auto-recover-paused-abort-park",
   "task:auto-rebound-paused-scope-decay",
   "task:auto-archive-failure-budget-exhausted",
+  "task:no-progress-no-task-done-requeue",
+  "task:no-progress-no-task-done-requeue-exhausted",
   "task:reclaim-phantom-executor-binding",
   "task:reconcile-orphaned-pending-step-results",
   "task:reconcile-stale-duplicate-decision",
@@ -113,6 +117,10 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENT_NOTES: Readonly<Record<DeliveryPi
     "Finalize is blocked because finalization has not been proven against the landing truth.",
   "task:merge-boundary-unproven-parked":
     "A terminal merge-boundary proof failure is parked with bounded best-effort audit telemetry.",
+  "task:merge-admission-deferred-live-execution":
+    "Merge admission deferred because a live execution signal still owns the task.",
+  "task:reconcile-confirmed-merge-checklist":
+    "Confirmed-merge finalization reconciled stale checklist state using counts-only telemetry.",
   "task:finalize-lost-work-blocked":
     "Finalize is blocked because it would discard work (lost-work guard).",
   "task:auto-recover-stale-merger-status":
@@ -125,6 +133,10 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENT_NOTES: Readonly<Record<DeliveryPi
     "Self-healing rebounds a task whose paused scope decayed past its floor, unblocking followers.",
   "task:auto-archive-failure-budget-exhausted":
     "Self-healing abandons a repeatedly failing stale-task archive and surfaces it for operator action.",
+  "task:no-progress-no-task-done-requeue":
+    "A bounded no-progress recovery requeue records its retry and backoff outcome.",
+  "task:no-progress-no-task-done-requeue-exhausted":
+    "The no-progress recovery budget is exhausted and records its terminal outcome once.",
   "task:reclaim-phantom-executor-binding":
     "Self-healing proves an in-memory executor-active binding is stale and requeues the task.",
   "task:reconcile-orphaned-pending-step-results":

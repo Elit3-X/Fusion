@@ -295,7 +295,10 @@ export {
   isWorkflowOptionalGroupEnabled,
 } from "./workflows/workflow-optional-steps.js";
 export type { ResolvedWorkflowOptionalStep } from "./workflows/workflow-optional-steps.js";
-export { resolveRequiredPreMergeStepIds } from "./merge/required-pre-merge-steps.js";
+export { resolveRequiredPreMergeStepIds, resolvePreMergeGateForTask } from "./merge/required-pre-merge-steps.js";
+export type { ResolvedPreMergeGate } from "./merge/required-pre-merge-steps.js";
+export { resolveStepReopenPolicy } from "./workflows/workflow-step-reopen-policy.js";
+export type { StepReopenPolicy } from "./workflows/workflow-step-reopen-policy.js";
 export {
   applyPromptOverridesToIr,
   enumeratePromptBearingWorkflowNodes,
@@ -1116,6 +1119,12 @@ export {
   type MergeTargetResolution,
   type MergeTargetResolverOptions,
 } from "./merge/task-merge.js";
+export { describeMergeContentShape } from "./merge/merge-content-descriptor.js";
+export type { MergeContentDescriptor } from "./merge/merge-content-descriptor.js";
+export { evaluatePreMergeApprovals } from "./merge/pre-merge-approval.js";
+export { getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation } from "./merge/confirmed-merge-reconciliation.js";
+export type { ConfirmedMergeChecklistReconciliation } from "./merge/confirmed-merge-reconciliation.js";
+export type { PreMergeApproval, PreMergeApprovalState } from "./merge/pre-merge-approval.js";
 export {
   isBranchGroupMemberLanded,
   isBranchGroupComplete,

@@ -52,29 +52,48 @@ describe("runAiMerge transient status write authority", () => {
   make both the initial stamp and that finally clear no-ops after the merge race loses.
   */
   it("suppresses the real workspace path's finally clear after its generation aborts", async () => {
-    const controller = new AbortController();
-    const store = {
-      getSettings: vi.fn().mockResolvedValue({ autoMerge: true }),
-      // Abort after the real closure writes its initial stamp, so its production finally executes.
-      updateTask: vi.fn(async (_id: string, patch: { status: string | null }) => {
-        if (patch.status === "merging") controller.abort();
-      }),
-      logEntry: vi.fn().mockResolvedValue(undefined),
-      appendAgentLog: vi.fn().mockResolvedValue(undefined),
-    };
-    const workspaceTask = {
-      id: "FN-8912-workspace-fence",
-      column: "in-review",
-      branch: "fusion/fn-8912-workspace-fence",
-      workspaceWorktrees: { repo: { worktreePath: "/tmp/repo", branch: "fusion/fn-8912-workspace-fence" } },
-      steps: [],
-      log: [],
-    };
+    const rootDir = mkdtempSync(path.join(os.tmpdir(), "fusion-workspace-merge-abort-status-"));
+    const repoDir = path.join(rootDir, "repo");
+    try {
+      execSync("git init -b main repo", { cwd: rootDir, stdio: "pipe" });
+      execSync('git config user.email "test@example.com" && git config user.name "Test"', { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(path.join(repoDir, "README.md"), "base\n");
+      execSync("git add README.md && git commit -m init", { cwd: repoDir, stdio: "pipe" });
+      const baseCommitSha = execSync("git rev-parse HEAD", { cwd: repoDir, encoding: "utf8" }).trim();
+      execSync("git checkout -b fusion/fn-8912-workspace-fence", { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(path.join(repoDir, "README.md"), "task change\n");
+      execSync("git add README.md && git commit -m task", { cwd: repoDir, stdio: "pipe" });
 
-    await expect(landWorkspaceTask(store as any, workspaceTask as any, "/tmp", { signal: controller.signal }))
-      .rejects.toMatchObject({ name: "MergeAbortedError" });
+      const controller = new AbortController();
+      const workspaceTask = {
+        id: "FN-8912-workspace-fence",
+        column: "in-review",
+        branch: "fusion/fn-8912-workspace-fence",
+        repositoryScope: { state: "confirmed", revision: 1, repositories: ["repo"] },
+        modifiedFiles: ["repo/README.md"],
+        workspaceWorktrees: {
+          repo: { worktreePath: repoDir, branch: "fusion/fn-8912-workspace-fence", baseCommitSha, baseBranch: "main" },
+        },
+        steps: [],
+        log: [],
+      };
+      const store = {
+        getTask: vi.fn().mockResolvedValue(workspaceTask),
+        getSettings: vi.fn().mockResolvedValue({ autoMerge: true }),
+        // Abort after the real closure writes its initial stamp, so its production finally executes.
+        updateTask: vi.fn(async (_id: string, patch: { status?: string | null }) => {
+          if (patch.status === "merging") controller.abort();
+        }),
+        logEntry: vi.fn().mockResolvedValue(undefined),
+        appendAgentLog: vi.fn().mockResolvedValue(undefined),
+      };
+      await expect(landWorkspaceTask(store as any, workspaceTask as any, rootDir, { signal: controller.signal }))
+        .rejects.toMatchObject({ name: "MergeAbortedError" });
 
-    expect(store.updateTask).toHaveBeenCalledExactlyOnceWith(workspaceTask.id, { status: "merging" });
+      expect(store.updateTask).toHaveBeenCalledWith(workspaceTask.id, { status: "merging" });
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 
   it("suppresses the real single-repo closure's post-abort work after its initial stamp", async () => {
@@ -369,7 +388,9 @@ describe("ProjectEngine aborted merge stamp cleanup", () => {
     const task = {
       id: "FN-8912-auto-abort",
       column: "in-review",
-      status,
+      // A live merge stamp is rejected at admission. The body below writes this transient
+      // stamp before aborting so the no-manual-resolver abort arm owns the cleanup.
+      status: null as string | null,
       paused: false,
       userPaused: false,
       branch: "fusion/fn-8912-auto-abort",
@@ -396,6 +417,7 @@ describe("ProjectEngine aborted merge stamp cleanup", () => {
     engine.options = {};
     engine.runtime = { getTaskStore: () => store, getPluginRunner: () => undefined };
     mocks.runAiMerge.mockImplementationOnce(async () => {
+      task.status = status;
       const err = new Error("test abort");
       err.name = "MergeAbortedError";
       throw err;

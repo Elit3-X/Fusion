@@ -484,7 +484,7 @@ describe("auto-merge proven finalization helper", () => {
     }));
   });
 
-  it("blocks workflow finalization while planned steps are still incomplete", async () => {
+  it("reconciles incomplete workflow steps after a confirmed merge", async () => {
     const strandedTask = {
       id: "FN-INCOMPLETE",
       title: "Incomplete workflow",
@@ -514,12 +514,13 @@ describe("auto-merge proven finalization helper", () => {
       rootDir: "/repo",
     });
 
-    expect(result).toEqual(expect.objectContaining({ outcome: "blocked", reason: "task has incomplete steps" }));
+    expect(result).toEqual(expect.objectContaining({ outcome: "done" }));
     expect(store.updateTask).toHaveBeenCalledWith("FN-INCOMPLETE", expect.objectContaining({
-      status: "failed",
-      error: "Merge confirmed but finalization blocked: task has incomplete steps",
+      status: null,
+      error: null,
+      steps: [{ status: "done" }, { status: "skipped" }],
     }));
-    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.moveTask).toHaveBeenCalled();
   });
 
   it("finalizes proven workflow merges even when the task branch still has residue outside the landed patch", async () => {

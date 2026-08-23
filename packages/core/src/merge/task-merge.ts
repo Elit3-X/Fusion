@@ -1,6 +1,8 @@
 import { isBranchGroupMemberLanded } from "../branch/branch-group-completion.js";
 import { taskHasManualOpenPullRequest } from "../tasks/task-helpers.js";
 import type { BranchGroup, Settings, Task, WorkflowStepResult } from "../types.js";
+import type { MergeContentDescriptor } from "./merge-content-descriptor.js";
+import { evaluatePreMergeApprovals } from "./pre-merge-approval.js";
 
 export interface LandedMemberReviewAdvisory {
   taskId: string;
@@ -347,7 +349,7 @@ export const TASK_DONE_BYPASS_BLOCKER_MESSAGE =
  * Undefined means the task is eligible to move from `in-review` to `done`.
  */
 export function getTaskMergeBlocker(
-  task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults">,
+  task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults" | "repositoryScope">,
   options: {
     manual?: boolean;
     skipColumnIdentityCheck?: boolean;
@@ -360,6 +362,7 @@ export function getTaskMergeBlocker(
     back to their graph gate rather than hiding a recoverable wedge.
     */
     requiredPreMergeStepIds?: ReadonlySet<string>;
+    mergeContent?: MergeContentDescriptor;
   } = {},
 ): string | undefined {
   /*
@@ -418,16 +421,17 @@ export function getTaskMergeBlocker(
     return "task has incomplete steps";
   }
 
-  // A merge door must not pass an enabled pre-merge group that never ran.
-  // Omitted input preserves legacy result-only semantics for recovery callers.
-  if (
-    options.requiredPreMergeStepIds?.size
-    && [...options.requiredPreMergeStepIds].some(
-      (workflowStepId) => !(task.workflowStepResults ?? []).some((result) => result.workflowStepId === workflowStepId),
-    )
-  ) {
-    return "task has enabled pre-merge workflow steps that never ran";
-  }
+  /*
+  FNXC:PreMergeApproval 2026-08-23-06:52:
+  FN-180 requires a positive approval for each enabled gate. Missing and rejected
+  results exit through a fresh gate run (or the audited FN-7720 bypass); stale and
+  unprovable diff evidence exit through a review over current content.
+  */
+  const approval = evaluatePreMergeApprovals(task, options).find((candidate) => candidate.state !== "approved");
+  if (approval?.state === "missing") return "task has enabled pre-merge workflow steps that never ran";
+  if (approval?.state === "not-approved") return "task has enabled pre-merge workflow steps without a current approval";
+  if (approval?.state === "stale-content") return "task has a pre-merge approval recorded against different content";
+  if (approval?.state === "unprovable-content") return "task has no provable approval for the content being merged";
 
   // Only pre-merge workflow step failures block merge.
   // Post-merge failures run after merge and do not block it.
@@ -537,8 +541,8 @@ export function clearMergeConfirmedTransientStatus(status: string | undefined): 
 }
 
 export function getTaskHardMergeBlocker(
-  task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults">,
-  options: { reviewColumns?: ReadonlySet<string>; requiredPreMergeStepIds?: ReadonlySet<string> } = {},
+  task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults" | "repositoryScope">,
+  options: { reviewColumns?: ReadonlySet<string>; requiredPreMergeStepIds?: ReadonlySet<string>; mergeContent?: MergeContentDescriptor } = {},
 ): string | undefined {
   return getTaskMergeBlocker({
     ...task,
@@ -549,6 +553,7 @@ export function getTaskHardMergeBlocker(
   }, {
     reviewColumns: options.reviewColumns,
     requiredPreMergeStepIds: options.requiredPreMergeStepIds,
+    mergeContent: options.mergeContent,
   });
 }
 
@@ -563,8 +568,8 @@ export function getTaskDoneBypassBlocker(
 }
 
 export function isTaskReadyForMerge(
-  task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults">,
-  options: { requiredPreMergeStepIds?: ReadonlySet<string> } = {},
+  task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults" | "repositoryScope">,
+  options: { requiredPreMergeStepIds?: ReadonlySet<string>; mergeContent?: MergeContentDescriptor } = {},
 ): boolean {
   return getTaskMergeBlocker(task, options) === undefined;
 }

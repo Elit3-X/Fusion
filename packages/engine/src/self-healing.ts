@@ -30,7 +30,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync,
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, parseExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, resolveReboundTargetForTask, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
+import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, parseExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, resolveReboundTargetForTask, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
   resolveNearDuplicateCanonicalFlags,
   LEGACY_COLUMN_IDS_BY_ROLE,
   TERMINAL_ROLES,
@@ -12203,24 +12203,22 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           };
 
           /* Wired: unwired, this would decline every card the widened read now finds. */
-          const hardBlocker = getTaskHardMergeBlocker({
-            ...task,
-            steps: task.steps ?? [],
-            workflowStepResults: task.workflowStepResults,
-          }, { reviewColumns: orphanLanesByTask.get(task.id) ?? new Set(["in-review"]) });
-          if (hardBlocker) {
+          const postMergeBlocker = getPostMergeFinalizeBlocker({ status: task.status, error: task.error });
+          if (postMergeBlocker) {
             await this.store.updateTask(task.id, {
               status: "failed",
-              error: `Merge confirmed but finalization blocked: ${hardBlocker}`,
+              error: `Confirmed merge finalization deferred: ${postMergeBlocker}`,
               mergeDetails,
             });
             await this.store.logEntry(
               task.id,
-              `Auto-recovery parked task in in-review: merged content found on ${baseBranch} (${landed.sha.slice(0, 8)}) but finalization blocked — ${hardBlocker}`,
+              `Auto-recovery parked task in in-review: merged content found on ${baseBranch} (${landed.sha.slice(0, 8)}) but finalization deferred — ${postMergeBlocker}`,
             );
             continue;
           }
 
+          const checklistReconciliation = planConfirmedMergeChecklistReconciliation(task);
+          const reconciledWorkflowStatus = "skipped" as const;
           const clearedFlags = {
             paused: Boolean(task.paused),
             status: Boolean(task.status),
@@ -12232,6 +12230,8 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             error: null,
             mergeRetries: 0,
             mergeDetails,
+            steps: (task.steps ?? []).map((step, index) => checklistReconciliation.skippedStepIndexes.includes(index) ? { ...step, status: reconciledWorkflowStatus } : step),
+            workflowStepResults: (task.workflowStepResults ?? []).map((result) => checklistReconciliation.reconciledWorkflowStepIds.includes(result.workflowStepId) ? { ...result, status: reconciledWorkflowStatus } : result),
           });
           await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-orphan-only-scope-violations");
           const completeLane = (await resolveTaskLifecycleColumns(this.store, task.id))?.complete ?? "done";
@@ -12466,25 +12466,23 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             mergeTargetSource: mergeTarget.source,
           };
 
-          /* Wired with THIS card's review lanes — see the note on `ownReviewLanesForAlreadyMerged` above. */
-          const hardBlocker = getTaskHardMergeBlocker({
-            ...task,
-            steps: task.steps ?? [],
-            workflowStepResults: task.workflowStepResults,
-          }, { reviewColumns: await ownReviewLanesForAlreadyMerged(task) });
-          if (hardBlocker) {
+          /* A proven land never re-runs stale review/checklist state during recovery. */
+          const postMergeBlocker = getPostMergeFinalizeBlocker({ status: task.status, error: task.error });
+          if (postMergeBlocker) {
             await this.store.updateTask(task.id, {
               status: "failed",
-              error: `Merge confirmed but finalization blocked: ${hardBlocker}`,
+              error: `Confirmed merge finalization deferred: ${postMergeBlocker}`,
               mergeDetails,
             });
             await this.store.logEntry(
               task.id,
-              `Auto-recovery parked task in in-review: merged content found on ${baseBranch} (${landed.sha.slice(0, 8)}) but finalization blocked — ${hardBlocker}`,
+              `Auto-recovery parked task in in-review: merged content found on ${baseBranch} (${landed.sha.slice(0, 8)}) but finalization deferred — ${postMergeBlocker}`,
             );
             continue;
           }
 
+          const checklistReconciliation = planConfirmedMergeChecklistReconciliation(task);
+          const reconciledWorkflowStatus = "skipped" as const;
           const clearedFlags = {
             paused: Boolean(task.paused),
             status: Boolean(task.status),
@@ -12496,6 +12494,8 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             error: null,
             mergeRetries: 0,
             mergeDetails,
+            steps: (task.steps ?? []).map((step, index) => checklistReconciliation.skippedStepIndexes.includes(index) ? { ...step, status: reconciledWorkflowStatus } : step),
+            workflowStepResults: (task.workflowStepResults ?? []).map((result) => checklistReconciliation.reconciledWorkflowStepIds.includes(result.workflowStepId) ? { ...result, status: reconciledWorkflowStatus } : result),
           });
           const worktreeHint = task.worktree;
           await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-already-merged-review");

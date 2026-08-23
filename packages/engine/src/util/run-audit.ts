@@ -875,6 +875,10 @@ export type DatabaseMutationType =
    * stall the terminal park.
    */
   | "task:merge-boundary-unproven-parked"
+  /** FNXC:MergeExecutionExclusion 2026-08-23-08:25: FN-180 records live-execution admission deferrals with ids and fixed signal/source/outcome enums only. */
+  | "task:merge-admission-deferred-live-execution"
+  /** FNXC:ConfirmedMergeFinalization 2026-08-23-08:25: FN-180 records counts-only reconciliation of stale checklist state after durable merge proof. */
+  | "task:reconcile-confirmed-merge-checklist"
   /**
    * FN-5490/FN-5517/FN-5526/FN-5540 lost-work guard: the merger or self-heal
    * sweep refused to finalize a task as no-op because its record claimed

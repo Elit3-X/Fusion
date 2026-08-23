@@ -518,10 +518,15 @@ describe("getTaskMergeBlocker", () => {
     expect(getTaskMergeBlocker(baseTask)).toBeUndefined();
   });
 
-  it("accepts a skipped result for a required pre-merge group", () => {
+  it("accepts an operator-bypassed skipped result for a required pre-merge group", () => {
     expect(getTaskMergeBlocker({
       ...baseTask,
-      workflowStepResults: [{ workflowStepId: "code-review", workflowStepName: "Code Review", status: "skipped" }],
+      workflowStepResults: [{
+        workflowStepId: "code-review",
+        workflowStepName: "Code Review",
+        status: "skipped",
+        bypassedBy: "operator",
+      }],
     }, { requiredPreMergeStepIds: new Set(["code-review"]) })).toBeUndefined();
   });
 

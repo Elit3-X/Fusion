@@ -149,6 +149,7 @@ function makeStore(taskId = "FN-1") {
     worktree: null,
     title: "do the thing",
     steps: [],
+    enabledWorkflowSteps: [],
   };
   const audits: any[] = [];
   const logs: string[] = [];
@@ -156,6 +157,11 @@ function makeStore(taskId = "FN-1") {
     getTask: vi.fn(async () => task),
     getSettings: vi.fn(async () => ({ merger: { mode: "ai", maxReviewPasses: 1 } })),
     updateTask: vi.fn(async (_id: string, patch: Record<string, unknown>) => { Object.assign(task, patch); return task; }),
+    updateTaskAtomic: vi.fn(async (_id: string, updater: (current: typeof task) => Record<string, unknown> | null | undefined | Promise<Record<string, unknown> | null | undefined>) => {
+      const patch = await updater(task);
+      if (patch) Object.assign(task, patch);
+      return task;
+    }),
     moveTask: vi.fn(async (_id: string, column: string) => { task.column = column; return task; }),
     emit: vi.fn(),
     logEntry: vi.fn(async (_id: string, message: string) => { logs.push(message); }),
@@ -376,7 +382,7 @@ describe("AI merge temp worktree cleanup", () => {
 
     const { mergeRoot, events } = await cleanup({ gitRunner, rmRunner });
 
-    expect(rmRunner).toHaveBeenCalledTimes(10);
+    expect(rmRunner).toHaveBeenCalledTimes(5);
     expect(existsSync(mergeRoot)).toBe(true);
     expect(gitRunner.mock.calls.filter(([args]) => args[1] === "prune")).toHaveLength(1);
     expect(events).toEqual(expect.arrayContaining([

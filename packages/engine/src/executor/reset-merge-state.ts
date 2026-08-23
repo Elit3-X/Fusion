@@ -12,7 +12,7 @@
  * `resolveWorkflowIrForTask` degrades to the BUILT-IN IR rather than throwing.
  */
 import type { Task, TaskStore } from "@fusion/core";
-import { columnsWithFlag, resolveWorkflowIrForTask } from "@fusion/core";
+import { columnsWithFlag, resolveStepReopenPolicy, resolveWorkflowIrForTask } from "@fusion/core";
 
 export type ResetMergeStateDeps = {
   store: TaskStore;
@@ -52,8 +52,7 @@ export async function resetMergeStateIfNeeded(
     return task;
   }
 
-  const selection = await deps.store.getTaskWorkflowSelectionAsync?.(task.id)
-    ?? deps.store.getTaskWorkflowSelection?.(task.id);
+  const ir = await resolveWorkflowIrForTask(deps.store, task.id).catch(() => undefined);
   return deps.cleanupMergeStateForReverification(
     task,
     `Task returned to in-progress from ${from} column — resetting verification steps and merge state for re-verification`,
@@ -62,7 +61,7 @@ export async function resetMergeStateIfNeeded(
       // cycles. Status may be cleared by intermediate paths, so the counter is
       // the canonical signal once a bounce has started.
       preserveVerificationFailureCount: (task.verificationFailureCount ?? 0) > 0,
-      stepReopenPolicy: selection?.workflowId === "builtin:review-gated-coding" ? "none" : "reopen-trailing",
+      stepReopenPolicy: resolveStepReopenPolicy(ir),
     },
   );
 }

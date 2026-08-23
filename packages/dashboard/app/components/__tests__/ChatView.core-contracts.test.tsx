@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readAppFile } from "../../test/cssFixture";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatView } from "../ChatView";
@@ -12,7 +11,7 @@ import {
 } from "./ChatView.test-harness";
 
 const { pushNav } = vi.hoisted(() => ({ pushNav: vi.fn() }));
-const source = readFileSync(resolve(process.cwd(), "app/components/ChatView.tsx"), "utf8");
+const source = readAppFile("components/ChatView.tsx");
 
 vi.mock("../../hooks/useChat");
 vi.mock("../../hooks/useChatRooms");

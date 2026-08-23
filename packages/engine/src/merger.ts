@@ -121,13 +121,14 @@ import {
   isMergeRequestContractShadowEnabled,
   resolveMergerFallbackModel,
   resolveWorkflowIrForTask,
+  resolvePreMergeGateForTask,
   resolveRequiredPreMergeStepIds,
   resolveReboundTarget,
   resolveCompleteColumn,
   resolveMergeOrchestrationColumn,
   resolveTaskLifecycleColumns,
   isFusionDeletableBranch,
-  type WorkflowIr, resolveReviewColumns
+  type WorkflowIr
 } from "@fusion/core";
 import { evaluateAutoMergeFactProviders } from "./merge/auto-merge-fact-providers.js";
 import { resolveMergePolicy } from "./merge/merge-trait.js";
@@ -6814,24 +6815,20 @@ export async function aiMergeTask(
   The helper's own comment records this exact defect being fixed in `moves.ts`; these two merge
   entry points were missed. Resolve the task's own review lanes and pass them.
   */
-  const mergeReviewColumns = new Set<string>(["in-review"]);
-  let requiredPreMergeStepIds: ReadonlySet<string> | undefined;
+  let mergeGate;
   try {
-    // Legacy direct-merger callers have no workflow selection to resolve. Keep
-    // their historical admission semantics; graph-owned tasks supply one.
-    const selection = store.getTaskWorkflowSelectionAsync
-      ? await store.getTaskWorkflowSelectionAsync(taskId)
-      : store.getTaskWorkflowSelection?.(taskId);
-    const mergeIr = selection ? await resolveWorkflowIrForTask(store, taskId) : null;
-    if (mergeIr) {
-      for (const id of resolveReviewColumns(mergeIr)) mergeReviewColumns.add(id);
-      requiredPreMergeStepIds = resolveRequiredPreMergeStepIds(mergeIr, task.enabledWorkflowSteps);
-    }
-  } catch { /* degraded: the legacy id above still answers */ }
+    mergeGate = await resolvePreMergeGateForTask(store, taskId, task.enabledWorkflowSteps);
+  } catch {
+    throw new Error(`Cannot merge ${taskId}: merge gate could not resolve the task workflow`);
+  }
+  if (mergeGate.provenance === "default" && !mergeGate.selectionAbsent) {
+    throw new Error(`Cannot merge ${taskId}: merge gate could not resolve the task workflow`);
+  }
   const mergeBlocker = getTaskMergeBlocker(task, {
     manual: options.manual === true,
-    reviewColumns: mergeReviewColumns,
-    requiredPreMergeStepIds,
+    reviewColumns: mergeGate.reviewColumns.size > 0 ? mergeGate.reviewColumns : new Set(["in-review"]),
+    /* FNXC:LegacyPreMergeGate 2026-08-23-08:32: Legacy tasks without a persisted optional-group selection predate graph gates. New planned tasks always persist an explicit list, including Review Level 0's []. */
+    requiredPreMergeStepIds: Array.isArray(task.enabledWorkflowSteps) ? mergeGate.requiredPreMergeStepIds : undefined,
   });
   if (mergeBlocker) {
     throw new Error(`Cannot merge ${taskId}: ${mergeBlocker}`);

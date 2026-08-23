@@ -57,6 +57,7 @@ import {
   resolvePersistAgentThinkingLog,
   resolveTaskLifecycleColumns,
   resolveWorkflowIrForTask,
+  resolveStepReopenPolicy,
   resolveAgentActivityAttribution,
   serializeRetryStormError,
   isLegacyWorkspaceWorktreeLayout,
@@ -190,6 +191,7 @@ import { resolveAndEmitGoalContext } from "../goals/goal-injection-diagnostics.j
 import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "../healing/recovery-policy.js";
 import { executorLog, formatError } from "../logger.js";
 import { classifyOrphanOurAdvance, rehomeOrphanOntoIntegration } from "../merge/merger-orphan-rehome.js";
+import { isTaskMergeInFlight } from "../merge/merge-execution-exclusion.js";
 import { compactSessionContext, describeModel, formatModelMarkerDetails, promptWithFallback } from "../pi.js";
 import { resolveDedicatedPlannerColumnsForTask } from "../planner-lane-resolution.js";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
@@ -340,6 +342,21 @@ export async function runImplementation(
   graphCompletion: GraphCompletionCallback,
   reportImplementationExit?: ImplementationExitReporter,
 ): Promise<void> {
+
+    /*
+    FNXC:MergeExecutionExclusion 2026-08-23-08:51:
+    FN-180 requires the reciprocal of merge admission's live-executor fence: execution must not
+    claim a task while its durable merge-active stamp says a merger owns the branch. This is a
+    deferral, not a park; the next dispatch may claim after the merge clears its stamp.
+    */
+    if (isTaskMergeInFlight(task.id, {
+      activeMergeTaskId: ["merging", "merging-pr", "merging-fix", "reviewing", "landing"].includes(task.status ?? "")
+        ? task.id
+        : null,
+    })) {
+      if (dropPreHeldExecutorSlot(task.id)) deps.options.semaphore?.release();
+      return;
+    }
 
     // FN-4811 follow-up (FN-4814/FN-4809/FN-4811 production failure): claim a
     // PROCESS-WIDE lock synchronously before any other work. Per-instance
@@ -558,12 +575,11 @@ export async function runImplementation(
 
     if (task.column === preflightWipLane && task.mergeDetails) {
       executorLog.warn(`${task.id}: stale mergeDetails found while executing in-progress task — resetting merge state before continuing`);
-      const selection = await deps.store.getTaskWorkflowSelectionAsync?.(task.id)
-        ?? deps.store.getTaskWorkflowSelection?.(task.id);
+      const ir = await resolveWorkflowIrForTask(deps.store, task.id).catch(() => undefined);
       task = await deps.cleanupMergeStateForReverification(
         task,
         "Executor detected stale merge state while task was in-progress — reset verification steps and merge metadata before resuming",
-        { stepReopenPolicy: selection?.workflowId === "builtin:review-gated-coding" ? "none" : "reopen-trailing" },
+        { stepReopenPolicy: resolveStepReopenPolicy(ir) },
       );
     }
 
@@ -1472,6 +1488,9 @@ export async function runImplementation(
                   );
 
                   const maxFixRetries = Math.min(settings.verificationFixRetries ?? 3, 3);
+                  const stepReopenPolicy = resolveStepReopenPolicy(
+                    await resolveWorkflowIrForTask(deps.store, task.id).catch(() => undefined),
+                  );
 
                   if (maxFixRetries === 0) {
                     executorLog.log(`${task.id}: [verification] fix retries set to 0 — sending task back immediately`);
@@ -1482,6 +1501,10 @@ export async function runImplementation(
                       `Deterministic verification failed (${failedType})`,
                       true,
                       true,
+                      undefined,
+                      undefined,
+                      undefined,
+                      stepReopenPolicy,
                     );
                     return;
                   }
@@ -1530,6 +1553,10 @@ export async function runImplementation(
                       `Deterministic verification failed after ${maxFixRetries} fix attempts`,
                       true,
                       true,
+                      undefined,
+                      undefined,
+                      undefined,
+                      stepReopenPolicy,
                     );
                     return;
                   }

@@ -39,6 +39,8 @@ import {
   PLAN_REVIEW_GROUP_ID,
   resolveOptionalReviewRevisionBudget,
   resolveOptionalStepRevisionBudget,
+  resolveStepReopenPolicy,
+  resolveWorkflowIrForTask,
 } from "@fusion/core";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
 import { moveTaskToReplanColumn, resolveReplanTargetColumn } from "../execution/replan-target.js";
@@ -152,6 +154,7 @@ export type RequestPreMergeOptionalStepFixDeps = {
     retryPresentation?: { attempt: number; max?: number },
     findings?: WorkflowReviewFinding[],
     persistWorktreePath?: boolean,
+    stepReopenPolicy?: "reopen-trailing" | "none",
   ) => Promise<void>;
 };
 
@@ -366,8 +369,7 @@ export async function requestPreMergeOptionalStepFix(
     return true;
   }
 
-  const selection = await deps.store.getTaskWorkflowSelectionAsync?.(taskId)
-    ?? deps.store.getTaskWorkflowSelection?.(taskId);
+  const workflowIr = await resolveWorkflowIrForTask(deps.store, taskId).catch(() => undefined);
   /*
    * FNXC:ReviewGatedRemediation 2026-08-23-05:23:
    * Review-gated handoff runs only after the shared operator-hold, artifact, and provider-verdict
@@ -375,7 +377,7 @@ export async function requestPreMergeOptionalStepFix(
    * requires a genuine REVISE so transport failures cannot manufacture remediation work.
    */
   if (
-    selection?.workflowId === "builtin:review-gated-coding"
+    resolveStepReopenPolicy(workflowIr) === "none"
     && (info.nodeId === "verification" || (info.nodeId === "code-review" && info.verdict === "REVISE"))
   ) {
     return deps.appendReviewRemediationSteps(liveTask, info);
@@ -489,10 +491,11 @@ export async function requestPreMergeOptionalStepFix(
     { attempt: nextCount, max: budget.unbounded ? undefined : budget.max },
     info.findings,
   ] as const;
+  const stepReopenPolicy = resolveStepReopenPolicy(workflowIr);
   if (remediation) {
-    await deps.sendTaskBackForFix(...sendArgs, false);
+    await deps.sendTaskBackForFix(...sendArgs, false, stepReopenPolicy);
   } else {
-    await deps.sendTaskBackForFix(...sendArgs);
+    await deps.sendTaskBackForFix(...sendArgs, undefined, stepReopenPolicy);
   }
   return true;
 }
