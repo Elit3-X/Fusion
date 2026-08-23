@@ -96,7 +96,6 @@ const SETTING_DESCRIPTION_KEYS: Record<string, string> = {
   fnBinaryCheckEnabled: "globalGeneral.disableThisIfYourLocalDevProcessIs",
   updateCheckEnabled: "globalGeneral.andShowsUpdateNoticesInTheCLIAnd",
   updateCheckFrequency: "globalGeneral.controlsHowOftenTheDashboardReFetchesThe",
-  autoReloadOnVersionChange: "globalGeneral.whenEnabledDefaultTheDashboardAutomaticallyReloadsWhen",
   updateChannel: "globalGeneral.releaseChannelHelp",
   autoUpdateAndRestart: "globalGeneral.autoUpdateAndRestartHelp",
   autoUpdateEnabled: "globalGeneral.autoUpdateEnabledHelp",

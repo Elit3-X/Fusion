@@ -6694,7 +6694,6 @@
     },
     "globalGeneral": {
       "andShowsUpdateNoticesInTheCLIAnd": " e mostra avisos de atualização na CLI e no painel. A frequência é definida pela opção abaixo. Padrão: ativado. ",
-      "autoReloadDashboardOnVersionChange": " Recarregar o painel automaticamente quando a versão mudar ",
       "checkForThe": " Verificar o ",
       "checkForUpdatesAutomatically": " Verificar atualizações automaticamente ",
       "cLIBinaryOnPATH": " binário da CLI no PATH ",
@@ -6730,7 +6729,6 @@
       "updates": "Atualizações",
       "weekly": "Semanal",
       "whenDisabledToolRowsAreStillLoggedBut": " Quando desativado, as linhas de ferramentas continuam sendo registradas, mas os payloads detalhados das ferramentas são omitidos. Payloads de ferramentas muito grandes ainda podem ser cortados mesmo quando isso permanece ativado. Padrão: desativado. ",
-      "whenEnabledDefaultTheDashboardAutomaticallyReloadsWhen": " Quando ativado (padrão), o painel recarrega automaticamente ao detectar uma nova versão de build — seja por rebuilds do servidor ou atualizações do service worker. Desative isso para permanecer na versão atual até atualizar manualmente. Padrão: ativado. ",
       "whenEnabledFusionChecksNpmForNewVersions": " Quando ativado, o Fusion verifica o npm em busca de novas versões de",
       "whenEnabledTheDashboardProbesForAGlobally": " Quando ativado, o painel verifica se existe, instalado globalmente, um",
       "gitLabEnabledHint": "Os valores globais de URL e token do GitLab servem de reserva para projetos que não definem os próprios valores. Sem padrão — não definido (o estado não definido se comporta como ativado até ser explicitamente desativado).",

@@ -238,7 +238,10 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   /* FNXC:UpdateAutomation 2026-08-21-02:48: Keep these schema keys unset because defaults merge into effective settings and `undefined` is distinct from explicit false. */
   autoUpdateEnabled: undefined,
   autoRestartAfterUpdate: undefined,
-  autoReloadOnVersionChange: true,
+  /*
+  FNXC:VersionAutoReload 2026-08-23-04:03:
+  Version-change reload is mandatory, so its key is retired. Older persisted values are ignored because GLOBAL_SETTINGS_KEYS derives from this object and rejects unknown keys before save patches.
+  */
   githubTrackingDefaultRepo: undefined,
   reportRoadmapDedupeEnabled: undefined,
   reportRoadmapLabel: undefined,

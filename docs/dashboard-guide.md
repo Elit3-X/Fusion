@@ -2594,7 +2594,7 @@ Task Detail's workspace repository summary distinguishes acquired repositories f
 
 ### Update restart recovery
 
-Settings separates automatic installation from automatic restart. Following an operator-requested dashboard update restart, the page waits for the replacement host to report the installed version through health before it reloads. Transitional, old, and unavailable responses do not complete recovery. If the host does not return before the bounded timeout, the update surface provides manual refresh guidance. This explicit recovery is independent from `autoReloadOnVersionChange` and does not change native Electron or standalone CLI update behavior.
+Settings separates automatic installation from automatic restart. Following an operator-requested dashboard update restart, the page waits for the replacement host to report the installed version through health before it reloads. Transitional, old, and unavailable responses do not complete recovery. If the host does not return before the bounded timeout, the update surface provides manual refresh guidance. This explicit recovery is separate from the always-on automatic reload on version change and does not change native Electron or standalone CLI update behavior.
 
 ### Review finding resolutions
 

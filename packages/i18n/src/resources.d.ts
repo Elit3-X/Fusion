@@ -6332,7 +6332,6 @@ export default interface Resources {
         "agentToolOutputLimit": " Agent tool-output limit ",
         "agentToolOutputLimitHint": " Maximum characters returned from each engine-injected tool result. When unset, inherits the 16,000-character engine default. Leave empty to use the default. ",
         "andShowsUpdateNoticesInTheCLIAnd": " and shows update notices in the CLI and dashboard. Cadence is governed by the frequency below. Default: enabled. ",
-        "autoReloadDashboardOnVersionChange": " Auto-reload dashboard on version change ",
         "autoRestartAfterUpdate": " Automatically restart after an update ",
         "autoRestartAfterUpdateHelp": "After a dashboard update installs, requests a supervised restart. Without a supervisor, Fusion keeps the manual restart path. Unset: disabled.",
         "autoUpdateAndRestart": " Auto-update and restart ",
@@ -6386,7 +6385,6 @@ export default interface Resources {
         "updates": "Updates",
         "weekly": "Weekly",
         "whenDisabledToolRowsAreStillLoggedBut": " When disabled, tool rows are still logged but detailed tool payloads are omitted. Very large tool payloads may still be clipped even when this stays enabled. Default: disabled. ",
-        "whenEnabledDefaultTheDashboardAutomaticallyReloadsWhen": " When enabled (default), the dashboard automatically reloads when it detects a new build version — either from server rebuilds or service worker updates. Disable this to stay on the current version until you manually refresh. Default: enabled. ",
         "whenEnabledFusionChecksNpmForNewVersions": " When enabled, Fusion checks npm for new versions of",
         "whenEnabledTheDashboardProbesForAGlobally": " When enabled, the dashboard probes for a globally-installed"
       },

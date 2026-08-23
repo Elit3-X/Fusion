@@ -151,7 +151,6 @@ Fusion automatically falls back to ntfy's JSON publish format when a notificatio
 | `jiraAuthTokenSecretScope` | `"project" \| "global"` | `"project"` | Preferred scope for the token secret; project lookup automatically falls back to global. |
 | `jiraBranchNameTemplate` | `string` | `"feature/{key}-{summary}"` | Global default template for the editable JIRA-derived workspace branch candidate. |
 | `gitlabCloseSourceIssueOnDone` | `boolean` | `false` | Controls only the `task:moved` done-close/reopen lifecycle for imported GitLab issues. It does not gate ordinary task deletion: linked GitLab issues close by default unless `githubIssueAction: "leave"` is supplied; merge requests are never auto-closed. |
-| `autoReloadOnVersionChange` | `boolean` | `true` | When enabled (default), the dashboard automatically reloads when a new build version is detected via `/version.json` polling or service worker activation. Set to `false` to suppress automatic reloads — the user must manually refresh to pick up updates. |
 | `localNetworkDiscoveryEnabled` | `boolean` | `true` | Enables automatic `_fusion._tcp` LAN broadcast and listening when `fn dashboard` or `fn serve` starts. Set `false` to opt out of automatic mDNS/DNS-SD discovery; an explicit operator `POST /api/discovery/start` request remains available. |
 | `modelOnboardingComplete` | `boolean` | `undefined` | Whether AI onboarding has been completed or dismissed. |
 | `useCursorCli` | `boolean` | `undefined` | Enables the `cursor-cli` provider in model pickers after Cursor CLI status validation. Toggle from Settings → Authentication. This runtime auth is OAuth/session-based; Cursor usage metering is separate and reads a Cursor Admin API key from the dashboard process `CURSOR_API_KEY` env var. |
@@ -2015,7 +2014,7 @@ JIRA branch derivation is opt-in. Configure `jiraEnabled`, `jiraBaseUrl`, option
 
 The deprecated `autoUpdateAndRestart` key remains a hidden compatibility fallback. Each explicit new key, including `false`, wins independently; when a new key is absent, legacy `true` supplies its effective value. Unsupervised hosts never report a scheduled restart and retain manual restart guidance.
 
-After an operator-requested update restart, the dashboard polls health and system identity until the target version is non-transitional, then reloads once. A bounded timeout restores manual refresh guidance. This recovery is independent of passive `autoReloadOnVersionChange`; standalone `fn update` and native Electron updating are separate flows.
+The dashboard always reloads once it detects a new build version. After an operator-requested update restart, separate recovery polls health and system identity until the target version is non-transitional, then reloads once. A bounded timeout restores manual refresh guidance; standalone `fn update` and native Electron updating remain separate flows.
 
 ### Review convergence workflow settings
 
