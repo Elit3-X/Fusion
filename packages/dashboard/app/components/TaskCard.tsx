@@ -1740,8 +1740,8 @@ function TaskCardComponent({
   In-progress card progress is WIP implementation only. Plan Review (Todo) and Code Review / other review-lane gates must not appear as checklist rows or inflate completed/total while the card is in In progress; badges still use full progress helpers (isPlanReviewRunning / running step labels).
   */
   const unifiedProgress = useMemo(
-    () => getUnifiedTaskProgress(task, { scope: "implementation" }),
-    [task.steps, task.enabledWorkflowSteps, task.workflowStepResults],
+    () => getUnifiedTaskProgress(task, { scope: task.column === "in-review" ? "full" : "implementation" }),
+    [task.column, task.steps, task.enabledWorkflowSteps, task.workflowStepResults],
   );
   /*
   FNXC:TaskCardProgress 2026-06-29-02:26:
@@ -4168,7 +4168,8 @@ function TaskCardComponent({
             </button>
             {showSteps && (
               <div className="card-steps-list">
-                {unifiedProgress.items.map((step) => {
+                {unifiedProgress.items.map((step, index) => {
+                  const beginsReviewGates = step.source === "workflow" && index > 0 && unifiedProgress.items[index - 1]?.source === "step";
                   /*
                   FNXC:WorkflowSteps 2026-06-25-00:00:
                   The dot color is keyed by the unified status, which now distinguishes the two
@@ -4181,7 +4182,9 @@ function TaskCardComponent({
                   Workflow-sourced rows remain visible through their step names and status dots, but task cards intentionally omit the redundant `workflow` text badge so expanded step lists stay focused on progress.
                   */
                   return (
-                    <div key={step.id} className="card-step-item">
+                    <div key={step.id}>
+                      {beginsReviewGates && <div className="card-review-gates-separator" aria-hidden="true" />}
+                    <div className="card-step-item">
                       <span
                         className={`card-step-dot card-step-dot--${step.status}`}
                         aria-hidden="true"
@@ -4194,6 +4197,7 @@ function TaskCardComponent({
                           {t("tasks.active", "active")}
                         </span>
                       )}
+                    </div>
                     </div>
                   );
                 })}

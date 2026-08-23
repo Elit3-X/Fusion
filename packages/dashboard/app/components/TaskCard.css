@@ -1428,6 +1428,11 @@ the established compact mobile interaction rhythm while the card remains the pri
   overflow-y: auto;
 }
 
+.card-review-gates-separator {
+  border-top: var(--border-width) solid color-mix(in srgb, var(--border) 70%, transparent);
+  margin-block: var(--space-xs);
+}
+
 .card-step-item {
   display: flex;
   align-items: center;

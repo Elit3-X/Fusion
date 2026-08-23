@@ -96,6 +96,8 @@ const NON_IMPLEMENTATION_WORKFLOW_STEP_IDS = new Set([
   "plan-review",
   "plan-replan",
   "code-review",
+  "verification",
+  "documentation-delivery",
   "browser-verification",
   "post-merge-verification",
   "completion-summary",

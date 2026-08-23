@@ -1316,7 +1316,7 @@ export class WorkflowGraphExecutor {
               if (!this.shouldTraverseEdge(edge, remediationRouteSource)) return false;
               const target = nodeMap.get(edge.to);
               const action = target?.config?.workflowAction;
-              return action === "plan-replan" || action === "pre-merge-remediation";
+              return action === "plan-replan" || action === "pre-merge-remediation" || action === "review-remediation-steps";
             });
             if (explicitWorkflowRemediationRoute) {
               return await traverseChildren(node, remediationRouteSource);
@@ -1331,7 +1331,7 @@ export class WorkflowGraphExecutor {
         }
 
         const workflowAction = node.config?.workflowAction;
-        if (workflowAction === "plan-replan" || workflowAction === "pre-merge-remediation") {
+        if (workflowAction === "plan-replan" || workflowAction === "pre-merge-remediation" || workflowAction === "review-remediation-steps") {
           const stepId = typeof node.config?.forWorkflowStepId === "string"
             ? node.config.forWorkflowStepId
             : undefined;

@@ -2479,3 +2479,7 @@ Workspace review and landing share one canonical base-to-task-branch binary-diff
 ### Review convergence invariant
 
 Automatic review remediation archives rather than erases failure history on the bounce, graph-failure resume, and remediation-owned replan paths; explicit operator retry clears it. A carrier is non-blocking and cannot satisfy a gate without complete arbitration provenance. Every automatic remediation stop point uses the convergence ladder before a human park. A dispute remains open until adjudicated, preserving its blocking power, implementer obligation, reviewer visibility, and supersession eligibility. Arbitration releases one fenced adjudicated gate only and refuses partial rulings with binding findings. Review-convergence audit emission is bounded best-effort telemetry: it cannot alter, delay past its bound, or abort a ladder, arbitration, or dispute lifecycle outcome.
+
+### Review-gated remediation safety
+
+The review-gated coding workflow preserves implementation steps across review rejection. Its replay authority is appended remediation provenance, not step-name matching. Zero-diff finalization recognizes legacy verification names, structurally marked remediation steps, and required gate results so a missing or failed Verification cannot be finalized as a no-op.

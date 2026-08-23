@@ -138,6 +138,8 @@ export type RequestPreMergeOptionalStepFixDeps = {
     feedback: string,
   ) => Promise<void>;
   clearPausedAborted: (taskId: string) => void;
+  readTaskArtifact: (taskId: string, key: string) => Promise<string | undefined>;
+  appendReviewRemediationSteps: (task: Task, info: RequestPreMergeOptionalStepFixInfo) => Promise<boolean>;
   workflowLifecycleMovesInFlight: Set<string>;
   sendTaskBackForFix: (
     task: Task,
@@ -362,6 +364,21 @@ export async function requestPreMergeOptionalStepFix(
       graphResumeRetryCount: 0,
     }, deps.getRunContextFor(taskId));
     return true;
+  }
+
+  const selection = await deps.store.getTaskWorkflowSelectionAsync?.(taskId)
+    ?? deps.store.getTaskWorkflowSelection?.(taskId);
+  /*
+   * FNXC:ReviewGatedRemediation 2026-08-23-05:23:
+   * Review-gated handoff runs only after the shared operator-hold, artifact, and provider-verdict
+   * guards above. A deterministic Verification failure has no reviewer verdict; Code Review still
+   * requires a genuine REVISE so transport failures cannot manufacture remediation work.
+   */
+  if (
+    selection?.workflowId === "builtin:review-gated-coding"
+    && (info.nodeId === "verification" || (info.nodeId === "code-review" && info.verdict === "REVISE"))
+  ) {
+    return deps.appendReviewRemediationSteps(liveTask, info);
   }
 
   if (info.verdict !== "REVISE") {

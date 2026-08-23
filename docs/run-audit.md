@@ -96,3 +96,8 @@ All `recordRunAuditEventWithinTransaction(tx, ...)` calls and the `recordRunAudi
 ### Review convergence events
 
 `task:review-finding-disputed`, `task:review-convergence-escalation`, `task:review-arbitration`, and `task:review-convergence-human-escalation` record review-cycle progression. Their metadata contains only ids, counts, and fixed outcomes; dispute rationales, findings, reviewer feedback, and arbiter output are never recorded. All five emission sites use the FN-9175 bounded best-effort seam, so hostile telemetry cannot alter or block the ladder, arbitration release, or dispute result.
+
+| Event | Metadata |
+| --- | --- |
+| `review-remediation-appended` | Task id, gate id, wave, and count only. |
+| `review-remediation-parked` | Task id and fixed park outcome only. |

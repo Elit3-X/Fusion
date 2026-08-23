@@ -835,6 +835,15 @@ export {
   type NoOpCompletionMarker,
   type NoOpCompletionMarkerKind,
 } from "./merge/no-op-completion-marker.js";
+export {
+  formatRemediationStepName,
+  isRemediationStep,
+  remediationWaveCount,
+  hasOpenEquivalentRemediationStep,
+  remediationDeclaredFiles,
+} from "./tasks/remediation-steps.js";
+export type { RemediationStepInput } from "./tasks/remediation-steps.js";
+export type { AppendRemediationStepsOptions, AppendRemediationStepsResult } from "./task-store/remediation-step-ops.js";
 export { evaluateNoCommitsNoOpFinalize } from "./merge/no-commits-finalize-guard.js";
 export type { NoCommitsNoOpFinalizeEvaluation } from "./merge/no-commits-finalize-guard.js";
 export {

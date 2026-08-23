@@ -37,6 +37,7 @@ import { parseAwaitInputSentinel } from "./await-input-parse.js";
 import { buildAgentPersona } from "./agent-binding-pure.js";
 import { reviewWorkspacePerRepo } from "./workspace-review-per-repo.js";
 import type { ReviewResult } from "../execution/reviewer.js";
+import { runDeterministicVerificationGate } from "../workflow-node-runners/verification-gate.js";
 
 const WORKFLOW_THINKING_LEVEL_SET: ReadonlySet<string> = new Set(THINKING_LEVELS);
 
@@ -190,7 +191,8 @@ export async function runGraphCustomNode(
     leave runtime requiring a worktree that preparation declined to acquire.
     Plan Review remains excluded because it uses the narrow PROMPT.md writer.
     */
-    const writeCapable = workflowNodeRequiresWorktree(node, {
+    const isDeterministicVerificationGate = cfg.workflowAction === "deterministic-verification";
+    const writeCapable = isDeterministicVerificationGate || workflowNodeRequiresWorktree(node, {
       optionalGroupId,
       reviewerInlineFixes: (settings as Settings & { reviewerInlineFixes?: boolean }).reviewerInlineFixes,
     });
@@ -278,6 +280,9 @@ export async function runGraphCustomNode(
     const worktreePath = workspaceConfig && !writeCapable
       ? deps.rootDir
       : executionTarget.worktree || legacyWorkspacePath || workspaceTaskDir!;
+    if (isDeterministicVerificationGate) {
+      return runDeterministicVerificationGate({ store: deps.store }, node, live, settings, worktreePath);
+    }
     let prompt = typeof cfg.prompt === "string" ? cfg.prompt : "";
     let modelProvider = typeof cfg.modelProvider === "string" && cfg.modelProvider.trim() ? cfg.modelProvider : undefined;
     let modelId = typeof cfg.modelId === "string" && cfg.modelId.trim() ? cfg.modelId : undefined;

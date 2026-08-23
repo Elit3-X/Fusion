@@ -1036,3 +1036,9 @@ Automatic remediation retains a failed review as a non-blocking `skipped` carrie
 The next reviewer receives the same-gate attempt history and open findings. An implementer may call `fn_review_dispute(findingId, rationale)`: this records a contested-but-open annotation, so the finding remains blocking and visible. The reviewer must supersede it or rebut it with `rebutsDisputedFindingId`; only a terminal same-gate verdict that does neither marks it `dispute-upheld`.
 
 Repeated unchanged review input routes through the shared convergence ladder: one bounded escalation/replan, then arbitration, then a loud human escalation only after the automatic stages are spent. A non-declining stage performs a real re-dispatch and its requester succeeds rather than terminalizing the remediation node. Arbitration may release only its exact fenced failed gate; it cannot release sibling gates, and a split with binding findings remains blocking.
+
+## Review-gated coding
+
+`builtin:review-gated-coding` is an opt-in coding workflow. Its task steps contain implementation work only. Verification, Code Review, and Documentation & Delivery run in that order as review-column gates. A failed Verification or Code Review appends `Fix: <defect>` remediation steps to the end of the task list; their durable `remediation` provenance records the gate, finding, affected file, and wave. Step names are never used to classify remediation.
+
+The workflow allows at most three remediation waves. Missing actionable findings, out-of-scope findings, duplicate-only remediation, and an exhausted wave budget park the task for a human rather than returning it to implementation without work. `parse-steps` uses `preserveRemediationSteps` to stop before replacement writes when live remediation exists, while `implementationOnlySteps` only audits gate-like plan steps and never deletes them.

@@ -540,9 +540,12 @@ export async function runImplementation(
 
     if (task.column === preflightWipLane && task.mergeDetails) {
       executorLog.warn(`${task.id}: stale mergeDetails found while executing in-progress task — resetting merge state before continuing`);
+      const selection = await deps.store.getTaskWorkflowSelectionAsync?.(task.id)
+        ?? deps.store.getTaskWorkflowSelection?.(task.id);
       task = await deps.cleanupMergeStateForReverification(
         task,
         "Executor detected stale merge state while task was in-progress — reset verification steps and merge metadata before resuming",
+        { stepReopenPolicy: selection?.workflowId === "builtin:review-gated-coding" ? "none" : "reopen-trailing" },
       );
     }
 

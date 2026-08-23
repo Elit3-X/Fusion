@@ -669,8 +669,15 @@ export function buildRequestPreMergeOptionalStepFixDeps(host: any): any {
     ...facadeFields(host, ["store", "workflowLifecycleMovesInFlight"]),
     ...facadeMethods(host, [
       "getRunContextFor", "recoverMissingRequiredArtifacts", "parkPlanReviewReplanCapExhausted",
-      "clearPausedAborted", "sendTaskBackForFix",
+      "clearPausedAborted", "readTaskArtifact", "appendReviewRemediationSteps", "sendTaskBackForFix",
     ]),
+  };
+}
+
+export function buildAppendReviewRemediationStepsDeps(host: any): any {
+  return {
+    ...facadeFields(host, ["store"]),
+    ...facadeMethods(host, ["readTaskArtifact", "sendTaskBackForFix"]),
   };
 }
 

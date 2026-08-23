@@ -72,6 +72,7 @@ import { selectUserCommentsForAgentContext } from "../agents/agent-user-comments
 import { resolveTaskWorkingBranch } from "../worktree/worktree-names.js";
 import { resolveIntegrationBranch } from "./integration-branch.js";
 import { shouldClearOrphanedMergeStamp } from "./merge-active-status.js";
+
 import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "../worktree/workspace-base-branch.js";
 import { captureWorkspaceReviewEvidence } from "../worktree/workspace-review-evidence.js";
 import { advanceIntegrationBranchRef } from "./merger-ref-update-advance.js";
@@ -149,6 +150,20 @@ const aiMergeLog = createLogger("merger-ai");
  * sync telemetry is considered. This production helper makes that ordering independently
  * executable while retaining the fire-and-forget audit contract for ordinary sync failures.
  */
+/*
+ * FNXC:ReviewGatedRemediation 2026-08-23-05:23:
+ * The AI empty-merge path must carry the selected workflow's required gates into the shared
+ * zero-diff guard; otherwise a review-gated card can finalize before deterministic verification.
+ */
+async function resolveNoOpFinalizeGateIds(store: TaskStore, task: Task): Promise<ReadonlySet<string> | undefined> {
+  const selection = store.getTaskWorkflowSelectionAsync
+    ? await store.getTaskWorkflowSelectionAsync(task.id)
+    : store.getTaskWorkflowSelection?.(task.id);
+  if (!selection) return undefined;
+  const ir = await resolveWorkflowIrForTask(store, task.id).catch(() => undefined);
+  return ir ? resolveRequiredPreMergeStepIds(ir, task.enabledWorkflowSteps) : undefined;
+}
+
 export function recordBranchGroupPrSyncFailureAudit(
   store: RunAuditSinkHost,
   taskId: string,
@@ -1566,7 +1581,9 @@ export async function runAiMerge(
   });
 
   if (landResult.outcome === "empty") {
-    const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task);
+    const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task, {
+      requiredVerificationStepIds: await resolveNoOpFinalizeGateIds(store, task),
+    });
     if (noCommitsFinalize.blocked) {
       const reason = noCommitsFinalize.reason ?? "no-commits task has incomplete work with no net branch changes";
       /*

@@ -21,7 +21,7 @@ export async function cleanupMergeStateForReverification(
   deps: CleanupMergeStateDeps,
   task: Task,
   logMessage: string,
-  options?: { preserveVerificationFailureCount?: boolean },
+  options?: { preserveVerificationFailureCount?: boolean; stepReopenPolicy?: "reopen-trailing" | "none" },
 ): Promise<Task> {
   const preservedWorkflowStepResults = preservePreExecutionWorkflowStepResults(task);
   await deps.store.updateTask(task.id, {
@@ -35,7 +35,12 @@ export async function cleanupMergeStateForReverification(
 
   const refreshedTask = await deps.store.getTask(task.id);
   const steps = refreshedTask.steps ?? [];
-  if (steps.length > 0) {
+  /*
+   * FNXC:ReviewGatedRemediation 2026-08-23-05:10:
+   * Appended provenance steps are the only replay authority for review-gated work. Skipping both
+   * legacy reopen paths prevents lexical matches from reopening completed implementation steps.
+   */
+  if (options?.stepReopenPolicy !== "none" && steps.length > 0) {
     const allStepsComplete = isTaskWorkComplete(refreshedTask);
     if (allStepsComplete) {
       await deps.reopenLastStepForRevision(task.id, refreshedTask);

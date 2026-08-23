@@ -10,6 +10,8 @@ export const BUILTIN_SEAM_PROMPTS: Record<string, string> = {
   execute: DEFAULT_EXECUTOR_PROMPT,
   planning: DEFAULT_TRIAGE_PROMPT,
   "planning-fast": DEFAULT_TRIAGE_FAST_PROMPT,
+  /* Review-gated tasks keep test and delivery work in review-column gates. */
+  "planning-implementation-only": `${DEFAULT_TRIAGE_PROMPT}\n\n## Review-gated step contract\nProduce implementation steps only. Do not add Testing & Verification or Documentation & Delivery steps; those run as review-column gates after implementation.`,
   "step-execute": DEFAULT_EXECUTOR_PROMPT,
   review: DEFAULT_REVIEWER_PROMPT,
   merge: DEFAULT_MERGER_PROMPT,

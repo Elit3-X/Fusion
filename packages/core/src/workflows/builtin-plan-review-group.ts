@@ -65,7 +65,7 @@ column the preceding node established — `todo` in practice, the same lane by a
 /** Build the `plan-review` optional-group node placed between planning and execution. */
 export function planReviewOptionalGroupNode(
   column?: string,
-  options: { defaultOn?: boolean; maxRevisions?: number | "unbounded"; requireExternalIntegrationEvidence?: boolean } = {},
+  options: { defaultOn?: boolean; maxRevisions?: number | "unbounded"; requireExternalIntegrationEvidence?: boolean; requireImplementationOnlySteps?: boolean } = {},
 ): WorkflowIrNode {
   const promptConfig: Record<string, unknown> = {
     name: PLAN_REVIEW_NAME,
@@ -74,6 +74,15 @@ export function planReviewOptionalGroupNode(
     toolMode: "readonly",
     gateMode: "gate",
   };
+  if (options.requireImplementationOnlySteps === true) {
+    /*
+     * FNXC:ReviewGatedCoding 2026-08-23-04:52:
+     * A reviewer can distinguish implementation work from a legitimate name containing
+     * "verification"; parser regexes cannot, so only this workflow opts into the criterion.
+     */
+    promptConfig.prompt = `${PLAN_REVIEW_PROMPT}\n\n## Review-gated implementation steps\nREVISE when the proposed task-step list includes testing, verification, documentation, or delivery work. Those are review-column gates in this workflow, not implementation steps.`;
+    promptConfig.requireImplementationOnlySteps = true;
+  }
   if (options.requireExternalIntegrationEvidence === true) {
     /*
      * FNXC:PlanValidation 2026-06-30-08:56:

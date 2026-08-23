@@ -19,7 +19,7 @@ export type ResetMergeStateDeps = {
   cleanupMergeStateForReverification: (
     task: Task,
     logMessage: string,
-    options?: { preserveVerificationFailureCount?: boolean },
+    options?: { preserveVerificationFailureCount?: boolean; stepReopenPolicy?: "reopen-trailing" | "none" },
   ) => Promise<Task>;
 };
 
@@ -52,6 +52,8 @@ export async function resetMergeStateIfNeeded(
     return task;
   }
 
+  const selection = await deps.store.getTaskWorkflowSelectionAsync?.(task.id)
+    ?? deps.store.getTaskWorkflowSelection?.(task.id);
   return deps.cleanupMergeStateForReverification(
     task,
     `Task returned to in-progress from ${from} column — resetting verification steps and merge state for re-verification`,
@@ -60,6 +62,7 @@ export async function resetMergeStateIfNeeded(
       // cycles. Status may be cleared by intermediate paths, so the counter is
       // the canonical signal once a bounce has started.
       preserveVerificationFailureCount: (task.verificationFailureCount ?? 0) > 0,
+      stepReopenPolicy: selection?.workflowId === "builtin:review-gated-coding" ? "none" : "reopen-trailing",
     },
   );
 }

@@ -6418,6 +6418,21 @@ workflow steps run exclusively as the workflow graph's own post-merge optional-g
  *   - On finalize, best-effort cleanup of the stranded `task.worktree` and
  *     `fusion/<id>` branch keeps `.worktrees/` and the branch namespace tidy.
  */
+/*
+ * FNXC:ReviewGatedRemediation 2026-08-23-05:23:
+ * Empty-diff finalizers must resolve the selected workflow's required pre-merge gates, not infer
+ * verification from implementation-step names. Legacy callers without a workflow selection retain
+ * their historical guard behavior.
+ */
+async function resolveNoOpFinalizeGateIds(store: TaskStore, task: Task): Promise<ReadonlySet<string> | undefined> {
+  const selection = store.getTaskWorkflowSelectionAsync
+    ? await store.getTaskWorkflowSelectionAsync(task.id)
+    : store.getTaskWorkflowSelection?.(task.id);
+  if (!selection) return undefined;
+  const ir = await resolveWorkflowIrForTask(store, task.id).catch(() => undefined);
+  return ir ? resolveRequiredPreMergeStepIds(ir, task.enabledWorkflowSteps) : undefined;
+}
+
 async function tryEarlyEmptyOwnDiffFinalize(input: {
   task: Task;
   taskId: string;
@@ -6480,7 +6495,9 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
     return null;
   }
 
-  const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task);
+  const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task, {
+    requiredVerificationStepIds: await resolveNoOpFinalizeGateIds(store, task),
+  });
   if (noCommitsFinalize.blocked) {
     const reason = noCommitsFinalize.reason ?? "no-commits task has incomplete work with no net branch changes";
     /*
@@ -7614,7 +7631,9 @@ export async function aiMergeTask(
       // — NOT a legitimate no-op. Demote to the unproven-recovery path which
       // moves the task back to todo with progress preserved instead of
       // clearing modifiedFiles to [].
-      const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task);
+      const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task, {
+        requiredVerificationStepIds: await resolveNoOpFinalizeGateIds(store, task),
+      });
       if (noCommitsFinalize.blocked) {
         const reason = noCommitsFinalize.reason ?? "no-commits task has incomplete work with no net branch changes";
         /*
@@ -7918,7 +7937,9 @@ export async function aiMergeTask(
       result.mergeTargetSource = mergeTarget.source;
       mergerLog.log(`${taskId}: branch missing; recovered owned landed commit ${classification.commit.sha.slice(0, 8)}`);
     } else {
-      const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task);
+      const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task, {
+        requiredVerificationStepIds: await resolveNoOpFinalizeGateIds(store, task),
+      });
       if (noCommitsFinalize.blocked) {
         const reason = noCommitsFinalize.reason ?? "no-commits task has incomplete work with no net branch changes";
         /*

@@ -2601,3 +2601,7 @@ Settings separates automatic installation from automatic restart. Following an o
 ### Review finding resolutions
 
 The Review tab renders the `dispute-upheld` badge for an adjudicated finding. It is a terminal resolution and cannot be selected for a further revision; it is distinct from the existing Superseded badge.
+
+### Review-gated task progress
+
+Cards using the review-gated workflow show implementation progress while work is in progress. In review, their progress block includes Verification, Code Review, and Documentation & Delivery after the implementation steps, separated visually; the running gate supplies the card badge.
