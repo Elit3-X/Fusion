@@ -9076,6 +9076,8 @@ export default interface Resources {
       "noDetail": "No reasoning captured for this step",
       "sectionCount": "{{count}} section",
       "sectionCountPlural": "{{count}} sections",
+      "showRaw": "Raw trace",
+      "showSections": "Sectioned trace",
       "untitledSection": "Untitled reasoning"
     },
     "todo": {

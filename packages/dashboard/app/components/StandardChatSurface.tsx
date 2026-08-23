@@ -176,7 +176,7 @@ function StandardThinkingDisclosure({ thinking }: { thinking: string }) {
   const [open, setOpen] = useState(false);
   const handleBodyClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (isInteractiveDisclosureTarget(event.target)) return;
-    // FNXC:ThinkingTrace 2026-08-22-16:56: Per-title bodies own their click-to-collapse action; preserve the host disclosure's established body-click behavior for untitled traces.
+    // FNXC:ThinkingTrace 2026-08-22-16:56: Per-title bodies own collapse clicks; the shared interactive-target guard also keeps the folded-title Raw trace button inside this disclosure.
     if (event.target instanceof Element && event.target.closest(".thinking-trace-section-body")) return;
     setOpen(false);
   }, []);

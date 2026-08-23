@@ -110,7 +110,7 @@ Press `Escape` to close the current/topmost dashboard popup. Popped-out task win
 <!-- FNXC:ChatFindDocs 2026-08-21-16:29: FN-110 gives the active visible Chat host contextual Find ownership without adding a configurable dashboard shortcut. -->
 ### Thinking traces
 
-Thinking panes split titled reasoning traces into independently expandable sections, with **Collapse all** and **Expand all** controls. Sections start expanded, so reasoning already visible remains visible; sections with no captured body say so explicitly. Untitled traces remain a single block. The same behavior applies while Planning Mode, Mission Interview, and Milestone/Slice Interview stream a generation.
+Thinking panes split titled reasoning traces with captured bodies into independently expandable sections, with **Collapse all** and **Expand all** controls. Headings without captured reasoning stay inline in the flowing trace instead of becoming empty collapsible rows, and the defensive empty-state label appears at most once per section. **Raw trace** shows the original unsectioned capture and switches back with **Sectioned trace**; it is available for every trace that contained headings, including a titles-only trace rendered as one flowing block. The workflow live-log console remains raw and unsectioned by design. The same behavior applies while Planning Mode, Mission Interview, and Milestone/Slice Interview stream a generation.
 
 ### Chat Find
 

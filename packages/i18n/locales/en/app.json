@@ -9698,6 +9698,8 @@
     "expandAll": "Expand all",
     "collapseAll": "Collapse all",
     "noDetail": "No reasoning captured for this step",
+    "showRaw": "Raw trace",
+    "showSections": "Sectioned trace",
     "untitledSection": "Untitled reasoning",
     "sectionCount": "{{count}} section",
     "sectionCountPlural": "{{count}} sections"

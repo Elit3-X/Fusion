@@ -9700,6 +9700,8 @@
     "noDetail": "Aucun raisonnement capturé pour cette étape",
     "untitledSection": "Raisonnement sans titre",
     "sectionCount": "{{count}} section",
-    "sectionCountPlural": "{{count}} sections"
+    "sectionCountPlural": "{{count}} sections",
+    "showRaw": "",
+    "showSections": ""
   }
 }
