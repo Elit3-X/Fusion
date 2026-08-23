@@ -122,6 +122,8 @@ export interface ChatViewProps {
   onOpenSessionInNewWindow?: (session: ChatSessionInfo) => void;
   /** Secondary windows start in Direct and keep selection/scope storage private. */
   initialDirectSession?: ChatSessionInfo;
+  /** Monotonic pop-out focus signal; a repeated open restores this window's detail view. */
+  initialDirectSessionNonce?: number;
   persistChatPreferences?: boolean;
   /** Optional external composer seed; paired with a nonce so repeated opens reseed intentionally. */
   initialComposerDraft?: string;
@@ -324,7 +326,7 @@ function ChatDialogBackdrop({ children, onClose }: { children: React.ReactNode; 
 
 type CopyFeedbackState = "success" | "error" | null;
 
-export function ChatView({ projectId, addToast, floating = false, compactLayout = false, findActive = true, onPopOut, onMaximize, onClose, onOpenSessionInNewWindow, initialDirectSession, persistChatPreferences = true, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
+export function ChatView({ projectId, addToast, floating = false, compactLayout = false, findActive = true, onPopOut, onMaximize, onClose, onOpenSessionInNewWindow, initialDirectSession, initialDirectSessionNonce, persistChatPreferences = true, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
   const { t } = useTranslation("app");
   const chatMessageLayout = useChatMessageLayout();
   useEffect(() => {
@@ -501,10 +503,19 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   conversation management; detail owns the thread and its single return path.
   Keep this local state independent of useChat's restored active session so a
   remount never creates a phantom drill-in history entry or replaces a stream.
+  A dedicated pop-out starts on its requested thread; ordinary hosts still start on the list.
   Visible Back must consume its pushed navigation entry; popstate uses the raw
   return callback so either route restores the same list state.
   */
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(() => Boolean(initialDirectSession));
+  /*
+  FNXC:ChatNavigation 2026-08-23-03:33:
+  FN-169 automatic detail opening is not a user drill-in. Suppress exactly its next false-to-true
+  transition, including when selection resolves after the first render; manual Back then selection
+  still contributes one history entry.
+  */
+  const suppressAutomaticDetailNavRef = useRef(Boolean(initialDirectSession));
+  const previousInitialDirectSessionNonceRef = useRef(initialDirectSessionNonce);
   const [conversationSearchOpen, setConversationSearchOpen] = useState(false);
   const [conversationSearchQuery, setConversationSearchQuery] = useState("");
   const [conversationSearchIndex, setConversationSearchIndex] = useState(0);
@@ -2183,6 +2194,22 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
 
   const previousDetailOpenRef = useRef(hasDetailSelection);
 
+  useEffect(() => {
+    if (initialDirectSessionNonce === previousInitialDirectSessionNonceRef.current) return;
+    previousInitialDirectSessionNonceRef.current = initialDirectSessionNonce;
+    if (!initialDirectSession) return;
+    suppressAutomaticDetailNavRef.current = true;
+    setDetailOpen(true);
+    /*
+    FNXC:ChatWindows 2026-08-23-03:33:
+    FN-169 must not re-select an already active streaming session: selectSession clears transient
+    composer and stream state. A re-open only selects when its requested session is different.
+    */
+    if (activeSession?.id !== initialDirectSession.id) {
+      selectSession(initialDirectSession.id, initialDirectSession);
+    }
+  }, [activeSession?.id, initialDirectSession, initialDirectSessionNonce, selectSession]);
+
   /*
   FNXC:ChatFind 2026-08-21-16:29:
   FN-110 keeps browser Find outside Chat while the visible, activated Chat host owns Ctrl/Cmd+F. List Find reuses its server-backed input; thread Find is presentation-only over rendered rows and never changes chat state.
@@ -2273,7 +2300,16 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   useEffect(() => {
     const previousDetailOpen = previousDetailOpenRef.current;
     previousDetailOpenRef.current = hasDetailSelection;
-    if (previousDetailOpen || !hasDetailSelection) return;
+    if (previousDetailOpen || !hasDetailSelection) {
+      if (previousDetailOpen && hasDetailSelection && suppressAutomaticDetailNavRef.current) {
+        suppressAutomaticDetailNavRef.current = false;
+      }
+      return;
+    }
+    if (suppressAutomaticDetailNavRef.current) {
+      suppressAutomaticDetailNavRef.current = false;
+      return;
+    }
     pushNav({ type: "view", revert: handleBack });
   }, [handleBack, hasDetailSelection, pushNav]);
 

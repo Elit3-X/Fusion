@@ -83,6 +83,8 @@ export interface FloatingWindowProps {
    * interaction; unrelated utilities use the global floating stack.
    */
   layer?: "utility" | "task-detail";
+  /** Optional monotonic signal for owners that refresh a mounted window in place. */
+  raiseToFrontSignal?: number;
   // FNXC:FloatingWindow 2026-07-11-11:30: accessible name for the dialog overlay so headerless windows (e.g. artifact viewers with their own header chrome) stay queryable/announcable by label.
   ariaLabel?: string;
   /*
@@ -209,6 +211,7 @@ export function FloatingWindow({
   testId,
   hidden = false,
   layer = "utility",
+  raiseToFrontSignal,
   ariaLabel,
   ariaLabelledBy,
 }: FloatingWindowProps) {
@@ -308,6 +311,19 @@ export function FloatingWindow({
       return claimFrontZ();
     });
   }, [claimFrontZ, readCurrentZ]);
+
+  /*
+  FNXC:FloatingWindow 2026-08-23-03:33:
+  FN-169 needs a third re-raise path for owners that refresh a mounted entry in place: such a
+  window neither remounts nor transitions from hidden to visible. An omitted signal preserves
+  every existing caller's stack behavior.
+  */
+  const previousRaiseToFrontSignalRef = useRef(raiseToFrontSignal);
+  useEffect(() => {
+    if (raiseToFrontSignal === previousRaiseToFrontSignalRef.current) return;
+    previousRaiseToFrontSignalRef.current = raiseToFrontSignal;
+    bringToFront();
+  }, [bringToFront, raiseToFrontSignal]);
 
   /*
   FNXC:FloatingWindow 2026-07-18-00:00:

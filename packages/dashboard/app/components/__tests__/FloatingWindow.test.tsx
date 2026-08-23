@@ -605,6 +605,43 @@ describe("FloatingWindow", () => {
     expect(Number(first.style.zIndex)).toBeGreaterThan(Number(second.style.zIndex));
   });
 
+  it("raises only when an opt-in signal changes and preserves stack bands", () => {
+    const { rerender } = render(
+      <>
+        <FloatingWindow windowKey="signal-a" title="A" onClose={() => {}} layer="task-detail" raiseToFrontSignal={1}><div>a</div></FloatingWindow>
+        <FloatingWindow windowKey="signal-b" title="B" onClose={() => {}} layer="task-detail" raiseToFrontSignal={1}><div>b</div></FloatingWindow>
+        <FloatingWindow windowKey="signal-control" title="Control" onClose={() => {}} layer="task-detail"><div>control</div></FloatingWindow>
+        <FloatingWindow windowKey="signal-utility" title="Utility" onClose={() => {}} layer="utility"><div>utility</div></FloatingWindow>
+      </>,
+    );
+    const a = screen.getByTestId("floating-window-signal-a");
+    const b = screen.getByTestId("floating-window-signal-b");
+    const control = screen.getByTestId("floating-window-signal-control");
+    const utility = screen.getByTestId("floating-window-signal-utility");
+    const beforeA = Number(a.style.zIndex);
+    const beforeControl = Number(control.style.zIndex);
+
+    rerender(<>
+      <FloatingWindow windowKey="signal-a" title="A" onClose={() => {}} layer="task-detail" raiseToFrontSignal={2}><div>a</div></FloatingWindow>
+      <FloatingWindow windowKey="signal-b" title="B" onClose={() => {}} layer="task-detail" raiseToFrontSignal={1}><div>b</div></FloatingWindow>
+      <FloatingWindow windowKey="signal-control" title="Control" onClose={() => {}} layer="task-detail"><div>control</div></FloatingWindow>
+      <FloatingWindow windowKey="signal-utility" title="Utility" onClose={() => {}} layer="utility"><div>utility</div></FloatingWindow>
+    </>);
+    expect(Number(a.style.zIndex)).toBeGreaterThan(Number(b.style.zIndex));
+    expect(Number(a.style.zIndex)).toBeGreaterThan(beforeA);
+    expect(Number(control.style.zIndex)).toBe(beforeControl);
+    expect(Number(utility.style.zIndex)).toBeGreaterThan(Number(a.style.zIndex));
+
+    const raised = Number(a.style.zIndex);
+    rerender(<>
+      <FloatingWindow windowKey="signal-a" title="A" onClose={() => {}} layer="task-detail" raiseToFrontSignal={2}><div>a</div></FloatingWindow>
+      <FloatingWindow windowKey="signal-b" title="B" onClose={() => {}} layer="task-detail" raiseToFrontSignal={1}><div>b</div></FloatingWindow>
+      <FloatingWindow windowKey="signal-control" title="Control" onClose={() => {}} layer="task-detail"><div>control</div></FloatingWindow>
+      <FloatingWindow windowKey="signal-utility" title="Utility" onClose={() => {}} layer="utility"><div>utility</div></FloatingWindow>
+    </>);
+    expect(Number(a.style.zIndex)).toBe(raised);
+  });
+
   it("keeps task-detail popups in the board layer while allowing raise among task popups", () => {
     render(
       <>

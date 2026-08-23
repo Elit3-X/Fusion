@@ -2,6 +2,10 @@
 FNXC:ChatWindows 2026-08-21-18:24:
 FN-116 renders every secondary Direct conversation as its own persistent FloatingWindow.
 These windows deliberately omit outside dismissal so working in one cannot collapse another.
+
+FNXC:ChatWindows 2026-08-23-03:33:
+FN-169 forwards each entry's focus nonce to the shared window and ChatView: every open raises the
+existing window and arrives on its requested thread without remounting an in-flight conversation.
 */
 import { Suspense } from "react";
 import type { ChatSessionInfo } from "../hooks/useChat";
@@ -35,6 +39,7 @@ export function PoppedOutChatWindows({ entries, projectId, addToast, experimenta
       defaultSize={{ width: 980, height: 680 }}
       minSize={{ width: 300, height: 420 }}
       ariaLabel={entry.session.title || "Chat"}
+      raiseToFrontSignal={entry.focusNonce}
     >
       <Suspense fallback={null}>
         <ChatView
@@ -43,6 +48,7 @@ export function PoppedOutChatWindows({ entries, projectId, addToast, experimenta
           experimentalFeatures={experimentalFeatures}
           floating
           initialDirectSession={entry.session}
+          initialDirectSessionNonce={entry.focusNonce}
           persistChatPreferences={false}
           onOpenSessionInNewWindow={onOpenSessionInNewWindow}
           onClose={() => onClose(entry.projectId, entry.session.id)}

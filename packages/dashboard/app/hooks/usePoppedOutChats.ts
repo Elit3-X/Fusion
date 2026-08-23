@@ -2,6 +2,10 @@
 FNXC:ChatWindows 2026-08-21-18:24:
 FN-116 keeps secondary Quick Chats in App memory and keys them by project and session.
 Reopening a conversation refreshes its snapshot without cloning its independent window.
+
+FNXC:ChatWindows 2026-08-23-03:33:
+FN-169 requires refreshed entries to signal focus because their FloatingWindow remains mounted.
+A monotonically increasing nonce re-raises the existing window without reordering the Escape stack.
 */
 import { useCallback, useState } from "react";
 import type { ChatSessionInfo } from "./useChat";
@@ -9,6 +13,8 @@ import type { ChatSessionInfo } from "./useChat";
 export interface PoppedOutChatEntry {
   projectId: string;
   session: ChatSessionInfo;
+  /** Increments for every open request so an in-place window can reclaim its stack position. */
+  focusNonce: number;
 }
 
 export interface UsePoppedOutChatsResult {
@@ -24,10 +30,10 @@ export function usePoppedOutChats(): UsePoppedOutChatsResult {
   const popOut = useCallback((projectId: string, session: ChatSessionInfo) => {
     setEntries((current) => {
       const index = current.findIndex((entry) => entry.projectId === projectId && entry.session.id === session.id);
-      const next = { projectId, session };
-      if (index === -1) return [...current, next];
+      if (index === -1) return [...current, { projectId, session, focusNonce: 1 }];
       const refreshed = [...current];
-      refreshed[index] = next;
+      const previous = refreshed[index];
+      refreshed[index] = { projectId, session, focusNonce: previous.focusNonce + 1 };
       return refreshed;
     });
   }, []);
