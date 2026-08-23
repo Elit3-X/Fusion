@@ -3508,23 +3508,39 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                   data-testid="chat-search-input"
                 />
               </div>
-              <label className="chat-tag-filter" htmlFor="chat-tag-filter">
-                <Tag size={14} aria-hidden="true" />
-                <select
-                  id="chat-tag-filter"
-                  value={selectedTagId ?? ""}
-                  onChange={(event) => setSelectedTagId(event.target.value || null)}
-                  data-testid="chat-tag-filter"
-                  aria-label={t("chat.filterByTag", "Filter conversations by tag")}
+              {/*
+              FNXC:ChatArchived 2026-08-23-16:27:
+              The archived affordance is a compact Archived toggle sharing the tag-filter line, so the sidebar does not spend a full row on it. aria-pressed and active styling convey state instead of changing the visible label.
+              */}
+              <div className="chat-sidebar-filter-row">
+                <label className="chat-tag-filter" htmlFor="chat-tag-filter">
+                  <Tag size={14} aria-hidden="true" />
+                  <select
+                    id="chat-tag-filter"
+                    value={selectedTagId ?? ""}
+                    onChange={(event) => setSelectedTagId(event.target.value || null)}
+                    data-testid="chat-tag-filter"
+                    aria-label={t("chat.filterByTag", "Filter conversations by tag")}
+                  >
+                    <option value="">{t("chat.allTags", "All tags")}</option>
+                    {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+                  </select>
+                  {selectedTagId ? <button type="button" className="btn-icon" aria-label={t("chat.clearTagFilter", "Clear tag filter")} onClick={() => setSelectedTagId(null)}><X size={14} /></button> : null}
+                </label>
+                <button
+                  type="button"
+                  className={`btn btn-sm chat-archived-toggle${showArchivedSessions ? " chat-archived-toggle--active" : ""}`}
+                  data-testid="chat-archived-toggle"
+                  aria-pressed={showArchivedSessions}
+                  title={t("chat.showArchivedConversations", "Show archived conversations")}
+                  aria-label={t("chat.showArchivedConversations", "Show archived conversations")}
+                  onClick={() => { const next = !showArchivedSessions; setShowArchivedSessions(next); if (next) void refreshArchivedSessions(); }}
                 >
-                  <option value="">{t("chat.allTags", "All tags")}</option>
-                  {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
-                </select>
-                {selectedTagId ? <button type="button" className="btn-icon" aria-label={t("chat.clearTagFilter", "Clear tag filter")} onClick={() => setSelectedTagId(null)}><X size={14} /></button> : null}
-              </label>
+                  {t("chat.archived", "Archived")}
+                </button>
+              </div>
             </div>
             {/* Session list section */}
-            <div className="chat-archived-toggle"><button type="button" className="btn btn-sm btn-secondary" data-testid="chat-archived-toggle" onClick={() => { const next = !showArchivedSessions; setShowArchivedSessions(next); if (next) void refreshArchivedSessions(); }}>{showArchivedSessions ? "Active conversations" : "Archived conversations"}</button></div>
             <div className="chat-session-list chat-sidebar-list">
               {sessionsLoading ? (
                 <div className="chat-empty-state chat-empty-state--padded">{t("chat.loadingConversations", "Loading...")}</div>
