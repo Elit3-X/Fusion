@@ -234,6 +234,25 @@ describe("ChatView New Chat project default behavior", () => {
     expect(createSession).toHaveBeenCalledWith({ agentId: "__fn_agent__", modelProvider: "openai", modelId: "gpt-4o" });
   });
 
+  it.each([{ ctrlKey: true }, { metaKey: true }])("opens Ctrl/Cmd New Chat without selecting the host session", async (modifier) => {
+    const session = makeSession({ id: "new-window-session" });
+    const createSession = vi.fn().mockResolvedValue(session);
+    const onOpenSessionInNewWindow = vi.fn();
+    const selectSession = vi.fn();
+    mockUseChat.mockReturnValue(chatState({ createSession, selectSession }));
+    await renderWithAct(<ChatView projectId="project-a" addToast={vi.fn()} onOpenSessionInNewWindow={onOpenSessionInNewWindow} />);
+    await waitForSettings();
+
+    fireEvent.click(screen.getByTestId("chat-new-btn"), modifier);
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith(
+      { agentId: "__fn_agent__", modelProvider: "openai", modelId: "gpt-4o" },
+      { keepActiveSession: true },
+    ));
+    expect(onOpenSessionInNewWindow).toHaveBeenCalledWith(session);
+    expect(selectSession).not.toHaveBeenCalled();
+  });
+
   it("uses the same immediate creation path from the mobile host", async () => {
     mockMobileViewport();
     const createSession = vi.fn();

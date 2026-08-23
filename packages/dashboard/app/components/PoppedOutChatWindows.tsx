@@ -23,6 +23,11 @@ export interface PoppedOutChatWindowsProps {
 }
 
 export function PoppedOutChatWindows({ entries, projectId, addToast, experimentalFeatures, onClose, onOpenSessionInNewWindow }: PoppedOutChatWindowsProps) {
+  /*
+  FNXC:ChatWindows 2026-08-23-04:29:
+  Slot zero still offsets by one step because Quick Chat owns the un-cascaded shared base.
+  This makes every secondary chat visibly sit above the surface beneath it.
+  */
   return entries.filter((entry) => entry.projectId === projectId).map((entry) => (
     <FloatingWindow
       key={`${entry.projectId}:${entry.session.id}`}
@@ -36,6 +41,7 @@ export function PoppedOutChatWindows({ entries, projectId, addToast, experimenta
       suspendGeometryPersistenceOnMobile
       suspendGeometryPersistenceOnShortViewport
       persistGeometryKey="kb-dashboard-chat-floating-window"
+      cascadeOffsetIndex={entry.cascadeSlot + 1}
       defaultSize={{ width: 980, height: 680 }}
       minSize={{ width: 300, height: 420 }}
       ariaLabel={entry.session.title || "Chat"}

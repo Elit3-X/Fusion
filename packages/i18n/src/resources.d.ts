@@ -1326,6 +1326,7 @@ export default interface Resources {
       "newChat": "New Chat",
       "newChatModeAgent": "Agent",
       "newChatModeModel": "Model",
+      "newChatOpenInNewWindowHint": "Ctrl/Cmd + click to open the new conversation in a separate window",
       "newChatTitle": "New Chat",
       "newNotAllowedForTaskChat": "This chat is tied to a task — /new and /clear can't clear it",
       "noAgentsAvailable": "No agents available",

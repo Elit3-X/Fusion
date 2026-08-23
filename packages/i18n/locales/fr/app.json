@@ -1300,6 +1300,7 @@
     "modeAgent": "Agent",
     "modeModel": "Modèle",
     "newChat": "Nouvelle discussion",
+    "newChatOpenInNewWindowHint": "Ctrl/Cmd + clic pour ouvrir la nouvelle conversation dans une fenêtre séparée",
     "newChatModeAgent": "Agent",
     "newChatModeModel": "Modèle",
     "newChatTitle": "Nouvelle discussion",

@@ -15,6 +15,8 @@ export interface PoppedOutChatEntry {
   session: ChatSessionInfo;
   /** Increments for every open request so an in-place window can reclaim its stack position. */
   focusNonce: number;
+  /** Stable per-project cascade slot used to visibly separate stacked chat windows. */
+  cascadeSlot: number;
 }
 
 export interface UsePoppedOutChatsResult {
@@ -30,10 +32,19 @@ export function usePoppedOutChats(): UsePoppedOutChatsResult {
   const popOut = useCallback((projectId: string, session: ChatSessionInfo) => {
     setEntries((current) => {
       const index = current.findIndex((entry) => entry.projectId === projectId && entry.session.id === session.id);
-      if (index === -1) return [...current, { projectId, session, focusNonce: 1 }];
+      /*
+      FNXC:ChatWindows 2026-08-23-04:29:
+      Allocate the first available slot within a project so secondary chat windows cascade predictably.
+      Refreshing retains its slot and closing releases it for the next conversation.
+      */
+      if (index === -1) {
+        const occupiedSlots = new Set(current.filter((entry) => entry.projectId === projectId).map((entry) => entry.cascadeSlot));
+        const cascadeSlot = Array.from({ length: current.length + 1 }, (_, slot) => slot).find((slot) => !occupiedSlots.has(slot)) ?? current.length;
+        return [...current, { projectId, session, focusNonce: 1, cascadeSlot }];
+      }
       const refreshed = [...current];
       const previous = refreshed[index];
-      refreshed[index] = { projectId, session, focusNonce: previous.focusNonce + 1 };
+      refreshed[index] = { projectId, session, focusNonce: previous.focusNonce + 1, cascadeSlot: previous.cascadeSlot };
       return refreshed;
     });
   }, []);

@@ -1363,34 +1363,51 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
 
   // Handle create session
   const handleCreateSession = useCallback(
-    async (input: { agentId: string; modelProvider?: string; modelId?: string; thinkingLevel?: string }) => {
+    async (
+      input: { agentId: string; modelProvider?: string; modelId?: string; thinkingLevel?: string },
+      options?: { openInNewWindow?: boolean },
+    ): Promise<ChatSessionInfo | null> => {
       try {
-        await createSession(input);
+        if (options?.openInNewWindow) {
+          const session = await createSession(input, { keepActiveSession: true });
+          onOpenSessionInNewWindow?.(session);
+          return session;
+        }
+        const session = await createSession(input);
         setDetailOpen(true);
-        return true;
+        return session;
       } catch {
         addToast(t("chat.failedToCreateSession", "Failed to create chat session"), "error");
-        return false;
+        return null;
       }
     },
-    [createSession, addToast, isChatMobile, t],
+    [addToast, createSession, onOpenSessionInNewWindow, t],
   );
 
-  const handleNewChat = useCallback(() => {
+  /*
+  FNXC:ChatWindows 2026-08-23-04:29:
+  Ctrl/Cmd-click must create a conversation beside, never in place of, the conversation currently
+  open in this host. The plain path intentionally retains the existing in-place selection behavior.
+  */
+  const handleNewChat = useCallback((event?: React.MouseEvent<HTMLButtonElement>) => {
+    const openInNewWindow = Boolean((event?.ctrlKey || event?.metaKey) && onOpenSessionInNewWindow);
     if (chatDefaultTarget?.kind === "agent") {
-      void handleCreateSession({ agentId: chatDefaultTarget.agentId });
+      const input = { agentId: chatDefaultTarget.agentId };
+      void (openInNewWindow ? handleCreateSession(input, { openInNewWindow: true }) : handleCreateSession(input));
       return;
     }
     if (chatDefaultTarget?.kind === "model") {
-      void handleCreateSession({ agentId: FN_AGENT_ID, modelProvider: chatDefaultTarget.modelProvider, modelId: chatDefaultTarget.modelId, thinkingLevel: chatDefaultTarget.thinkingLevel });
+      const input = { agentId: FN_AGENT_ID, modelProvider: chatDefaultTarget.modelProvider, modelId: chatDefaultTarget.modelId, thinkingLevel: chatDefaultTarget.thinkingLevel };
+      void (openInNewWindow ? handleCreateSession(input, { openInNewWindow: true }) : handleCreateSession(input));
       return;
     }
     if (defaultModel.provider && defaultModel.modelId) {
-      void handleCreateSession({ agentId: FN_AGENT_ID, modelProvider: defaultModel.provider, modelId: defaultModel.modelId });
+      const input = { agentId: FN_AGENT_ID, modelProvider: defaultModel.provider, modelId: defaultModel.modelId };
+      void (openInNewWindow ? handleCreateSession(input, { openInNewWindow: true }) : handleCreateSession(input));
       return;
     }
     addToast(t("chat.noDefaultModelConfigured", "Configure a default chat model in Settings before creating a conversation."), "error");
-  }, [addToast, chatDefaultTarget, defaultModel, handleCreateSession, t]);
+  }, [addToast, chatDefaultTarget, defaultModel, handleCreateSession, onOpenSessionInNewWindow, t]);
 
   const resizeComposer = useCallback(() => {
     inputAutosizeRef.current?.resize();
@@ -2142,7 +2159,12 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       <div className="chat-empty-state">
         <MessageSquare size={48} strokeWidth={1.5} />
         <h2>{t("chat.startNewConversation", "Start a new conversation")}</h2>
-        <button className="btn btn-primary" onClick={handleNewChat}>
+        <button
+          className="btn btn-primary"
+          onClick={handleNewChat}
+          data-testid="chat-new-btn-empty"
+          title={onOpenSessionInNewWindow ? t("chat.newChatOpenInNewWindowHint", "Ctrl/Cmd + click to open the new conversation in a separate window") : undefined}
+        >
           <Plus size={16} />
           {t("chat.newChat", "New Chat")}
         </button>
@@ -2836,6 +2858,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
               className="btn btn-sm btn-primary chat-view-header-new-chat"
               onClick={handleNewChat}
               data-testid="chat-new-btn"
+              title={onOpenSessionInNewWindow ? t("chat.newChatOpenInNewWindowHint", "Ctrl/Cmd + click to open the new conversation in a separate window") : undefined}
             >
               <Plus size={14} />
               {t("chat.newChat", "New Chat")}

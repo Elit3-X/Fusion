@@ -142,8 +142,14 @@ export interface UseChatReturn {
 
   // Session operations
   selectSession: (id: string, sessionOverride?: ChatSessionInfo) => void;
+  /**
+   * FNXC:ChatWindows 2026-08-23-04:29:
+   * A modifier-click opens a new conversation par dessus the current host without interrupting an
+   * in-flight reply. `keepActiveSession` inserts the session but deliberately avoids selecting it.
+   */
   createSession: (
     input: { agentId: string; title?: string; modelProvider?: string; modelId?: string; thinkingLevel?: string },
+    options?: { keepActiveSession?: boolean },
   ) => Promise<ChatSessionInfo>;
   archiveSession: (id: string) => Promise<void>;
   archivedSessions: ChatSessionInfo[];
@@ -1227,15 +1233,18 @@ export function useChat(
 
   // Create a new session
   const createSession = useCallback(
-    async (input: { agentId: string; title?: string; modelProvider?: string; modelId?: string; thinkingLevel?: string }) => {
+    async (
+      input: { agentId: string; title?: string; modelProvider?: string; modelId?: string; thinkingLevel?: string },
+      options?: { keepActiveSession?: boolean },
+    ) => {
       const previousSessionId = activeSessionRef.current?.id;
       const data = await apiCreateChatSession(input, projectId);
 
-      if (streamRef.current) {
+      if (!options?.keepActiveSession && streamRef.current) {
         streamRef.current.close();
         streamRef.current = null;
       }
-      lastAttachedGenerationRef.current = null;
+      if (!options?.keepActiveSession) lastAttachedGenerationRef.current = null;
       const newSession: ChatSessionInfo = {
         id: data.session.id,
         title: data.session.title,
@@ -1254,9 +1263,11 @@ export function useChat(
         return sortChatSessions([newSession, ...prev]);
       });
 
-      removePersistedPendingChatMessages(previousSessionId);
-      resetTransientComposerState();
-      selectSession(newSession.id, newSession);
+      if (!options?.keepActiveSession) {
+        removePersistedPendingChatMessages(previousSessionId);
+        resetTransientComposerState();
+        selectSession(newSession.id, newSession);
+      }
 
       return newSession;
     },

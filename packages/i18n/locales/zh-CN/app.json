@@ -1421,7 +1421,8 @@
     "restore": "",
     "quoteMessage": "引用消息",
     "agentRepliesFailed": "部分代理无法回复：{{agents}}",
-    "noDefaultModelConfigured": "请先在设置中配置默认聊天模型，再创建对话。"
+    "noDefaultModelConfigured": "请先在设置中配置默认聊天模型，再创建对话。",
+    "newChatOpenInNewWindowHint": ""
   },
   "chatRooms": {
     "error": {

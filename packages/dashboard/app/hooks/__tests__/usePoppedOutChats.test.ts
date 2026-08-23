@@ -18,7 +18,7 @@ describe("usePoppedOutChats", () => {
     act(() => result.current.popOut("project-a", session("a", "refreshed")));
     expect(result.current.entries).toHaveLength(2);
     expect(result.current.entries.map((entry) => entry.session.id)).toEqual(["a", "b"]);
-    expect(result.current.entries[0]).toMatchObject({ session: { title: "refreshed" }, focusNonce: firstNonce + 1 });
+    expect(result.current.entries[0]).toMatchObject({ session: { title: "refreshed" }, focusNonce: firstNonce + 1, cascadeSlot: 0 });
     expect(result.current.entries[1].focusNonce).toBe(1);
   });
 
@@ -29,10 +29,12 @@ describe("usePoppedOutChats", () => {
     act(() => result.current.popOut("project-b", session("same")));
     act(() => result.current.popOut("project-a", session("same", "raised")));
 
-    expect(result.current.entries.map((entry) => [entry.projectId, entry.session.id, entry.focusNonce]))
-      .toEqual([["project-a", "same", 2], ["project-a", "other", 1], ["project-b", "same", 1]]);
+    expect(result.current.entries.map((entry) => [entry.projectId, entry.session.id, entry.focusNonce, entry.cascadeSlot]))
+      .toEqual([["project-a", "same", 2, 0], ["project-a", "other", 1, 1], ["project-b", "same", 1, 0]]);
     act(() => result.current.close("project-a", "other"));
-    expect(result.current.entries.map((entry) => entry.session.id)).toEqual(["same", "same"]);
+    act(() => result.current.popOut("project-a", session("replacement")));
+    expect(result.current.entries.find((entry) => entry.session.id === "replacement")?.cascadeSlot).toBe(1);
+    expect(result.current.entries.map((entry) => entry.session.id)).toEqual(["same", "same", "replacement"]);
     act(() => result.current.closeAll());
     expect(result.current.entries).toEqual([]);
   });

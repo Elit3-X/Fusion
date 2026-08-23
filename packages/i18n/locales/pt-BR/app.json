@@ -1431,7 +1431,8 @@
     "restore": "",
     "quoteMessage": "Citar mensagem",
     "agentRepliesFailed": "Alguns agentes não puderam responder: {{agents}}",
-    "noDefaultModelConfigured": "Configure um modelo de chat padrão nas Configurações antes de criar uma conversa."
+    "noDefaultModelConfigured": "Configure um modelo de chat padrão nas Configurações antes de criar uma conversa.",
+    "newChatOpenInNewWindowHint": ""
   },
   "chatRooms": {
     "error": {

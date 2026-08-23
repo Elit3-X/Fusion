@@ -1314,6 +1314,7 @@
     "modeAgent": "Agent",
     "modeModel": "Model",
     "newChat": "New Chat",
+    "newChatOpenInNewWindowHint": "Ctrl/Cmd + click to open the new conversation in a separate window",
     "newChatModeAgent": "Agent",
     "newChatModeModel": "Model",
     "newChatTitle": "New Chat",

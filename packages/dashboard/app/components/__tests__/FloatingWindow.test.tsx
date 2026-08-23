@@ -3,7 +3,12 @@ import { resolve } from "node:path";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadAllAppCss, loadStylesCss } from "../../test/cssFixture";
-import { FLOATING_WINDOW_GEOMETRY_CHANGE_EVENT, FloatingWindow } from "../FloatingWindow";
+import {
+  FLOATING_WINDOW_CASCADE_STEP_PX,
+  FLOATING_WINDOW_GEOMETRY_CHANGE_EVENT,
+  FloatingWindow,
+  resolveFloatingWindowCascadeOffset,
+} from "../FloatingWindow";
 import { readAppFile } from "../../test/cssFixture";
 import { dragWithTouch, expectFloatingWindowStructure, resizeWithTouch } from "./floatingWindowMigration.test-helpers";
 
@@ -1069,6 +1074,74 @@ describe("FloatingWindow", () => {
     expect(panel.style.width).toBe("610px");
     expect(panel.style.left).toBe("90px");
     expect(JSON.parse(localStorage.getItem(key) ?? "{}")).toEqual(geometry);
+  });
+
+  it("resolves cascade offsets without moving the canonical geometry", () => {
+    expect(resolveFloatingWindowCascadeOffset({ x: 100, y: 100 }, { width: 600, height: 400 }, 0)).toEqual({ x: 0, y: 0 });
+    expect(resolveFloatingWindowCascadeOffset({ x: 100, y: 100 }, { width: 600, height: 400 }, 2)).toEqual({
+      x: FLOATING_WINDOW_CASCADE_STEP_PX * 2,
+      y: FLOATING_WINDOW_CASCADE_STEP_PX * 2,
+    });
+    expect(resolveFloatingWindowCascadeOffset({ x: 408, y: 192 }, { width: 600, height: 560 }, 1)).toEqual({
+      x: -FLOATING_WINDOW_CASCADE_STEP_PX,
+      y: -FLOATING_WINDOW_CASCADE_STEP_PX,
+    });
+  });
+
+  it("cascades persisted shared geometry while retaining its canonical base", () => {
+    const key = "floating-window:cascade";
+    const baseGeometry = { size: { width: 600, height: 400 }, position: { x: 120, y: 96 } };
+    localStorage.setItem(key, JSON.stringify(baseGeometry));
+
+    const { unmount } = render(
+      <>
+        <FloatingWindow windowKey="cascade-base" title="Base" onClose={() => {}} persistGeometryKey={key}><div /></FloatingWindow>
+        <FloatingWindow windowKey="cascade-offset" title="Offset" onClose={() => {}} persistGeometryKey={key} cascadeOffsetIndex={1}><div /></FloatingWindow>
+      </>,
+    );
+
+    expect(screen.getByTestId("floating-window-cascade-base").style.left).toBe("120px");
+    expect(screen.getByTestId("floating-window-cascade-base").style.top).toBe("96px");
+    expect(screen.getByTestId("floating-window-cascade-offset").style.left).toBe(`${120 + FLOATING_WINDOW_CASCADE_STEP_PX}px`);
+    expect(screen.getByTestId("floating-window-cascade-offset").style.top).toBe(`${96 + FLOATING_WINDOW_CASCADE_STEP_PX}px`);
+    expect(JSON.parse(localStorage.getItem(key) ?? "{}")).toEqual(baseGeometry);
+    unmount();
+
+    render(<FloatingWindow windowKey="cascade-offset-remount" title="Offset" onClose={() => {}} persistGeometryKey={key} cascadeOffsetIndex={1}><div /></FloatingWindow>);
+    expect(screen.getByTestId("floating-window-cascade-offset-remount").style.left).toBe(`${120 + FLOATING_WINDOW_CASCADE_STEP_PX}px`);
+    expect(screen.getByTestId("floating-window-cascade-offset-remount").style.top).toBe(`${96 + FLOATING_WINDOW_CASCADE_STEP_PX}px`);
+  });
+
+  it("flips a cascade toward the viewport when its base is pinned at the far edge", () => {
+    const key = "floating-window:cascade-edge";
+    localStorage.setItem(key, JSON.stringify({ size: { width: 600, height: 560 }, position: { x: 408, y: 192 } }));
+
+    render(<FloatingWindow windowKey="cascade-edge" title="Edge" onClose={() => {}} persistGeometryKey={key} cascadeOffsetIndex={1}><div /></FloatingWindow>);
+
+    expect(screen.getByTestId("floating-window-cascade-edge").style.left).toBe(`${408 - FLOATING_WINDOW_CASCADE_STEP_PX}px`);
+    expect(screen.getByTestId("floating-window-cascade-edge").style.top).toBe(`${192 - FLOATING_WINDOW_CASCADE_STEP_PX}px`);
+  });
+
+  it("suppresses cascade offsets in a full-screen sheet", () => {
+    const key = "floating-window:cascade-sheet";
+    localStorage.setItem(key, JSON.stringify({ size: { width: 600, height: 400 }, position: { x: 120, y: 96 } }));
+    setSheetViewport(true);
+
+    render(
+      <FloatingWindow
+        windowKey="cascade-sheet"
+        title="Sheet"
+        onClose={() => {}}
+        persistGeometryKey={key}
+        cascadeOffsetIndex={1}
+        suspendGeometryPersistenceOnMobile
+        defaultPosition={{ x: 32, y: 48 }}
+      ><div /></FloatingWindow>,
+    );
+
+    const panel = screen.getByTestId("floating-window-cascade-sheet");
+    expect(panel.style.left).toBe("32px");
+    expect(panel.style.top).toBe("48px");
   });
 
   it("shares geometry only between windows that opt into the same persistence key", () => {
