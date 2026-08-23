@@ -3522,6 +3522,8 @@ export default interface Resources {
       "stats_other": "{{count}} of {{total}} tasks",
       "statusMergingFix": "Merging fixes…",
       "statusReplan": "Revising",
+      "statusWaiting": "Waiting",
+      "statusWaitingOn": "Waiting on {{reason}}",
       "stuck": "Stuck",
       "taskCreationUnavailable": "Task creation not available",
       "unpauseSelected": "Unpause selected",

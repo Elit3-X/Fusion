@@ -1120,7 +1120,13 @@ export class ProjectEngine {
     store.on("task:created", this.specDriftTaskMutationHandler);
     store.on("task:updated", this.specDriftTaskMutationHandler);
     store.on("task:moved", this.specDriftTaskMutationHandler);
-    for (const task of await store.listTasks({ includeArchived: true, slim: true })) {
+    /*
+    FNXC:SpecDrift 2026-08-23-06:25:
+    Startup replay is live-task-only. Archived cards cannot act on drift, and
+    replaying them consumes planning-lock sessions during restart; unarchive emits
+    task:updated, so a returning card still enters through the subscriptions above.
+    */
+    for (const task of await store.listTasks({ slim: true })) {
       this.specDriftReconciler.enqueue(task.id);
     }
     const cwd = this.config.workingDirectory;

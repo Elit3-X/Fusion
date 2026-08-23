@@ -1032,6 +1032,7 @@ export function TaskDetailContent({
     : getTaskStatusBadgeLabel(workingTask.status, t, undefined, {
       idle: true,
       overlapBlockedBy: workingTask.overlapBlockedBy ?? null,
+      sessionContentionWaitReason: workingTask.sessionContentionWaitReason ?? null,
     });
   const originalTaskPrompt = workingTask.description ?? "";
   const hasOriginalTaskPrompt = originalTaskPrompt.trim().length > 0;

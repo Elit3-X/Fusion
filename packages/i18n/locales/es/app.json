@@ -3446,7 +3446,9 @@
     "useProjectDefault": "Usar predeterminado del proyecto",
     "viewOptions": "Opciones de vista",
     "workflowLabel": "",
-    "statusReplan": "Replanificar"
+    "statusReplan": "Replanificar",
+    "statusWaiting": "",
+    "statusWaitingOn": ""
   },
   "mailbox": {
     "agent": "Agente",

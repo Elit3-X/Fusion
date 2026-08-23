@@ -3446,7 +3446,9 @@
     "useProjectDefault": "프로젝트 기본값 사용",
     "viewOptions": "보기 옵션",
     "workflowLabel": "",
-    "statusReplan": "재계획"
+    "statusReplan": "재계획",
+    "statusWaiting": "",
+    "statusWaitingOn": ""
   },
   "mailbox": {
     "agent": "에이전트",

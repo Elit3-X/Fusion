@@ -128,7 +128,8 @@ import { resolveAuthoritativeExternalExecutionRoute } from "./resolve-authoritat
 import { isContextLimitError } from "../errors/context-limit-detector.js";
 import { withRateLimitRetry } from "../errors/rate-limit-retry.js";
 import { recordRetry } from "../errors/retry-burned-logger.js";
-import { isSilentTransientError, isTransientError } from "../errors/transient-error-detector.js";
+import { isSessionContentionError, isSilentTransientError, isTransientError } from "../errors/transient-error-detector.js";
+import { isPlanningLifecycleLockTransportFailure } from "../planning-handoff-recovery.js";
 import { checkSessionError, isUsageLimitError } from "../errors/usage-limit-detector.js";
 import { TokenCapDetector } from "../errors/token-cap-detector.js";
 import {
@@ -315,6 +316,23 @@ export type RunImplementationDeps = {
   tryBootstrapMisbindingRecovery: AnyFn;
   unregisterConfiguredCommandController: AnyFn;
 };
+
+export async function retryPlanningLifecycleLockTransportFailure(
+  deps: Pick<RunImplementationDeps, "store" | "getRunContextFor" | "markGraphExecuteSelfRequeued">,
+  task: Task,
+  errorMessage: string,
+  resolveReboundColumnFor: (store: TaskStore, taskId: string) => Promise<string>,
+): Promise<boolean> {
+  const decision = computeRecoveryDecision({ recoveryRetryCount: task.recoveryRetryCount, nextRecoveryAt: task.nextRecoveryAt });
+  if (!decision.shouldRetry) return false;
+  const attempt = decision.nextState.recoveryRetryCount;
+  const delay = formatDelay(decision.delayMs);
+  await deps.store.logEntry(task.id, `Planning lifecycle lock transport failure (retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}): ${errorMessage}`, undefined, deps.getRunContextFor(task.id));
+  await deps.store.updateTask(task.id, { recoveryRetryCount: attempt, nextRecoveryAt: decision.nextState.nextRecoveryAt });
+  deps.markGraphExecuteSelfRequeued(task.id);
+  await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true });
+  return true;
+}
 
 export async function runImplementation(
   deps: RunImplementationDeps,
@@ -1590,6 +1608,13 @@ export async function runImplementation(
             deps.stuckAborted.delete(task.id);
           } else if (deps.options.usageLimitPauser && isUsageLimitError(errorMessage)) {
             await deps.options.usageLimitPauser.onUsageLimitHit("executor", task.id, errorMessage);
+          } else if (isSessionContentionError(errorMessage)) {
+            // FNXC:WorkspaceContention 2026-08-23-06:45: a live repository holder is a scheduling wait, not a transient infrastructure failure that should delete prepared work.
+            await deps.store.logEntry(task.id, `Waiting for shared workspace resource: ${errorMessage}`, undefined, deps.getRunContextFor(task.id));
+            throw err;
+          } else if (isPlanningLifecycleLockTransportFailure(err, errorMessage)) {
+            if (await retryPlanningLifecycleLockTransportFailure(deps, task, errorMessage, resolveReboundColumnFor)) return;
+            throw err;
           } else if (isTransientError(errorMessage)) {
             const decision = computeRecoveryDecision({
               recoveryRetryCount: task.recoveryRetryCount,
@@ -3766,6 +3791,13 @@ export async function runImplementation(
           return;
         } else if (deps.options.usageLimitPauser && isUsageLimitError(errorMessage)) {
           await deps.options.usageLimitPauser.onUsageLimitHit("executor", task.id, errorMessage);
+        } else if (isSessionContentionError(errorMessage)) {
+          // FNXC:WorkspaceContention 2026-08-23-06:45: do not churn a prepared worktree while a live holder serializes this resource.
+          await deps.store.logEntry(task.id, `Waiting for shared workspace resource: ${errorMessage}`, undefined, deps.getRunContextFor(task.id));
+          throw err;
+        } else if (isPlanningLifecycleLockTransportFailure(err, errorMessage)) {
+          if (await retryPlanningLifecycleLockTransportFailure(deps, task, errorMessage, resolveReboundColumnFor)) return;
+          // Exhaustion falls through to the terminal failure path below.
         } else if (isTransientError(errorMessage)) {
           // Transient network/infrastructure error — use bounded recovery policy
           const decision = computeRecoveryDecision({

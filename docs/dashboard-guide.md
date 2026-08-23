@@ -353,6 +353,7 @@ Features:
 - The quick-entry GitHub icon is a per-task tracking override: leave it untouched to use the project default, turn it on to opt the next task into tracking when the default is off, or turn it off to opt the next task out when the default is on.
 - PR/issue badges with live updates
 - Planning cards and List rows/cards show the same active border and pulsing **Planning** badge when fresh planner activity reaches the live log stream, including the brief status-null transition before the authoritative task row refreshes. The transient indicator clears on that authoritative refresh, so completed planning does not remain active.
+- A workspace task waiting for another task's repository acquisition shows a **Waiting** badge with the holder reason on board cards, list rows, and task detail. The badge clears when the bounded scheduling wait yields or completes.
 <!-- FNXC:TaskActivity 2026-07-28-12:00: FN-8300 requires visual card activity to agree with fresh planner logs during status-null planning transitions; Board and List reuse their existing active affordances. -->
 - GitLab tracking badges on task cards for linked GitLab project issues, group issues, and merge requests; stale GitLab metadata uses a warning-colored badge while GitHub badges remain unchanged.
 - GitHub provenance marker on task cards imported from GitHub (`sourceType: github_import`), shown in the footer with other external-source metadata

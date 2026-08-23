@@ -1798,6 +1798,13 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       // flight" to all of them (the merge gate included), which is the two-hour
       // stall-deadlock ride this sweep exists to prevent.
       { name: "reconcile-orphaned-pending-step-results", fn: () => this.reconcileOrphanedPendingStepResults().then(() => undefined) },
+      /*
+      FNXC:WorkspaceContention 2026-08-23-08:00:
+      `contention-hold` is owned by an in-memory retry timer. After a process restart that
+      timer is gone, so clear only an unowned wait before ordinary dispatch classification;
+      active and user-paused tasks remain authoritative and are never touched.
+      */
+      { name: "clear-orphaned-session-contention-holds", fn: () => this.clearOrphanedSessionContentionHolds().then(() => undefined) },
       { name: "reconcile-stranded-hold-continuations", fn: () => this.reconcileStrandedHoldContinuations().then(() => undefined) },
       // FNXC:PrincipalHeldPlanning 2026-08-10-08:20: a planning hold from principal routing has no other
       // retry owner, so it must be re-queued before the steps below classify the card as simply idle.
@@ -10919,6 +10926,42 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
 
   /** True iff `branch` exists as a local ref in the sub-repo at `repoRootDir`. */
 
+  /**
+   * Clear durable contention-wait paint left behind when its retry timer died with the engine.
+   * A live executor or an explicit user pause remains a hard no-touch guard.
+   */
+  async clearOrphanedSessionContentionHolds(): Promise<number> {
+    const tasks = await this.store.listTasks({ slim: true });
+    let cleared = 0;
+    for (const snapshot of tasks) {
+      if (snapshot.status !== "contention-hold") continue;
+      const hasLiveSession = activeSessionRegistry.pathsForTask(snapshot.id).some((path) => activeSessionRegistry.isPathActive(path))
+        || executingTaskLock.has(snapshot.id)
+        || this.options.isTaskActive?.(snapshot.id) === true;
+      if (snapshot.paused === true || snapshot.userPaused === true || hasLiveSession) continue;
+
+      const clearIfStillOrphaned = (live: Task): Partial<Task> | null => {
+        const liveSession = activeSessionRegistry.pathsForTask(live.id).some((path) => activeSessionRegistry.isPathActive(path))
+          || executingTaskLock.has(live.id)
+          || this.options.isTaskActive?.(live.id) === true;
+        return live.status === "contention-hold" && live.paused !== true && live.userPaused !== true && !liveSession
+          ? ({ status: null, sessionContentionWaitReason: null } as unknown as Partial<Task>)
+          : null;
+      };
+      if (typeof this.store.updateTaskAtomic === "function") {
+        const updated = await this.store.updateTaskAtomic(snapshot.id, clearIfStillOrphaned);
+        if (updated.status !== "contention-hold") cleared++;
+      } else {
+        const live = await this.store.getTask(snapshot.id).catch(() => null);
+        const patch = live ? clearIfStillOrphaned(live) : null;
+        if (!patch) continue;
+        await this.store.updateTask(snapshot.id, patch);
+        cleared++;
+      }
+    }
+    return cleared;
+  }
+
   /*
   FNXC:Workspace 2026-06-22-09:30 (Phase D U1, KTD3 — phantom workspace-repo-land lease reclaim):
   A `workspace-repo-land` lease is registered on a sub-repo's ABSOLUTE path while a workspace task
@@ -10936,7 +10979,16 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
 
-      const entries = activeSessionRegistry.entriesByKind("workspace-repo-land");
+      /*
+      FNXC:WorkspaceWorktree 2026-08-23-06:25:
+      Acquire entries are a defence-in-depth companion to the lease-authority and
+      explicit lifecycle-release paths. Sweep only same-kind records so a stale
+      acquisition cache can never reclaim a merge/land critical section.
+      */
+      const entries = [
+        ...activeSessionRegistry.entriesByKind("workspace-repo-land"),
+        ...activeSessionRegistry.entriesByKind("workspace-repo-acquire"),
+      ];
 
       /* FNXC:Workspace 2026-08-15-12:00: durable rows must be swept even on a
          node with no local registry entries; local state cannot represent peers. */
@@ -10999,17 +11051,18 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           if (this.isWorkspaceOwnerLive(owner, leaseOwnerCompleteColumns, leaseOwnerArchivedColumns)) continue;
 
           activeSessionRegistry.unregisterPath(entry.path);
+          const acquire = entry.kind === "workspace-repo-acquire";
           await createRunAuditor(this.store, {
-            runId: generateSyntheticRunId("self-healing-phantom-workspace-land-lease", entry.taskId),
+            runId: generateSyntheticRunId(acquire ? "self-healing-phantom-workspace-acquire-lease" : "self-healing-phantom-workspace-land-lease", entry.taskId),
             agentId: "self-healing",
             taskId: entry.taskId,
-            phase: "reclaim-phantom-workspace-land-lease",
+            phase: acquire ? "reclaim-phantom-workspace-acquire-lease" : "reclaim-phantom-workspace-land-lease",
           }).database({
-            type: "task:reclaim-phantom-workspace-land-lease",
+            type: acquire ? "task:reclaim-phantom-workspace-acquire-lease" : "task:reclaim-phantom-workspace-land-lease",
             target: entry.taskId,
             metadata: { taskId: entry.taskId, path: entry.path, kind: entry.kind, registeredAt: entry.registeredAt, ageMs, staleBindingAgeFloorMs: staleFloorMs, ownerColumn, ownerTerminalReason },
           }).catch(() => undefined);
-          log.warn(`reclaimPhantomWorkspaceLandLeases: reclaimed leaked land lease on ${entry.path} (owner ${entry.taskId}, age ${ageMs}ms)`);
+          log.warn(`reclaimPhantomWorkspaceLandLeases: reclaimed leaked ${acquire ? "acquire" : "land"} lease on ${entry.path} (owner ${entry.taskId}, age ${ageMs}ms)`);
           reclaimed++;
         } catch (err: unknown) {
           log.error(`reclaimPhantomWorkspaceLandLeases: failed for ${entry.path}: ${err instanceof Error ? err.message : String(err)}`);

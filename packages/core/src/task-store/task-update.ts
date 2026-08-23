@@ -787,6 +787,16 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       } else if (updates.recoveryRetryCount !== undefined) {
         task.recoveryRetryCount = updates.recoveryRetryCount;
       }
+      if (updates.sessionContentionHoldCount === null) {
+        task.sessionContentionHoldCount = undefined;
+      } else if (updates.sessionContentionHoldCount !== undefined) {
+        task.sessionContentionHoldCount = updates.sessionContentionHoldCount;
+      }
+      if (updates.sessionContentionWaitReason === null) {
+        task.sessionContentionWaitReason = undefined;
+      } else if (updates.sessionContentionWaitReason !== undefined) {
+        task.sessionContentionWaitReason = updates.sessionContentionWaitReason;
+      }
       if (updates.taskDoneRetryCount === null) {
         task.taskDoneRetryCount = undefined;
       } else if (updates.taskDoneRetryCount !== undefined) {

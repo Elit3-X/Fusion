@@ -3446,7 +3446,9 @@
     "useProjectDefault": "使用项目默认",
     "viewOptions": "视图选项",
     "workflowLabel": "",
-    "statusReplan": "重新规划"
+    "statusReplan": "重新规划",
+    "statusWaiting": "",
+    "statusWaitingOn": ""
   },
   "mailbox": {
     "agent": "代理",

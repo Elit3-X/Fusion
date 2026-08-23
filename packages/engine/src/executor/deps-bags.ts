@@ -549,9 +549,6 @@ export function buildDispatchUnpauseResumeDeps(host: any): any {
 export function buildHoldForSessionContentionDeps(host: any): any {
   return {
     ...buildStoreRunContextDeps(host),
-    getHoldAttempts: (taskId: string) => host.sessionContentionHoldAttempts.get(taskId) ?? 0,
-    setHoldAttempts: (taskId: string, attempt: number) => { host.sessionContentionHoldAttempts.set(taskId, attempt); },
-    clearHold: (taskId: string) => host.clearSessionContentionHold(taskId),
     reexecute: (t: unknown) => host.execute(t),
   };
 }

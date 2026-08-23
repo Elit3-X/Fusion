@@ -3456,7 +3456,9 @@
     "unpauseUnavailable": "A ação de retomar não está disponível",
     "useProjectDefault": "Usar padrão do projeto",
     "viewOptions": "Opções de exibição",
-    "workflowLabel": "Fluxo de trabalho"
+    "workflowLabel": "Fluxo de trabalho",
+    "statusWaiting": "",
+    "statusWaitingOn": ""
   },
   "mailbox": {
     "agent": "Agente",

@@ -3446,7 +3446,9 @@
     "useProjectDefault": "使用專案預設",
     "viewOptions": "檢視選項",
     "workflowLabel": "",
-    "statusReplan": "重新規劃"
+    "statusReplan": "重新規劃",
+    "statusWaiting": "",
+    "statusWaitingOn": ""
   },
   "mailbox": {
     "agent": "代理",

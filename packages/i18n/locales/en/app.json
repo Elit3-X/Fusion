@@ -3449,6 +3449,8 @@
     "statsInColumn_other": "{{count}} of {{total}} tasks in {{column}}",
     "statusMergingFix": "Merging fixes…",
     "statusReplan": "Revising",
+    "statusWaiting": "Waiting",
+    "statusWaitingOn": "Waiting on {{reason}}",
     "stuck": "Stuck",
     "taskCreationUnavailable": "Task creation not available",
     "unpauseSelected": "Unpause selected",

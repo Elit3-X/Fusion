@@ -77,7 +77,7 @@ startup died with "this binary only knows up to 0064" on fresh and upgraded data
 marker is ONLY the binary's "highest migration I know" claim — bumping it applies no SQL and
 touches no data; it must advance in the same change that ships a new migration file.
 */
-export const SCHEMA_BASELINE_VERSION = "0065";
+export const SCHEMA_BASELINE_VERSION = "0066";
 /** FNXC:SymbolLock 2026-07-20-10:00: upgrades need durable task declarations before admission resolves symbols. */
 export const TASK_DECLARED_SYMBOLS_VERSION = "0028";
 const INITIAL_SCHEMA_VERSION = "0000";
@@ -246,6 +246,8 @@ export const AI_MERGE_REVIEW_RECONCILIATION_VERSION = "0063";
 export const TASK_REPOSITORY_SCOPE_VERSION = "0064";
 /** FNXC:ReviewConvergence 2026-08-22-05:42: explicit migration registration preserves bounded review recovery state on upgraded projects. */
 export const REVIEW_CONVERGENCE_STAGE_VERSION = "0065";
+/** FNXC:WorkspaceContention 2026-08-23-06:40: upgrades must persist owner-visible scheduling waits before executor writes them. */
+export const SESSION_CONTENTION_WAIT_STATE_VERSION = "0066";
 
 /** SECURITY DEFINER helper that only inserts LEGACY_ADOPTION_DRAINED_MARKER. */
 export const LEGACY_ADOPTION_DRAINED_MARKER_FUNCTION = "fusion_mark_legacy_adoption_drained";
@@ -485,6 +487,7 @@ const REMOVE_TASK_SUBTASK_SPLITTING_MIGRATION_PATH = join(MIGRATIONS_DIR, "0062_
 const AI_MERGE_REVIEW_RECONCILIATION_MIGRATION_PATH = join(MIGRATIONS_DIR, "0063_fn_090_ai_merge_review_reconciliation.sql");
 const TASK_REPOSITORY_SCOPE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0064_fn_094_task_repository_scope.sql");
 const REVIEW_CONVERGENCE_STAGE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0065_fn_149_review_convergence_stage.sql");
+const SESSION_CONTENTION_WAIT_STATE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0066_fn_179_session_contention_wait_state.sql");
 
 /**
  * Ensure the migration bookkeeping table exists. Lives in the public schema so
@@ -620,6 +623,7 @@ export async function applySchemaBaseline(
     const aiMergeReviewReconciliationAlreadyApplied = applied.includes(AI_MERGE_REVIEW_RECONCILIATION_VERSION);
     const taskRepositoryScopeAlreadyApplied = applied.includes(TASK_REPOSITORY_SCOPE_VERSION);
     const reviewConvergenceStageAlreadyApplied = applied.includes(REVIEW_CONVERGENCE_STAGE_VERSION);
+    const sessionContentionWaitStateAlreadyApplied = applied.includes(SESSION_CONTENTION_WAIT_STATE_VERSION);
     assertBinaryNotOlderThanDatabase(applied);
     let schemaChanged = false;
 
@@ -1369,6 +1373,12 @@ export async function applySchemaBaseline(
       const migrationSql = await readFile(REVIEW_CONVERGENCE_STAGE_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${REVIEW_CONVERGENCE_STAGE_VERSION}) ON CONFLICT (version) DO NOTHING`);
+      schemaChanged = true;
+    }
+    if (!sessionContentionWaitStateAlreadyApplied) {
+      const migrationSql = await readFile(SESSION_CONTENTION_WAIT_STATE_MIGRATION_PATH, "utf8");
+      await tx.execute(sql.raw(migrationSql));
+      await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${SESSION_CONTENTION_WAIT_STATE_VERSION}) ON CONFLICT (version) DO NOTHING`);
       schemaChanged = true;
     }
     return { applied: schemaChanged, pluginHooksRun: pluginHooks.length };
