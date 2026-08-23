@@ -23,6 +23,8 @@ import {
   ExternalLink,
   Tag,
   FileText,
+  PanelLeft,
+  PanelLeftClose,
 } from "lucide-react";
 import { FN_AGENT_ID, TASK_PLANNER_CHAT_AGENT_ID_PREFIX, useChat, type ChatMessageInfo, type ChatSessionInfo } from "../hooks/useChat";
 import { RoomMessageDeliveredButReplyFailedError, useChatRooms } from "../hooks/useChatRooms";
@@ -162,6 +164,35 @@ export function resolveChatContextMenuPosition(
 }
 /** Canonical definition lives in packages/dashboard/src/chat.ts (ROOM_SKIP_SENTINEL). */
 const ROOM_SKIP_SENTINEL = "__SKIP__";
+
+export const CHAT_DOCKED_SIDEBAR_WIDTH_STORAGE_KEY = "fusion:chat-docked-sidebar-width";
+export const CHAT_DOCKED_SIDEBAR_OPEN_STORAGE_KEY = "fusion:chat-docked-sidebar-open";
+export const CHAT_DOCKED_SIDEBAR_MIN_WIDTH = 220;
+export const CHAT_DOCKED_SIDEBAR_MAX_WIDTH = 480;
+export const CHAT_DOCKED_SIDEBAR_DEFAULT_WIDTH = 300;
+
+export function clampChatDockedSidebarWidth(width: number): number {
+  return Number.isFinite(width) ? Math.max(CHAT_DOCKED_SIDEBAR_MIN_WIDTH, Math.min(CHAT_DOCKED_SIDEBAR_MAX_WIDTH, width)) : CHAT_DOCKED_SIDEBAR_DEFAULT_WIDTH;
+}
+
+function readChatDockedSidebarWidth(persist: boolean): number {
+  if (!persist || typeof window === "undefined") return CHAT_DOCKED_SIDEBAR_DEFAULT_WIDTH;
+  try {
+    const raw = window.localStorage.getItem(CHAT_DOCKED_SIDEBAR_WIDTH_STORAGE_KEY);
+    const value = raw?.trim() ? Number(raw) : NaN;
+    return Number.isFinite(value) && value > 0 ? clampChatDockedSidebarWidth(value) : CHAT_DOCKED_SIDEBAR_DEFAULT_WIDTH;
+  } catch { return CHAT_DOCKED_SIDEBAR_DEFAULT_WIDTH; }
+}
+
+function readChatDockedSidebarOpen(persist: boolean): boolean {
+  if (!persist || typeof window === "undefined") return true;
+  try { return window.localStorage.getItem(CHAT_DOCKED_SIDEBAR_OPEN_STORAGE_KEY) !== "false"; } catch { return true; }
+}
+
+function persistChatDockedSidebarPreference(key: string, value: string, persist: boolean) {
+  if (!persist || typeof window === "undefined") return;
+  try { window.localStorage.setItem(key, value); } catch { /* Ignore unavailable storage. */ }
+}
 let chatViewWasPreviouslyInactive = false;
 let activeChatFindOwner: HTMLElement | null = null;
 
@@ -906,6 +937,16 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     return () => observer.disconnect();
   }, [floating]);
   const isChatMobile = isMobile || floatingNarrow || compactLayout;
+  /*
+  FNXC:ChatNavigation 2026-08-23-03:40:
+  FN-9193 restores an optional conversation list only for non-floating tablet-or-wider hosts.
+  Mobile, compact dock, and floating hosts retain their one-pane list/detail contract.
+  */
+  const [dockedSidebarWidth, setDockedSidebarWidth] = useState(() => readChatDockedSidebarWidth(persistChatPreferences));
+  const [dockedSidebarOpen, setDockedSidebarOpen] = useState(() => readChatDockedSidebarOpen(persistChatPreferences));
+  const resizeTeardownRef = useRef<(() => void) | null>(null);
+  const dockedSidebarEligible = !floating && !isChatMobile;
+  const dockedSidebarVisible = dockedSidebarEligible && dockedSidebarOpen;
 
   useEffect(() => {
     if (!activeSession?.id) {
@@ -2600,6 +2641,47 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     [deleteSession, addToast],
   );
 
+  useEffect(() => () => resizeTeardownRef.current?.(), []);
+
+  const persistDockedWidth = useCallback((nextWidth: number) => {
+    persistChatDockedSidebarPreference(CHAT_DOCKED_SIDEBAR_WIDTH_STORAGE_KEY, String(nextWidth), persistChatPreferences);
+  }, [persistChatPreferences]);
+
+  const handleDockedResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture?.(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = dockedSidebarWidth;
+    let latestWidth = startWidth;
+    const priorUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    const onMove = (move: PointerEvent) => { latestWidth = clampChatDockedSidebarWidth(startWidth + move.clientX - startX); setDockedSidebarWidth(latestWidth); };
+    const teardown = (up?: PointerEvent) => {
+      if (up) handle.releasePointerCapture?.(up.pointerId);
+      document.body.style.userSelect = priorUserSelect;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+      resizeTeardownRef.current = null;
+      persistDockedWidth(latestWidth);
+    };
+    const onUp = (up: PointerEvent) => teardown(up);
+    resizeTeardownRef.current?.();
+    resizeTeardownRef.current = () => teardown();
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+  }, [dockedSidebarWidth, persistDockedWidth]);
+
+  const handleDockedResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const nextWidth = clampChatDockedSidebarWidth(dockedSidebarWidth + (event.key === "ArrowRight" ? 16 : -16));
+    setDockedSidebarWidth(nextWidth);
+    persistDockedWidth(nextWidth);
+  }, [dockedSidebarWidth, persistDockedWidth]);
+
   // Handle session click
   const handleSessionClick = useCallback(
     (id: string) => {
@@ -2780,9 +2862,9 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   useEffect(() => {
     const previousDetailOpen = previousDetailOpenRef.current;
     previousDetailOpenRef.current = hasDetailSelection;
-    if (previousDetailOpen || !hasDetailSelection) return;
+    if (previousDetailOpen || !hasDetailSelection || dockedSidebarVisible) return;
     pushNav({ type: "view", revert: chatScope === "rooms" ? handleRoomBack : handleBack });
-  }, [chatScope, handleBack, handleRoomBack, hasDetailSelection, pushNav]);
+  }, [chatScope, dockedSidebarVisible, handleBack, handleRoomBack, hasDetailSelection, pushNav]);
 
   /*
   FNXC:ChatNavigation 2026-08-20-05:25:
@@ -3300,13 +3382,22 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
     FNXC:ChatNavigation 2026-08-20-23:57:
     FN-096 keeps the canonical New Chat action in this shared header for both list and selected-detail states. Embedded, floating, and dock hosts must reuse this one creation entry point while the thread row retains the sole Back action.
     */
-    <div ref={chatViewRef} className={`chat-view${floating ? " chat-view--floating" : ""}${isChatMobile ? " chat-view--narrow" : ""}${hasDetailSelection ? " chat-view--detail" : ""}${chatMessageLayout === "full-width" ? " chat-view--full-width" : ""}`}>
+    <div ref={chatViewRef} className={`chat-view${floating ? " chat-view--floating" : ""}${isChatMobile ? " chat-view--narrow" : ""}${hasDetailSelection ? " chat-view--detail" : ""}${dockedSidebarVisible ? " chat-view--docked-list" : ""}${chatMessageLayout === "full-width" ? " chat-view--full-width" : ""}`}>
       <ViewHeader
         icon={MessageSquare}
         title={t("chat.title", "Chat")}
         actions={
           <>
-            {!hasDetailSelection ? scopeToggle : null}
+            {!hasDetailSelection || dockedSidebarVisible ? scopeToggle : null}
+            {dockedSidebarEligible ? (
+              <button type="button" className="btn-icon chat-view-header-icon" data-testid="chat-docked-sidebar-toggle"
+                aria-pressed={dockedSidebarOpen}
+                aria-label={dockedSidebarOpen ? t("chat.hideConversationList", "Hide conversation list") : t("chat.showConversationList", "Show conversation list")}
+                title={dockedSidebarOpen ? t("chat.hideConversationList", "Hide conversation list") : t("chat.showConversationList", "Show conversation list")}
+                onClick={() => { const next = !dockedSidebarOpen; setDockedSidebarOpen(next); persistChatDockedSidebarPreference(CHAT_DOCKED_SIDEBAR_OPEN_STORAGE_KEY, String(next), persistChatPreferences); }}>
+                {dockedSidebarOpen ? <PanelLeftClose /> : <PanelLeft />}
+              </button>
+            ) : null}
             <button
               className="btn btn-sm btn-primary chat-view-header-new-chat"
               onClick={handleNewChat}
@@ -3357,7 +3448,8 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
       <div className="chat-view__body">
       {/* Sidebar */}
       <div
-        className={`chat-sidebar${hasDetailSelection ? " chat-sidebar--hidden" : ""}`}
+        className={`chat-sidebar${hasDetailSelection && !dockedSidebarVisible ? " chat-sidebar--hidden" : ""}${dockedSidebarVisible ? " chat-sidebar--docked" : ""}`}
+        style={dockedSidebarVisible ? { width: dockedSidebarWidth, minWidth: dockedSidebarWidth } : undefined}
       >
         {!chatRoomsEnabled || chatScope === "direct" ? (
           <>
@@ -3489,10 +3581,8 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                       <div className="chat-session-meta">
                         <span className="chat-session-meta-model">
                           {sessionResolvedModel?.provider ? <ProviderIcon provider={sessionResolvedModel.provider} size="sm" /> : null}
-                          <span>
-                            {agentsMap.get(session.agentId)?.name ||
-                              (session.agentId === FN_AGENT_ID ? sessionModelTag : session.agentId.slice(0, 30))}
-                          </span>
+                          <span>{agentsMap.get(session.agentId)?.name || (session.agentId === FN_AGENT_ID ? "Fusion" : session.agentId.slice(0, 30))}</span>
+                          <span data-testid={`chat-session-model-tag-${session.id}`}>{sessionModelTag || "Fusion"}</span>
                         </span>
                         <span>{session.updatedAt ? formatRelativeTime(session.updatedAt, t) : ""}</span>
                       </div>
@@ -3601,6 +3691,10 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
             </div>
           ) : null
         ) : null}
+        {dockedSidebarVisible ? <div className="chat-sidebar__resize-handle" role="separator" aria-orientation="vertical" tabIndex={0}
+          aria-valuenow={dockedSidebarWidth} aria-valuemin={CHAT_DOCKED_SIDEBAR_MIN_WIDTH} aria-valuemax={CHAT_DOCKED_SIDEBAR_MAX_WIDTH}
+          aria-label={t("chat.resizeSidebar", "Resize chat sidebar")} data-testid="chat-sidebar-resize-handle"
+          onPointerDown={handleDockedResizeStart} onKeyDown={handleDockedResizeKeyDown} /> : null}
       </div>
 
 
@@ -3817,7 +3911,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
           {rooms.activeRoom ? (
             <>
               <div className="chat-room-thread-header">
-                <button
+                {!dockedSidebarVisible ? <button
                   type="button"
                   className="btn btn-sm chat-thread-header-back chat-back-btn"
                   onClick={handleVisibleDetailBack}
@@ -3825,7 +3919,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
                   aria-label={t("chat.backToConversations", "Back to conversations")}
                 >
                   {"< BACK"}
-                </button>
+                </button> : null}
                 <span className="chat-thread-header-title">#{rooms.activeRoom.name}</span>
                 <div className="chat-room-thread-members">
                   {rooms.activeRoomMembers.map((member) => (
@@ -4030,7 +4124,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
             always renders Markdown (forcePlain is hardcoded to false). */}
         {hasThreadInView && (
           <div className="chat-thread-header">
-            <button
+            {!dockedSidebarVisible ? <button
               type="button"
               className="btn btn-sm chat-thread-header-back chat-back-btn"
               onClick={handleVisibleDetailBack}
@@ -4038,7 +4132,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
               aria-label={t("chat.backToConversations", "Back to conversations")}
             >
               {"< BACK"}
-            </button>
+            </button> : null}
             <div className="chat-thread-header-identity" data-testid="chat-thread-header-identity">
               {activeModelProvider ? <ProviderIcon provider={activeModelProvider} size="md" /> : <Bot size={16} />}
               {/*

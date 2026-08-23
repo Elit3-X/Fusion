@@ -754,9 +754,13 @@ The full **New Task** dialog includes a compact **GitHub issue or PR** picker ne
 
 ## Chat View
 
-Chat view provides project-scoped conversations with agents. Every host—embedded Chat, Quick Chat, and the dock—starts at the conversation list. Select a conversation to open its thread as the full pane, then use the thread-row **< BACK** action to return to the loaded list without interrupting the thread.
+Chat view provides project-scoped conversations with agents. Every host—embedded Chat, Quick Chat, and the dock—starts at the conversation list. Select a conversation to open its thread.
 
-The shared Chat header owns **New Chat** in both the list and selected detail across embedded Chat, Quick Chat, mobile, and dock hosts. Search and tag filters, archived/restore, and each row's rename, pin, archive, and delete actions remain list-only. Detail intentionally contains the saved conversation title, secondary model metadata when available, and its one **< BACK** action: it does not include a conversation selector or duplicate management controls. The default list contains only active sessions; use **Archived conversations** to view archived sessions, restore one to the active list, or explicitly delete it. Archive is the default removal action, while delete remains a separate destructive action.
+### Docked conversation sidebar
+
+In the full, non-floating Chat view on tablet and desktop, the Chat header can show or hide a docked conversation sidebar. When shown, it keeps the conversation list next to the open thread; drag its separator or use its arrow keys to resize it between 220px and 480px. Its width and open state are remembered in the browser across reloads. Conversation rows show the saved name, provider icon, model, and last-message snippet. Mobile, compact right-dock Chat, Quick Chat, and popped-out chat windows retain one-pane list/detail navigation with **< BACK**.
+
+The shared Chat header owns **New Chat** in both the list and selected detail across embedded Chat, Quick Chat, mobile, and dock hosts. Search and tag filters, archived/restore, and each row's rename, pin, archive, and delete actions remain list-only. Detail intentionally contains the saved conversation title and secondary model metadata when available. The default list contains only active sessions; use **Archived conversations** to view archived sessions, restore one to the active list, or explicitly delete it. Archive is the default removal action, while delete remains a separate destructive action.
 
 For an active Direct conversation, open the row actions with desktop right-click or the **⋯** control (including touch, keyboard, compact, and dock hosts), then choose **Open in new window**. Fusion opens an independent in-app Quick Chat window for that conversation; it is not a browser or OS window. You can keep several different conversations open, move and close each one independently, and reopening the same conversation refreshes its existing window instead of duplicating it. Rooms and archived conversations do not offer this action. Escape closes one secondary Quick Chat at a time after popped-out task windows and before the primary Quick Chat; switching projects or choosing all projects closes every secondary window.
 
@@ -2604,3 +2608,7 @@ Settings separates automatic installation from automatic restart. Following an o
 ### Review finding resolutions
 
 The Review tab renders the `dispute-upheld` badge for an adjudicated finding. It is a terminal resolution and cannot be selected for a further revision; it is distinct from the existing Superseded badge.
+
+### Docked conversation sidebar
+
+In the full Chat view on tablet and desktop, use the conversation-list button in the Chat header to show or hide a docked conversation sidebar. Drag its separator or use the arrow keys while focused to resize it from 220 to 480; its width and open state are remembered in the browser. Conversation rows show their name, provider, model, and latest-message snippet. Mobile, compact right dock, Quick Chat, and popped-out chat windows retain one-pane conversation navigation.
