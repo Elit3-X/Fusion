@@ -1103,6 +1103,7 @@ while a genuinely rejecting pre-merge review still does.
 describe("getMergeConfirmedFinalizationBlocker", () => {
   const landedWithUnfinishedWork = {
     ...baseTask,
+    mergeDetails: { mergeConfirmed: true, commitSha: "eaa1d47c" } as never,
     steps: [
       { name: "Preflight", status: "in-progress" as StepStatus },
       { name: "Remove the dead CSS custom-property reference", status: "pending" as StepStatus },
@@ -1118,6 +1119,7 @@ describe("getMergeConfirmedFinalizationBlocker", () => {
   it("survives the restart loop that re-plans fresh pending steps", () => {
     const replanned = {
       ...baseTask,
+      mergeDetails: { mergeConfirmed: true, commitSha: "eaa1d47c" } as never,
       steps: Array.from({ length: 7 }, (_, i) => ({ name: `Step ${i}`, status: "pending" as StepStatus })),
     };
     expect(getMergeConfirmedFinalizationBlocker(replanned)).toBeUndefined();
@@ -1125,15 +1127,23 @@ describe("getMergeConfirmedFinalizationBlocker", () => {
 
   /* A no-op merge with no commit sha landed NOTHING, so incomplete steps stay an honest blocker —
      and the executor's no-op branch depends on that reason still firing. */
-  it("still blocks incomplete steps when the merge landed no content", () => {
+  /* The exemption needs a DURABLE merge record naming the landed commit. A no-op merge with no sha
+     landed nothing, and the content-scan recovery path (mergeDetails absent, landing inferred from
+     branch content) must keep the blocker or it would launder an unfinished task to done on a
+     heuristic — see `landed-content-soft-blocker.real-git.test.ts`. */
+  it("still blocks incomplete steps without a durable merge record", () => {
     expect(getMergeConfirmedFinalizationBlocker({
       ...landedWithUnfinishedWork,
-      mergeDetails: { noOpMerge: true } as never,
+      mergeDetails: { mergeConfirmed: true, noOpMerge: true } as never,
+    })).toBe("task has incomplete steps");
+    expect(getMergeConfirmedFinalizationBlocker({
+      ...landedWithUnfinishedWork,
+      mergeDetails: undefined,
     })).toBe("task has incomplete steps");
     // A no-op that still produced a commit did land something; the exemption applies.
     expect(getMergeConfirmedFinalizationBlocker({
       ...landedWithUnfinishedWork,
-      mergeDetails: { noOpMerge: true, commitSha: "abc123" } as never,
+      mergeDetails: { mergeConfirmed: true, noOpMerge: true, commitSha: "abc123" } as never,
     })).toBeUndefined();
   });
 

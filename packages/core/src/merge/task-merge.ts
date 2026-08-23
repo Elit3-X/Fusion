@@ -616,13 +616,26 @@ export function getMergeConfirmedFinalizationBlocker(
   options: { reviewColumns?: ReadonlySet<string>; requiredPreMergeStepIds?: ReadonlySet<string> } = {},
 ): string | undefined {
   /*
-  The exemption is scoped to a merge that actually LANDED CONTENT. A no-op merge with no commit sha
-  landed nothing, so its card is not "already done however you look at it" — there incomplete steps
-  are the honest signal that the work is unfinished, and the executor's own no-op branch
-  (`merge-confirmed-finalize.ts`) depends on that blocker still firing.
+  THE EXEMPTION NEEDS A DURABLE MERGE RECORD, not merely a belief that content landed. Two nearby
+  paths look similar and are not:
+
+    - FN-9193's shape: `mergeConfirmed` with the landed `commitSha` — this engine performed the
+      merge and recorded it. Incomplete steps here describe work the landed branch superseded, so
+      they must not hold the card.
+    - The content-scan recovery (`recoverAlreadyMergedReviewTasks`): mergeDetails is ABSENT and the
+      sweep infers landing by finding matching content on the base branch, then synthesizes a
+      record. That heuristic can match a cherry-pick or a similar commit, so exempting steps there
+      would launder a genuinely unfinished task to `done` on a guess. Its own reliability test
+      (`landed-content-soft-blocker.real-git.test.ts`) pins that distinction: soft blockers clear,
+      incomplete steps hold.
+
+  A no-op merge with no commit sha also fails this test, which is what the executor's no-op branch
+  in `merge-confirmed-finalize.ts` depends on.
   */
-  const landedNothing = task.mergeDetails?.noOpMerge === true && !task.mergeDetails?.commitSha;
-  return getTaskHardMergeBlocker(landedNothing ? task : { ...task, steps: [] }, options);
+  const hasDurableMergeRecord = task.mergeDetails?.mergeConfirmed === true
+    && typeof task.mergeDetails.commitSha === "string"
+    && task.mergeDetails.commitSha.length > 0;
+  return getTaskHardMergeBlocker(hasDurableMergeRecord ? { ...task, steps: [] } : task, options);
 }
 
 /** Non-terminal steps on a card being finalized after a proven merge — recorded, never silently dropped. */
