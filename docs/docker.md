@@ -80,6 +80,27 @@ outside the container while a login is in flight; it is short-lived and validate
 but prefer publishing these ports only on a trusted network (`-p 127.0.0.1:53692:53692` restricts
 them to the host).
 
+## Helper script
+
+`scripts/run-container.sh` runs the container with a complete argument list — the OAuth callback
+ports, the `/home/node` volume, and the correct placement of `--tailscale` before the CLI arguments:
+
+```bash
+scripts/run-container.sh --tailscale
+scripts/run-container.sh --build --recreate --tailscale   # rebuild, then replace the container
+scripts/run-container.sh --dry-run                        # print the docker command, run nothing
+```
+
+Every knob is an environment variable (`--help` lists them). Keep a per-container config in a file
+outside the repo — it holds your dashboard token — and pass it with `--env-file`:
+
+```bash
+scripts/run-container.sh --env-file ~/.config/fusion/my-box.env --tailscale --recreate
+```
+
+An existing container is never replaced without `--recreate`, and volumes are never removed, so a
+recreate keeps the database, settings, and tailnet login.
+
 ## Tailscale remote access
 
 The image ships the `tailscale` CLI, but the `tailscaled` daemon does **not** run by default — most
