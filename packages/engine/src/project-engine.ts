@@ -35,7 +35,7 @@ import {
   getTaskHardMergeBlocker,
   PreMergeStepsNotRunError,
   PRE_MERGE_STEPS_NOT_RUN_BLOCKER,
-  resolveRequiredPreMergeStepIds,
+  findUnrunRequiredPreMergeStepIds,
   isLiveSharedBranchGroupMemberIntegration,
   isSharedBranchGroupMemberIntegration,
   isWorkspaceTask,
@@ -3435,8 +3435,31 @@ export class ProjectEngine {
       );
     }) as Task[];
     const allowFlags = await Promise.all(candidates.map((t) => this.allowInReviewMergeProcessing(t, settings, this.runtime.getTaskStore())));
+    /*
+    FNXC:RequiredPreMergeSteps 2026-08-22-22:40 (FN-9191 wedge):
+    Admission cannot see unrun pre-merge gates: `canMergeTask` is sync and the injected
+    `getTaskMergeBlocker` has no workflow IR, so it answers on RESULT ROWS only — and a gate that
+    has not started yet has no row. FN-9191 was enqueued ~2s after `fn_task_done`, ~18s before its
+    Code Review node started, and the door then had to refuse it.
+
+    This sweep already resolves each card's IR, so ask the same question the door asks and hold the
+    card out of the queue until every enabled pre-merge group has a result. Failure to resolve the
+    IR admits the card (the door remains the authority); this filter exists to stop the race, not
+    to become a second gate.
+    */
+    const unrunGateFlags = await Promise.all(
+      candidates.map(async (t) => {
+        try {
+          const ir = await resolveWorkflowIrForTask(this.runtime.getTaskStore(), t.id, reviewLaneIrCache);
+          if (!ir) return false;
+          return findUnrunRequiredPreMergeStepIds(ir, t).length > 0;
+        } catch {
+          return false;
+        }
+      }),
+    );
     const eligible = sortTasksByPriorityThenAgeAndId(
-      candidates.filter((_, i) => allowFlags[i]),
+      candidates.filter((_, i) => allowFlags[i] && !unrunGateFlags[i]),
     );
     for (const t of eligible) {
       this.internalEnqueueMerge(t.id);

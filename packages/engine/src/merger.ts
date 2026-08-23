@@ -91,6 +91,8 @@ import {
   buildTaskLineageTrailer,
   evaluateNoCommitsNoOpFinalize,
   getTaskMergeBlocker,
+  isPreMergeStepsNotRunBlocker,
+  PreMergeStepsNotRunError,
   normalizeMergeConflictStrategy,
   normalizeMergeStrategyOverlapBehavior,
   normalizePostMergeAuditMode,
@@ -6817,6 +6819,8 @@ export async function aiMergeTask(
     requiredPreMergeStepIds,
   });
   if (mergeBlocker) {
+    /* FNXC:RequiredPreMergeSteps 2026-08-22-22:40: an unrun enabled gate is a deferral (typed), not a failure — see PreMergeStepsNotRunError. */
+    if (isPreMergeStepsNotRunBlocker(mergeBlocker)) throw new PreMergeStepsNotRunError(taskId);
     throw new Error(`Cannot merge ${taskId}: ${mergeBlocker}`);
   }
 
