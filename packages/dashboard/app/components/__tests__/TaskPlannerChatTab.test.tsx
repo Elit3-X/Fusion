@@ -20,13 +20,14 @@ const mockModelCatalog = vi.hoisted(() => ({
   ],
 }));
 
-const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchTaskDetail, mockUpdateChatSession, mockStreamChatResponse, mockAttachChatStream, mockCancelChatResponse, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
+const { mockEnsureTaskPlannerChatSession, mockFetchTaskPlannerChatSession, mockFetchChatSession, mockFetchChatMessages, mockFetchSettings, mockFetchTaskDetail, mockUpdateChatSession, mockStreamChatResponse, mockAttachChatStream, mockCancelChatResponse, mockAddSteeringComment, mockTranslations, mockT } = vi.hoisted(() => {
   const translations = new Map<string, string>();
   return {
     mockEnsureTaskPlannerChatSession: vi.fn(),
     mockFetchTaskPlannerChatSession: vi.fn(),
     mockFetchChatSession: vi.fn(),
     mockFetchChatMessages: vi.fn(),
+    mockFetchSettings: vi.fn().mockResolvedValue({}),
     mockFetchTaskDetail: vi.fn(),
     mockUpdateChatSession: vi.fn(),
     mockStreamChatResponse: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock("../../api", async (importOriginal) => {
     fetchTaskPlannerChatSession: mockFetchTaskPlannerChatSession,
     fetchChatSession: mockFetchChatSession,
     fetchChatMessages: mockFetchChatMessages,
+    fetchSettings: mockFetchSettings,
     fetchTaskDetail: mockFetchTaskDetail,
     updateChatSession: mockUpdateChatSession,
     streamChatResponse: mockStreamChatResponse,
@@ -218,6 +220,7 @@ describe("TaskPlannerChatTab", () => {
   });
 
   it("keeps a cleared planner memory-focus control icon-only with its accessible name", async () => {
+    mockFetchSettings.mockResolvedValue({ experimentalFeatures: { chatFocus: true } });
     const plannerSession = makePlannerSession({ memoryFocus: null });
     mockFetchTaskPlannerChatSession.mockResolvedValue({ session: plannerSession });
     mockFetchChatSession.mockResolvedValue({ session: plannerSession });

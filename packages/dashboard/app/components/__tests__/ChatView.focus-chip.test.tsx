@@ -27,7 +27,7 @@ vi.mock("lucide-react", async (importOriginal) => ({
   Target: (props: React.SVGProps<SVGSVGElement>) => React.createElement("svg", props),
 }));
 vi.mock("../../api", () => ({
-  fetchSettings: vi.fn().mockResolvedValue({}),
+  fetchSettings: vi.fn().mockResolvedValue({ experimentalFeatures: { chatFocus: true } }),
   fetchChatSession: vi.fn().mockResolvedValue({ session: { memoryFocus: null } }),
   fetchModels: vi.fn().mockResolvedValue({ models: [], favoriteProviders: [], favoriteModels: [] }),
   fetchAgents: vi.fn().mockResolvedValue([]),
