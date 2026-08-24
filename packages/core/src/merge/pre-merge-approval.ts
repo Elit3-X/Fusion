@@ -39,6 +39,23 @@ function evaluateStep(
     if (!approved || !!result.remediationArchivedAt) return { workflowStepId, state: "not-approved" };
     // Plan fingerprints bind plan text rather than source diff and must never be cross-compared.
     if (result.reviewKind === "plan") return { workflowStepId, state: "approved" };
+    /*
+    FNXC:PreMergeApproval 2026-08-24-07:10:
+    A required pre-merge step is not necessarily a CONTENT REVIEW. Review-column workflows also
+    require deterministic verification and documentation/delivery gates, which pass on an exit code
+    or a completed action and never record a `reviewInputFingerprint` — there is no diff for them to
+    bind. Falling through to the diff comparison classified every one of them as
+    `unprovable-content`, so `canMergeTask` answered "task has no provable approval for the content
+    being merged" and NOTHING could ever merge on such a workflow. Measured on
+    builtin:coding-ideas-v2 via pipeline-smoke S01; builtin:review-gated-coding carries the same
+    latent defect and simply never reached its merge.
+    The carve-out is deliberately narrow: it applies only when the step is neither `code-review` nor
+    a `reviewKind: "code"` result AND recorded no fingerprint of its own. A content review that DID
+    record one still gets compared, and a code review missing its fingerprint is still refused — the
+    FN-180 guarantee it exists to protect is untouched.
+    */
+    const bindsContent = requiresExplicitVerdict || result.reviewInputFingerprint !== undefined;
+    if (!bindsContent) return { workflowStepId, state: "approved" };
   }
   if (!descriptor) return { workflowStepId, state: "approved" };
   if (descriptor.kind === "singular") {

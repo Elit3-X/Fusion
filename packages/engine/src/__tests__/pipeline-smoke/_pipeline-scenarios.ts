@@ -2,7 +2,7 @@ import type { PipelineScenarioResult, PipelineSmokeHarness, PipelineTaskSeed, Pi
 import type { PipelineTerminalState } from "./_pipeline-terminal-state.js";
 import { PIPELINE_SCENARIO_DRIVERS } from "./_pipeline-drivers.js";
 
-export type PipelineWorkflowId = "builtin:coding-ideas" | "builtin:coding" | "renamed-clone";
+export type PipelineWorkflowId = "builtin:coding-ideas" | "builtin:coding-ideas-v2" | "builtin:coding" | "renamed-clone";
 
 export interface PipelineScenarioContext {
   readonly harness: PipelineSmokeHarness;
@@ -44,8 +44,17 @@ not a second inert description of behavior.
 export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S01",
+    /*
+    FNXC:PipelineSmoke 2026-08-24-07:10:
+    coding-ideas-v2 is covered here because a review-column workflow exercises merge admission that
+    the base graph never reaches: its required pre-merge set includes gates that record no diff
+    fingerprint. Topology assertions cannot see that — four separate defects (an unsupported plan
+    seam, a self-contradicting planner prompt, a missing workspace session boundary, and an
+    unsatisfiable approval evaluation) all passed structural review and were only caught by driving
+    a card to `merged-done` here.
+    */
     title: "Ideas promotion completes the coding pipeline",
-    workflows: ["builtin:coding-ideas"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s01Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s01Act,
