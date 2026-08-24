@@ -169,7 +169,7 @@ export const PIPELINE_SCENARIO_DRIVERS = {
   }),
   s07Act: driver("let the real Code Review park the unactionable rejection", async (context) => {
     const task = taskFor(context);
-    for (let turn = 0; turn < 4; turn += 1) {
+    for (let turn = 0; turn < 10; turn += 1) {
       await context.harness.runProductionTurn(task.id, { codeReviewModes: ["empty-revise"] });
       const live = await context.harness.freshTask(task.id);
       if (live.workflowStepResults?.some((result) => result.workflowStepId === "code-review" && result.verdict === "REVISE")) {

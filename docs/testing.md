@@ -482,9 +482,21 @@ of the five files each provision their own disposable PostgreSQL database and re
 so consolidating files is the optimization to reach for before the budget is ever touched again.
 -->
 
-The declared budget is **90 seconds**, rounded up from the slowest warm PostgreSQL run
-measured against current `main` (73,224ms, 73,866ms, 76,480ms, and 80,162ms) after the
-integration of upstream engine growth. The wrapper enforces it for every run; an overrun is a result
+<!--
+FNXC:PipelineSmoke 2026-08-24-16:20:
+Re-baselined 90s -> 150s because the WORKLOAD grew, deliberately and measurably: `builtin:coding-ideas-v2`
+was added to 17 of the 19 scenarios (previously 1), and a multi-repository workspace file was added.
+That is 17 additional full scenario executions plus a second project shape, measured at 124.95s
+against the previous 76.9s for the smaller matrix. This is the "comparable measured growth" case the
+previous note allowed for, and it is attributable line by line rather than mysterious.
+The standing rule is unchanged and now has two precedents: an overrun with NO such explanation is a
+regression to fix in the lane, not a budget to raise. The optimization to reach for first is still
+per-file cost — each file re-pays module import and provisions its own disposable PostgreSQL
+database, so consolidating files is worth more than touching any assertion.
+-->
+The declared budget is **150 seconds**, rounded up from a measured 124,950ms full-matrix run
+(6 files, 87 tests) after `builtin:coding-ideas-v2` was added to 17 scenarios and multi-repository
+workspace coverage was introduced. The wrapper enforces it for every run; an overrun is a result
 to investigate, never a reason to hide a regression behind unbounded timeouts. Use
 `--repeat=10` for the reproducibility proof, `--json` for machine output, and
 `--budget-ms=<n>` only for loud diagnostic measurement. The normalized report lists

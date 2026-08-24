@@ -23,7 +23,7 @@ review sessions instead of seeded lifecycle rows. Warm remediation measurements 
 60,459ms; round the observed slowest run to a 70-second declared budget rather than letting a
 real pipeline execution fail on an obsolete pre-production-chain ceiling.
 */
-export const PIPELINE_SMOKE_DURATION_BUDGET_MS = 90_000;
+export const PIPELINE_SMOKE_DURATION_BUDGET_MS = 150_000;
 export const DEFAULT_REPORT_PATH = join(ENGINE_DIR, ".pipeline-smoke-report.json");
 
 /*

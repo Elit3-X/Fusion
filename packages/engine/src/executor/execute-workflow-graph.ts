@@ -686,13 +686,55 @@ export async function executeWorkflowGraph(
           const live = await deps.store.getTask(nodeTask.id);
           const name = typeof node.config?.name === "string" ? node.config.name : "";
           const isCodeReview = node.id === "code-review" || node.config?.reviewKind === "code" || /code review/i.test(name);
-          const writeCapable = workflowNodeRequiresWorktree(node, { reviewerInlineFixes: settings.reviewerInlineFixes === false ? false : undefined }) || node.kind === "code";
+          /*
+          FNXC:WorkflowReviewSeal 2026-08-24-16:20:
+          A DETERMINISTIC verification gate is not a writer. It needs a worktree because it runs the
+          project's test/build commands there, but it only reads the tree and reports exit codes —
+          `verification-gate.ts` has no mutation path at all. It was nevertheless sealed, because
+          `workflowNodeRequiresWorktree` conflates "needs a worktree" with "writes", and its
+          inline-fix branch matches on the node NAME (`/review|verification/i`).
+          The consequence was a wedge, measured by pipeline-smoke S13: any post-approval requeue — a
+          merge conflict, a transient merge failure — replays `steps -> verification`, the seal
+          refuses the gate it should have welcomed, and the card terminates at
+          verification-remediation instead of retrying its merge. Re-running the tests after an
+          approval cannot invalidate that approval; it is the one thing worth doing again.
+          Narrow by construction: keyed on `workflowAction: "deterministic-verification"`, so a
+          prompt-driven review named "Verification" stays sealed.
+          */
+          const deterministicVerification = node.config?.workflowAction === "deterministic-verification"
+            || (node.config?.template as { nodes?: Array<{ config?: Record<string, unknown> }> } | undefined)
+              ?.nodes?.every((inner) => inner.config?.workflowAction === "deterministic-verification") === true;
+          const writeCapable = !deterministicVerification
+            && (workflowNodeRequiresWorktree(node, { reviewerInlineFixes: settings.reviewerInlineFixes === false ? false : undefined }) || node.kind === "code");
           const hasCurrentCodeReviewApproval = live.workflowStepResults?.some((result) =>
             result.reviewKind === "code"
             && result.status === "passed"
             && result.verdict === "APPROVE"
             && (live.repositoryScope === undefined || result.repositoryScopeRevision === undefined || result.repositoryScopeRevision === live.repositoryScope.revision),
           ) === true;
+          /*
+          FNXC:WorkflowReviewSeal 2026-08-24-16:20:
+          A gate that ALREADY passed is not a new mutation. When a post-approval requeue replays the
+          pre-review chain — a merge conflict, a transient merge failure — the graph walks back
+          through gates whose output is already in the approved tree. Refusing them turns a
+          retryable merge into a terminal wedge: measured by pipeline-smoke S13, where a conflicting
+          merge left the card cycling on `documentation-delivery` with
+          `workspace-review-seal-required` instead of retrying the merge it was sent back for.
+          Skipping is the only coherent answer. Re-running the gate would rewrite the very tree the
+          review approved and invalidate that approval, so "already produced, already reviewed" must
+          resolve as satisfied. A gate with no passed result still hits the refusal below, which is
+          the case the seal exists for.
+          */
+          const alreadySatisfied = live.workflowStepResults?.some((result) =>
+            result.workflowStepId === node.id
+            // `skipped` counts too: a disabled or bypassed gate produced nothing that a replay
+            // could legitimately redo, so refusing it only wedges the retry.
+            && (result.status === "passed" || result.status === "skipped")
+            && !result.remediationArchivedAt,
+          ) === true;
+          if (!isCodeReview && writeCapable && hasCurrentCodeReviewApproval && alreadySatisfied) {
+            return { outcome: "success", value: "already-satisfied-under-review-seal" };
+          }
           if (!isCodeReview && writeCapable && hasCurrentCodeReviewApproval) {
             /*
             FNXC:WorkflowReviewSeal 2026-08-21-20:11:

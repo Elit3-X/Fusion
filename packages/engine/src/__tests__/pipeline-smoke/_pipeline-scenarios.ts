@@ -64,7 +64,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S02",
     title: "Planning-column creation completes the coding pipeline",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s02Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s02Act,
@@ -73,7 +73,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S03",
     title: "Unpromoted Ideas intake remains inert",
-    workflows: ["builtin:coding-ideas"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
     expectedTerminal: "inert-intake",
     arrange: PIPELINE_SCENARIO_DRIVERS.s03Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s03Act,
@@ -83,7 +83,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S04",
     title: "Plan review revisions converge",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     variants: ["revise-twice"],
     arrange: PIPELINE_SCENARIO_DRIVERS.s04Arrange,
@@ -93,7 +93,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S05",
     title: "Code review revisions require a current approval",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     variants: ["revise-twice"],
     arrange: PIPELINE_SCENARIO_DRIVERS.s05Arrange,
@@ -103,7 +103,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S06",
     title: "In-flight merge is revoked by a code-review revise",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s06Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s06Act,
@@ -122,7 +122,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S08",
     title: "Disabled code review does not block merge",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s08Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s08Act,
@@ -131,7 +131,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S09",
     title: "Live executor excludes merge admission",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s09Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s09Act,
@@ -140,7 +140,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S10",
     title: "Merge cleanup preserves a live worktree",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s10Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s10Act,
@@ -149,7 +149,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S11",
     title: "Worktree acquisition disruptions recover",
-    workflows: ["builtin:coding-ideas"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
     expectedTerminal: "merged-done",
     variants: ["pool-saturated", "recycled", "absent", "vanished-mid-step"],
     arrange: PIPELINE_SCENARIO_DRIVERS.s11Arrange,
@@ -159,7 +159,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S12",
     title: "Capacity return after revision waits then recovers",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s12Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s12Act,
@@ -177,7 +177,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S14",
     title: "Empty branch has explicit no-op outcome",
-    workflows: ["builtin:coding-ideas"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
     expectedTerminal: "no-op-merge",
     arrange: PIPELINE_SCENARIO_DRIVERS.s14Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s14Act,
@@ -186,7 +186,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S15",
     title: "Auto-merge off waits for human release",
-    workflows: ["builtin:coding-ideas"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
     expectedTerminal: "manual-hold",
     arrange: PIPELINE_SCENARIO_DRIVERS.s15Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s15Act,
@@ -196,7 +196,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S16",
     title: "Confirmed merge reconciles a stale checklist",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s16Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s16Act,
@@ -215,7 +215,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S18",
     title: "Provider error parks then resolves after restoration",
-    workflows: ["builtin:coding-ideas"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
     expectedTerminal: "parked",
     arrange: PIPELINE_SCENARIO_DRIVERS.s18Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s18Act,
