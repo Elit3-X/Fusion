@@ -177,6 +177,8 @@ export class PipelineSmokeHarness {
   private manualHoldTaskIds = new Set<string>();
   private readonly promptRevisions = new Map<string, number>();
   private readonly mockScriptStates = new Map<string, { behavior: PipelineScriptedMergeBehavior; state: PipelineMockScriptState }>();
+  /** Newest non-empty branch per task; a workspace row only gains one at acquisition. */
+  private readonly scriptedBranches = new Map<string, string>();
 
   private constructor(
     readonly pg: SharedPgTaskStoreHarness,
@@ -354,6 +356,7 @@ export class PipelineSmokeHarness {
     try {
       activeSessionRegistry.clear();
       this.mockScriptStates.clear();
+      this.scriptedBranches.clear();
       resetMockScripts();
       await this.engine.stop();
       this.guard.restore();
@@ -593,7 +596,31 @@ export class PipelineSmokeHarness {
     }
   }
 
+  /*
+  FNXC:PipelineSmoke 2026-08-24-15:40:
+  The scripted merger squashes the branch it is handed. A WORKSPACE task legitimately has no
+  task-level `branch`: each repository owns its own under `workspaceWorktrees[repo].branch`.
+  `task.branch ?? ""` therefore handed the mock an EMPTY ref, and the land failed with
+  `git merge --squash` on nothing ("merge:  - not something we can merge"), surfacing as the
+  generic "Workspace repository repo1 could not land". Resolve the per-repository branch for a
+  workspace row; single-repository rows keep `task.branch` unchanged.
+  */
+  private static scriptedMergeBranch(task: { branch?: string; workspaceWorktrees?: Record<string, { branch?: string }> }): string {
+    if (task.branch) return task.branch;
+    const workspaceBranch = Object.values(task.workspaceWorktrees ?? {})
+      .map((entry) => entry?.branch)
+      .find((branch): branch is string => typeof branch === "string" && branch.length > 0);
+    return workspaceBranch ?? "";
+  }
+
   private installScriptedAgents(taskId: string, branch: string, behavior: PipelineScriptedMergeBehavior): void {
+    /*
+    FNXC:PipelineSmoke 2026-08-24-15:40:
+    Remember the newest non-empty branch and hand the scripts a GETTER. Installation happens before
+    a workspace task owns any branch, so a captured value stayed empty for the whole run even though
+    later installs resolved it correctly.
+    */
+    if (branch) this.scriptedBranches.set(taskId, branch);
     let entry = this.mockScriptStates.get(taskId);
     if (!entry || entry.behavior !== behavior) {
       entry = {
@@ -604,7 +631,12 @@ export class PipelineSmokeHarness {
     }
     installPipelineMockScripts({
       taskId,
-      branch,
+      branch: async () => {
+        const live = await this.freshTask(taskId).catch(() => undefined);
+        const resolved = live ? PipelineSmokeHarness.scriptedMergeBranch(live) : "";
+        if (resolved) this.scriptedBranches.set(taskId, resolved);
+        return resolved || this.scriptedBranches.get(taskId) || "";
+      },
       behavior,
       state: entry.state,
       observeMockRuntime: () => this.guard.assertMockRuntime("mock/scripted"),
@@ -613,7 +645,7 @@ export class PipelineSmokeHarness {
 
   async tryEnqueueAutomaticMerge(taskId: string, behavior: PipelineScriptedMergeBehavior = {}): Promise<boolean> {
     const task = await this.freshTask(taskId);
-    this.installScriptedAgents(taskId, task.branch ?? "", behavior);
+    this.installScriptedAgents(taskId, PipelineSmokeHarness.scriptedMergeBranch(task), behavior);
     const accepted = this.engine.enqueueMerge(taskId);
     await new Promise<void>((resolve) => setImmediate(resolve));
     return accepted;
@@ -651,7 +683,7 @@ export class PipelineSmokeHarness {
       : undefined;
     const completeColumn = ir ? resolveCompleteColumn(ir) : undefined;
     if (!completeColumn) throw new Error(`Pipeline automatic merge cannot resolve complete lane for ${taskId}.`);
-    this.installScriptedAgents(taskId, task.branch ?? "", behavior);
+    this.installScriptedAgents(taskId, PipelineSmokeHarness.scriptedMergeBranch(task), behavior);
     await new Promise<void>((resolve, reject) => {
       const onMoved = ({ task: moved, to }: { task: Task; to: string }) => {
         if (moved.id !== taskId || to !== completeColumn) return;
@@ -708,7 +740,7 @@ export class PipelineSmokeHarness {
 
   async admitAndMerge(taskId: string, options: { signal?: AbortSignal; behavior?: PipelineScriptedMergeBehavior; manual?: boolean } = {}): Promise<PipelineMergeOutcome> {
     const task = await this.freshTask(taskId);
-    this.installScriptedAgents(taskId, task.branch ?? "", options.behavior ?? {});
+    this.installScriptedAgents(taskId, PipelineSmokeHarness.scriptedMergeBranch(task), options.behavior ?? {});
     try {
       const result = options.manual
         ? await this.engine.onMerge(taskId, { signal: options.signal })
@@ -1152,7 +1184,7 @@ export class PipelineSmokeHarness {
     behavior: PipelineScriptedMergeBehavior = {},
   ): Promise<Task> {
     const task = await this.freshTask(taskId);
-    this.installScriptedAgents(taskId, task.branch ?? "", behavior);
+    this.installScriptedAgents(taskId, PipelineSmokeHarness.scriptedMergeBranch(task), behavior);
     const executor = this.wireExecutor();
     const seams = executor.createAuthoritativeWorkflowSeams(await this.store.getSettings());
     if (typeof seams.planning !== "function" || typeof seams.execute !== "function" || typeof seams.merge !== "function") {

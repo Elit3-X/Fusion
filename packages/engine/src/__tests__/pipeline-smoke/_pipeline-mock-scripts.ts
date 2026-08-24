@@ -84,7 +84,14 @@ function reviewText(mode: PipelineReviewMode, reviewKind: "plan" | "code", prior
  */
 export function installPipelineMockScripts(input: {
   readonly taskId: string;
-  readonly branch: string;
+  /*
+  FNXC:PipelineSmoke 2026-08-24-15:40:
+  Resolved when the merger RUNS, not when the script is installed. A workspace task has no branch at
+  all until acquisition creates its per-repository worktree, and the scripts are installed before
+  that: capturing the value handed the merger an empty ref and the land failed with
+  `git merge --squash` on nothing. A getter cannot go stale.
+  */
+  readonly branch: () => Promise<string>;
   readonly behavior?: PipelineScriptedMergeBehavior;
   readonly state?: PipelineMockScriptState;
   readonly observeMockRuntime: () => void;
@@ -102,7 +109,9 @@ export function installPipelineMockScripts(input: {
       behavior.onMergeEntered?.();
       await behavior.waitForMerge;
       try {
-        git(context.options.cwd, ["merge", "--squash", input.branch]);
+        const mergeBranch = await input.branch();
+        if (!mergeBranch) throw new Error("pipeline smoke merger has no branch to squash");
+        git(context.options.cwd, ["merge", "--squash", mergeBranch]);
       } catch (error) {
         if (!behavior.resolveConflicts) throw error;
         /*
