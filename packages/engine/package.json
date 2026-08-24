@@ -33,6 +33,7 @@
     "test": "vitest run --silent=passed-only --reporter=dot --project=engine-default --project=engine-reliability",
     "test:core": "vitest run --silent=passed-only --reporter=dot --project=engine-core",
     "test:slow": "vitest run --silent=passed-only --reporter=dot --project=engine-slow",
+    "test:pipeline-smoke": "vitest run --silent=passed-only --reporter=dot --project=engine-pipeline-smoke",
     "test:all": "vitest run --silent=passed-only --reporter=dot",
     "test:executor": "vitest run src/__tests__/executor-*.test.ts",
     "test:watch": "vitest src/__tests__/executor-*.test.ts --watch"
