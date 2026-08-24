@@ -66,6 +66,18 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   if (codeReviewIndex < 0) throw new Error("coding-ideas-v2 requires the inherited code-review gate");
   ir.nodes.splice(codeReviewIndex, 0, verificationOptionalGroupNode("in-review"), documentationDeliveryOptionalGroupNode("in-review"));
   ir.nodes.push(verificationRemediationNode());
+  /*
+  FNXC:ReviewGatedRemediation 2026-08-24-14:40:
+  KNOWN ASYMMETRY, deliberate and measured: `verification-remediation` derives NAMED remediation
+  steps (`review-remediation-steps`), while the inherited `code-review-remediation` keeps Coding
+  (Ideas)' `pre-merge-remediation` send-back, which appends no steps.
+  Aligning them was attempted and reverted. Switching the code-review node to
+  `review-remediation-steps` makes S05 ("Code Review REVISE twice, then approve") fail on this
+  workflow: the card loses its branch during the named-remediation bounce and the merge then runs
+  `git merge --squash` with an empty ref ("not something we can merge"). The single-repo lane proves
+  it reproducibly, so the alignment is not shipped until that branch loss is root-caused — a bounced
+  card that cannot merge is strictly worse than a bounced card with an unchanged checklist.
+  */
 
   ir.edges = ir.edges.filter((edge) => !(
     (edge.from === "steps" && edge.to === "completion-summary")

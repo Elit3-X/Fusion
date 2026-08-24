@@ -89,6 +89,31 @@ describe("builtin:coding-ideas-v2", () => {
   });
 
   /*
+  FNXC:ReviewGatedRemediation 2026-08-24-14:40:
+  BOTH gates must derive named remediation steps. `review-remediation-steps` appends numbered work
+  to `task.steps` from the reviewer's findings and widens the PROMPT.md File Scope, so a bounced card
+  arrives in in-progress with visible work; the inherited `pre-merge-remediation` returns it with an
+  unchanged checklist. Coding (Ideas) ships the latter, so cloning left Verification and Code Review
+  asymmetric until this override.
+  */
+  it("pins the measured remediation asymmetry between the two gates", () => {
+    const verification = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "verification-remediation")?.config;
+    expect(verification?.workflowAction).toBe("review-remediation-steps");
+    expect(verification?.forWorkflowStepId).toBe("verification");
+
+    /*
+    Code Review deliberately keeps the inherited `pre-merge-remediation`. Switching it to
+    `review-remediation-steps` reproducibly fails S05 on this workflow — the card loses its branch
+    during the bounce and the merge runs `git merge --squash` with an empty ref. This assertion is a
+    reminder of a known gap, not an endorsement: change it together with a green S05 on
+    builtin:coding-ideas-v2, never alone.
+    */
+    const codeReview = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "code-review-remediation")?.config;
+    expect(codeReview?.workflowAction).toBe("pre-merge-remediation");
+    expect(codeReview?.forWorkflowStepId).toBe("code-review");
+  });
+
+  /*
   FNXC:ReviewGatedPlanning 2026-08-24-06:30:
   Measured failure this guards: a task on V2 still emitted "Testing & Verification" and
   "Documentation & Delivery" steps and ran them in in-progress, duplicating the review gates. The
