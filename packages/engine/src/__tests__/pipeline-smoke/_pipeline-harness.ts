@@ -28,7 +28,7 @@ import { runHoldReleaseSweep } from "../../execution/hold-release.js";
 import { SelfHealingManager } from "../../self-healing.js";
 import { reconcileRecovery } from "../../recovery-reconciler.js";
 import { createPipelineClock, type PipelineClock } from "./_pipeline-clock.js";
-import { createPipelineGitFixture, type PipelineGitFixture } from "./_pipeline-git-fixture.js";
+import { createPipelineGitFixture, createPipelineWorkspaceFixture, type PipelineGitFixture } from "./_pipeline-git-fixture.js";
 import { createPipelineNoAiGuard, type PipelineNoAiGuard } from "./_pipeline-no-ai-guard.js";
 import {
   installPipelineMockScripts,
@@ -225,8 +225,16 @@ export class PipelineSmokeHarness {
     }
   }
 
-  static async create(pg: SharedPgTaskStoreHarness, options: { autoMerge?: boolean } = {}): Promise<PipelineSmokeHarness> {
-    const fixture = createPipelineGitFixture();
+  /*
+  FNXC:PipelineSmoke 2026-08-24-11:05:
+  `workspace: true` swaps in a real multi-repository project. Everything downstream is unchanged
+  because the fixture, not the harness, decides which directory integration git runs in.
+  */
+  static async create(
+    pg: SharedPgTaskStoreHarness,
+    options: { autoMerge?: boolean; workspace?: boolean } = {},
+  ): Promise<PipelineSmokeHarness> {
+    const fixture = options.workspace ? createPipelineWorkspaceFixture() : createPipelineGitFixture();
     const releaseFixtureEnvironment = await acquireFixtureGlobalHome(fixture);
     try {
       const taskStore = new TaskStore(fixture.repoDir, undefined, { asyncLayer: pg.layer() });
@@ -397,6 +405,14 @@ export class PipelineSmokeHarness {
       readonly codeReview?: boolean;
       readonly initialColumn?: "creation" | "hold";
       readonly noCommitsExpected?: boolean;
+      /*
+      FNXC:PipelineSmoke 2026-08-24-11:05:
+      A workspace task must carry a CONFIRMED repository scope before any write-capable node runs:
+      acquisition refuses without it, and the session boundary is derived from exactly these
+      repositories. Planning normally confirms it; the fixture states it directly so the scenario
+      measures execution rather than re-testing scope confirmation.
+      */
+      readonly repositoryScope?: readonly string[];
     } = {},
   ): Promise<PipelineTaskSeed> {
     const ir = getBuiltinWorkflow(workflowId)?.ir
@@ -420,6 +436,15 @@ export class PipelineSmokeHarness {
     const selected = await this.store.getTaskWorkflowSelectionAsync(taskId);
     if (selected?.workflowId !== workflowId) {
       throw new Error(`Pipeline smoke task ${taskId} did not retain selected workflow ${workflowId}.`);
+    }
+    if (options.repositoryScope?.length) {
+      await this.store.updateTask(taskId, {
+        repositoryScope: {
+          state: "confirmed",
+          repositories: [...options.repositoryScope],
+          revision: 1,
+        } as never,
+      });
     }
 
     /*
@@ -697,7 +722,7 @@ export class PipelineSmokeHarness {
   }
 
   async integrationSha(): Promise<string> {
-    return git(this.fixture.repoDir, ["rev-parse", "main"]);
+    return git(this.fixture.integrationRepoDir, ["rev-parse", "main"]);
   }
 
   async observe(taskId: string): Promise<PipelineObservedState> {
@@ -717,13 +742,13 @@ export class PipelineSmokeHarness {
     ]);
     const effectiveAutoMergeOff = task.autoMerge === false || (settings.autoMerge === false && task.autoMerge !== true);
     const branchReachableFromIntegration = task.mergeDetails?.commitSha
-      ? (() => { try { git(this.fixture.repoDir, ["merge-base", "--is-ancestor", task.mergeDetails!.commitSha!, "main"]); return true; } catch { return false; } })()
+      ? (() => { try { git(this.fixture.integrationRepoDir, ["merge-base", "--is-ancestor", task.mergeDetails!.commitSha!, "main"]); return true; } catch { return false; } })()
       : false;
     const emptyTaskDiff = (() => {
       if (task.noCommitsExpected !== true || !task.branch) return false;
       const base = task.baseCommitSha ?? "main";
       try {
-        git(this.fixture.repoDir, ["diff", "--quiet", `${base}...${task.branch}`]);
+        git(this.fixture.integrationRepoDir, ["diff", "--quiet", `${base}...${task.branch}`]);
         return true;
       } catch {
         return false;
@@ -1082,9 +1107,9 @@ export class PipelineSmokeHarness {
   ): Promise<Task> {
     const before = await this.freshTask(taskId);
     if (before.worktree) rmSync(before.worktree, { recursive: true, force: true });
-    git(this.fixture.repoDir, ["worktree", "prune"]);
+    git(this.fixture.integrationRepoDir, ["worktree", "prune"]);
     if (before.branch) {
-      try { git(this.fixture.repoDir, ["branch", "-D", before.branch]); } catch { /* stale branch is already absent */ }
+      try { git(this.fixture.integrationRepoDir, ["branch", "-D", before.branch]); } catch { /* stale branch is already absent */ }
     }
     await this.store.updateTask(taskId, {
       worktree: null,
@@ -1102,7 +1127,7 @@ export class PipelineSmokeHarness {
     prevents an apparently green S11 from skipping acquisition and manufacturing only downstream
     review evidence after the checkout disappeared.
     */
-    const rootStatus = git(this.fixture.repoDir, ["status", "--porcelain"]);
+    const rootStatus = git(this.fixture.integrationRepoDir, ["status", "--porcelain"]);
     if (rootStatus) throw new Error(`S11: recovery left integration checkout dirty: ${rootStatus}`);
     // Planning evidence is still current because this scenario removes the execution checkout,
     // not PROMPT.md. Preserve its real Plan Review approval and let the resumed graph create fresh

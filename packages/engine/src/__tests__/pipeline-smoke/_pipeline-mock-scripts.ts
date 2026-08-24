@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { MockScript } from "../../providers/mock-provider.js";
 import { setMockScript } from "../../providers/mock-provider.js";
@@ -180,7 +180,22 @@ export function installPipelineMockScripts(input: {
       acquisition, graph projection, review fingerprints, and the merger's local Git input on
       the same path as an operator task instead of pre-seeding a branch before execution starts.
       */
-      if (!state.implementationCommitted && behavior.commitImplementation !== false && existsSync(join(context.options.cwd, ".git"))) {
+      /*
+      FNXC:PipelineSmoke 2026-08-24-11:05:
+      A WORKSPACE session runs from the task DIRECTORY, whose per-repository children hold the Git
+      metadata; the container itself has no `.git`. The original `existsSync(cwd/.git)` guard
+      therefore skipped the whole block on a workspace task, the executor produced no commit, and
+      Code Review reported "No changes — not reviewed" on a scoped repository that was genuinely
+      untouched. Resolve the repository the session can actually commit in, exactly as a real
+      executor does through fn_acquire_repo_worktree.
+      */
+      const implementationRepoDir = existsSync(join(context.options.cwd, ".git"))
+        ? context.options.cwd
+        : readdirSync(context.options.cwd, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => join(context.options.cwd, entry.name))
+          .find((candidate) => existsSync(join(candidate, ".git")));
+      if (!state.implementationCommitted && behavior.commitImplementation !== false && implementationRepoDir) {
         /*
         FNXC:PipelineSmoke 2026-08-23-21:45:
         Most rows use an isolated output file, while S13 deliberately writes README.md so the
@@ -191,10 +206,10 @@ export function installPipelineMockScripts(input: {
           path: "pipeline-smoke-output.txt",
           content: `pipeline smoke implementation for ${input.taskId}\n`,
         };
-        writeFileSync(join(context.options.cwd, implementation.path), implementation.content, "utf8");
-        git(context.options.cwd, ["add", "--", implementation.path]);
-        if (git(context.options.cwd, ["diff", "--cached", "--name-only"])) {
-          git(context.options.cwd, ["commit", "-m", `feat(${input.taskId}): mock executor implementation`]);
+        writeFileSync(join(implementationRepoDir, implementation.path), implementation.content, "utf8");
+        git(implementationRepoDir, ["add", "--", implementation.path]);
+        if (git(implementationRepoDir, ["diff", "--cached", "--name-only"])) {
+          git(implementationRepoDir, ["commit", "-m", `feat(${input.taskId}): mock executor implementation`]);
         }
         state.implementationCommitted = true;
       }
