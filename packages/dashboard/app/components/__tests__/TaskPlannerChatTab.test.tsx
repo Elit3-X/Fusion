@@ -217,6 +217,18 @@ describe("TaskPlannerChatTab", () => {
     restoreMetricDescriptor("clientHeight", originalClientHeightDescriptor);
   });
 
+  it("keeps a cleared planner memory-focus control icon-only with its accessible name", async () => {
+    const plannerSession = makePlannerSession({ memoryFocus: null });
+    mockFetchTaskPlannerChatSession.mockResolvedValue({ session: plannerSession });
+    mockFetchChatSession.mockResolvedValue({ session: plannerSession });
+    renderPlannerChat();
+
+    const chip = await screen.findByRole("button", { name: "Memory focus topic" });
+    expect(chip.closest(".task-planner-chat-focus-row")).toBeTruthy();
+    expect(chip.textContent?.trim()).toBe("");
+    expect(chip).not.toHaveTextContent(/Focus/);
+  });
+
   it("looks up an existing task-scoped planner session and renders the starter-prompt empty state", async () => {
     renderPlannerChat();
 
