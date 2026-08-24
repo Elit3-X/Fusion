@@ -49,6 +49,8 @@ import {
   getPlannerInterventionTimeline,
   getPrimaryPrInfo,
   getTaskMergeBlocker,
+  isPreMergeStepsNotRunBlocker,
+  PreMergeStepsNotRunError,
   normalizeMergeAdvanceAutoSyncMode,
   resolvePersistAgentThinkingLog,
   resolveTaskMergeTarget,
@@ -1516,6 +1518,8 @@ export async function runAiMerge(
     requiredPreMergeStepIds: mergeGate.requiredPreMergeStepIds,
     mergeContent,
   });
+  /* FNXC:RequiredPreMergeSteps 2026-08-22-22:40: an unrun enabled gate is a deferral (typed), not a failure. */
+  if (blocker && isPreMergeStepsNotRunBlocker(blocker)) throw new PreMergeStepsNotRunError(taskId);
   if (blocker) throw new Error(`Cannot merge ${taskId}: ${blocker}`);
   // Honor the task's own target branch when set; otherwise the project default
   // integration branch. The local checkout is only synced if it is on this same
@@ -1587,6 +1591,82 @@ export async function runAiMerge(
       task.mergeDetails?.mergeConfirmed === true ||
       !!task.mergeDetails?.commitSha ||
       hasPriorAiNoOpFinalizationProof(task, branch, integrationBranch);
+    /*
+     * FNXC:NoCommitsBranchMissing 2026-08-08-19:46:
+     * No-commits tasks (observational audits, non-code deliverables) never create a git
+     * branch with substantive work. If a no-commits task WAS executed (baseCommitSha set)
+     * but its branch is missing and not already merged, route through evaluateNoCommitsNoOpFinalize
+     * BEFORE the "work appears lost" throw: all-done tasks finalize as a no-op (audit.git kind
+     * "no-commits-expected"), incomplete/skipped tasks demote to todo with progress preserved.
+     * Commit-expected tasks STILL throw below (invariant unchanged).
+     * Restored from RUFU-011 (commit 98dc396ec); the noCommitsExpected clause was dropped in
+     * the domain-folder move / dep-sync restructure.
+     */
+    if (wasExecuted && !alreadyMerged && task.noCommitsExpected === true) {
+      const noCommitsFinalize = evaluateNoCommitsNoOpFinalize(task);
+      if (noCommitsFinalize.blocked) {
+        const reason = noCommitsFinalize.reason ?? "no-commits task has incomplete work with no branch changes";
+        /*
+         * FNXC:RUFU146MergeFence 2026-08-21-13:35:
+         * RUFU-146 review (PRRT_kwDOSA-8Y86a7RaK): this lane's lifecycle
+         * writes were UNFENCED — if the merge generation is aborted after the
+         * branch lookup (successor generation owns the task), a stale
+         * generation's direct updateTask/logEntry/moveTask/finalizeTask could
+         * still demote the successor to todo or finalize it as done. Route
+         * every write through fence.write(...), stop after an orphaned
+         * signal, and hand the fence to finalizeTask — the same contract the
+         * ai-empty-merge lane and the missing-branch no-op finalize already
+         * follow.
+         */
+        await fence.write("lifecycle", () => store.updateTask(taskId, { error: reason }));
+        if (fence.isOrphaned()) return {
+          task, branch, merged: false, noOp: false, ok: true, reason, error: reason,
+          worktreeRemoved: false, branchDeleted: false,
+        };
+        const reboundColumn = await resolveFinalizeReboundColumn(store, taskId);
+        await fence.write("log", () => store.logEntry(
+          taskId,
+          `Finalize blocked (no-commits incomplete-work guard): ${reason} — moving back to ${reboundColumn} with progress preserved`,
+          JSON.stringify({
+            doneCount: noCommitsFinalize.doneCount,
+            incompleteCount: noCommitsFinalize.incompleteCount,
+            branch,
+            integrationBranch,
+            lane: "no-commits-branch-missing",
+          }, null, 2),
+        ));
+        await audit.database({
+          type: "task:no-commits-finalize-blocked-incomplete-steps" as Parameters<typeof audit.database>[0]["type"],
+          target: taskId,
+          metadata: {
+            reason,
+            doneCount: noCommitsFinalize.doneCount,
+            incompleteCount: noCommitsFinalize.incompleteCount,
+            branch,
+            integrationBranch,
+            lane: "no-commits-branch-missing",
+          },
+        });
+        await fence.write("lifecycle", () => store.moveTask(taskId, reboundColumn, { preserveProgress: true, moveSource: "engine" } as Parameters<TaskStore["moveTask"]>[2]));
+        return {
+          task,
+          branch,
+          merged: false,
+          noOp: false,
+          ok: true,
+          reason,
+          error: reason,
+          worktreeRemoved: false,
+          branchDeleted: false,
+        };
+      }
+      await audit.git({
+        type: "merge:ai-no-branch",
+        target: branch,
+        metadata: { taskId, kind: "no-commits-expected", noCommitsExpected: true },
+      });
+      return await finalizeTask(store, taskId, noOpResult(task, branch, "no-commits-expected"), undefined, undefined, projectRootDir, fence);
+    }
     if (wasExecuted && !alreadyMerged) {
       await audit.git({
         type: "merge:ai-no-branch",
@@ -2320,9 +2400,10 @@ export async function landWorkspaceTask(
   This durable evidence survives result cleanup; direct legacy tasks stay open
   only when no diff-domain review gate and no evidence record exist.
   */
+  const requiresRepositoryReviewEvidence = mergeBoundaryTask.repositoryScope?.reviewEvidence !== undefined
+    || (mergeBoundaryTask.enabledWorkflowSteps ?? []).some((step) => /review/i.test(step));
   const workspaceApproval = evaluatePreMergeApprovals(mergeBoundaryTask, {
-    requiredPreMergeStepIds: workflowIr && (mergeBoundaryTask.repositoryScope?.reviewEvidence !== undefined
-      || (mergeBoundaryTask.enabledWorkflowSteps ?? []).some((step) => /review/i.test(step)))
+    requiredPreMergeStepIds: workflowIr && requiresRepositoryReviewEvidence
       ? resolveRequiredPreMergeStepIds(workflowIr, mergeBoundaryTask.enabledWorkflowSteps)
       : undefined,
     mergeContent: {
@@ -2334,17 +2415,44 @@ export async function landWorkspaceTask(
       },
     },
   }).find((candidate) => candidate.state !== "approved");
-  const approvalRepositories = workspaceApproval?.repositories ?? [];
-  const changedFiles = normalizedMergeBoundaryFiles.filter((file) => !persistedReviewFiles.includes(file)).sort();
-  if (workspaceApproval?.state === "missing") {
+  const approvedReviewEvidence = mergeBoundaryTask.repositoryScope?.reviewEvidence;
+  /*
+  FNXC:WorkspaceFinalization 2026-08-24-03:34:
+  An existing evidence map or enabled review gate always fails closed at the repository boundary,
+  including when the selected workflow resolves an explicit empty gate list. Compare repository
+  evidence directly while the canonical evaluator additionally enforces enabled workflow verdicts.
+  Legacy callers with neither signal retain the merge-agent review path.
+  */
+  const fallbackMissingRepositories = requiresRepositoryReviewEvidence
+    ? [...mergeBoundaryModifiedRepositories].filter((repository) => !approvedReviewEvidence?.[repository]).sort()
+    : [];
+  const fallbackStaleRepositories = requiresRepositoryReviewEvidence
+    ? Object.entries(mergeBoundaryFingerprints)
+      .filter(([repository, fingerprint]) => approvedReviewEvidence?.[repository]?.fingerprint !== fingerprint)
+      .map(([repository]) => repository)
+      .filter((repository) => !fallbackMissingRepositories.includes(repository))
+      .sort()
+    : [];
+  const approvalRepositories = [...new Set([
+    ...(workspaceApproval?.repositories ?? []),
+    ...fallbackMissingRepositories,
+  ])].sort();
+  const changedFiles = requiresRepositoryReviewEvidence
+    ? normalizedMergeBoundaryFiles.filter((file) => !persistedReviewFiles.includes(file)).sort()
+    : [];
+  if (workspaceApproval?.state === "missing" || fallbackMissingRepositories.length > 0) {
     throw new WorkspaceReviewRequiredError(taskId, {
       kind: "approval-missing",
       repositories: approvalRepositories,
       files: normalizedMergeBoundaryFiles.filter((file) => approvalRepositories.some((repository) => file.startsWith(`${repository}/`))).sort(),
     });
   }
-  if (workspaceApproval?.state === "stale-content" || changedFiles.length > 0) {
-    const repositories = [...new Set([...approvalRepositories, ...changedFiles.map((file) => file.split("/")[0])])].sort();
+  if (workspaceApproval?.state === "stale-content" || fallbackStaleRepositories.length > 0 || changedFiles.length > 0) {
+    const repositories = [...new Set([
+      ...approvalRepositories,
+      ...fallbackStaleRepositories,
+      ...changedFiles.map((file) => file.split("/")[0]),
+    ])].sort();
     throw new WorkspaceReviewRequiredError(taskId, {
       kind: "content-changed",
       repositories,
@@ -2702,7 +2810,16 @@ export async function landWorkspaceTask(
         recorded as `landed` in the in-memory result first so the error payload is accurate.
         */
         try {
-          if (durableLandLease) {
+          /*
+          FNXC:Workspace 2026-08-23-22:15:
+          Resolve the write-ahead land intent ONLY when one was written. `landOneRepo` records an
+          intent solely for a REMOTE target (it needs the tenancy fence pin and the remote URL), so a
+          local-only workspace land — the FN-122 contract: no remote, no fence, no intent — reached
+          this resolver with nothing to resolve, got `missing`, and hard-failed a fully landed repo as
+          a partial land after its integration ref had already advanced. Gate both sides on the same
+          condition so the intent lifecycle cannot be half-applied.
+          */
+          if (durableLandLease && workspaceTarget.target.kind === "remote") {
             assertLeaseLive();
             const resolved = await store.resolveWorkspaceLandIntent({
               handle: durableLandLease,

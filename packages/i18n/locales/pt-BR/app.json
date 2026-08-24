@@ -1327,6 +1327,10 @@
     "noSkillsAvailable": "Nenhuma habilidade disponível",
     "noSkillsFound": "Nenhuma habilidade encontrada",
     "openQuickChat": "Abrir chat rápido",
+    "preserveToStash": "",
+    "preserveToStashDone": "",
+    "preserveToStashFailed": "",
+    "preserveToStashWorking": "",
     "questionAnsweredLabel": "Respondida",
     "questionAnsweredWithoutContent": "Uma resposta posterior do usuário respondeu a esta pergunta.",
     "questionConfirmNo": "Não",
@@ -6652,6 +6656,8 @@
       "usedAutomaticallyIfThePrimaryDefaultModelHits": "Usado automaticamente se o modelo padrão principal encontrar um erro do provedor passível de nova tentativa, como limitação de taxa ou sobrecarga. Sem padrão — não definido.",
       "useDefault": "Usar padrão",
       "whenEnabledStartupFetchesTheLatestAvailableModels": " Quando ativado, a inicialização busca os modelos mais recentes disponíveis na API do OpenRouter para que os seletores de modelo sempre incluam o catálogo mais atual. Padrão: ativado. ",
+      "syncOrcaRouterModelListAtStartup": " Sincronizar lista de modelos do OrcaRouter na inicialização ",
+      "whenEnabledStartupFetchesTheLatestOrcaRouterModels": " Quando ativado, a inicialização busca os modelos mais recentes disponíveis na API do OrcaRouter para que os seletores de modelo incluam o catálogo do OrcaRouter. Padrão: ativado. ",
       "whenEnabledStartupRefreshesModelsThroughTheLocal": " Quando ativado, a inicialização atualiza os modelos por meio do fluxo local do ",
       "commaSeparatedValuesSentToOpenRouterModelSyncOutputModalities": "Valores separados por vírgula enviados à sincronização de modelos do OpenRouter. Sem padrão — não definido (sem filtro).",
       "openRouterRoutingOrderHint": "Sem padrão — não definido (aplica-se a ordem de roteamento padrão do próprio OpenRouter).",
@@ -6842,6 +6848,19 @@
       "wedgeNotificationSettleMsHelp": "Por quanto tempo uma falha terminal deve persistir antes de alertar um operador. 0 = notificar imediatamente. Padrão: 300000 (5 minutos)."
     },
     "memory": {
+      "backendFile": "",
+      "backendHelp": "",
+      "backendLabel": "",
+      "backendQmd": "",
+      "backendReadonly": "",
+      "backendStash": "",
+      "capOnTranscriptEventsUploadedPerTask": "",
+      "executorSessionCapture": "",
+      "maxTranscriptEventsPerTask": "",
+      "stashUrlHelp": "",
+      "stashUrlLabel": "",
+      "stashUrlPlaceholder": "",
+      "uploadTaskAgentLogTranscriptToStash": "",
       "03": "0 3 * * *",
       "agentsGetMemorySearchMemoryGetAndMemory": "Os agentes recebem as ferramentas memory_search, memory_get e memory_append. A busca usa qmd por padrão, com arquivo local como reserva. Padrão: ativado.",
       "agentsSearchWithQmdFirstFallBackTo": ". Os agentes buscam primeiro com o qmd, recorrem a arquivos locais quando o qmd não está disponível e abrem janelas de linhas exatas somente quando necessário. ",
@@ -8397,6 +8416,13 @@
       "lockState": "",
       "relockChanged": "",
       "retainedHistory": ""
+    },
+    "aiMergeReview": {
+      "title": "",
+      "approvedWithPending": "",
+      "candidate": "",
+      "dismissFinding": "",
+      "terminalGuidance": ""
     }
   },
   "taskDocuments": {
@@ -9703,5 +9729,12 @@
     "sectionCountPlural": "",
     "showRaw": "",
     "showSections": ""
+  },
+  "artifactImageViewer": {
+    "openTask": "",
+    "close": "",
+    "loading": "",
+    "retry": ""
+
   }
 }

@@ -2,6 +2,83 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
+## 0.77.0-beta.8
+
+### Highlights
+
+- Auto-merge no longer merges a task before its workflow code review finishes
+- Tasks whose branch already merged no longer stick as failed with unfinished steps
+- Full Chat gains a resizable docked conversation sidebar and thread-title switching
+- Chat and the mobile nav bar stay usable with the on-screen keyboard open
+- New Iceberg theme, plus chat filter, back arrow, and mailbox task ID fixes
+
+### New
+
+- Full Chat has a resizable docked conversation sidebar; its width and open state persist across sessions.
+- Switch Direct chats straight from the thread title without going back to the conversation list.
+- Added the Iceberg color theme: navy-slate in dark mode, pale blue-gray in light.
+
+### Fixed
+
+- Auto-merge is fenced on satisfied pre-merge gates: the in-review sweep, the column-entry handoff, the unpause re-enqueue, and the pre-dispatch check all service recoveries instead of starting merges. A card merges only when it is merge-confirmed, parked at a merge-region node, recovering an interrupted attempt, or long-quiescent, and a foreign live session always defers. Workspace and shared-branch-group cards follow the same rules.
+- A task whose branch already landed can no longer get stuck as failed with unfinished steps; once landing is proven, incomplete steps are logged rather than blocking finalization. A no-op merge that landed no content still blocks.
+- Restored title-based duplicate redirects in triage, and planning-stall diagnostics now survive a failed audit write instead of being silently marked as throttled.
+- The Chat message box stays visible above the software keyboard on tablets and landscape phones.
+- The mobile navigation bar no longer rises with the on-screen keyboard.
+- The chat conversation switcher dropdown is now visible on narrow chat surfaces.
+- The chat sidebar shows a compact Archived toggle on the tag filter line, and the tag filter has proper inner padding so "All tags" is not cramped.
+- Chat's back button uses a real back arrow icon instead of a text character.
+- Mailbox task links show the real task ID instead of a raw placeholder.
+
+### Performance
+
+- Merge sweep reads are batched, so admission costs a fixed number of queries per poll rather than scaling with the number of cards on the board.
+
+## 0.77.0-beta.7
+
+### Highlights
+
+- Executing agents can no longer create tasks; out-of-scope findings become recommendations
+- Startup crash fixed: Fusion no longer rejects the database it just migrated
+- Auto-merge that runs before a Code Review gate now defers instead of failing the task
+- Board cards open task detail on click again, and empty card areas pan the board
+- OrcaRouter joins the provider list with a startup model-catalog sync
+
+### Breaking
+
+- Agents running a task can no longer create or delegate new tasks. Out-of-scope findings now come back as completion recommendations instead of self-spawned work.
+
+### New
+
+- OrcaRouter is available as a named model provider, with its model catalog synced at startup and surfaced in the auth catalog, onboarding quick start, provider icons, and settings.
+- Quick Chat pop-outs let you keep several conversations open in independent windows, each with its own session preferences.
+- Chat has contextual Find: Ctrl/Cmd+F searches the active conversation list or transcript.
+- Titled AI thinking traces expand and collapse independently across dashboard transcripts.
+- Automated review revisions now converge on a verdict while preserving the full review history, including disputed findings and arbitration.
+- Managed deployments can suppress in-app updates via FUSION_UPDATES_EXTERNALLY_MANAGED, and the updater explains when an npm install path is unsupported.
+
+### Fixed
+
+- Fusion no longer crashes on startup by rejecting a database it had just migrated itself.
+- A task no longer fails permanently when auto-merge runs before its Code Review gate; the merge defers and in-review cards stay out of the merge queue until every enabled pre-merge gate has a result.
+- Clicking a Board task card opens task detail again; panning starts only once horizontal intent is clear, and card bodies pan the Board on desktop and tablet while moves stay in the Move to menu.
+- Workflow steps run by ACP agents (Hermes, Prime, Grok) no longer crash before producing a verdict; ACP sessions now stream events to subscribers as well as callbacks.
+- Planning no longer loops on missed plan-save confirmations; the prompt write is verified with a read-back.
+- Renamed board columns are respected: task moves land on their real workflow lanes, and late workspace repository acquisition is refused based on the task's selected workflow.
+- Workspace auto-merge works for linked task worktrees, stale workspace changes get re-reviewed before landing, and repositories without a remote can land locally.
+- Workspace tasks now run inside one scoped directory with sandbox delegation and clearer merge-door gates.
+- AI merge no longer blocks on its own review protocol markers.
+- Direct chat headers show provider-reported session context usage.
+- Task reset safely fences active planning sessions, releasing held locks while keeping operator input.
+- Task concurrency settings and the capacity actually enforced now agree.
+- Self-healing stops retrying no-progress tasks forever; retries use a persisted budget with backoff before parking for an operator.
+- Impossible auto-archives stop retrying and surface the abandoned archive on the task.
+- Tailscale remote access in the Docker image no longer dies with "process exited 1": the daemon starts in userspace mode when opted in with --tailscale or FUSION_TAILSCALE=1, login state persists across container recreates, and an unreachable or logged-out backend reports an actionable reason.
+
+### Internal
+
+- The bundled dependency-graph plugin tracks the current dashboard task card and scoped-storage APIs.
+
 ## 0.77.0-beta.6
 
 ### Highlights

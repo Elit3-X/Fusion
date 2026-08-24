@@ -1312,6 +1312,10 @@
     "noSkillsAvailable": "Aucune compétence disponible",
     "noSkillsFound": "Aucune compétence trouvée",
     "openQuickChat": "Ouvrir le chat rapide",
+    "preserveToStash": "",
+    "preserveToStashDone": "",
+    "preserveToStashFailed": "",
+    "preserveToStashWorking": "",
     "questionAnsweredLabel": "",
     "questionAnsweredWithoutContent": "",
     "questionConfirmNo": "",
@@ -6276,6 +6280,8 @@
       "usedAutomaticallyIfThePrimaryDefaultModelHits": "",
       "useDefault": "",
       "whenEnabledStartupFetchesTheLatestAvailableModels": "",
+      "syncOrcaRouterModelListAtStartup": "",
+      "whenEnabledStartupFetchesTheLatestOrcaRouterModels": "",
       "whenEnabledStartupRefreshesModelsThroughTheLocal": "",
       "commaSeparatedValuesSentToOpenRouterModelSyncOutputModalities": "",
       "openRouterRoutingOrderHint": "",
@@ -6334,6 +6340,19 @@
     "keepRemote": "Garder la version distante",
     "loading": "Chargement…",
     "memory": {
+      "backendFile": "",
+      "backendHelp": "",
+      "backendLabel": "",
+      "backendQmd": "",
+      "backendReadonly": "",
+      "backendStash": "",
+      "capOnTranscriptEventsUploadedPerTask": "",
+      "executorSessionCapture": "",
+      "maxTranscriptEventsPerTask": "",
+      "stashUrlHelp": "",
+      "stashUrlLabel": "",
+      "stashUrlPlaceholder": "",
+      "uploadTaskAgentLogTranscriptToStash": "",
       "03": "",
       "agentsGetMemorySearchMemoryGetAndMemory": "",
       "agentsSearchWithQmdFirstFallBackTo": "",
@@ -8387,6 +8406,13 @@
       "lockState": "",
       "relockChanged": "",
       "retainedHistory": ""
+    },
+    "aiMergeReview": {
+      "title": "",
+      "approvedWithPending": "",
+      "candidate": "",
+      "dismissFinding": "",
+      "terminalGuidance": ""
     }
   },
   "taskDocuments": {
@@ -9700,8 +9726,15 @@
     "noDetail": "Aucun raisonnement capturé pour cette étape",
     "untitledSection": "Raisonnement sans titre",
     "sectionCount": "{{count}} section",
-    "sectionCountPlural": "{{count}} sections",
+    "sectionCountPlural": "",
     "showRaw": "",
     "showSections": ""
+  },
+  "artifactImageViewer": {
+    "openTask": "",
+    "close": "",
+    "loading": "",
+    "retry": ""
+
   }
 }

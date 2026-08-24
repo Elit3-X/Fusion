@@ -11,7 +11,7 @@ import {existsSync} from "node:fs";
 import type {Task, MergeResult, MergeQueueEntry, MergeQueueAcquireOptions} from "../types.js";
 import {assertNotWorkspaceTaskMerge} from "../types.js";
 import "../builtin-traits.js";
-import {getTaskMergeBlocker, resolveTaskMergeTarget} from "../merge/task-merge.js";
+import {getTaskMergeBlocker, isPreMergeStepsNotRunBlocker, PreMergeStepsNotRunError, resolveTaskMergeTarget} from "../merge/task-merge.js";
 import {resolvePreMergeGateForTask} from "../merge/required-pre-merge-steps.js";
 import {resolveTaskLifecycleColumns} from "../workflows/workflow-lifecycle-traits.js";
 import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
@@ -426,6 +426,8 @@ export async function mergeTaskImpl(store: TaskStore, id: string): Promise<Merge
         requiredPreMergeStepIds: mergeGate.requiredPreMergeStepIds,
       });
       if (mergeBlocker) {
+        /* FNXC:RequiredPreMergeSteps 2026-08-22-22:40: an unrun enabled gate is a deferral (typed), not a failure. */
+        if (isPreMergeStepsNotRunBlocker(mergeBlocker)) throw new PreMergeStepsNotRunError(id);
         throw new Error(`Cannot merge ${id}: ${mergeBlocker}`);
       }
 

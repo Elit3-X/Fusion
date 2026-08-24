@@ -19,7 +19,7 @@ import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { AgentHeartbeatRun, AgentStore, MessageStore, PermanentAgentGatingContext, ProviderInstanceRef, ResolvedMcpServerDefinition, TaskDetail, Settings, SteeringComment, TaskStore } from "@fusion/core";
-import { isFusionDeletableBranch, isValidProviderInstanceId, resolvePersistAgentThinkingLog, resolveExecutorFallbackModel } from "@fusion/core";
+import { isValidProviderInstanceId, resolvePersistAgentThinkingLog, resolveExecutorFallbackModel } from "@fusion/core";
 
 import {
   createResolvedAgentSession,
@@ -1061,6 +1061,24 @@ export class StepSessionExecutor {
    * Safe to call multiple times (idempotent). Call this in a `finally` block
    * after `executeAll()`.
    */
+  /**
+   * FNXC:StepParallelWorktrees 2026-08-23-21:40:
+   * `parallelBranches` holds only branches THIS executor created in `createStepWorktree`
+   * (`fusion/step-<idx>-<worktree-name>`), so their provenance is known here rather than inferred.
+   * FN-9161's `isFusionDeletableBranch` answers by NAME and reads anything that is not
+   * `fusion/<task-id>...` as operator-supplied, so applying it here silently skipped every
+   * step branch and leaked one ref per parallel step. Protect what an operator can actually own —
+   * the task's working branch and its explicit override — and dispose of the rest.
+   */
+  private isDisposableStepBranch(branchName: string): boolean {
+    const task = this.options.taskDetail as { branch?: string; branchContext?: { branchOverride?: { branch?: string } } };
+    const operatorOwned = [task.branch, task.branchContext?.branchOverride?.branch]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => value.trim());
+    // Callers pass only branches recorded in `parallelBranches`, i.e. ones this executor created.
+    return !operatorOwned.includes(branchName.trim());
+  }
+
   async cleanup(): Promise<void> {
     // Terminate any remaining sessions
     if (this.activeSessions.size > 0) {
@@ -1092,7 +1110,7 @@ export class StepSessionExecutor {
     // Delete branches created for parallel worktrees
     for (const [stepIdx, branchName] of this.parallelBranches) {
       try {
-        if (!isFusionDeletableBranch(this.options.taskDetail, branchName)) continue;
+        if (!this.isDisposableStepBranch(branchName)) continue;
         await execAsync(`git branch -D "${branchName}"`, {
           cwd: this.options.rootDir,
         });
@@ -1381,7 +1399,12 @@ export class StepSessionExecutor {
               ]
             : [];
           const webFetchTool = createWebFetchTool();
-          const memoryTools = createMemoryTools(this.options.rootDir, settings);
+          // FNXC:MemoryFocusEngine 2026-08-13-16:35 (RUFU-068): a workflow
+          // step-execution lane has no per-conversation /focus topic (unless the
+          // task/session carries one) → whole-project scope today. The optional
+          // MemoryToolOptions.focus seam is wired explicitly so a step session bound
+          // to a topic-scoped conversation can scope fn_memory_search.
+          const memoryTools = createMemoryTools(this.options.rootDir, settings, { focus: undefined });
 
           // Task log and create tools — task context for step sessions.
           const taskLogTool = this.options.store
@@ -1840,7 +1863,7 @@ Follow instructions precisely and avoid unrelated changes.`,
             });
           }
           const branch = this.parallelBranches.get(stepIdx);
-          if (branch && isFusionDeletableBranch(this.options.taskDetail, branch)) {
+          if (branch && this.isDisposableStepBranch(branch)) {
             await execAsync(`git branch -D "${branch}"`, {
               cwd: this.options.rootDir,
             });

@@ -19,7 +19,7 @@ tags:
 
 # Observed suite-only flakes register
 
-This register has **3 active observation records** (entries 1, 2, and 7): **2 active first sightings** and **1 escalated second sighting**. It also has **1 merge-gate eviction record** (entry 6) and **8 archived closed records**. Only the active section drives quarantine and escalation decisions; the other sections preserve historical evidence.
+This register has **4 active observation records** (entries 1, 2, 7, and 13): **3 active first sightings** and **1 escalated second sighting**. It also has **1 merge-gate eviction record** (entry 6) and **8 archived closed records**. Only the active section drives quarantine and escalation decisions; the other sections preserve historical evidence.
 
 <!--
 FNXC:TestFlakeRegister 2026-08-19-11:14:
@@ -188,9 +188,32 @@ The 12-worker snapshots show 21 backends and concurrent template `CREATE DATABAS
 | D02 | configured pg gate / 4 forks | 3.7s | not selected | green, 2 files / 10 pass | 100/97; not sampled |
 
 
+### 13. Handoff-to-review atomicity PostgreSQL setup hook
+
+- **Status:** Active first sighting — recorded 2026-08-23, unattributed.
+
+- **File:** `packages/core/src/__tests__/postgres/handoff-to-review-atomicity.pg.test.ts`
+- **Exact test:** `handoff-to-review transactional invariant (PostgreSQL)` suite `beforeAll(h.beforeAll)` setup hook (line 35).
+- **Observed tree/SHA:** `39812f4898` (observed locally as `82c37ee3fd`, the same tree before an upstream rewrite) with uncommitted `packages/engine/src/executor/{execute-core,execute-workflow-graph}.ts` changes plus one new engine test. Those changes are engine-only; the subject is a core PostgreSQL file and imports nothing from them.
+- **Observed frequency:** 1 sighting, on the FIRST `pnpm test:gate` invocation of the session; not reproduced in 8 subsequent runs across three shapes.
+
+| run | shape | result |
+|---|---|---|
+| gate (1st of session) | `pnpm test:gate` | **`beforeAll` hook timed out** at the inherited 15s budget; 6 passed / 4 skipped in the lane |
+| gate ×2 | `pnpm test:gate` | green, 715 tests each (4 lanes: 200 / 433 / 10 / 72) |
+| pg-gate ×3 | `pnpm --filter @fusion/core run test:pg-gate` | 2 files / 10 tests passed each run |
+| isolated ×3 | target file alone, `vitest.pg.config.ts` | 1 file / 4 tests passed each run |
+
+**Evidence gap disclosed:** the original failing run's output was piped through `tail`, so only the summary and the `FAIL` identity lines survive; the full runner output was not retained. The identity is unambiguous (file, suite, `beforeAll` hook, 15s budget, `:35:3`), but this record cannot supply a full log for the failing run. The eight verification runs above were captured in full.
+
+This is the same mode already characterized by entry 6 and by entry 7's A02 lane: a 15s `beforeAll` abort on the DDL-heavy per-file schema-template setup that the one shared Postgres serializes. Two properties make this sighting narrower than the shapes those entries measured. It occurred under the CAPPED gate lane — `PG_MAX_WORKERS = 4` and only two selected files — which `FNXC:PgTestWorkerCap 2026-07-18-18:00` established as the DB-safe ceiling (measured: 6 forks all time out, 4 forks pass in ~42s). And it occurred on the first gate invocation after the cluster had been idle, with every later run in the same shell green, which points at cold-cluster startup cost landing inside the first file's setup budget rather than at fork oversubscription. That correlation is a HYPOTHESIS, not a measurement: reproducing it means stopping the embedded cluster, which was not done because this host also runs a live Fusion instance.
+
+Quarantine was not available as an alternative. Core PostgreSQL files cannot be quarantined inline — the gate-policy assertion requires `quarantinedCoreTests` to remain empty — and a merge-gate eviction of a transactional-invariant file is the owner-escalated decision described in the policy section below. The file carries only 4 tests, which is thin against the usual first-sighting coverage argument, but they are the atomicity invariant for handoff-to-review and one of just two files in the blocking PG lane; recording preserves that rather than trading it away over a single unreproduced cold-start abort. A **second sighting** follows normal escalation.
+
+
 ### Common shape and investigated result
 
-FN-9125 established that former entry 3 was not PostgreSQL-suite-adjacent: `plugin-runner.test.ts` used an in-memory mocked TaskStore and had no PostgreSQL/harness import. FN-9135 did not identify a root cause, but FN-9141's completed shuffled worker-reuse campaign reproduced and structurally fixed the logger mock-history fixture defect; the suite and its renamed-complete-lane dispatch coverage remain active. Entries 2 and 7 remain active, unreproduced PostgreSQL observations: FN-9146 completed the later A×4/B×3/C×3 campaign without either exact identity failing. Entry 1 reproduced under FN-9126 and again under FN-9146's A02–A04 lanes, but remains unattributed rather than structurally fixed. The golden-template/advisory-lock lifecycle and schema-applier's inline baseline path are concrete architecture facts, not a demonstrated cause of these assertions. Core policy forbids inline PG quarantine: FN-9146 owns the retained evidence for entries 1, 2, and 7; no source or fan-out change is justified before a diagnostic names a causal lifecycle seam. Entry 6 instead records a merge-gate eviction after a loaded-lane setup-hook timeout; `FNXC:PgTestTemplateDb 2026-07-19-17:20` and `FNXC:PgTestWorkerCap 2026-07-18-18:00` are already-landed mitigations for that mode, not new diagnoses to re-open. The Planning Mode entries are separate frontend timing observations.
+FN-9125 established that former entry 3 was not PostgreSQL-suite-adjacent: `plugin-runner.test.ts` used an in-memory mocked TaskStore and had no PostgreSQL/harness import. FN-9135 did not identify a root cause, but FN-9141's completed shuffled worker-reuse campaign reproduced and structurally fixed the logger mock-history fixture defect; the suite and its renamed-complete-lane dispatch coverage remain active. Entries 2 and 7 remain active, unreproduced PostgreSQL observations: FN-9146 completed the later A×4/B×3/C×3 campaign without either exact identity failing. Entry 1 reproduced under FN-9126 and again under FN-9146's A02–A04 lanes, but remains unattributed rather than structurally fixed. The golden-template/advisory-lock lifecycle and schema-applier's inline baseline path are concrete architecture facts, not a demonstrated cause of these assertions. Core policy forbids inline PG quarantine: FN-9146 owns the retained evidence for entries 1, 2, and 7; no source or fan-out change is justified before a diagnostic names a causal lifecycle seam. Entry 13 is a further unreproduced instance of that same 15s setup-hook mode, narrowed to the capped four-fork gate lane on a cold cluster. Entry 6 instead records a merge-gate eviction after a loaded-lane setup-hook timeout; `FNXC:PgTestTemplateDb 2026-07-19-17:20` and `FNXC:PgTestWorkerCap 2026-07-18-18:00` are already-landed mitigations for that mode, not new diagnoses to re-open. The Planning Mode entries are separate frontend timing observations.
 
 
 
@@ -451,3 +474,154 @@ AssertionError: expected [ 'approved', 'created' ] to deeply equal [ 'created', 
 This resolves the previously unclassified “unrelated satellite-store ordering failure” mentions in entry 1's 12-worker verification table, entry 2's 12-worker verification table, and entry 11's FN-9129 4-worker run table. Those sightings are now classified separately from their entries' identity and DDL investigations.
 
 **Terminal negative 2026-08-17 (FN-9131):** The reproduced 27-worker PostgreSQL-directory symptom was investigated with a cluster-shared connection-budget primitive. The first harness wiring and a follow-up that queued registry over-subscription while retaining leases both made the loaded run worse (135 failed files in 174.1s, then 144 failed files in 223.3s); the subject itself was not the only failure. The harness wiring was reverted, the primitive remains characterized independently, and FN-9139 owns a setup-safe admission boundary. No quarantine, timeout change, test retry, skip, worker cap, or assertion change was made.
+
+---
+
+## Entry: `self-healing-pending-wedge-notification` marker-selection count (first sighting)
+
+- **File:** `packages/engine/src/__tests__/self-healing-pending-wedge-notification.test.ts`
+- **Exact test:** `reconcile pending wedge notifications > selects elapsed markers and audits the completion outcome verbatim`
+- **Owner:** unowned — first sighting, recorded rather than quarantined because the file's remaining coverage (4 tests over the pending-wedge reconciler) is substantial and quarantine is file-level.
+- **Observed tree/SHA:** `ea48af7ab5`, during a full `@fusion/engine` suite run while auditing pre-existing failures.
+- **Observed frequency:** once, suite-only. Passes deterministically in isolation.
+
+Verbatim observed failure:
+
+```
+FAIL  |engine-default| src/__tests__/self-healing-pending-wedge-notification.test.ts > reconcile pending wedge notifications > selects elapsed markers and audits the completion outcome verbatim
+AssertionError: expected 2 to be 1 // Object.is equality
+ ❯ src/__tests__/self-healing-pending-wedge-notification.test.ts:50:62
+```
+
+| run | result |
+|---|---|
+| full engine suite (967 files), `ea48af7ab5` | **failed** with the verbatim count assertion |
+| same file in isolation, same tree | **passed** (4/4) |
+| full engine suite, baseline `3f448f7292` | not observed |
+
+Reads as cross-test state bleed into the reconciler's marker selection (an expected-1 selection saw 2),
+not a timing wait — so no timeout, retry, or assertion change was made. A SECOND sighting is an
+ordinary on-sight quarantine with no further discretion, per the standing rule in AGENTS.md.
+
+---
+
+## Entry: `spec-drift-reconciler` exponential-backoff case (first sighting)
+
+- **File:** `packages/engine/src/__tests__/spec-drift-reconciler.test.ts`
+- **Exact test:** `SpecDriftReconciler > backs a persistent outage off exponentially instead of re-firing every second`
+- **Owner:** unowned — first sighting, recorded rather than quarantined because the file's other 9–13 tests are substantial coverage and quarantine is file-level.
+- **Observed tree/SHA:** `a97aa84a20`, full `@fusion/engine` suite run.
+- **Observed frequency:** once in a full-suite run; also failed once when run in the same command as `self-healing-pending-wedge-notification.test.ts`, and passes deterministically alone (10/10) and in other pairings.
+
+Verbatim observed failure context:
+
+```
+FAIL  |engine-default| src/__tests__/spec-drift-reconciler.test.ts > SpecDriftReconciler > backs a persistent outage off exponentially instead of re-firing every second
+```
+
+Both this and the quarantined `self-healing-pending-wedge-notification` case are timer-driven
+reconciler tests that fail only alongside other suites, which points at shared fake-timer or
+cross-file state rather than a product defect. No timeout was widened, no retry added, and no
+assertion relaxed. A SECOND sighting is an ordinary on-sight quarantine with no further discretion,
+per the standing rule in AGENTS.md.
+
+---
+
+## Entry: `PlanningModeModal.planning-flow` under dashboard lane sharding (first sighting)
+
+- **File:** `packages/dashboard/app/components/__tests__/PlanningModeModal.planning-flow.test.tsx`
+- **Exact tests:** a DIFFERENT case failed on each of two consecutive full-lane runs —
+  `PlanningModeModal sequential flow > keeps the newer session when delayed duplicate reconciliation returns 'a durable question' on 'mobile'`, then
+  `PlanningModeModal sequential flow > can refine a stopped initial plan into the first question`.
+- **Owner:** unowned — first sighting for this file. Recorded rather than quarantined: the file carries 83 tests and quarantine is file-level.
+- **Observed tree/SHA:** `c82e420ba0`, via the package's real command `pnpm --filter @fusion/dashboard test` (the `run-quality-tests.mjs` lane runner), lane `app:backfill-3` (`--project dashboard-app-quality-backfill --shard=3/4`), concurrency 2, 6144MiB heap per lane.
+- **Observed frequency:** twice in two full-lane runs, each time a different case; passes 83/83 in isolation every time.
+
+Verbatim observed failure (second run):
+
+```
+FAIL  |dashboard-app-quality-backfill| app/components/__tests__/PlanningModeModal.planning-flow.test.tsx > PlanningModeModal sequential flow > can refine a stopped initial plan into the first question
+TestingLibraryElementError: Unable to find an element by: [data-testid="planning-plan-review"]
+```
+
+| run | result |
+|---|---|
+| lane runner, default (fail-fast), `c82e420ba0` | **failed** on the delayed-duplicate-reconciliation case |
+| lane runner, `--all --no-fail-fast`, same tree | **failed** on the refine-stopped-plan case |
+| isolated `vitest run <file>`, same tree, repeatedly | **passed** 83/83 |
+
+The moving target plus a "cannot find element" shape points at render/settle timing under a loaded
+shard, not a product defect — a wait that is adequate on an idle machine and not under four
+concurrent 6GB lanes. No timeout was widened, no retry added, no assertion relaxed. A SECOND sighting
+of the *same* case is an ordinary on-sight quarantine per the standing rule in AGENTS.md; because the
+case moves, the honest rescue is a deterministic settle signal in this file's harness rather than a
+longer wait.
+
+---
+
+## Entry: dashboard `api:backfill-*` lanes — PostgreSQL contention under lane concurrency (pattern, not a single test)
+
+- **Files:** no fixed set. Across three consecutive full-lane runs on the same tree, a DIFFERENT file failed each time:
+  - run 1: `app/components/__tests__/PlanningModeModal.planning-flow.test.tsx`
+  - run 2: `src/__tests__/routes-branch-groups.test.ts`, `src/__tests__/routes-planning.test.ts`
+  - run 3: `src/__tests__/register-signal-routes.test.ts`, `src/__tests__/server-view-preload.test.ts`
+- **Command:** `pnpm --filter @fusion/dashboard test -- --all --no-fail-fast` (the `run-quality-tests.mjs` lane runner: 15 lanes, concurrency 2, 6144MiB heap per lane).
+- **Observed tree/SHA:** `cc19584cc4`.
+- **Every one passes in isolation**, including re-running the exact multi-file command that had just failed.
+
+Failure shape in run 3 (`api:backfill-1`, `api:backfill-2`):
+
+```
+Error: Hook timed out in 15000ms.
+fnlvl=warn [dashboard-github-tracking-reconciler] … pass failed (other passes still run): Failed query: select … from "project"."tasks" …
+```
+
+The hook timeout arrives alongside PostgreSQL `Failed query` warnings. Those warnings were FIRST READ
+as proof of connection exhaustion; that reading was WRONG and is retracted here. The warnings come from
+a background github-tracking reconciler still polling an already-torn-down store, i.e. noise that
+follows the timeout rather than causing it. Measured 2026-08-23: a live `dashboard-api-quality-backfill`
+lane peaked at **14 backend connections against `max_connections=100`**. There is no connection
+shortage. Two attempts to act on the exhaustion theory were reverted — lowering the harness `poolMax`
+from 5 to 2 took core's PostgreSQL suite from 1 failure to 11, matching FN-9131, where a shared
+connection-budget primitive also made a loaded run worse.
+
+This is suite infrastructure, not a defect in any of the five files above, and chasing the file that
+happened to lose the race on a given run is whack-a-mole.
+
+Scale for context: run 3 executed roughly 15,200 tests across 15 lanes and failed 2.
+
+### Reproduction attempt 2026-08-23 — did NOT reproduce
+
+Re-run on a quiet 28-core machine at `7e59494448`, after this session's 816 cross-package test failures
+were fixed:
+
+| Run | Result |
+| --- | --- |
+| `--group api` alone (3 lanes) | **passed** — 156 files, 1,437 tests, 0 hook timeouts, 0 gate degradations |
+| full runner, all 15 lanes | **passed** — 23,584 tests, 0 hook timeouts, 0 gate degradations, 0 failed files |
+
+Two candidate mechanisms were tested and NEITHER is supported by evidence:
+
+1. **DDL admission saturation.** `pg-ddl-admission.ts` waits up to `acquireTimeoutMs` (default 10s),
+   then degrades and runs the DDL anyway, against a 15s `hookTimeout` — mechanically enough to overrun.
+   But both runs emitted **zero** `[pg-ddl-admission] degraded` warnings, so the gate never saturated.
+   Unsupported; do not cite it as the cause without a run that actually shows the warning.
+2. **CPU oversubscription.** The api group spends `import 191.63s` against `tests 45.01s`, and
+   `hookTimeout` is wall-clock, so a starved worker overruns setup without any database involvement.
+   This remains the leading candidate purely because it survives the disproofs above — the original
+   sightings occurred while several agent subprocesses ran concurrently, and the clean 2026-08-23 runs
+   had a quiet machine. It is UNPROVEN: no run has yet captured the failure with CPU pressure recorded.
+
+**Next attempt should capture, at the moment of failure:** per-worker CPU wait, the gate's
+`observe()` degradation counters, and which hook overran. Without those, any fix is a guess.
+
+**Not quarantined deliberately, and nothing deleted.** Quarantine is file-level and the failing file
+moves, so quarantining would evict healthy coverage without touching the cause. Deleting the files was
+considered and rejected: they are 112 tests pinning FN-8823 (shared-branch-group merge boundaries),
+FN-7438, FN-7611, FN-8341, and FN-8442, including an explicit guard against a hand-rolled
+`promoteBranchGroup` mock. No timeout was widened, no retry added, and no assertion relaxed anywhere in
+this investigation.
+
+One genuinely structural failure WAS found and fixed rather than recorded here: the lane runner's own
+self-tests spawned `pnpm --filter @fusion/dashboard test`, re-entering the suite from inside it. See
+`cc19584cc4`.

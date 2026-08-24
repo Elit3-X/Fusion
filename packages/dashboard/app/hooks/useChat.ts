@@ -8,6 +8,7 @@ import {
   fetchChatMessages,
   updateChatSession,
   deleteChatSession,
+  backfillChatSessionToStash,
   attachChatStream,
   streamChatResponse,
   cancelChatResponse,
@@ -17,6 +18,7 @@ import {
   deleteChatTag as apiDeleteChatTag,
   type ChatFailureInfo,
   type ChatSessionListResponse,
+  type ChatStashBackfillResponse,
   type ChatStreamErrorMeta,
 } from "../api";
 import { subscribeSse } from "../sse-bus";
@@ -171,6 +173,12 @@ export interface UseChatReturn {
    */
   setSessionThinkingLevel: (id: string, level: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
+  /**
+   * RUFU-136: "Preserve to Stash" — backfills this chat session's transcript into
+   * the project's Stash memory (POST /api/chat/sessions/:id/backfill-stash).
+   * Client-side idempotent (e2bf0cd52): re-invoking returns the existing capture.
+   */
+  backfillStashSession: (id: string) => Promise<ChatStashBackfillResponse>;
   createTag: (name: string) => Promise<ChatTag>;
   renameTag: (id: string, name: string) => Promise<void>;
   deleteTag: (id: string) => Promise<void>;
@@ -1507,6 +1515,17 @@ export function useChat(
     [activeSession, getChatMessagesCacheKey, projectId],
   );
 
+  /*
+  FNXC:ChatStashBackfill 2026-08-19-16:28:
+  (operator request 2026-08-19) Backfill a chat's full history into Stash on demand.
+  Thin passthrough — the route owns the gating (Stash backend + API key) and the
+  upload; the hook adds nothing beyond the project scoping.
+  */
+  const backfillStashSession = useCallback(
+    (id: string) => backfillChatSessionToStash(id, projectId),
+    [projectId],
+  );
+
   // Load more messages (pagination — use before cursor for oldest displayed message)
   // messagesRef is assigned on every render; reading from the ref here avoids
   // closing over `messages` and prevents this callback from being recreated on
@@ -2493,6 +2512,7 @@ export function useChat(
     setSessionModel,
     setSessionThinkingLevel,
     deleteSession,
+    backfillStashSession,
     createTag,
     renameTag,
     deleteTag,

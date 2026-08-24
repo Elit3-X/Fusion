@@ -27,7 +27,7 @@ import { useRightDockController } from "./components/useRightDockController";
 import { QuickChatFAB } from "./components/QuickChatFAB";
 import { ToastContainer } from "./components/ToastContainer";
 import { useBackgroundSessions } from "./hooks/useBackgroundSessions";
-import { useGitHubStarPromptShown, markGitHubStarPromptShown } from "./hooks/useGitHubStarPrompt";
+import { useGitHubStarPromptState, markGitHubStarPromptShown, refreshGitHubStarPromptDismissal } from "./hooks/useGitHubStarPrompt";
 import { useSessionBannersHidden } from "./hooks/useSessionBannerPref";
 import { mergeTaskSnapshot, useTasks } from "./hooks/useTasks";
 import { useBoardWorkflows } from "./hooks/useBoardWorkflows";
@@ -50,6 +50,7 @@ import { useDeepLink } from "./hooks/useDeepLink";
 import { useFavorites } from "./hooks/useFavorites";
 import { useAuthOnboarding } from "./hooks/useAuthOnboarding";
 import { useMobileKeyboard } from "./hooks/useMobileKeyboard";
+import { useKeyboardFocusPending } from "./hooks/useKeyboardFocusPending";
 import { isIOS, useMobileKeyboardViewportLock, useMobileViewportRestoreReset } from "./hooks/useMobileScrollLock";
 import { computeMobileBarKeyboardFlags } from "./utils/mobileBarKeyboardFlags";
 import { recordActivity } from "./utils/activity-trace";
@@ -196,6 +197,35 @@ function prefetchLazyViews() {
 }
 
 registerBundledPluginViews();
+
+/*
+FNXC:ViewportChrome 2026-08-23-18:14:
+App-level keyboard state follows Fusion's viewport-mode classification rather than useMobileKeyboard's <=768px heuristic. Landscape phones render the nav in mobile mode; this production seam keeps that path executable in tests.
+*/
+export function useMobileBarKeyboardState({
+  isMobile,
+  anyModalOpen,
+  overlayOpen,
+}: {
+  isMobile: boolean;
+  anyModalOpen: boolean;
+  overlayOpen: boolean;
+}) {
+  const { keyboardOpen } = useMobileKeyboard({ enabled: isMobile, allowNonMobileViewport: isMobile });
+  const keyboardFocusPending = useKeyboardFocusPending(isMobile) || false;
+  return {
+    keyboardOpen,
+    keyboardFocusPending,
+    ...computeMobileBarKeyboardFlags({
+      isMobile,
+      keyboardOpen,
+      keyboardFocusPending,
+      anyModalOpen,
+      overlayOpen,
+      isIOS: isIOS(),
+    }),
+  };
+}
 
 export function shouldOpenBoardTaskInDock(openTasksInRightSidebar: boolean, rightDockActive: boolean, initialTab?: DetailTaskTab): boolean {
   return !initialTab && openTasksInRightSidebar && rightDockActive;
@@ -754,7 +784,11 @@ function AppInner() {
     setQuickChatOpen(true);
   }, []);
 
-  const { keyboardOpen } = useMobileKeyboard({ enabled: isMobile });
+  const { footerHidden, navKeyboardOpen, footerKeyboardOpen } = useMobileBarKeyboardState({
+    isMobile,
+    anyModalOpen: modalManager.anyModalOpen,
+    overlayOpen: isMobile && quickChatOpen,
+  });
   // Keyboard visibility controls both MobileNavBar rendering and whether
   // the project content reserves bottom padding for the mobile nav bar.
   // When a modal is open, modal-local inputs can trigger the keyboard without
@@ -772,13 +806,6 @@ function AppInner() {
   // `footerKeyboardOpen` (the footer `bottom: 0` collapse class) stays
   // iOS-only: it only matters when the footer is still rendered (e.g. over
   // a modal), where Android's resizes-content already stacks it correctly.
-  const { footerHidden, navKeyboardOpen, footerKeyboardOpen } = computeMobileBarKeyboardFlags({
-    isMobile,
-    keyboardOpen,
-    anyModalOpen: modalManager.anyModalOpen,
-    overlayOpen: isMobile && quickChatOpen,
-    isIOS: isIOS(),
-  });
   const mobileKeyboardOpen = footerHidden;
   const mobileNavKeyboardOpen = navKeyboardOpen;
   // App-level scroll lock for inline editing (TaskCard inline edit, etc.):
@@ -795,12 +822,32 @@ function AppInner() {
   const { chatHasUnreadResponse } = useChatUnreadBadge(currentProject?.id, { taskView, quickChatOpen });
   const { stashOrphanCount } = useStashOrphanCount(currentProject?.id);
   const [showGitHubStarPrompt, setShowGitHubStarPrompt] = useState(false);
-  const gitHubStarPromptShown = useGitHubStarPromptShown();
-  const handleStarPrompt = useCallback(() => setShowGitHubStarPrompt(true), []);
+  /*
+  FNXC:GithubStarAsk 2026-08-23-23:35:
+  The banner gate hides the ask while the durable answer is unknown, but the done-transition TRIGGER
+  below reads the durable answer alone. That transition is one-shot: gating it on the unknown state
+  would drop it for good, so a fresh browser profile would never show the ask even when nobody had
+  dismissed it.
+  */
+  const { dismissed: gitHubStarPromptDismissed, resolved: gitHubStarPromptResolved } = useGitHubStarPromptState();
+  const gitHubStarPromptShown = gitHubStarPromptDismissed || !gitHubStarPromptResolved;
+  /*
+  FNXC:GithubStarAsk 2026-08-23-23:43:
+  Every trigger that would SHOW the ask re-reads the durable answer first — both of them route through
+  here: a task first reaching done, and onboarding completing. The mount-time lookup can be stale by
+  then (first-run setup routinely has this tab open while the operator answers `fn onboard` in a
+  terminal), and showing an ask the operator already dismissed elsewhere is the exact duplicate the
+  shared record exists to prevent.
+  */
+  const handleStarPrompt = useCallback(() => {
+    void refreshGitHubStarPromptDismissal().then((alreadyAnswered) => {
+      if (!alreadyAnswered) setShowGitHubStarPrompt(true);
+    });
+  }, []);
   const { candidate: approvalBannerCandidate, dismissApproval } = useApprovalBanner({
     tasks,
     currentProjectId: currentProject?.id,
-    gitHubStarPromptShown,
+    gitHubStarPromptShown: gitHubStarPromptDismissed,
     onStarPrompt: handleStarPrompt,
   });
 
@@ -1086,6 +1133,8 @@ function AppInner() {
     closeSetupWizard: modalManager.closeSetupWizard,
     closeModelOnboarding: modalManager.closeModelOnboarding,
     closeProjectScopedModals: closeProjectScopedUi,
+    // FNXC:GithubStarAsk 2026-08-19-03:59: finishing onboarding is the first moment we ask for a GitHub star.
+    onOnboardingCompleted: handleStarPrompt,
   });
 
   const { handleDetailClose } = useDeepLink({

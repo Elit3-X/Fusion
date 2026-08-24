@@ -1,5 +1,139 @@
 # @runfusion/fusion
 
+## 0.77.0-beta.8
+
+### Minor Changes
+
+- 3af5441: summary: Add the Iceberg color theme (navy-slate dark, pale blue-gray light).
+  category: feature
+- 0fc2c23: summary: Switch Direct chats from the thread title without returning to the conversation list.
+  category: feature
+  dev: Adds the ChatThreadTitleSwitcher component and stable menu test IDs.
+- eaa1d47: summary: Add a resizable docked conversation sidebar to full Chat.
+  category: feature
+  dev: Persists fusion:chat-docked-sidebar-width and fusion:chat-docked-sidebar-open.
+
+### Patch Changes
+
+- 323d55a: summary: Chat sidebar shows a compact Archived toggle on the tag filter line.
+  category: fix
+  dev: ChatView sidebar filter row (.chat-sidebar-filter-row); .chat-archived-toggle restyled, testid unchanged.
+- bd93723: summary: Give the chat sidebar tag filter proper inner padding so "All tags" is not cramped.
+  category: fix
+  dev: Updates `.chat-tag-filter select` padding in ChatView.css to `var(--space-sm) var(--space-md)`; pinned by a stylesheet-source regression test.
+- 46b329f: summary: Chat's back button now shows a real back arrow icon instead of a text character.
+  category: fix
+- 3f448f7: summary: Mailbox task links now show the real task ID instead of a raw placeholder.
+  category: fix
+  dev: Aligns MailboxRelatedWorkLink with the mailbox.viewTask and mailbox.viewTaskAria {{id}} variable contract.
+- 52d124b: summary: Keep the Chat message box visible above the software keyboard on tablets and landscape phones.
+  category: fix
+  dev: Aligns keyboard tracking hosts, promotes the thread clamp, and measures thread viewport offset.
+- 3857e0d: summary: Make the chat conversation switcher dropdown visible on narrow chat surfaces.
+  category: fix
+  dev: Anchors the narrow-host menu to the thread header and adds the --space-3xs focus-ring token.
+- 3d37cfa: summary: Stop the mobile navigation bar from rising with the on-screen keyboard.
+  category: fix
+  dev: Clamp computeIcbOffsets, add computeMobileBarKeyboardFlags focus state, useKeyboardFocusPending, and useMobileBarKeyboardState.
+- 455bdbc: summary: Restore title-based duplicate redirects and keep planning-stall diagnostics after a failed audit write.
+  category: fix
+  dev: Re-applies FN-8840's title-aware path in `triage.ts` (reverted by accident in 1cf86baa1c) and adds an engine `emitBoundedRunAuditWithOutcome` seam plus `RunAuditor.databaseWithOutcome` so the FN-8600 throttle marker is only set on a proven write.
+- a879ead: summary: A task whose branch already merged can no longer get stuck as failed with unfinished steps.
+  category: fix
+  dev: `getMergeConfirmedFinalizationBlocker` (core) exempts incomplete `steps` at all four merge-confirmed finalization sites once landing is proven, while a no-op merge that landed no content still blocks. Unfinished steps are logged as `MergeConfirmedFinalizeUnfinishedSteps` rather than dropped.
+- 038f802: summary: Auto-merge no longer merges a task before its workflow's code review has finished.
+  category: fix
+  dev: Every merge door — the in-review sweep, the 300ms column-entry handoff, the unpause re-enqueue, and the pre-dispatch check — is demoted from merge initiator to recovery servicer. `classifyMergeSweepAdmission` (core) admits a card only when it is merge-confirmed, parked at a merge-region node, recovering an interrupted attempt, or long-quiescent; a foreign live session always defers, and every initiation is fenced on satisfied pre-merge gates. Sweep reads are batched (`listWorkflowWorkItemsForTasks`, `getMergeRequestRecordsAsync`) so admission costs O(1) queries per poll rather than O(cards). Workspace and shared-branch-group cards resolve through the same rules — `branch-group-*` nodes are merge-region, and an in-flight sub-repo land reads as live.
+
+## 0.77.0-beta.7
+
+### Minor Changes
+
+- 41c23ad: summary: Add OrcaRouter as a named model provider with startup catalog sync.
+  category: feature
+  dev: Syncs the OrcaRouter `/v1/models` catalog at startup (gated by `orcarouterModelSync`), registers an `openai-completions` provider at `https://api.orcarouter.ai/v1` resolving its key from `ORCAROUTER_API_KEY`, and surfaces OrcaRouter across the auth catalog, onboarding quick-start, provider icons, and settings.
+- 294e826: summary: Add contextual Find controls to Chat conversations.
+  category: feature
+  dev: Chat owns Ctrl/Cmd+F only in its active list or transcript surface.
+- c47d555: summary: Open multiple conversations in independent Quick Chat windows.
+  category: feature
+  dev: Adds project-scoped, in-memory Direct-chat pop-outs with local session preferences.
+- 0b4dbd2: summary: Executing agents no longer create tasks; out-of-scope findings become completion recommendations.
+  category: breaking
+  dev: Withholds fn_task_create/fn_delegate_task by task-execution lane, marks sessions with taskExecutionSession, refuses extension calls with task-execution-cannot-create-tasks, and rejects SELF_SPAWNED_DEPENDENCY edges.
+- a786c45: summary: Keep automated review revisions converging with preserved review history.
+  category: feature
+  dev: Adds review convergence state, dispute annotations, and fenced arbitration release support.
+- e67403c: summary: Make titled AI thinking traces independently expandable across dashboard transcripts.
+  category: feature
+  dev: Adds shared ThinkingTrace rendering and lossless capture regression coverage.
+- bfaa0f4: summary: Make workspace tasks use one scoped directory with safer merge and sandbox gates.
+  category: fix
+  dev: Replaces coordinatorWorktreePath and remediationRepository cwd routing with task-directory boundaries; adds kinded boundary declarations, sandbox delegation for bash/streaming/configured commands, merge-door requiredPreMergeStepIds with resultless bypass parity, and a legacy-layout compatibility fork.
+- 74dacd0: summary: Let managed deployments suppress in-app updates and explain missing npm.
+  category: feature
+  dev: Adds FUSION_UPDATES_EXTERNALLY_MANAGED and unsupported npm-install classification.
+
+### Patch Changes
+
+- 47dd536: summary: Expose `session.subscribe` on ACP runtime sessions so engine workflow steps work with ACP agents.
+  category: fix
+  dev: The engine's AgentSession contract (pi-coding-agent) exposes `subscribe(handler)`, and two production call sites call it unconditionally: `execute-workflow-step.ts` (Plan/Code Review steps) and `pi.ts` fallback wiring (`wireFallbackHooks`, `promptableSession.subscribe`). `reviewer.ts` guards with `typeof session.subscribe === "function"`, but the other paths do not. ACP sessions (Hermes/Prime/Grok via the generic ACP runtime) streamed through the bridging client handler onto `callbacks` instead, so any workflow step executed by an ACP agent crashed before producing a verdict with `session.subscribe is not a function`. The adapter now wraps the raw callbacks so every forwarded text/thinking/tool event is also replayed to subscribers as the pi-shaped event (`message_update` + `assistantMessageEvent.{text_delta,thinking_delta}`, `tool_execution_start/end`) consumers parse, exposes `session.subscribe(handler)` returning an unsubscribe function, and merges engine `taskEnv` into the subprocess env behind the existing allow-list trust boundary. Original callback delivery is unchanged; subscriber failures are isolated. Regression tests cover event replay, unsubscribe semantics, and dual delivery (callbacks + subscribers) against the real echo-agent fixture.
+- 5ec47e5: summary: Keep the bundled dependency-graph plugin aligned with the dashboard TaskCard and scoped-storage APIs.
+  category: fix
+  dev: Remove the retired disableDrag prop and mirror the current optional capped-write argument and boolean result.
+- 5ec47e5: summary: Respect renamed review and terminal workflow columns when refusing late workspace repository acquisition.
+  category: fix
+  dev: Resolve review, complete, and archived membership from the task's selected workflow while retaining legacy fail-safe ids.
+- eab7635: summary: Pan desktop and tablet Boards from noninteractive task card bodies.
+  category: fix
+  dev: Keeps task relocation in the contextual Move to menu.
+- 2430ce6: summary: Fix workspace auto-merge for work in linked task worktrees.
+  category: fix
+  dev: Capture merge evidence from each acquisition baseline to its persisted task branch.
+- 35f0247: summary: Restore task-detail opening when clicking Board task cards.
+  category: fix
+  dev: Defers Board pointer capture until horizontal pan intent is established.
+- 10c399d: summary: Automatically re-review stale workspace changes before landing.
+  category: fix
+  dev: Workspace review and landing share one branch-diff evidence contract.
+- 8b68177: summary: Let remote-free workspace repositories land locally without requiring origin.
+  category: fix
+  dev: Workspace landing now plans local or remote protections per repository.
+- 33f4797: summary: Keep renamed-board task moves on their actual workflow lanes.
+  category: fix
+  dev: Removes the executor sync-lane fallback and hardens its static ratchet at zero.
+- d42a60e: summary: Restore reliable plan-save confirmations so planning no longer loops.
+  category: fix
+  dev: createTaskPromptWriteTool now verifies PROMPT.md through a post-write getTask read-back.
+- c1818ea: summary: Make task reset safely fence active planning sessions.
+  category: fix
+  dev: Reset adds planner reset disposers, releases held symbol locks, and clears discarded-run projections while retaining operator input.
+- 7d54e86: summary: Stop AI merge from blocking on its own review protocol markers.
+  category: fix
+  dev: Adds a protocol marker registry, aggregates reviewer prose, and converges unreconfirmed approvals.
+- 9d8c14b: summary: Show provider-reported session context in Direct chat headers.
+  category: fix
+  dev: Persists counts-only metadata.contextUsage from pi getContextUsage() or SessionStats.contextUsage.
+- a010dc4: summary: Keep task concurrency settings and enforced capacity aligned.
+  category: fix
+  dev: Resolve configured and effective concurrency through the shared project-settings resolver.
+- 1a3230f: summary: Bound self-healing retries for failed no-progress tasks.
+  category: fix
+  dev: Uses persisted retry budget and exponential backoff before terminal operator parking.
+- 96ad20c: summary: Stop retrying impossible auto-archives forever and surface abandoned archives on the task.
+  category: fix
+  dev: archiveStaleDoneTasks pre-filters live lineage parents and uses MAX_STARVATION_DROPS with task:auto-archive-failure-budget-exhausted.
+- 794dae3: summary: Fix a startup crash where Fusion rejected the database it had just migrated.
+  category: fix
+  dev: FN-149 shipped migration `0065_fn_149_review_convergence_stage.sql` without advancing `SCHEMA_BASELINE_VERSION` (still `"0064"`), so the first store open applied and recorded 0065 and the next open threw `StaleBinarySchemaError` from `assertBinaryNotOlderThanDatabase` ("this binary only knows up to 0064"), exiting 1 on fresh and upgraded databases alike. Bumps the ceiling to `"0065"` (marker only — applies no SQL, touches no data) and moves the DB-free migration-wiring assertions to `packages/core/src/__tests__/migration-wiring-integrity.test.ts`, now wired into `test:unit-gate` so a migration landing without a ceiling bump fails the merge gate.
+- b47fb70: summary: A task no longer fails permanently when auto-merge runs before its Code Review gate.
+  category: fix
+  dev: Merge doors throw the typed `PreMergeStepsNotRunError` for the unrun-enabled-gate blocker; the auto-merge error path treats it as a deferral (no `status:"failed"` park, no retry burn), and `enqueueEligibleInReviewTasks` holds in-review cards out of the merge queue until every enabled pre-merge group has a result (`findUnrunRequiredPreMergeStepIds`).
+- 3edb843: summary: Fix Tailscale remote access failing with "process exited 1" in the Docker image.
+  category: fix
+  dev: The image shipped the `tailscale` CLI but never ran `tailscaled`, so the `tailscale funnel <port>` spawn died immediately. A new `scripts/docker-entrypoint.sh` starts the daemon in userspace-networking mode (no NET_ADMIN/tun caps needed) when opted in with a leading `--tailscale` argument or `FUSION_TAILSCALE=1`; the flag is stripped before the CLI runs. `/var/lib/tailscale` symlinks into `/home/node/.tailscale` so login state persists across container recreates. `evaluateRemoteLifecycle` now preflights daemon reachability and backend state via `tailscale status --json` instead of only `which tailscale`, so an unreachable, logged-out, or stopped backend reports an actionable `runtime_prerequisite_missing` reason.
+
 ## 0.77.0-beta.6
 
 ### Patch Changes

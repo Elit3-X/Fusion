@@ -355,6 +355,21 @@ export type { ResolvedPreMergeGate } from "./merge/required-pre-merge-steps.js";
 export { resolveStepReopenPolicy } from "./workflows/workflow-step-reopen-policy.js";
 export type { StepReopenPolicy } from "./workflows/workflow-step-reopen-policy.js";
 export {
+  classifyMergeSweepAdmission,
+  DEFAULT_MERGE_SWEEP_QUIESCENCE_MS,
+} from "./merge/merge-sweep-admission.js";
+export type {
+  MergeRegionPosition,
+  MergeSweepAdmission,
+  MergeSweepAdmissionInput,
+  MergeSweepAdmissionReason,
+} from "./merge/merge-sweep-admission.js";
+export {
+  classifyWorkflowNodeMergeRegion,
+  isMergeRegionNode,
+  MERGE_REGION_ENTRY_NODE_KINDS,
+} from "./workflows/workflow-merge-region.js";
+export {
   applyPromptOverridesToIr,
   enumeratePromptBearingWorkflowNodes,
   isPromptBearingWorkflowNode,
@@ -1279,7 +1294,12 @@ export { getPrimaryPrInfo, taskHasManualOpenPullRequest } from "./tasks/task-hel
 export {
   collectLandedMemberReviewAdvisories,
   getTaskMergeBlocker,
+  isPreMergeStepsNotRunBlocker,
+  PreMergeStepsNotRunError,
+  PRE_MERGE_STEPS_NOT_RUN_BLOCKER,
   getTaskHardMergeBlocker,
+  getMergeConfirmedFinalizationBlocker,
+  getUnfinishedStepTitles,
   REVIEW_ELIGIBLE_SENTINEL_COLUMN,
   MERGE_CONFIRMED_TRANSIENT_STATUSES,
   clearMergeConfirmedTransientStatus,
@@ -2171,6 +2191,7 @@ export {
   readProjectMemoryWithBackend,
   searchProjectMemory,
   getProjectMemory,
+  buildProactiveMemoryCueBlock,
   resolveMemoryInstructionContext,
   type MemoryInstructionContext,
 } from "./memory/project-memory.js";
@@ -2223,14 +2244,70 @@ export {
   readMemory,
   writeMemory,
   memoryExists,
+  captureMemory,
   MEMORY_BACKEND_SETTINGS_KEYS,
   DEFAULT_MEMORY_BACKEND,
   isQmdAvailable,
 } from "./memory/memory-backend.js";
 
-export { MemoryBackendError } from "./memory/memory-backend.js";
+export {
+  MemoryBackendError,
+  type MemoryBackendErrorCode,
+} from "./memory/memory-backend-error.js";
 
-export type { MemoryBackendCapabilities, MemoryFileInfo, MemoryGetOptions, MemoryGetResult, MemorySearchOptions, MemorySearchResult } from "./memory/memory-backend.js";
+// FNXC:StashBackend 2026-08-13-16:35: (RUFU-068) expose the Stash backend.
+export {
+  StashMemoryBackend,
+  DEFAULT_STASH_URL,
+  // FNXC:RUFU122ChunkedUpload 2026-08-19-04:30: verified per-POST event cap; the engine
+  // transcript builder and the sink share this bound.
+  STASH_EVENT_BATCH_CHUNK_SIZE,
+  // FNXC:RUFU121CoreExports 2026-08-18-19:53: RUFU-121 recall + delete-sync helpers.
+  normalizeStashSearchQuery,
+  queryStashEvents,
+  deleteStashChatSession,
+  // FNXC:RUFU125CoreExports 2026-08-19-06:07: RUFU-125 bulk archival delete-sync helpers.
+  DEFAULT_STASH_BULK_MAX_PAGES,
+  deleteStashChatSessions,
+  bulkDeleteStashChatSessions,
+} from "./memory/memory-backend-stash.js";
+export type {
+  StashEvent,
+  StashHttpMethod,
+  StashHttpClient,
+  StashEventQueryFilters,
+  StashChatSessionDeleteResult,
+  // FNXC:RUFU125CoreExports 2026-08-19-06:07: RUFU-125 bulk delete-sync types.
+  StashBulkChatSessionDeleteResult,
+  StashBulkChatSessionSyncSummary,
+  StashBulkDeleteStore,
+} from "./memory/memory-backend-stash.js";
+
+// FNXC:RUFU121StashSettingsInCore 2026-08-18-19:53: (RUFU-121) Stash settings/secret
+// resolution moved from @fusion/engine into core (dashboard delete-sync consumer).
+export {
+  STASH_SECRET_KEY,
+  STASH_SECRET_SCOPE,
+  resolveStashMemorySettings,
+} from "./memory/stash-settings.js";
+export type {
+  MemoryBackendSettings,
+  StashSecretsReader,
+} from "./memory/stash-settings.js";
+
+export type {
+  MemoryBackendCapabilities,
+  MemoryFileInfo,
+  MemoryGetOptions,
+  MemoryGetResult,
+  MemorySearchOptions,
+  MemorySearchResult,
+  MemoryCaptureEvent,
+  MemoryCaptureResult,
+  MemoryCaptureEventType,
+  // FNXC:RUFU121CoreExports 2026-08-18-19:53: RUFU-121 write() identity meta.
+  MemoryWriteIdentity,
+} from "./memory/memory-backend.js";
 
 export {
   agentDailyMemoryPath,

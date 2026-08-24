@@ -240,6 +240,13 @@ Lint, tests, and typecheck are also hard quality gates:
 - Keep fixing failures caused by your change until lint, impacted tests, build, and typecheck pass.
 - If the repository exposes a typecheck command, run it and fix failures caused by your change.
 - When tests fail, classify whether the failure is caused by your change, a pre-existing defect, an unrelated flaky test, or an outdated test expectation.
+
+**A behavior change owns every test that asserts the old behavior.** Targeted verification runs the tests for files you TOUCHED; the tests encoding the behavior you just changed usually live in files you did NOT touch, so a green targeted run is not evidence that none exist. Before finishing, search for them:
+- Added a guard, validation, or required field? Grep for the FIXTURES it will now refuse — they are outside your File Scope — and fix each to state its intent explicitly.
+- Removed a feature? Delete its tests. A test asserting a deliberately removed contract guards nothing, and making it pass later means re-adding removed behavior.
+- Changed an order, default, constant, or prompt string? Grep for the literal; topology lists, prompt-content assertions, and size budgets live far from the code they describe.
+- Added a public store/service method? Update the inventory/drift guards that require every public surface to be classified.
+Fix at the SHARED FIXTURE FACTORY, not per test — one helper usually explains dozens of failures. Never make a stale test pass by weakening it: update the fixture, record the new truth, or delete the test naming the change that removed its subject.
 - If broad workspace verification fails on unrelated or pre-existing failures after impacted checks pass, do NOT expand this task by fixing unrelated areas. Log the evidence, quarantine flakes per project policy, or create/link a follow-up task.
 - Do not repeatedly rerun a broad failing or hanging workspace command without a new hypothesis and a narrower confirming command.
 
@@ -528,6 +535,7 @@ files with assertions that run via a test runner. Typechecks and builds are NOT
 tests. Manual verification is NOT a test.
 
 - Each implementation step should include writing tests for the code being changed
+- **If the task CHANGES, GATES, or REMOVES existing behavior, include a step to find and update the tests that assert the OLD behavior.** Name the search in that step: the fixtures a new guard will now refuse, the tests of a removed feature, or the literal to grep for a changed order/default/constant/prompt string. Those tests live OUTSIDE the File Scope, so targeted verification will not surface them and the executor will not find them by accident. Measured 2026-08-24: five such changes left ~135 stale failing tests behind, every one having passed its own targeted verification; one shared fixture line accounted for 37 of them.
 - For bug fixes and UI-affordance add/remove tasks, the spec MUST include a \`## Surface Enumeration\` section. The workflow Plan Review gate validates this before execution when plan review is enabled; missing coverage is a blocking REVISE.
 - For bug fixes and UI-affordance add/remove tasks, populate \`## Surface Enumeration\` with this checklist from \`docs/testing.md\`: providers/bridges/execution paths; desktop + mobile breakpoints/platforms; empty/undefined/duplicate/populated data states; shared hooks/components/modules/helpers; every component that renders the affordance; leftover shells after removal.
 - For bug fixes and UI-affordance add/remove tasks, regression tests must assert the invariant across all known surfaces — enumerate every provider/bridge, desktop + mobile breakpoints, empty/undefined/populated data states, and for UI-affordance changes every component rendering the affordance plus leftover shells after removal — not just the reported repro (see FN-5787/FN-5789/FN-5803, FN-5751, and FN-6115/FN-6118/FN-6123)
@@ -1373,6 +1381,34 @@ export const BUILTIN_AGENT_PROMPTS: readonly AgentPromptTemplate[] = [
  */
 export interface ResolveAgentPromptOptions {
   plannerHeartbeatPatrolEnabled?: boolean;
+  taskCreateToolAvailable?: boolean;
+  delegateTaskToolAvailable?: boolean;
+}
+
+const EXECUTOR_WORKFLOW_SELECTION_GUARDRAIL = "- Do not call `fn_workflow_select` to change the workflow of the task you are executing; you did not create that task, the user or triage did. The only exception is when the user explicitly requested a specific workflow for this task in a steering comment, task instruction, or similar direct instruction.";
+
+/*
+FNXC:WorkflowRouting 2026-08-23-18:49:
+Workflow assignment guidance must match the executor's real tool surface. Built-in creator-capable
+personas may set workflows on tasks they create, while task-execution sessions omit this permission
+because they structurally withhold both creation tools. Render the clause at resolution time so the
+default and senior-engineer variants cannot drift from session capabilities.
+*/
+function renderExecutorWorkflowRoutingToolSurface(
+  prompt: string,
+  options: ResolveAgentPromptOptions,
+): string {
+  const availableCreationTools = [
+    ...(options.taskCreateToolAvailable !== false ? ["`fn_task_create`"] : []),
+    ...(options.delegateTaskToolAvailable !== false ? ["`fn_delegate_task`"] : []),
+  ];
+  if (availableCreationTools.length === 0) return prompt;
+
+  const toolList = availableCreationTools.join(" or ");
+  return prompt.replace(
+    EXECUTOR_WORKFLOW_SELECTION_GUARDRAIL,
+    `${EXECUTOR_WORKFLOW_SELECTION_GUARDRAIL}\n- You may still set the workflow on tasks you create via ${toolList}.`,
+  );
 }
 
 export function resolveAgentPrompt(
@@ -1402,6 +1438,9 @@ export function resolveAgentPrompt(
     if (role === PLANNER_AGENT_ROLE && template.builtIn && template.id === "concise-triage") {
       return `${CONCISE_TRIAGE_PROMPT_TEXT}\n\n${buildConciseTriageHeartbeatGuidance(options)}`;
     }
+    if (role === "executor" && template.builtIn) {
+      return renderExecutorWorkflowRoutingToolSurface(template.prompt, options);
+    }
     return template.prompt;
   }
 
@@ -1409,6 +1448,9 @@ export function resolveAgentPrompt(
   const builtIn = BUILTIN_AGENT_PROMPTS.find((t) => t.role === role && t.id === `default-${role}`);
   if (role === PLANNER_AGENT_ROLE && builtIn?.id === "default-triage") {
     return `${TRIAGE_PROMPT_TEXT}\n\n${buildTriageHeartbeatGuidance(options)}`;
+  }
+  if (role === "executor" && builtIn) {
+    return renderExecutorWorkflowRoutingToolSurface(builtIn.prompt, options);
   }
   return builtIn?.prompt ?? "";
 }

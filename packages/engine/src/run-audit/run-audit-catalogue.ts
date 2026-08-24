@@ -53,6 +53,12 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENTS_LITERALS = [
   "task:auto-recover-paused-abort-park",
   "task:auto-rebound-paused-scope-decay",
   "task:auto-archive-failure-budget-exhausted",
+  /*
+  FNXC:RunAudit 2026-08-23-18:58:
+  FN-9186's bounded zero-progress requeue pair. docs/run-audit.md carried both rows while the catalogue
+  did not, and the lock-step guard is the only thing that reports that direction of drift.
+  */
+
   "task:no-progress-no-task-done-requeue",
   "task:no-progress-no-task-done-requeue-exhausted",
   "task:reclaim-phantom-executor-binding",
@@ -134,9 +140,10 @@ export const DELIVERY_PIPELINE_RUN_AUDIT_EVENT_NOTES: Readonly<Record<DeliveryPi
   "task:auto-archive-failure-budget-exhausted":
     "Self-healing abandons a repeatedly failing stale-task archive and surfaces it for operator action.",
   "task:no-progress-no-task-done-requeue":
-    "A bounded no-progress recovery requeue records its retry and backoff outcome.",
+    "A zero-progress no-task-done failure consumes one bounded self-healing retry and records its backoff.",
   "task:no-progress-no-task-done-requeue-exhausted":
-    "The no-progress recovery budget is exhausted and records its terminal outcome once.",
+    "The bounded no-progress requeue budget parks a task once, without gating the park on the emission.",
+
   "task:reclaim-phantom-executor-binding":
     "Self-healing proves an in-memory executor-active binding is stale and requeues the task.",
   "task:reconcile-orphaned-pending-step-results":
