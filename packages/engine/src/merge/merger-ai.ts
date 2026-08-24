@@ -77,7 +77,7 @@ import { resolveTaskWorkingBranch } from "../worktree/worktree-names.js";
 import { resolveIntegrationBranch } from "./integration-branch.js";
 import { captureMergeContentDescriptor } from "./merge-content-capture.js";
 import { probeReviewDiffFingerprint } from "../worktree/review-diff-fingerprint.js";
-import { shouldClearOrphanedMergeStamp } from "./merge-active-status.js";
+import { isMergeActiveStatus, shouldClearOrphanedMergeStamp } from "./merge-active-status.js";
 
 import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "../worktree/workspace-base-branch.js";
 import { captureWorkspaceReviewEvidence } from "../worktree/workspace-review-evidence.js";
@@ -972,7 +972,18 @@ async function assertMergeGateStillOpen(
     mergeContent = await captureMergeContentDescriptor(task, { workspaceRootDir: projectRootDir, settings: ctx.settings });
   }
 
-  const blocker = getTaskMergeBlocker(task, {
+  /*
+  FNXC:MergeGateRecheck 2026-08-24-04:35:
+  FN-184: this fence re-reads the task from the store, so by construction it observes the
+  `status:"merging"` stamp `runAiMerge` wrote for THIS merge. `merging`/`merging-pr` are in
+  HARD_BLOCKING_TASK_STATUSES, so without neutralization the fence revokes the very merge it is
+  guarding and no ref ever advances. This is the same defect as the ProjectEngine in-flight watcher
+  and must stay fixed in both places: the watcher abort alone still left the merge dying here.
+  Only the owned task's own execution bookkeeping is cleared — a real REVISE, a review-lane exit,
+  `paused`, `queued`, or any other blocking status still revokes.
+  */
+  const gateView: Task = isMergeActiveStatus(task.status) ? { ...task, status: undefined } : task;
+  const blocker = getTaskMergeBlocker(gateView, {
     reviewColumns: gate.reviewColumns.size ? gate.reviewColumns : new Set(["in-review"]),
     requiredPreMergeStepIds: gate.requiredPreMergeStepIds,
     mergeContent,

@@ -68,6 +68,7 @@ import {
 import { assemblePlannerOverseerRuntimeSnapshot } from "./overseer/planner-overseer-runtime-snapshot.js";
 import { activeSessionRegistry, executingTaskLock } from "./agents/active-session-registry.js";
 import { isTaskExecutionLive } from "./merge/merge-execution-exclusion.js";
+import { isMergeActiveStatus } from "./merge/merge-active-status.js";
 import { captureMergeContentDescriptor } from "./merge/merge-content-capture.js";
 import { resolveIntegrationBranch } from "./merge/integration-branch.js";
 import { execFile } from "node:child_process";
@@ -6327,7 +6328,27 @@ export class ProjectEngine {
         return;
       }
 
-      if (this.activeMergeTaskId === task.id && this.options.getTaskMergeBlocker?.(task)) {
+      /*
+      FNXC:MergeInFlightRevoke 2026-08-24-04:35:
+      FN-184: read the blocker against a VERDICT view, not the raw row. `runAiMerge` stamps
+      `status:"merging"` on the task it is merging (merger.ts), that write emits `task:updated`,
+      and `merging`/`merging-pr` are members of HARD_BLOCKING_TASK_STATUSES — so the unoptioned
+      `getTaskMergeBlocker` the CLI entry points wire (daemon/dashboard/serve) reported the merge's
+      OWN execution bookkeeping as a blocking verdict. The merge aborted itself within the same
+      second, the drain catch cleared the stamp, and the periodic sweep re-admitted the task every
+      `pollIntervalMs` forever. The abort branch deliberately spends no `mergeRetries` (a lost gate
+      is a deferral, not a failure), which removed the only bound on that loop: nothing merged, on
+      any project, and the card was never parked.
+      This engine OWNS the merge it is asking about, so a merge-active stamp on that task is by
+      definition its own writing and can never be a reviewer verdict. Neutralize only that field,
+      only for the owned task. Genuine verdicts still abort: failed/pending pre-merge step results,
+      `paused`, and non-merge blocking statuses (`needs-replan`, `queued`, ...) all survive the view
+      untouched, and a merge-active stamp on a DIFFERENT task is never reached by this branch.
+      Do NOT widen this to MERGE_CONFIRMED_TRANSIENT_STATUSES: that set also clears `queued`, a
+      scheduler status this handler must keep honoring.
+      */
+      const mergeVerdictView: Task = isMergeActiveStatus(task.status) ? { ...task, status: undefined } : task;
+      if (this.activeMergeTaskId === task.id && this.options.getTaskMergeBlocker?.(mergeVerdictView)) {
         /*
         FNXC:MergeInFlightRevoke 2026-08-23-07:24:
         A persisted blocking review result closes a merge already in flight. The
