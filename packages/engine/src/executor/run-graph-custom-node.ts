@@ -37,6 +37,7 @@ import { parseAwaitInputSentinel } from "./await-input-parse.js";
 import { buildAgentPersona } from "./agent-binding-pure.js";
 import { reviewWorkspacePerRepo } from "./workspace-review-per-repo.js";
 import type { ReviewResult } from "../execution/reviewer.js";
+import type { SessionBoundaryDescriptor } from "../agents/agent-runtime.js";
 import { runDeterministicVerificationGate } from "../workflow-node-runners/verification-gate.js";
 
 const WORKFLOW_THINKING_LEVEL_SET: ReadonlySet<string> = new Set(THINKING_LEVELS);
@@ -63,6 +64,39 @@ export type RunGraphCustomNodeDeps = {
   runCliAgentNode: AnyFn;
   runRawCliCommand: AnyFn;
 };
+
+/*
+FNXC:WorkspaceBoundary 2026-08-24-06:30:
+Pure so the decision is testable without driving a whole graph run. A write-capable node on a
+workspace task runs from the task DIRECTORY, a container of per-repository worktrees with no `.git`
+of its own; with no declared boundary the session applies the single-repo assertion to that
+container and refuses to start ("Refusing to start coding agent in incomplete worktree"), so the
+gate fails before producing a verdict and the task requeues to todo. `workspace-task-dir` validates
+the per-repository children instead. `undefined` preserves the existing implicit boundary for
+single-repo tasks, for the legacy per-repo layout, and when the scope is unconfirmed (a
+zero-repoRoots descriptor is itself refused, so guessing only trades one refusal for another).
+*/
+export function resolveGraphNodeSessionBoundary(input: {
+  isWorkspace: boolean;
+  writeCapable: boolean;
+  legacyWorkspaceLayout: boolean;
+  rootDir: string;
+  worktreePath: string;
+  confirmedRepositories?: readonly string[];
+}): SessionBoundaryDescriptor | undefined {
+  if (!input.isWorkspace || !input.writeCapable || input.legacyWorkspaceLayout) return undefined;
+  const repoRoots = (input.confirmedRepositories ?? []).map((repoRelPath) => ({
+    repoRelPath,
+    repoRootDir: join(input.rootDir, repoRelPath),
+  }));
+  if (repoRoots.length === 0) return undefined;
+  return {
+    kind: "workspace-task-dir",
+    writableRoot: input.worktreePath,
+    projectRoot: input.rootDir,
+    repoRoots,
+  };
+}
 
 export async function runGraphCustomNode(
   deps: RunGraphCustomNodeDeps,
@@ -280,6 +314,30 @@ export async function runGraphCustomNode(
     const worktreePath = workspaceConfig && !writeCapable
       ? deps.rootDir
       : executionTarget.worktree || legacyWorkspacePath || workspaceTaskDir!;
+    /*
+    FNXC:WorkspaceBoundary 2026-08-24-06:30:
+    A write-capable graph node on a workspace task runs from the TASK DIRECTORY, which is a plain
+    container of per-repository worktrees and carries no `.git` of its own. Without a declared
+    boundary the session falls back to the single-repo assertion, which resolves that container as
+    a worktree and refuses to start: "Refusing to start coding agent in incomplete worktree". The
+    node then fails before producing a verdict and the task requeues to todo — measured on a
+    Documentation & Delivery gate in a multi-repo project.
+    FN-158 gave Code Review this boundary (see reviewBoundary below) but not the generic prompt
+    path, so every OTHER write-capable gate stayed broken on workspace projects. `workspace-task-dir`
+    validates the per-repository CHILDREN instead of the root, which is what makes the session legal.
+    Single-repository tasks keep their existing implicit boundary; a workspace task whose scope is
+    unconfirmed also keeps it, because `workspace-task-dir` with zero repoRoots is itself refused.
+    */
+    const nodeSessionBoundary = resolveGraphNodeSessionBoundary({
+      isWorkspace: Boolean(workspaceConfig),
+      writeCapable,
+      legacyWorkspaceLayout: Boolean(legacyWorkspacePath),
+      rootDir: deps.rootDir,
+      worktreePath,
+      confirmedRepositories: executionTarget.repositoryScope?.state === "confirmed"
+        ? executionTarget.repositoryScope.repositories
+        : undefined,
+    });
     if (isDeterministicVerificationGate) {
       return runDeterministicVerificationGate({ store: deps.store }, node, live, settings, worktreePath);
     }
@@ -631,7 +689,12 @@ export async function runGraphCustomNode(
     } else {
       outcome = mode === "script"
         ? await deps.executeScriptWorkflowStep(live, step, worktreePath, settings, nodeEnv)
-        : await deps.executeWorkflowStep(live, step, worktreePath, settings, nodeEnv, { unattended, principalAgentId, outputLanguage });
+        : await deps.executeWorkflowStep(live, step, worktreePath, settings, nodeEnv, {
+          unattended,
+          principalAgentId,
+          outputLanguage,
+          ...(nodeSessionBoundary ? { sessionBoundary: nodeSessionBoundary } : {}),
+        });
     }
     /*
      * FNXC:WorkflowReviewFindings 2026-08-05-06:29:

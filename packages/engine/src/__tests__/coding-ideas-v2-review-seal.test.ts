@@ -49,8 +49,9 @@ describe("builtin:coding-ideas-v2 review seal", () => {
 
   it("has no write-capable node after Code Review", () => {
     const after = successChainFrom(ir, "code-review");
-    // Guard the guard: an empty chain would make this assertion vacuously true.
-    expect(after.map((node) => node.id)).toContain("completion-summary");
+    // Guard the guard: an empty chain would make this assertion vacuously true. Everything the
+    // review must cover now runs before it, so what remains downstream is the merge machinery.
+    expect(after.map((node) => node.id)).toContain("merge-gate");
 
     const offenders = after.filter(isWriteCapable).map((node) => node.id);
     expect(offenders).toEqual([]);
@@ -68,6 +69,14 @@ describe("builtin:coding-ideas-v2 review seal", () => {
     const chain = successChainFrom(ir, "steps").map((node) => node.id);
     expect(chain.indexOf("verification")).toBeLessThan(chain.indexOf("code-review"));
     expect(chain.indexOf("documentation-delivery")).toBeLessThan(chain.indexOf("code-review"));
+    /*
+    Not seal-driven but merge-driven: `completion-summary` escapes the write-capable classifier
+    (readonly) yet still acquires a worktree, and any node between the review and the merge
+    invalidates FN-180's review-diff fingerprint ("no provable approval for the content being
+    merged"). Nothing may sit between them.
+    */
+    expect(chain.indexOf("completion-summary")).toBeLessThan(chain.indexOf("code-review"));
+    expect(chain[chain.indexOf("code-review") + 1]).toBe("merge-gate");
   });
 
   it("keeps the completion summary readonly so it may run after the seal", () => {

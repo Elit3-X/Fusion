@@ -4,7 +4,8 @@ import { BUILTIN_STEPWISE_FINAL_REVIEW_CODING_WORKFLOW_IR } from "./builtin-step
 import { verificationOptionalGroupNode } from "./builtin-verification-gate-group.js";
 import { documentationDeliveryOptionalGroupNode } from "./builtin-documentation-delivery-group.js";
 import { codeReviewRemediationStepsNode, verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
-import { builtinPromptConfig } from "./builtin-workflow-prompts.js";
+import { builtinPromptConfig, builtinSeamPrompt } from "./builtin-workflow-prompts.js";
+import { applyImplementationOnlyStepReview } from "./builtin-plan-review-group.js";
 
 const clone = (ir: WorkflowIr): WorkflowIr => JSON.parse(JSON.stringify(ir)) as WorkflowIr;
 
@@ -17,11 +18,15 @@ const RAW_BUILTIN_REVIEW_GATED_CODING_WORKFLOW_IR: WorkflowIr = (() => {
   const ir = clone(BUILTIN_STEPWISE_FINAL_REVIEW_CODING_WORKFLOW_IR);
   ir.name = "builtin-review-gated-coding";
 
+  /* FNXC:ReviewGatedPlanning 2026-08-24-06:45: `planning-implementation-only` is a PROMPT key, not
+     an executable seam — `resolveSeamName` throws for it, so the plan node failed on every task.
+     Keep the seam `planning` and swap only the prompt. */
   const plan = ir.nodes.find((node) => node.id === "plan");
-  if (plan) plan.config = builtinPromptConfig("planning-implementation-only", "Plan");
+  if (plan) plan.config = { ...builtinPromptConfig("planning", "Plan"), prompt: builtinSeamPrompt("planning-implementation-only") };
+  /* FNXC:ReviewGatedPlanning 2026-08-24-06:30: the flag alone was inert here too — see
+     applyImplementationOnlyStepReview. */
   const planReview = ir.nodes.find((node) => node.id === "plan-review");
-  const planTemplate = planReview?.config?.template as { nodes?: Array<{ config?: Record<string, unknown> }> } | undefined;
-  if (planTemplate?.nodes?.[0]?.config) planTemplate.nodes[0].config.requireImplementationOnlySteps = true;
+  if (planReview) applyImplementationOnlyStepReview(planReview);
   const parse = ir.nodes.find((node) => node.id === "parse");
   if (parse) parse.config = { ...parse.config, implementationOnlySteps: true, preserveRemediationSteps: true };
 
