@@ -1607,12 +1607,27 @@ export async function runAiMerge(
     return await finalizeTask(store, taskId, noOpResult(task, branch, alreadyMerged ? "already-merged" : "no-branch"), undefined, undefined, projectRootDir, fence);
   }
 
-  // The target branch must exist as a LOCAL ref to merge into it — surface a
-  // clear error rather than a cryptic `fatal: Needed a single revision` if a
-  // task targets a remote-only / mistyped branch.
+  /*
+  FNXC:IntegrationBranchReadiness 2026-08-24-00:49:
+  FN-183 treats an origin remote-tracking integration ref as an unambiguous, lossless
+  recovery at merge time. Never invent a branch from HEAD here: a target that exists
+  nowhere remains a loud failure so Fusion does not create history mid-merge.
+  */
   if (!(await gitOk(["rev-parse", "--verify", `refs/heads/${integrationBranch}`], projectRootDir))) {
-    await audit.git({ type: "merge:ai-no-branch", target: integrationBranch, metadata: { taskId, kind: "integration-branch-missing" } });
-    throw new Error(`AI merge for ${taskId}: target branch "${integrationBranch}" has no local ref (refs/heads/${integrationBranch}). Create or check out the branch locally before merging.`);
+    const remoteTarget = `refs/remotes/origin/${integrationBranch}`;
+    const materialized = (await gitOk(["rev-parse", "--verify", remoteTarget], projectRootDir))
+      && await gitOk(["branch", integrationBranch, remoteTarget], projectRootDir);
+    if (materialized) {
+      await log(`AI merge: materialized integration branch ${integrationBranch} from ${remoteTarget}`);
+      await audit.git({
+        type: "merge:ai-no-branch",
+        target: integrationBranch,
+        metadata: { taskId, kind: "integration-branch-materialized-from-remote" },
+      });
+    } else {
+      await audit.git({ type: "merge:ai-no-branch", target: integrationBranch, metadata: { taskId, kind: "integration-branch-missing" } });
+      throw new Error(`AI merge for ${taskId}: target branch "${integrationBranch}" has no local ref (refs/heads/${integrationBranch}). Create or check out the branch locally before merging.`);
+    }
   }
 
   const maxPasses = Math.max(0, Math.trunc(settings.merger?.maxReviewPasses ?? 3));

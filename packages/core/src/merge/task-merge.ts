@@ -85,7 +85,7 @@ export interface MergeTargetResolverOptions {
  */
 const FUSION_SIBLING_BRANCH_RE = /^fusion\/fn-/i;
 
-function isFusionSiblingBranch(branch: string): boolean {
+export function isFusionSiblingBranch(branch: string): boolean {
   return FUSION_SIBLING_BRANCH_RE.test(branch);
 }
 
