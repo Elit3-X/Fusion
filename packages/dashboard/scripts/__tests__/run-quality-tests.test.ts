@@ -167,6 +167,16 @@ describe("dashboard quality orchestrator", () => {
         env: {
           ...process.env,
           npm_config_ignore_scripts: "true",
+          /*
+          FNXC:QualityRunnerSelfTest 2026-08-23-19:20:
+          These cases spawn the package's OWN `pnpm ... test` command, so the child inherits Corepack.
+          Inside a full lane run the child hit Corepack's interactive prompt
+          ("! Corepack is about to download .../pnpm-10.33.0.tgz"), never launched, and the lane log
+          came back empty — the assertion then read 0 launched projects and failed. It passed when the
+          file was run alone only because that shell had already resolved pnpm. Disable the prompt so
+          the child resolves pnpm non-interactively; this changes nothing about what is asserted.
+          */
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
           FUSION_DASHBOARD_TEST_CONCURRENCY: "1",
           FUSION_DASHBOARD_QUALITY_TEST_MODE: "1",
           FUSION_DASHBOARD_QUALITY_RUNNER: fixtureRunnerPath,
@@ -202,6 +212,16 @@ describe("dashboard quality orchestrator", () => {
         env: {
           ...process.env,
           npm_config_ignore_scripts: "true",
+          /*
+          FNXC:QualityRunnerSelfTest 2026-08-23-19:20:
+          These cases spawn the package's OWN `pnpm ... test` command, so the child inherits Corepack.
+          Inside a full lane run the child hit Corepack's interactive prompt
+          ("! Corepack is about to download .../pnpm-10.33.0.tgz"), never launched, and the lane log
+          came back empty — the assertion then read 0 launched projects and failed. It passed when the
+          file was run alone only because that shell had already resolved pnpm. Disable the prompt so
+          the child resolves pnpm non-interactively; this changes nothing about what is asserted.
+          */
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
           FUSION_DASHBOARD_TEST_CONCURRENCY: "1",
           FUSION_DASHBOARD_QUALITY_TEST_MODE: "1",
           FUSION_DASHBOARD_QUALITY_RUNNER: fixtureRunnerPath,

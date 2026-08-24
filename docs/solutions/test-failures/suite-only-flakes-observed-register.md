@@ -524,3 +524,35 @@ reconciler tests that fail only alongside other suites, which points at shared f
 cross-file state rather than a product defect. No timeout was widened, no retry added, and no
 assertion relaxed. A SECOND sighting is an ordinary on-sight quarantine with no further discretion,
 per the standing rule in AGENTS.md.
+
+---
+
+## Entry: `PlanningModeModal.planning-flow` under dashboard lane sharding (first sighting)
+
+- **File:** `packages/dashboard/app/components/__tests__/PlanningModeModal.planning-flow.test.tsx`
+- **Exact tests:** a DIFFERENT case failed on each of two consecutive full-lane runs —
+  `PlanningModeModal sequential flow > keeps the newer session when delayed duplicate reconciliation returns 'a durable question' on 'mobile'`, then
+  `PlanningModeModal sequential flow > can refine a stopped initial plan into the first question`.
+- **Owner:** unowned — first sighting for this file. Recorded rather than quarantined: the file carries 83 tests and quarantine is file-level.
+- **Observed tree/SHA:** `c82e420ba0`, via the package's real command `pnpm --filter @fusion/dashboard test` (the `run-quality-tests.mjs` lane runner), lane `app:backfill-3` (`--project dashboard-app-quality-backfill --shard=3/4`), concurrency 2, 6144MiB heap per lane.
+- **Observed frequency:** twice in two full-lane runs, each time a different case; passes 83/83 in isolation every time.
+
+Verbatim observed failure (second run):
+
+```
+FAIL  |dashboard-app-quality-backfill| app/components/__tests__/PlanningModeModal.planning-flow.test.tsx > PlanningModeModal sequential flow > can refine a stopped initial plan into the first question
+TestingLibraryElementError: Unable to find an element by: [data-testid="planning-plan-review"]
+```
+
+| run | result |
+|---|---|
+| lane runner, default (fail-fast), `c82e420ba0` | **failed** on the delayed-duplicate-reconciliation case |
+| lane runner, `--all --no-fail-fast`, same tree | **failed** on the refine-stopped-plan case |
+| isolated `vitest run <file>`, same tree, repeatedly | **passed** 83/83 |
+
+The moving target plus a "cannot find element" shape points at render/settle timing under a loaded
+shard, not a product defect — a wait that is adequate on an idle machine and not under four
+concurrent 6GB lanes. No timeout was widened, no retry added, no assertion relaxed. A SECOND sighting
+of the *same* case is an ordinary on-sight quarantine per the standing rule in AGENTS.md; because the
+case moves, the honest rescue is a deterministic settle signal in this file's harness rather than a
+longer wait.
