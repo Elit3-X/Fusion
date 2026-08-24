@@ -143,11 +143,28 @@ export function installPipelineMockScripts(input: {
     input.observeMockRuntime();
     const systemPrompt = context.options.systemPrompt ?? "";
     const reviewKind = forcedKind ?? (
-      /^Execute the workflow step "Plan Review"/i.test(context.prompt)
+      /workflow step agent executing:\s*(?:Documentation & Delivery|Verification)\b/i.test(systemPrompt)
+        ? "non-review"
+        : /^Execute the workflow step "Plan Review"/i.test(context.prompt)
       || /workflow step agent executing:\s*Plan Review\b/i.test(systemPrompt)
         ? "plan"
         : "code"
     );
+    /*
+    FNXC:PipelineSmoke 2026-08-24-17:30:
+    Only a REAL review gate may consume a scenario's scripted verdicts. This classifier answered
+    "code" for anything that was not Plan Review, so on a review-column workflow the
+    Documentation & Delivery gate ate the verdict aimed at Code Review: S07 scripts
+    `codeReviewModes: ["empty-revise"]` to exercise an unactionable Code Review rejection, and the
+    card died with `documentation-delivery: failed: REVISE` before Code Review ever ran.
+    Detected on the workflow-step system prompt, which names the executing step, and by EXCLUSION
+    rather than an allow-list: the real reviewer prompt does not carry the literal "Code Review", so
+    allow-listing silently approves every genuine review instead.
+    */
+    if (reviewKind === "non-review") {
+      context.options.onText?.(JSON.stringify({ verdict: "APPROVE", notes: "Mock gate completed a non-review workflow step.", findings: [] }));
+      return;
+    }
     const modes = reviewKind === "plan"
       ? (behavior.planReviewModes ?? behavior.reviewModes ?? ["approve"])
       : (behavior.codeReviewModes ?? behavior.reviewModes ?? ["approve"]);
@@ -172,7 +189,18 @@ export function installPipelineMockScripts(input: {
         return;
       }
       const hasTaskUpdateTool = context.tools.some((tool) => tool.name === "fn_task_update");
-      if (!hasTaskUpdateTool && behavior.codeReviewModes) {
+      /*
+      FNXC:PipelineSmoke 2026-08-24-17:30:
+      ...but a NON-REVIEW gate also arrives readonly. Documentation & Delivery has no task-update
+      tool either, so this heuristic handed it the verdict scripted for Code Review: S07 scripts
+      `codeReviewModes: ["empty-revise"]` to exercise an unactionable Code Review rejection, and on a
+      review-column workflow the card instead died with `documentation-delivery: failed: REVISE`
+      before Code Review ever ran. Identify the executing step from the workflow-step system prompt
+      and let only a real review consume the scripted verdicts.
+      */
+      const executingNonReviewGate = /workflow step agent executing:\s*(?:Documentation & Delivery|Verification)\b/i
+        .test(context.options.systemPrompt ?? "");
+      if (!hasTaskUpdateTool && behavior.codeReviewModes && !executingNonReviewGate) {
         /*
         FNXC:PipelineSmoke 2026-08-23-20:23:
         Final Code Review can arrive on the executor runtime with a generic dispatch prompt. Its
