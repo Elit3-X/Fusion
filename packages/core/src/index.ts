@@ -340,6 +340,7 @@ export type {
 } from "./agents/column-agent-resolver.js";
 export { BUILTIN_CODING_WORKFLOW_IR } from "./workflows/builtin-coding-workflow-ir.js";
 export { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./workflows/builtin-coding-ideas-workflow-ir.js";
+export { BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR } from "./workflows/builtin-coding-ideas-v2-workflow-ir.js";
 export { PLAN_REVIEW_GROUP_ID } from "./workflows/builtin-plan-review-group.js";
 export { BUILTIN_MARKETING_WORKFLOW_IR } from "./workflows/builtin-marketing-workflow-ir.js";
 export { evaluateForeachMergeProof } from "./workflow-merge-proof.js";

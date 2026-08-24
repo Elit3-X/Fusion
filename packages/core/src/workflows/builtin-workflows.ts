@@ -1,5 +1,6 @@
 import { BUILTIN_CODING_WORKFLOW_IR } from "./builtin-coding-workflow-ir.js";
 import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./builtin-coding-ideas-workflow-ir.js";
+import { BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR } from "./builtin-coding-ideas-v2-workflow-ir.js";
 import { BUILTIN_BRAINSTORMING_WORKFLOW_IR } from "./builtin-brainstorming-workflow-ir.js";
 import { BUILTIN_LEAD_GENERATION_WORKFLOW_IR } from "./builtin-lead-generation-workflow-ir.js";
 import { BUILTIN_MARKETING_WORKFLOW_IR } from "./builtin-marketing-workflow-ir.js";
@@ -597,6 +598,48 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
       "merge-manual-hold": { x: 1590, y: 240 },
       "post-merge-verification": { x: 2270, y: 160 },
       end: { x: 2440, y: 160 },
+    },
+    createdAt: BUILTIN_TS,
+    updatedAt: BUILTIN_TS,
+  },
+  /*
+   * FNXC:CodingIdeasV2Workflow 2026-08-24-05:35:
+   * Same Ideas board as builtin:coding-ideas, but testing and documentation stop being hidden
+   * checklist items inside the implementation steps and become visible in-review gates, with the
+   * merge last. Every write-capable gate runs BEFORE Code Review because a passed review seals the
+   * tree (`workspace-review-seal-required`); the readonly completion summary runs after it.
+   */
+  {
+    id: "builtin:coding-ideas-v2",
+    name: "Coding (Ideas) V2",
+    description:
+      "Capture-first coding pipeline with visible review-column gates: park ideas in a manual intake, plan, implement per step, then verify, document, review, summarize, and merge.",
+    kind: "workflow",
+    ir: BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR,
+    layout: {
+      start: { x: 60, y: 160 },
+      plan: { x: 230, y: 160 },
+      "plan-review": { x: 400, y: 160 },
+      "plan-replan": { x: 400, y: 320 },
+      "plan-review-no-op": { x: 570, y: 320 },
+      parse: { x: 570, y: 160 },
+      steps: { x: 740, y: 160 },
+      "review-pending-handoff": { x: 740, y: 320 },
+      verification: { x: 910, y: 160 },
+      "verification-remediation": { x: 910, y: 320 },
+      "documentation-delivery": { x: 1080, y: 160 },
+      "code-review": { x: 1250, y: 160 },
+      "code-review-remediation": { x: 1250, y: 320 },
+      "completion-summary": { x: 1420, y: 160 },
+      "merge-gate": { x: 1590, y: 160 },
+      "branch-group-member-integration": { x: 1760, y: 80 },
+      "branch-group-promotion": { x: 1930, y: 80 },
+      "merge-attempt": { x: 2100, y: 160 },
+      "merge-retry": { x: 2270, y: 80 },
+      "recovery-router": { x: 2270, y: 240 },
+      "merge-manual-hold": { x: 1760, y: 240 },
+      "post-merge-verification": { x: 2440, y: 160 },
+      end: { x: 2610, y: 160 },
     },
     createdAt: BUILTIN_TS,
     updatedAt: BUILTIN_TS,
