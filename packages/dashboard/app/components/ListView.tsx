@@ -7,7 +7,7 @@ import { ArrowUpDown, ArrowUp, ArrowDown, Link, Columns3, EyeOff, Eye, ChevronRi
 import { DEFAULT_COLUMN, THINKING_LEVELS, getErrorMessage, isColumn, sortTasksForDisplayColumn, type Task, type TaskDetail, type Column, type ColumnId, type TaskCreateInput, type MergeResult, type GithubIssueAction, type PrInfo, type ThinkingLevel } from "@fusion/core";
 import { resolveEffectiveAutoMerge } from "../../../core/src/merge/task-merge";
 import { useColumnLabel } from "../i18n/labels";
-import { isArchivedColumnRole, isCompleteColumnRole, isIntakeColumnRole, isPreImplementationColumnRole, isWipColumnRole } from "../utils/columnRoles";
+import { isArchivedColumnRole, isCompleteColumnRole, isIntakeColumnRole, isPreImplementationColumnRole, isReviewColumnRole, isWipColumnRole } from "../utils/columnRoles";
 import { batchUpdateTaskModels, fetchNodes, fetchTaskDetail, rebuildTaskSpec, refreshPrStatus, updateTask } from "../api";
 import { TaskDetailContent } from "./TaskDetailModal";
 import { PrCreateModal } from "./PrCreateModal";
@@ -336,7 +336,15 @@ interface ListViewProps {
  * looked idle while an agent was working in it.
  */
 function shouldShowTaskProgress(task: Task, flags?: Parameters<typeof isWipColumnRole>[0]): boolean {
-  return task.status === "executing" || isWipColumnRole(flags, task.column);
+  /*
+  FNXC:TaskCardWorkflowProgress 2026-08-24-19:30:
+  Review-lane rows must report progress too. A workflow whose Verification and Documentation gates
+  run in the review column has real, advancing work there; suppressing the column left the operator
+  with no signal for the stage they explicitly promoted.
+  */
+  return task.status === "executing"
+    || isWipColumnRole(flags, task.column)
+    || isReviewColumnRole(flags, task.column);
 }
 
 function getTaskProgress(
@@ -346,8 +354,19 @@ function getTaskProgress(
   /*
   FNXC:TaskCardWorkflowProgress 2026-07-21-22:26:
   List progress for WIP matches TaskCard: only implementation steps, not Todo Plan Review or In-review Code Review gates.
+
+  FNXC:TaskCardWorkflowProgress 2026-08-24-19:30:
+  ...but that match was only half-implemented: TaskCard switches to the full pipeline once the card
+  reaches its review lane (`scope: task.column === "in-review" ? "full" : "implementation"`), while
+  this list stayed on implementation scope unconditionally. A review-column workflow such as
+  builtin:coding-ideas-v2 promotes Verification and Documentation & Delivery from hidden checklist
+  entries into first-class review-lane gates, so a list row showed `-` or a stale count for exactly
+  the stage the operator moved them there to watch. Resolve the lane by TRAIT, not by the hardcoded
+  `in-review` id, so a renamed board behaves the same.
   */
-  const progress = getUnifiedTaskProgress(task, { scope: "implementation" });
+  const progress = getUnifiedTaskProgress(task, {
+    scope: isReviewColumnRole(columnFlags, task.column) ? "full" : "implementation",
+  });
   if (progress.total === 0 || !shouldShowTaskProgress(task, columnFlags)) {
     return { label: "-", percent: 0, hasProgress: false };
   }
