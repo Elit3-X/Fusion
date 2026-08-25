@@ -956,19 +956,47 @@ export class PipelineSmokeHarness {
    * Drive the selected task through real Planning, Plan Review, scheduler release, execution,
    * and Code Review, then stop at the graph's manual-merge hold rather than pre-seeding review.
    */
+  /*
+  FNXC:PipelineSmoke 2026-08-25-04:20:
+  Return only once the graph has QUIESCED at the hold, never on the first turn that merely LOOKS
+  parked. The old exit condition `column === "in-review" && reviewPassed` is a snapshot, and a
+  review-column workflow invalidates it one turn later: a Code Review REVISE appends remediation
+  steps and sends the card back to in-progress, so the caller's merge then hit the engine's correct
+  refusal ("task is in 'in-progress', must be in 'in-review'"). That is a REAL engine verdict, and
+  suppressing it would have reproduced FN-175; the driver was wrong, not the engine.
+  A `manual-required` work item is authoritative and returns immediately. Absent one, the loop keeps
+  turning until the observable state stops changing across consecutive turns, which is a property of
+  the graph rather than of how fast the suite happens to run — the reason this scenario was
+  intermittent only under full-lane load.
+  */
   async driveToManualMergeHold(taskId: string, behavior: PipelineScriptedMergeBehavior = {}): Promise<Task> {
     await this.store.updateSettings({ autoMerge: false });
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    const signature = (task: Task): string => JSON.stringify({
+      column: task.column,
+      status: task.status ?? null,
+      steps: (task.steps ?? []).map((step) => `${step.id}:${step.status}`),
+      reviews: (task.workflowStepResults ?? []).map((result) => `${result.workflowStepId}:${result.status}`),
+    });
+    let stableSignature: string | undefined;
+    let stableTurns = 0;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
       await this.runProductionTurn(taskId, behavior);
       const current = await this.freshTask(taskId);
       if (current.column === "done" || current.mergeDetails?.mergeConfirmed) {
         throw new Error(`${taskId} merged before its reviewed branch reached the manual hold.`);
       }
       const active = await this.store.listWorkflowWorkItemsForTask(taskId, { kinds: ["task"] });
+      const manualHeld = active.some((item) => item.state === "manual-required" || item.nodeId === "merge-manual-hold");
       const reviewPassed = (current.workflowStepResults ?? []).some((result) => result.workflowStepId === "code-review" && result.status === "passed")
         || !(current.enabledWorkflowSteps ?? []).includes("code-review");
-      if (active.some((item) => item.state === "manual-required" || item.nodeId === "merge-manual-hold")
-        || (current.column === "in-review" && reviewPassed)) {
+
+      const currentSignature = signature(current);
+      stableTurns = currentSignature === stableSignature ? stableTurns + 1 : 0;
+      stableSignature = currentSignature;
+
+      // Two unchanged turns means the graph has nothing left to advance on its own.
+      const settled = current.column === "in-review" && reviewPassed && stableTurns >= 2;
+      if (manualHeld || settled) {
         await this.assertProductionStageEvidence(taskId, {
           planReview: (current.enabledWorkflowSteps ?? []).includes("plan-review"),
           codeReview: (current.enabledWorkflowSteps ?? []).includes("code-review"),
