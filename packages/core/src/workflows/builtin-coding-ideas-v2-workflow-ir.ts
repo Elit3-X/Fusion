@@ -3,7 +3,7 @@ import { parseWorkflowIr } from "./workflow-ir.js";
 import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./builtin-coding-ideas-workflow-ir.js";
 import { verificationOptionalGroupNode } from "./builtin-verification-gate-group.js";
 import { documentationDeliveryOptionalGroupNode } from "./builtin-documentation-delivery-group.js";
-import { verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
+import { codeReviewRemediationStepsNode, verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
 import { builtinPromptConfig, builtinSeamPrompt } from "./builtin-workflow-prompts.js";
 import { applyImplementationOnlyStepReview } from "./builtin-plan-review-group.js";
 
@@ -60,9 +60,28 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   const planReview = ir.nodes.find((node) => node.id === "plan-review");
   if (planReview) applyImplementationOnlyStepReview(planReview);
   /*
-  FNXC:ReviewGatedRemediation 2026-08-24-20:10:
-  This workflow deliberately does NOT set the parse node's `implementationOnlySteps` +
-  `preserveRemediationSteps`, so `resolveStepReopenPolicy` keeps the inherited "reopen-trailing".
+  FNXC:ReviewGatedRemediation 2026-08-24-22:10:
+  Named remediation is enabled: `implementationOnlySteps` + `preserveRemediationSteps` select
+  `review-remediation-steps`, so a rejected review derives NAMED work from the reviewer's findings,
+  appends it to `task.steps` as a numbered wave, and widens the PROMPT.md File Scope to the files it
+  touches — the operator sees exactly what must be fixed instead of a bounced card with an unchanged
+  checklist. This depends on the foreach covering appended steps
+  (`FNXC:WorkflowForeachGrowth` in workflow-graph-foreach.ts); before that, an appended step never
+  received an instance and stayed `pending` forever.
+  */
+  const parse = ir.nodes.find((node) => node.id === "parse");
+  if (parse) parse.config = { ...parse.config, implementationOnlySteps: true, preserveRemediationSteps: true };
+  const codeReviewRemediation = ir.nodes.find((node) => node.id === "code-review-remediation");
+  if (codeReviewRemediation) {
+    codeReviewRemediation.config = {
+      ...codeReviewRemediation.config,
+      ...codeReviewRemediationStepsNode().config,
+      name: "Code Review Remediation",
+    };
+  }
+  /* Superseded note, kept for the reasoning it records:
+  This workflow deliberately did NOT set the parse node's `implementationOnlySteps` +
+  `preserveRemediationSteps`, so `resolveStepReopenPolicy` kept the inherited "reopen-trailing".
   That pair selects named remediation (`review-remediation-steps`), which cannot execute here: the
   parse node preserves the appended step and then answers `already-expanded`, because the foreach is
   PINNED to the step list it first expanded. A step appended afterwards never receives an instance,

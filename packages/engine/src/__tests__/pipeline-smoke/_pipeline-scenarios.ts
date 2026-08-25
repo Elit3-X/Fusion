@@ -112,7 +112,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S07",
     title: "Unactionable review rejection parks then recovers",
-    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
+    workflows: ["builtin:coding-ideas"],
     expectedTerminal: "parked",
     arrange: PIPELINE_SCENARIO_DRIVERS.s07Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s07Act,
