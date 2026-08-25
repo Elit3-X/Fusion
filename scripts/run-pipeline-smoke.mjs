@@ -17,13 +17,18 @@ export const ENGINE_DIR = join(REPO_ROOT, "packages", "engine");
 export const PIPELINE_SMOKE_PROJECT = "engine-pipeline-smoke";
 export const PIPELINE_SMOKE_SCENARIO_COUNT = 19;
 /*
-FNXC:PipelineSmoke 2026-08-23-20:49:
-The completed harness now drives actual planning, graph execution, worktree acquisition, and
-review sessions instead of seeded lifecycle rows. Warm remediation measurements were 53,378ms and
-60,459ms; round the observed slowest run to a 70-second declared budget rather than letting a
-real pipeline execution fail on an obsolete pre-production-chain ceiling.
+FNXC:PipelineSmoke 2026-08-25-06:55:
+Re-baselined 150s -> 175s for measured workload growth, not to hide a regression. Two additions:
+the dedicated Code Review remediation drive (a 7th file, which re-pays module import and provisions
+its own disposable PostgreSQL database), and S05 extended to `builtin:coding-ideas-v2` 2014 a
+revise-twice scenario that is among the longest in the matrix. Five consecutive full runs measured
+140.1s, 143.8s, 146.7s, 147.0s and 148.4s against the old 150s ceiling: green, but with under 2s of
+headroom, which is a flake waiting to happen rather than a passing lane.
+The standing rule is unchanged and now has three precedents: an overrun with NO attributable growth
+is a regression to fix in the lane, never a budget to raise. Per-file cost remains the first
+optimization to reach for.
 */
-export const PIPELINE_SMOKE_DURATION_BUDGET_MS = 150_000;
+export const PIPELINE_SMOKE_DURATION_BUDGET_MS = 175_000;
 export const DEFAULT_REPORT_PATH = join(ENGINE_DIR, ".pipeline-smoke-report.json");
 
 /*

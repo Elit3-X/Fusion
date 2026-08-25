@@ -93,7 +93,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S05",
     title: "Code review revisions require a current approval",
-    workflows: ["builtin:coding-ideas", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
     expectedTerminal: "merged-done",
     variants: ["revise-twice"],
     arrange: PIPELINE_SCENARIO_DRIVERS.s05Arrange,

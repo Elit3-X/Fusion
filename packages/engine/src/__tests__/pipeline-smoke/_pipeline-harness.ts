@@ -20,7 +20,7 @@ import {
 import type { SharedPgTaskStoreHarness } from "../../../../core/src/__test-utils__/pg-test-harness.js";
 import { ProjectEngine } from "../../project-engine.js";
 import { TaskExecutor } from "../../executor.js";
-import { activeSessionRegistry } from "../../agents/active-session-registry.js";
+import { activeSessionRegistry, executingTaskLock } from "../../agents/active-session-registry.js";
 import { resetMockScripts } from "../../providers/mock-provider.js";
 import { WorktreePool } from "../../worktree/worktree-pool.js";
 import { acquireTaskWorktree, type AcquireTaskWorktreeResult } from "../../worktree/worktree-acquisition.js";
@@ -99,6 +99,18 @@ let fixtureEnvironmentTail: Promise<void> = Promise.resolve();
 
 type FixtureEnvironmentRelease = () => void;
 
+/*
+FNXC:PipelineSmoke 2026-08-25-06:40:
+Task ids are unique per PROCESS, not per harness. The counter used to live on the instance and reset
+with it, so every test's first task was `FN-182-S05-1` — and the engine's process-wide state
+(`executingTaskLock`, `activeSessionRegistry.pathsForTask`, worktree registrations) is keyed by task
+id. A straggler from the previous test therefore answered for the NEXT test's identically-named
+task, handing it a worktree under the previous fixture. The executor correctly refused that path
+(`outside_worktrees_dir`) and failed a task that had done nothing wrong. Colliding ids also defeat
+the teardown drain, which can only wait for ids it can tell apart.
+*/
+let pipelineTaskSerial = 0;
+
 async function acquireFixtureGlobalHome(fixture: PipelineGitFixture): Promise<FixtureEnvironmentRelease> {
   let releaseQueue: (() => void) | undefined;
   const previous = fixtureEnvironmentTail;
@@ -173,10 +185,12 @@ export class PipelineSmokeHarness {
   readonly centralCore: CentralCore;
   private executor: PipelineGraphExecutor | undefined;
   private authoritativeSeamsObserved = false;
-  private serial = 0;
+  /* Serial lives on the module, not the instance — see `pipelineTaskSerial`. */
   private manualHoldTaskIds = new Set<string>();
   private readonly promptRevisions = new Map<string, number>();
   private readonly mockScriptStates = new Map<string, { behavior: PipelineScriptedMergeBehavior; state: PipelineMockScriptState }>();
+  /** Every task this harness created, so teardown can wait for their execution to actually stop. */
+  private readonly createdTaskIds = new Set<string>();
   /** Newest non-empty branch per task; a workspace row only gains one at acquisition. */
   private readonly scriptedBranches = new Map<string, string>();
 
@@ -362,6 +376,7 @@ export class PipelineSmokeHarness {
       consults. Both are process-global, so the damage lands on whichever file runs next.
       */
       await this.engine.stop();
+      await this.drainInFlightExecution();
       activeSessionRegistry.clear();
       this.mockScriptStates.clear();
       this.scriptedBranches.clear();
@@ -372,6 +387,34 @@ export class PipelineSmokeHarness {
       this.fixture.cleanup();
     } finally {
       this.releaseFixtureEnvironment();
+    }
+  }
+
+  /*
+  FNXC:PipelineSmoke 2026-08-25-06:05:
+  WAIT for in-flight execution to stop before tearing the fixture down; do not merely forget it.
+  `ProjectEngine.stop()` clears timers but does not await a task execution already in progress, and
+  teardown then called `activeSessionRegistry.clear()`, which HIDES a live session rather than
+  ending it. The surviving execution keeps a reference to THIS fixture's directory, so when the next
+  test in the file installs a fresh fixture the straggler creates a worktree under the OLD one and
+  writes that path onto the new test's task row. The next executor correctly refuses it
+  (`outside_worktrees_dir`), retries, exhausts its budget, and fails a task that never did anything
+  wrong — a failure that reproduced only under full-lane timing, which is what made it look flaky.
+  `executingTaskLock` is the process-wide truth for "this task is inside execute()", so drain it.
+  The wait is bounded and throws on expiry rather than proceeding: a straggler that outlives the
+  budget is a real defect, and a silent continue would restore exactly the leak this removes.
+  */
+  private async drainInFlightExecution(): Promise<void> {
+    const deadline = Date.now() + 30_000;
+    for (;;) {
+      const busy = [...this.createdTaskIds].filter(
+        (taskId) => executingTaskLock.has(taskId) || activeSessionRegistry.pathsForTask(taskId).length > 0,
+      );
+      if (busy.length === 0) return;
+      if (Date.now() > deadline) {
+        throw new Error(`Pipeline smoke teardown timed out waiting for in-flight execution: ${busy.join(", ")}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
 
@@ -430,7 +473,8 @@ export class PipelineSmokeHarness {
     if (!ir) throw new Error(`Missing workflow ${workflowId}`);
     const creation = resolveCreationColumn(ir)?.id;
     const { holdColumn, wipColumn, reviewColumn, completeColumn } = resolvedColumns(ir);
-    const taskId = `FN-182-${options.idPrefix ?? "SMOKE"}-${++this.serial}`.replace(/[^A-Za-z0-9-]/g, "-");
+    const taskId = `FN-182-${options.idPrefix ?? "SMOKE"}-${++pipelineTaskSerial}`.replace(/[^A-Za-z0-9-]/g, "-");
+    this.createdTaskIds.add(taskId);
     const column = options.initialColumn === "creation" ? creation : holdColumn;
     if (!column) throw new Error(`${workflowId} has no creation column`);
 

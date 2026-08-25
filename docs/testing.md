@@ -493,10 +493,17 @@ The standing rule is unchanged and now has two precedents: an overrun with NO su
 regression to fix in the lane, not a budget to raise. The optimization to reach for first is still
 per-file cost — each file re-pays module import and provisions its own disposable PostgreSQL
 database, so consolidating files is worth more than touching any assertion.
+
+FNXC:PipelineSmoke 2026-08-25-06:55:
+Re-baselined 150s -> 175s, again for attributable growth: a 7th file (the dedicated Code Review
+remediation drive) plus S05 extended to `builtin:coding-ideas-v2`, one of the longest scenarios in
+the matrix. Five consecutive runs measured 140.1s, 143.8s, 146.7s, 147.0s and 148.4s — green against
+the old 150s ceiling, but with under 2s of headroom, which is a flake waiting to happen rather than
+a passing lane. Third precedent for the same rule: growth must be nameable, or it is a regression.
 -->
-The declared budget is **150 seconds**, rounded up from a measured 124,950ms full-matrix run
-(6 files, 87 tests) after `builtin:coding-ideas-v2` was added to 17 scenarios and multi-repository
-workspace coverage was introduced. The wrapper enforces it for every run; an overrun is a result
+The declared budget is **175 seconds**, rounded up from a measured 148,434ms slowest full-matrix
+run (7 files, 90 tests) after the Code Review remediation drive was added and S05 was extended to
+`builtin:coding-ideas-v2`. The wrapper enforces it for every run; an overrun is a result
 to investigate, never a reason to hide a regression behind unbounded timeouts. Use
 `--repeat=10` for the reproducibility proof, `--json` for machine output, and
 `--budget-ms=<n>` only for loud diagnostic measurement. The normalized report lists
