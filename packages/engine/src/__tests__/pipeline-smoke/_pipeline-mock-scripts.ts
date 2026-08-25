@@ -198,9 +198,26 @@ export function installPipelineMockScripts(input: {
       before Code Review ever ran. Identify the executing step from the workflow-step system prompt
       and let only a real review consume the scripted verdicts.
       */
-      const executingNonReviewGate = /workflow step agent executing:\s*(?:Documentation & Delivery|Verification)\b/i
-        .test(context.options.systemPrompt ?? "");
-      if (!hasTaskUpdateTool && behavior.codeReviewModes && !executingNonReviewGate) {
+      /*
+      FNXC:PipelineSmoke 2026-08-24-18:10:
+      Route a GATE turn by the step it names, never by its tool surface. Code Review is a writable
+      inline-fix review, so on a review-column workflow it arrives WITH the task-update tool and
+      fell through to the implementation branch below, which ends by emitting a blanket APPROVE.
+      The scenario's scripted verdict was silently ignored: S07 asks for `empty-revise` and the
+      persisted result was `code-review:passed:APPROVE:code` — which then sealed the tree and
+      blocked the replay of Documentation & Delivery, two failures downstream of one mislabel.
+      `Execute the workflow step "<name>"` is the reliable marker: it is present on every gate turn
+      and absent from the implementation session, whose system prompt is the generic executor
+      preamble.
+      */
+      const gateStep = /^Execute the workflow step "([^"]+)"/i.exec(context.prompt)?.[1];
+      if (gateStep) {
+        if (/^Code Review$/i.test(gateStep)) { await emitReview(context, "code"); return; }
+        if (/^Plan Review$/i.test(gateStep)) { await emitReview(context, "plan"); return; }
+        context.options.onText?.(JSON.stringify({ verdict: "APPROVE", notes: `Mock gate completed ${gateStep}.`, findings: [] }));
+        return;
+      }
+      if (!hasTaskUpdateTool && behavior.codeReviewModes) {
         /*
         FNXC:PipelineSmoke 2026-08-23-20:23:
         Final Code Review can arrive on the executor runtime with a generic dispatch prompt. Its

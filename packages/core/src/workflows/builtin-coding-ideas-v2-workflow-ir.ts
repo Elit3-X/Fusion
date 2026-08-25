@@ -3,7 +3,7 @@ import { parseWorkflowIr } from "./workflow-ir.js";
 import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./builtin-coding-ideas-workflow-ir.js";
 import { verificationOptionalGroupNode } from "./builtin-verification-gate-group.js";
 import { documentationDeliveryOptionalGroupNode } from "./builtin-documentation-delivery-group.js";
-import { verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
+import { codeReviewRemediationStepsNode, verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
 import { builtinPromptConfig, builtinSeamPrompt } from "./builtin-workflow-prompts.js";
 import { applyImplementationOnlyStepReview } from "./builtin-plan-review-group.js";
 
@@ -67,17 +67,28 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   ir.nodes.splice(codeReviewIndex, 0, verificationOptionalGroupNode("in-review"), documentationDeliveryOptionalGroupNode("in-review"));
   ir.nodes.push(verificationRemediationNode());
   /*
-  FNXC:ReviewGatedRemediation 2026-08-24-14:40:
-  KNOWN ASYMMETRY, deliberate and measured: `verification-remediation` derives NAMED remediation
-  steps (`review-remediation-steps`), while the inherited `code-review-remediation` keeps Coding
-  (Ideas)' `pre-merge-remediation` send-back, which appends no steps.
-  Aligning them was attempted and reverted. Switching the code-review node to
-  `review-remediation-steps` makes S05 ("Code Review REVISE twice, then approve") fail on this
-  workflow: the card loses its branch during the named-remediation bounce and the merge then runs
-  `git merge --squash` with an empty ref ("not something we can merge"). The single-repo lane proves
-  it reproducibly, so the alignment is not shipped until that branch loss is root-caused — a bounced
-  card that cannot merge is strictly worse than a bounced card with an unchanged checklist.
+  FNXC:ReviewGatedRemediation 2026-08-24-18:30:
+  Both gates MUST derive named remediation steps, because this workflow also sets the parse node's
+  `implementationOnlySteps` + `preserveRemediationSteps`, and `resolveStepReopenPolicy` reads that
+  pair as reopen policy "none". The two are a matched pair: with trailing-step reopening disabled,
+  a remediation that appends nothing returns the card to in-progress with every step already done
+  and no work to execute. Inheriting Coding (Ideas)' `pre-merge-remediation` therefore stalled the
+  card after a Code Review REVISE — S05 ("REVISE twice, then approve") failed with
+  "did not persist completed implementation-step projection".
+  An earlier attempt at this alignment was reverted because the merge then ran `git merge --squash`
+  with an empty ref. That was NOT this node: the pipeline-smoke merger mock resolved its branch from
+  `task.branch`, which is absent on a workspace row and unset at install time, and it is fixed at
+  the harness. The node id is kept so the inherited edges stay valid;
+  `appendReviewRemediationSteps` keys on the failing GATE id, not on this node's id.
   */
+  const codeReviewRemediation = ir.nodes.find((node) => node.id === "code-review-remediation");
+  if (codeReviewRemediation) {
+    codeReviewRemediation.config = {
+      ...codeReviewRemediation.config,
+      ...codeReviewRemediationStepsNode().config,
+      name: "Code Review Remediation",
+    };
+  }
 
   ir.edges = ir.edges.filter((edge) => !(
     (edge.from === "steps" && edge.to === "completion-summary")
