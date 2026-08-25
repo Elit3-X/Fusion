@@ -1740,8 +1740,8 @@ function TaskCardComponent({
   In-progress card progress is WIP implementation only. Plan Review (Todo) and Code Review / other review-lane gates must not appear as checklist rows or inflate completed/total while the card is in In progress; badges still use full progress helpers (isPlanReviewRunning / running step labels).
   */
   const unifiedProgress = useMemo(
-    () => getUnifiedTaskProgress(task, { scope: task.column === "in-review" ? "full" : "implementation" }),
-    [task.column, task.steps, task.enabledWorkflowSteps, task.workflowStepResults],
+    () => getUnifiedTaskProgress(task, { scope: isReviewColumn ? "full" : "implementation" }),
+    [isReviewColumn, task.column, task.steps, task.enabledWorkflowSteps, task.workflowStepResults],
   );
   /*
   FNXC:TaskCardProgress 2026-06-29-02:26:
@@ -1755,8 +1755,19 @@ function TaskCardComponent({
   FNXC:TaskCardWorkflowProgress 2026-07-08-hh:mm:
   FN-7676 — cards in the Planning/`triage` column must not surface the steps breakdown (progress bar, active badge, step-count toggle, expandable list); enumerated implementation steps are premature planning artifacts, not execution progress. The affordance now appears only after the task leaves Planning (`in-progress` / `executing`), matching `ListView.shouldShowTaskProgress`. FN-7831 adds a separate header "Reviewing" badge for a running Plan Review, but the progress breakdown itself remains hidden in Planning.
   */
+  /*
+  FNXC:TaskCardWorkflowProgress 2026-08-25-01:10:
+  The review lane shows its breakdown too. FN-7676 hid it in Planning because enumerated steps are a
+  premature planning artifact there — that reasoning does not extend to in-review, where a
+  review-column workflow such as builtin:coding-ideas-v2 runs Verification, Documentation & Delivery
+  and Code Review as real, advancing work. The card already resolves the FULL pipeline once it
+  reaches that lane; this gate then suppressed the rendering of what it had just computed, so the
+  operator saw nothing for the stage those gates were promoted into. Resolved by TRAIT, not by the
+  hardcoded `in-review` id, so a renamed board behaves the same.
+  */
   const showProgressSection =
-    unifiedProgress.total > 0 && (task.status === "executing" || isWipColumn);
+    unifiedProgress.total > 0
+    && (task.status === "executing" || isWipColumn || isReviewColumn);
 
   /*
   FNXC:BoardPerformance 2026-07-26-09:46:

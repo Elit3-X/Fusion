@@ -2789,7 +2789,15 @@ describe("TaskCard", () => {
     const badge = container.querySelector(`[data-testid="${testId}"]`);
     expect(badge).toHaveTextContent(label);
     expect(badge?.className).toContain("pulsing");
-    expect(container.querySelector(".card-progress")).toBeNull();
+    /*
+    FNXC:TaskCardWorkflowProgress 2026-08-25-01:10:
+    The review lane now RENDERS its breakdown: a review-column workflow runs Verification,
+    Documentation & Delivery and Code Review there as real advancing work, and suppressing the
+    section left the operator with no signal for that stage. The running-gate badge remains a
+    distinct, additive affordance — it is not replaced by the bar.
+    */
+    expect(container.querySelector(".card-progress")).not.toBeNull();
+    // The expandable step list stays collapsed until the operator opens it.
     expect(container.querySelector(".card-steps-list")).toBeNull();
   });
 
