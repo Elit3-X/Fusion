@@ -734,11 +734,20 @@ export async function executeWorkflowGraph(
           on S13: a conflicting merge replayed the already-`skipped` documentation gate, the seal
           refused it, and the card cycled instead of retrying its merge.
           */
+          /*
+          FNXC:WorkflowReviewSeal 2026-08-24-21:20:
+          Presence of a result row is the signal, not its status. Two facts make that exact rather
+          than lax: these gates run UPSTREAM of Code Review, so a current approval proves the gate
+          already ran in this episode; and the group writes a fresh `pending` row when it STARTS,
+          overwriting the terminal record before this check ever sees it — measured on S13, where the
+          replayed documentation gate showed `pending` with `priorAttempts=failed/failed/...` and its
+          earlier `passed` was simply gone. A status test is therefore unanswerable here, while a
+          gate that has genuinely never run has no row at all and is still refused below.
+          Matched on the OPTIONAL-GROUP id too: a gate executes as its inner template node
+          (`documentation-delivery-step`) while its result is recorded under the group.
+          */
           const alreadySatisfied = live.workflowStepResults?.some((result) =>
             (result.workflowStepId === node.id || node.id === `${result.workflowStepId}-step`)
-            // `skipped` counts too: a disabled or bypassed gate produced nothing that a replay
-            // could legitimately redo, so refusing it only wedges the retry.
-            && (result.status === "passed" || result.status === "skipped")
             && !result.remediationArchivedAt,
           ) === true;
           if (!isCodeReview && writeCapable && hasCurrentCodeReviewApproval && alreadySatisfied) {

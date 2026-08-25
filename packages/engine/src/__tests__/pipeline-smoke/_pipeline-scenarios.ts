@@ -93,7 +93,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S05",
     title: "Code review revisions require a current approval",
-    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
+    workflows: ["builtin:coding-ideas", "builtin:coding"],
     expectedTerminal: "merged-done",
     variants: ["revise-twice"],
     arrange: PIPELINE_SCENARIO_DRIVERS.s05Arrange,
@@ -168,7 +168,7 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
   {
     id: "S13",
     title: "Scripted merger resolves a conflict",
-    workflows: ["builtin:coding-ideas"],
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2"],
     expectedTerminal: "merged-done",
     arrange: PIPELINE_SCENARIO_DRIVERS.s13Arrange,
     act: PIPELINE_SCENARIO_DRIVERS.s13Act,

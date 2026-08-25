@@ -833,7 +833,25 @@ export class PipelineSmokeHarness {
   }
 
   /** Run one production graph dispatch and its real capacity-release counterpart. */
+  /*
+  FNXC:PipelineSmoke 2026-08-24-21:40:
+  Settle any in-flight merge before dispatching the next turn. A REVISE moves the card back to
+  in-progress, and a merge admitted on an earlier turn that is still running then hits its
+  ref-advance fence and is correctly revoked with "task is in 'in-progress', must be in 'in-review'".
+  That is the ENGINE behaving properly â€” it is the driver that was racing it, and the race only
+  surfaced once the lane grew to 89 tests, appearing as an intermittent S05 failure.
+  This is a bounded event-loop drain, not a wall-clock wait: it yields until the engine reports no
+  active merge, so it adds no time when nothing is in flight and cannot mask a genuine hang.
+  */
+  private async settleActiveMerge(): Promise<void> {
+    const engine = this.engine as unknown as { activeMergeTaskId?: string | null };
+    for (let tick = 0; tick < 200 && engine.activeMergeTaskId; tick += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
   async runProductionTurn(taskId: string, behavior: PipelineScriptedMergeBehavior = {}): Promise<void> {
+    await this.settleActiveMerge();
     const before = await this.freshTask(taskId);
     if (before.status === "needs-replan" && behavior.planReviewModes !== undefined) {
       /*
@@ -863,7 +881,7 @@ export class PipelineSmokeHarness {
         take before it is called wedged. A review-column workflow adds verification, documentation
         and summary nodes to every rework cycle, so S05 ("REVISE twice, then approve") needs roughly
         nine more dispatches than the same scenario on the base graph. Raising it does not weaken any
-        assertion — the declared terminal and the wedge detectors are unchanged.
+        assertion ï¿½ the declared terminal and the wedge detectors are unchanged.
         */
         maxIterations: 32,
         signature: (state) => JSON.stringify({
