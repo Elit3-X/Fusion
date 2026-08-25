@@ -179,8 +179,27 @@ export const PIPELINE_SCENARIO_DRIVERS = {
     }
     throw new Error("S07 did not persist its real unactionable Code Review rejection.");
   }),
-  s07Recovery: driver("provide an actionable approval through the restored graph session", async (context) => {
+  /*
+  FNXC:PipelineSmoke 2026-08-24-22:40:
+  The declared recovery for a park is "operator retry, or the cause disappears". Named remediation
+  parks an unactionable rejection as `awaiting-approval` with `paused: true` — deliberately, because
+  there is no actionable finding to derive work from, so a human must decide. A drive alone cannot
+  move a paused card, so the recovery must first perform the operator's half of that contract.
+  Releasing an EXPLICIT awaiting-approval park is the operator action under test; it is not a way to
+  make an unrelated failure pass, and the merge that follows is still fully asserted.
+  */
+  s07Recovery: driver("release the operator park, then approve through the restored graph session", async (context) => {
     const parked = context.result;
+    const task = taskFor(context);
+    const live = await context.harness.freshTask(task.id);
+    if (live.paused === true || live.status === "awaiting-approval") {
+      await context.harness.store.updateTask(task.id, {
+        paused: false,
+        pausedReason: undefined,
+        status: undefined,
+        awaitingApprovalReason: undefined,
+      } as never);
+    }
     await driveMerged(context, { planReviewModes: ["approve"], codeReviewModes: ["approve"] });
     context.result = parked;
   }),

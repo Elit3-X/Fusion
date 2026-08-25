@@ -881,7 +881,7 @@ export class PipelineSmokeHarness {
         take before it is called wedged. A review-column workflow adds verification, documentation
         and summary nodes to every rework cycle, so S05 ("REVISE twice, then approve") needs roughly
         nine more dispatches than the same scenario on the base graph. Raising it does not weaken any
-        assertion � the declared terminal and the wedge detectors are unchanged.
+        assertion: the declared terminal and the wedge detectors are unchanged.
         */
         maxIterations: 32,
         signature: (state) => JSON.stringify({
