@@ -857,7 +857,15 @@ export class PipelineSmokeHarness {
       () => this.observe(taskId),
       () => this.runProductionTurn(taskId, behavior),
       {
-        maxIterations: 16,
+        /*
+        FNXC:PipelineSmoke 2026-08-24-20:10:
+        A turn budget, not a timeout: it bounds how many explicit graph dispatches a scenario may
+        take before it is called wedged. A review-column workflow adds verification, documentation
+        and summary nodes to every rework cycle, so S05 ("REVISE twice, then approve") needs roughly
+        nine more dispatches than the same scenario on the base graph. Raising it does not weaken any
+        assertion — the declared terminal and the wedge detectors are unchanged.
+        */
+        maxIterations: 32,
         signature: (state) => JSON.stringify({
           column: state.column,
           status: state.status,

@@ -3,7 +3,7 @@ import { parseWorkflowIr } from "./workflow-ir.js";
 import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./builtin-coding-ideas-workflow-ir.js";
 import { verificationOptionalGroupNode } from "./builtin-verification-gate-group.js";
 import { documentationDeliveryOptionalGroupNode } from "./builtin-documentation-delivery-group.js";
-import { codeReviewRemediationStepsNode, verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
+import { verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
 import { builtinPromptConfig, builtinSeamPrompt } from "./builtin-workflow-prompts.js";
 import { applyImplementationOnlyStepReview } from "./builtin-plan-review-group.js";
 
@@ -59,8 +59,21 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   if (plan) plan.config = { ...plan.config, ...builtinPromptConfig("planning", "Plan"), prompt: builtinSeamPrompt("planning-implementation-only") };
   const planReview = ir.nodes.find((node) => node.id === "plan-review");
   if (planReview) applyImplementationOnlyStepReview(planReview);
-  const parse = ir.nodes.find((node) => node.id === "parse");
-  if (parse) parse.config = { ...parse.config, implementationOnlySteps: true, preserveRemediationSteps: true };
+  /*
+  FNXC:ReviewGatedRemediation 2026-08-24-20:10:
+  This workflow deliberately does NOT set the parse node's `implementationOnlySteps` +
+  `preserveRemediationSteps`, so `resolveStepReopenPolicy` keeps the inherited "reopen-trailing".
+  That pair selects named remediation (`review-remediation-steps`), which cannot execute here: the
+  parse node preserves the appended step and then answers `already-expanded`, because the foreach is
+  PINNED to the step list it first expanded. A step appended afterwards never receives an instance,
+  so it stays `pending` forever — measured on S05, where the card advanced to review with
+  `steps=["done","pending"]` and the merge boundary refused with `merge-boundary-unproven`.
+  Reopening trailing steps re-runs instances the foreach already owns, which is why the inherited
+  Coding (Ideas) rework converges. Named remediation stays unavailable to foreach-executed workflows
+  until the foreach can re-expand; builtin:review-gated-coding pairs them too and never reached a
+  merge to expose it.
+  The planner is still constrained — that is the SEAM PROMPT's job, not this flag, which only audits.
+  */
 
   const codeReviewIndex = ir.nodes.findIndex((node) => node.id === "code-review");
   if (codeReviewIndex < 0) throw new Error("coding-ideas-v2 requires the inherited code-review gate");
@@ -81,18 +94,11 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   the harness. The node id is kept so the inherited edges stay valid;
   `appendReviewRemediationSteps` keys on the failing GATE id, not on this node's id.
   */
-  const codeReviewRemediation = ir.nodes.find((node) => node.id === "code-review-remediation");
-  if (codeReviewRemediation) {
-    codeReviewRemediation.config = {
-      ...codeReviewRemediation.config,
-      ...codeReviewRemediationStepsNode().config,
-      name: "Code Review Remediation",
-    };
-  }
+  /* Code Review keeps the inherited `pre-merge-remediation`, which reopens trailing steps the
+     foreach already owns. See the parse-node note above. */
 
   ir.edges = ir.edges.filter((edge) => !(
     (edge.from === "steps" && edge.to === "completion-summary")
-    || (edge.from === "code-review-remediation" && edge.to === "code-review")
   ));
 
   /*
@@ -112,7 +118,19 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
     { from: "code-review", to: "merge-gate", condition: "success" },
     { from: "verification", to: "verification-remediation", condition: "failure" },
     { from: "verification-remediation", to: "verification", condition: "success", kind: "rework" },
-    { from: "code-review-remediation", to: "verification", condition: "success", kind: "rework" },
+    /*
+    FNXC:ReviewGatedRemediation 2026-08-24-20:10:
+    Code Review rework returns to `code-review`, exactly as the inherited Coding (Ideas) graph does.
+    The remediation node is itself a coding session that fixes the findings and completes the
+    trailing steps it reopened; routing the rework through `verification` instead walked the graph
+    forward past the foreach, so the reopened step was never re-executed, the merge boundary's
+    foreach coverage stayed incomplete, and the card terminalized with
+    `merge-boundary-unproven` / "no pre-merge node result recorded" — measured on S05.
+    Cost, stated: a Code Review REVISE does NOT replay Verification or Documentation & Delivery, so
+    docs written before the review are not regenerated from its findings. Convergence wins over
+    freshness here; re-running them requires the foreach to re-expand, which it cannot yet do.
+    */
+    { from: "code-review-remediation", to: "code-review", condition: "success", kind: "rework" },
   );
   return ir;
 })();

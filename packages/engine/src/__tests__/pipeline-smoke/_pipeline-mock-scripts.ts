@@ -216,6 +216,21 @@ export function installPipelineMockScripts(input: {
       if (gateStep) {
         if (/^Code Review$/i.test(gateStep)) { await emitReview(context, "code"); return; }
         if (/^Plan Review$/i.test(gateStep)) { await emitReview(context, "plan"); return; }
+        /*
+        FNXC:PipelineSmoke 2026-08-24-20:10:
+        A non-review gate that can WRITE must still finish the work it was handed. Code Review
+        Remediation is exactly that: a coding session whose job is to complete the trailing steps the
+        REVISE reopened. Returning a bare approval here skipped that, so the reopened step stayed
+        `pending`, the merge boundary's foreach coverage never completed, and S05 terminalized with
+        `merge-boundary-unproven`.
+        */
+        if (hasTaskUpdateTool) {
+          const pending = await input.readTaskSteps();
+          for (let index = 0; index < pending.length; index += 1) {
+            if (pending[index] !== "pending" && pending[index] !== "in-progress") continue;
+            await context.invokeTool("fn_task_update", { step: index, status: "done" });
+          }
+        }
         context.options.onText?.(JSON.stringify({ verdict: "APPROVE", notes: `Mock gate completed ${gateStep}.`, findings: [] }));
         return;
       }

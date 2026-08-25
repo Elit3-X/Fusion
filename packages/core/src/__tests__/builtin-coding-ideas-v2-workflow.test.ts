@@ -72,14 +72,23 @@ describe("builtin:coding-ideas-v2", () => {
   replay documentation-delivery so the docs and changeset are regenerated to include what the review
   demanded; re-entering at the review would merge documentation describing a superseded tree.
   */
-  it("replays documentation on rework by re-entering upstream of it", () => {
+  /*
+  FNXC:ReviewGatedRemediation 2026-08-24-20:10:
+  Verification rework re-enters `verification` — a failing test needs re-running, and the doc node
+  downstream is replayed with it. Code Review rework returns to `code-review`, as the inherited graph
+  does: its remediation node is a coding session that completes the trailing steps the REVISE
+  reopened, and routing it through `verification` walked past the foreach so the reopened step was
+  never re-executed and the merge boundary refused with `merge-boundary-unproven` (measured on S05).
+  Cost, stated rather than hidden: a Code Review REVISE does not regenerate the documentation.
+  */
+  it("routes each rework to the stage that can actually redo the work", () => {
     expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.edges).toEqual(expect.arrayContaining([
       { from: "verification", to: "verification-remediation", condition: "failure" },
       { from: "code-review", to: "code-review-remediation", condition: "failure" },
       { from: "verification-remediation", to: "verification", condition: "success", kind: "rework" },
-      { from: "code-review-remediation", to: "verification", condition: "success", kind: "rework" },
+      { from: "code-review-remediation", to: "code-review", condition: "success", kind: "rework" },
     ]));
-    // Re-entering at `verification` only replays the docs because the doc node sits downstream of it.
+    // Verification rework replays the docs, because the doc node sits downstream of it.
     expect(successChainFrom("verification")).toContain("documentation-delivery");
 
     for (const remediationId of ["verification-remediation", "code-review-remediation"]) {
@@ -105,19 +114,25 @@ describe("builtin:coding-ideas-v2", () => {
   nothing left to execute. Inheriting Coding (Ideas)' `pre-merge-remediation` stalled the card after
   a Code Review REVISE.
   */
-  it("appends named remediation steps for both review gates", () => {
-    for (const [remediationId, gateId] of [
-      ["verification-remediation", "verification"],
-      ["code-review-remediation", "code-review"],
-    ]) {
-      const config = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === remediationId)?.config;
-      expect(config?.workflowAction, `${remediationId} must append named steps`).toBe("review-remediation-steps");
-      expect(config?.forWorkflowStepId).toBe(gateId);
-    }
+  /*
+  FNXC:ReviewGatedRemediation 2026-08-24-20:10:
+  Named remediation (`review-remediation-steps`) is UNAVAILABLE to a foreach-executed workflow: the
+  parse node preserves an appended step and then answers `already-expanded`, because the foreach is
+  pinned to the list it first expanded, so that step never receives an instance and stays `pending`
+  forever. Code Review therefore keeps the inherited `pre-merge-remediation`, which reopens trailing
+  steps the foreach already owns. Change this only together with a foreach that can re-expand.
+  */
+  it("keeps Code Review on reopen-trailing remediation the foreach can execute", () => {
+    const parse = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "parse")?.config;
+    expect(parse?.preserveRemediationSteps).toBeUndefined();
+    expect(parse?.implementationOnlySteps).toBeUndefined();
 
-    // The inherited workflow reopens trailing steps instead, so it keeps its own send-back.
-    expect(BUILTIN_CODING_IDEAS_WORKFLOW_IR.nodes.find((node) => node.id === "code-review-remediation")?.config?.workflowAction)
-      .toBe("pre-merge-remediation");
+    const codeReview = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "code-review-remediation")?.config;
+    expect(codeReview?.workflowAction).toBe("pre-merge-remediation");
+
+    // Verification remediation appends named steps because it re-runs commands, not the foreach.
+    const verification = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "verification-remediation")?.config;
+    expect(verification?.workflowAction).toBe("review-remediation-steps");
   });
 
   /*
@@ -147,7 +162,13 @@ describe("builtin:coding-ideas-v2", () => {
     // The base workflow must keep the ordinary template.
     const basePlan = BUILTIN_CODING_IDEAS_WORKFLOW_IR.nodes.find((node) => node.id === "plan");
     expect(basePlan?.config?.prompt).toContain("### Step {N}: Documentation & Delivery");
-    expect(parse?.config).toMatchObject({ implementationOnlySteps: true, preserveRemediationSteps: true });
+    /*
+    The constraint lives in the SEAM PROMPT, not in the parse node. `implementationOnlySteps` only
+    audits leakage ("Detection is deliberately non-destructive"), and pairing it with
+    `preserveRemediationSteps` would select named remediation, which a foreach-executed workflow
+    cannot run — see the reopen-trailing test below.
+    */
+    expect(parse?.config?.implementationOnlySteps).toBeUndefined();
   });
 
   /*
