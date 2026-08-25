@@ -684,8 +684,18 @@ export async function executeWorkflowGraph(
           );
           if (principalAdmission) return principalAdmission;
           const live = await deps.store.getTask(nodeTask.id);
-          const name = typeof node.config?.name === "string" ? node.config.name : "";
-          const isCodeReview = node.id === "code-review" || node.config?.reviewKind === "code" || /code review/i.test(name);
+          /*
+          FNXC:WorkflowReviewSeal 2026-08-25-02:10:
+          Structural signals only. The old test also matched `/code review/i` against the display
+          name, which made the seal's central question — "is this THE review that seals the tree?" —
+          depend on a label an operator is free to change. Renaming the gate to "Final Review" would
+          have silently stopped it being recognised as the sealing review while every other gate kept
+          being sealed against it. `reviewKind: "code"` and the node/group id are carried by every
+          built-in and are what the rest of the merge path already keys on.
+          */
+          const isCodeReview = node.id === "code-review"
+            || node.id === "code-review-step"
+            || node.config?.reviewKind === "code";
           /*
           FNXC:WorkflowReviewSeal 2026-08-24-16:20:
           A DETERMINISTIC verification gate is not a writer. It needs a worktree because it runs the

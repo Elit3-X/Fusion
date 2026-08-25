@@ -58,13 +58,22 @@ describe("builtin:coding-ideas-v2 review seal", () => {
   });
 
   it("keeps both write-capable gates strictly before Code Review", () => {
-    // If these ever stop being write-capable the ordering constraint is moot and this
-    // whole ratchet is measuring nothing — so assert the premise, not just the outcome.
-    for (const gateId of ["verification", "documentation-delivery"]) {
-      const gate = ir.nodes.find((node) => node.id === gateId);
-      expect(gate, `${gateId} is missing`).toBeDefined();
-      expect(isWriteCapable(gate!), `${gateId} is expected to be write-capable`).toBe(true);
-    }
+    /*
+    FNXC:WorkflowReviewSeal 2026-08-25-02:10:
+    Assert the PREMISE, not just the outcome, or this ratchet measures nothing.
+    `documentation-delivery` is genuinely write-capable (`toolMode: "coding"`) and is what the seal
+    exists to order. `verification` is NOT: it is a deterministic gate that runs commands and reads
+    exit codes, and it was only ever classified write-capable because the old predicate matched its
+    display NAME. It still runs before the review — not for the seal, but because anything between
+    the review and the merge invalidates the review-diff fingerprint.
+    */
+    const documentation = ir.nodes.find((node) => node.id === "documentation-delivery");
+    expect(documentation, "documentation-delivery is missing").toBeDefined();
+    expect(isWriteCapable(documentation!), "documentation-delivery must be write-capable").toBe(true);
+
+    const verification = ir.nodes.find((node) => node.id === "verification");
+    expect(verification, "verification is missing").toBeDefined();
+    expect(isWriteCapable(verification!), "a deterministic gate must not be classified write-capable").toBe(false);
 
     const chain = successChainFrom(ir, "steps").map((node) => node.id);
     expect(chain.indexOf("verification")).toBeLessThan(chain.indexOf("code-review"));

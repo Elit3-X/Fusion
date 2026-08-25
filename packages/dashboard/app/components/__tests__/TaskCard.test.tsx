@@ -2797,8 +2797,13 @@ describe("TaskCard", () => {
     distinct, additive affordance — it is not replaced by the bar.
     */
     expect(container.querySelector(".card-progress")).not.toBeNull();
-    // The expandable step list stays collapsed until the operator opens it.
-    expect(container.querySelector(".card-steps-list")).toBeNull();
+    /*
+    FNXC:TaskCardWorkflowProgress 2026-08-25-02:10:
+    The list is EXPANDED on arrival in the review lane, as it already was in in-progress. The
+    initial state is computed once per mount and a column move remounts the card, so a card the
+    operator had open collapsed itself at exactly the point its review gates start running.
+    */
+    expect(container.querySelector(".card-steps-list")).not.toBeNull();
   });
 
   /*

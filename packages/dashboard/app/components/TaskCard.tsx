@@ -1115,8 +1115,15 @@ function TaskCardComponent({
     : TIME_INDICATOR_COLUMNS.has(task.column);
 
   const [isSaving, setIsSaving] = useState(false);
+  /*
+  FNXC:TaskCardWorkflowProgress 2026-08-25-02:10:
+  The review lane starts expanded too. This initial state is computed once per mount, and moving a
+  card between columns remounts it, so a card that was expanded in in-progress collapsed the moment
+  it reached review — exactly where a review-column workflow has gates worth watching.
+  */
   const [showSteps, setShowSteps] = useState(
     isWipColumn ||
+    isReviewColumn ||
     (isIntakeColumn && task.steps.some(s => s.status === "done" || s.status === "skipped"))
   );
   const [missionTitle, setMissionTitle] = useState<string | null>(null);
