@@ -95,6 +95,8 @@ export function installPipelineMockScripts(input: {
   readonly behavior?: PipelineScriptedMergeBehavior;
   readonly state?: PipelineMockScriptState;
   readonly observeMockRuntime: () => void;
+  /** Current step statuses, read live so appended remediation work is completed too. */
+  readonly readTaskSteps: () => Promise<string[]>;
 }): void {
   const behavior = input.behavior ?? {};
   const state = input.state ?? { planReviewIndex: 0, codeReviewIndex: 0, implementationCommitted: false };
@@ -268,7 +270,22 @@ export function installPipelineMockScripts(input: {
         state.implementationCommitted = true;
       }
       if (hasTaskUpdateTool) {
-        await context.invokeTool("fn_task_update", { step: 0, status: "done" });
+        /*
+        FNXC:PipelineSmoke 2026-08-24-19:00:
+        Complete EVERY pending step, not only step 0. A review gate that appends named remediation
+        work (`review-remediation-steps`) adds steps beyond the first, and a workflow whose parse
+        node disables trailing-step reopening depends on exactly that mechanism to give the bounced
+        card something to execute. Marking only step 0 left those remediation steps pending forever,
+        so the card could never satisfy the completed-implementation projection and S05
+        ("REVISE twice, then approve") stalled with
+        "did not persist completed implementation-step projection". A real executor finishes the
+        steps it was handed; the mock must too.
+        */
+        const live = await input.readTaskSteps();
+        for (let index = 0; index < Math.max(live.length, 1); index += 1) {
+          if (live[index] && live[index] !== "pending" && live[index] !== "in-progress") continue;
+          await context.invokeTool("fn_task_update", { step: index, status: "done" });
+        }
       }
       /*
       FNXC:PipelineSmoke 2026-08-23-20:23:

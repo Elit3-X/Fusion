@@ -640,6 +640,7 @@ export class PipelineSmokeHarness {
       behavior,
       state: entry.state,
       observeMockRuntime: () => this.guard.assertMockRuntime("mock/scripted"),
+      readTaskSteps: async () => (await this.freshTask(taskId).catch(() => undefined))?.steps?.map((step) => step.status) ?? [],
     });
   }
 
