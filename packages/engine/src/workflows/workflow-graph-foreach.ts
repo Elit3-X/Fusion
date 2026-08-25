@@ -417,20 +417,18 @@ export async function runForeach(
   }
 
   /*
-  FNXC:WorkflowForeachGrowth 2026-08-24-22:10:
-  The sequential region covers steps APPENDED after expansion, not only the pinned snapshot.
-  A review gate using `review-remediation-steps` derives named work from the reviewer's findings and
-  appends it to `task.steps`; with the count pinned, that step never received an instance and stayed
-  `pending` forever, so the merge boundary's foreach coverage never completed and the card
-  terminalized with `merge-boundary-unproven`. Growth is the ONLY relaxation: the pin still governs
-  every step it already covers, a shrinking list is ignored, and the live list is re-read per
-  iteration exactly as the status probe below already does.
-  `maxAppendedStepGrowth` bounds it so a pathological appender cannot spin the region forever; the
-  worktree-isolated path keeps the strict pin because its instances are allocated up front.
+  FNXC:WorkflowForeachGrowth 2026-08-25-03:10:
+  The pin STAYS. A previous revision let this region grow to cover steps appended after expansion,
+  on the theory that named remediation (`review-remediation-steps`) could not otherwise execute its
+  appended work. That measurement came from a configuration that has since been fixed elsewhere, and
+  it no longer reproduces: with the growth removed, the full pipeline-smoke lane passes 89/89,
+  including the dedicated remediation drive that asserts a rejected Code Review produces named steps,
+  runs them, and merges.
+  An engine change to a core execution primitive that no failing test requires is dead weight on a
+  hot path, so it was reverted rather than kept "just in case". If a future case genuinely needs
+  growth, it must arrive with a test that fails without it.
   */
-  const maxAppendedStepGrowth = pinnedStepCount + 64;
-  let effectiveStepCount = pinnedStepCount;
-  for (let stepIndex = 0; stepIndex < effectiveStepCount; stepIndex++) {
+  for (let stepIndex = 0; stepIndex < pinnedStepCount; stepIndex++) {
     if (env.signal?.aborted) {
       return { outcome: "failure", value: "aborted", visitedNodeIds };
     }
@@ -440,9 +438,6 @@ export async function runForeach(
     The workflow graph owns step replay after engine restarts. A shared-isolation foreach pins the step count at expansion, but must read the live projection before each instance so a completed task does not re-run a stale step snapshot and fail on an already-finished `step-execute` node.
     */
     const liveSteps = await Promise.resolve(env.getLiveSteps?.() ?? env.steps).catch(() => env.steps);
-    if (liveSteps.length > effectiveStepCount) {
-      effectiveStepCount = Math.min(liveSteps.length, maxAppendedStepGrowth);
-    }
     const stepStatus = liveSteps[stepIndex]?.status ?? env.steps[stepIndex]?.status;
     if (stepStatus === "done" || stepStatus === "skipped") {
       /*
@@ -458,7 +453,7 @@ export async function runForeach(
     const instanceResult = await runInstance(
       foreachNode,
       stepIndex,
-      effectiveStepCount,
+      pinnedStepCount,
       plan.entry,
       plan.templateById,
       plan.templateOutgoing,
