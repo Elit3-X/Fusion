@@ -407,9 +407,14 @@ export class PipelineSmokeHarness {
   private async drainInFlightExecution(): Promise<void> {
     const deadline = Date.now() + 30_000;
     for (;;) {
-      const busy = [...this.createdTaskIds].filter(
-        (taskId) => executingTaskLock.has(taskId) || activeSessionRegistry.pathsForTask(taskId).length > 0,
-      );
+      /*
+      FNXC:PipelineSmoke 2026-08-25-08:55:
+      Drain `executingTaskLock` ONLY. It means "this task is inside execute() right now", which is
+      the condition teardown must outlive. `activeSessionRegistry` is deliberately NOT consulted:
+      S09 registers a path itself to simulate a live executor holding a worktree, so waiting on the
+      registry waits for a fixture that the scenario never intends to release, and teardown hangs.
+      */
+      const busy = [...this.createdTaskIds].filter((taskId) => executingTaskLock.has(taskId));
       if (busy.length === 0) return;
       if (Date.now() > deadline) {
         throw new Error(`Pipeline smoke teardown timed out waiting for in-flight execution: ${busy.join(", ")}`);

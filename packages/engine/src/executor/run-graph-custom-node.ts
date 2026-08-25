@@ -339,7 +339,7 @@ export async function runGraphCustomNode(
         : undefined,
     });
     if (isDeterministicVerificationGate) {
-      return runDeterministicVerificationGate({ store: deps.store }, node, live, settings, worktreePath);
+      return runDeterministicVerificationGate({ store: deps.store, getRunContextFor: deps.getRunContextFor }, node, executionTarget, settings, worktreePath);
     }
     let prompt = typeof cfg.prompt === "string" ? cfg.prompt : "";
     let modelProvider = typeof cfg.modelProvider === "string" && cfg.modelProvider.trim() ? cfg.modelProvider : undefined;
