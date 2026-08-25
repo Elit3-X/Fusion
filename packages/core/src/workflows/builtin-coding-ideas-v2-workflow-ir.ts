@@ -110,28 +110,30 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   describing a tree that no longer exists. `verification` is the rework-region head (`reworkRegion:
   true`, `maxReworkCycles: 3`), which is what makes these edges legal.
   */
+  /*
+  FNXC:CodingIdeasV2Workflow 2026-08-24-20:40:
+  Push ONLY the genuinely new edges. `completion-summary -> code-review`, `code-review -> merge-gate`
+  and the code-review rework are inherited from Coding (Ideas) and were being re-pushed, so the
+  graph carried each of them twice — a duplicated success edge out of a review gate is a second,
+  competing traversal of the same lane.
+  */
   ir.edges.push(
     { from: "steps", to: "verification", condition: "success" },
     { from: "verification", to: "documentation-delivery", condition: "success" },
     { from: "documentation-delivery", to: "completion-summary", condition: "success" },
-    { from: "completion-summary", to: "code-review", condition: "success" },
-    { from: "code-review", to: "merge-gate", condition: "success" },
     { from: "verification", to: "verification-remediation", condition: "failure" },
     { from: "verification-remediation", to: "verification", condition: "success", kind: "rework" },
-    /*
-    FNXC:ReviewGatedRemediation 2026-08-24-20:10:
-    Code Review rework returns to `code-review`, exactly as the inherited Coding (Ideas) graph does.
-    The remediation node is itself a coding session that fixes the findings and completes the
-    trailing steps it reopened; routing the rework through `verification` instead walked the graph
-    forward past the foreach, so the reopened step was never re-executed, the merge boundary's
-    foreach coverage stayed incomplete, and the card terminalized with
-    `merge-boundary-unproven` / "no pre-merge node result recorded" — measured on S05.
-    Cost, stated: a Code Review REVISE does NOT replay Verification or Documentation & Delivery, so
-    docs written before the review are not regenerated from its findings. Convergence wins over
-    freshness here; re-running them requires the foreach to re-expand, which it cannot yet do.
-    */
-    { from: "code-review-remediation", to: "code-review", condition: "success", kind: "rework" },
   );
+  /*
+  FNXC:ReviewGatedRemediation 2026-08-24-20:10:
+  Code Review rework stays on the INHERITED `code-review-remediation -> code-review` edge. The
+  remediation node is itself a coding session that fixes the findings and completes the trailing
+  steps it reopened; routing that rework through `verification` walked the graph forward past the
+  foreach, so the reopened step was never re-executed and the card terminalized with
+  `merge-boundary-unproven`.
+  Cost, stated: a Code Review REVISE does NOT replay Verification or Documentation & Delivery.
+  Verification rework does replay the doc node, because it re-enters upstream of it.
+  */
   return ir;
 })();
 

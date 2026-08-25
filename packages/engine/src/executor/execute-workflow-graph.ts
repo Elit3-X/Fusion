@@ -725,8 +725,17 @@ export async function executeWorkflowGraph(
           resolve as satisfied. A gate with no passed result still hits the refusal below, which is
           the case the seal exists for.
           */
+          /*
+          FNXC:WorkflowReviewSeal 2026-08-24-20:40:
+          Match the OPTIONAL-GROUP id, not just this node's own id. A gate runs as the group's inner
+          template node (`documentation-delivery-step`) while its result is recorded under the group
+          (`documentation-delivery`), so an id-only comparison never matched and the carve-out below
+          was dead code for every optional group — exactly the shape it exists to protect. Measured
+          on S13: a conflicting merge replayed the already-`skipped` documentation gate, the seal
+          refused it, and the card cycled instead of retrying its merge.
+          */
           const alreadySatisfied = live.workflowStepResults?.some((result) =>
-            result.workflowStepId === node.id
+            (result.workflowStepId === node.id || node.id === `${result.workflowStepId}-step`)
             // `skipped` counts too: a disabled or bypassed gate produced nothing that a replay
             // could legitimately redo, so refusing it only wedges the retry.
             && (result.status === "passed" || result.status === "skipped")
