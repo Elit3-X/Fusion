@@ -354,11 +354,18 @@ export class PipelineSmokeHarness {
 
   async dispose(): Promise<void> {
     try {
+      /*
+      FNXC:PipelineSmoke 2026-08-24-23:10:
+      Stop the engine BEFORE clearing the shared registries. Resetting the mock registry while
+      sessions are still in flight strands them on default scripts mid-teardown, and clearing
+      `activeSessionRegistry` first hides those sessions from the liveness checks the stop path
+      consults. Both are process-global, so the damage lands on whichever file runs next.
+      */
+      await this.engine.stop();
       activeSessionRegistry.clear();
       this.mockScriptStates.clear();
       this.scriptedBranches.clear();
       resetMockScripts();
-      await this.engine.stop();
       this.guard.restore();
       await this.centralCore.close();
       // The shared PG harness owns taskStore.asyncLayer and closes it after this file.
@@ -1218,7 +1225,21 @@ export class PipelineSmokeHarness {
       throw new Error("Pipeline smoke did not resolve the executor's authoritative workflow seams.");
     }
     this.authoritativeSeamsObserved = true;
-    await executor.executeAuthoritativeGraph(task);
+    /*
+    FNXC:PipelineSmoke 2026-08-24-23:10:
+    A revoked merge gate is a DEFERRAL, not a failure. That is FN-180's own contract and the reason
+    it carries a dedicated error type, so callers cannot convert a gate lost mid-merge into a retry
+    or a failed park. It surfaces here when a merge admitted on an earlier turn reaches its
+    ref-advance fence after a REVISE has already returned the card to in-progress: the engine is
+    refusing correctly, and the driver must simply take another turn. Swallowing ONLY this type
+    keeps every other merge failure fatal to the scenario.
+    */
+    try {
+      await executor.executeAuthoritativeGraph(task);
+    } catch (error) {
+      /* Detected by NAME: importing merger-errors.js would break the pre-FN-180 differential run. */
+      if ((error as { name?: string } | undefined)?.name !== "MergeGateRevokedError") throw error;
+    }
     const after = await this.freshTask(taskId);
     if (after.mergeDetails?.mergeConfirmed === true) this.manualHoldTaskIds.delete(taskId);
     return after;
