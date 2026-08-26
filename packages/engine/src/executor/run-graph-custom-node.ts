@@ -815,8 +815,30 @@ export async function runGraphCustomNode(
     const malformed = (outcome as { malformed?: boolean }).malformed === true;
     const advisoryFailureValue = malformed ? "advisory_failure" : "failed";
     /*
-    FNXC:ReviewLeniency 2026-07-02-00:30:
-    Malformed review output (no parseable verdict, even after the fallback-model retry in executeWorkflowStep) is treated as a NON-BLOCKING advisory rather than a hard gate failure. Operators asked that an unparseable reviewer response not block a task in review — a genuine REVISE (parsed verdict) still blocks, and the advisory_failure value keeps the malformed result visible on the Workflow tab. Only `malformed` relaxes a gate; every parsed non-pass verdict continues to block exactly as before.
+    FNXC:ReviewLeniency 2026-07-02-00:30 (SUPERSEDED for blocking gates — see below):
+    Malformed review output (no parseable verdict, even after the fallback-model retry in executeWorkflowStep) was treated as a NON-BLOCKING advisory rather than a hard gate failure. Operators asked that an unparseable reviewer response not block a task in review — a genuine REVISE (parsed verdict) still blocks, and the advisory_failure value keeps the malformed result visible on the Workflow tab.
+
+    FNXC:ReviewLeniency 2026-08-26-09:34:
+    A BLOCKING gate no longer approves on malformed output. Operator decision, reversing the line
+    above with the reason it was missing: "the only valid reason a task can be blocked is an LLM
+    problem (429, 503); everything else is fixed at the source, or the AI is made unable to return
+    anything other than what is expected — and if it does anyway, restart cleanly".
+
+    Restarting cleanly is ALREADY implemented, twice: `executeWorkflowStep` retries a malformed
+    primary on the fallback model, or self-retries once on the primary when no fallback is
+    configured. `malformed` therefore does not mean "one fumbled response" — it means the reviewer
+    failed to return a usable verdict across every attempt, which IS the LLM-class condition the
+    operator accepts as a legitimate stop.
+
+    What it must never mean is APPROVAL. Measured on a real card: a reviewer reported in prose that
+    the deliverables were absent, carried no verdict JSON, and the gate recorded success — unreviewed
+    work merged on a rejection nobody could see. The prose classifier cannot close this: that text
+    contained no rejection marker at all (no "revise", "reject", "must fix"), because it was a
+    factual statement of absence. Only the ABSENCE of a verdict is detectable, so absence must not
+    approve.
+
+    Advisory gates are untouched: `!blocking` still passes, keeping the original operator ask exactly
+    where it applies — a step that was never allowed to hold a card cannot start holding one.
     */
     return {
       /*
@@ -825,7 +847,7 @@ export async function runGraphCustomNode(
       UNAVAILABLE result is never a pass. Returning success here would persist it as passed
       and admit an obsolete Code Review edge.
       */
-      outcome: outcome.success || ((!blocking || malformed) && verdict !== "UNAVAILABLE") ? "success" : "failure",
+      outcome: outcome.success || (!blocking && verdict !== "UNAVAILABLE") ? "success" : "failure",
       value: (outcome as WorkflowStepOutcome).failureValue ?? verdict ?? (outcome.success ? "passed" : advisoryFailureValue),
       ...(Object.keys(contextPatch).length > 0 ? { contextPatch } : {}),
     };
