@@ -337,14 +337,13 @@ interface ListViewProps {
  */
 function shouldShowTaskProgress(task: Task, flags?: Parameters<typeof isWipColumnRole>[0]): boolean {
   /*
-  FNXC:TaskCardWorkflowProgress 2026-08-24-19:30:
-  Review-lane rows must report progress too. A workflow whose Verification and Documentation gates
-  run in the review column has real, advancing work there; suppressing the column left the operator
-  with no signal for the stage they explicitly promoted.
+  FNXC:TaskCardWorkflowProgress 2026-08-25-11:40:
+  The review lane reports its stage through the running-gate BADGE, not a progress count, matching
+  TaskCard. A review-column workflow has few milestones in a fixed order, so a count adds noise
+  without answering anything the badge does not. It also avoids rendering a milestone that no longer
+  exists: the count comes from `enabledWorkflowSteps`, which is frozen on the card at planning time.
   */
-  return task.status === "executing"
-    || isWipColumnRole(flags, task.column)
-    || isReviewColumnRole(flags, task.column);
+  return task.status === "executing" || isWipColumnRole(flags, task.column);
 }
 
 function getTaskProgress(

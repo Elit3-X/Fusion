@@ -1115,15 +1115,8 @@ function TaskCardComponent({
     : TIME_INDICATOR_COLUMNS.has(task.column);
 
   const [isSaving, setIsSaving] = useState(false);
-  /*
-  FNXC:TaskCardWorkflowProgress 2026-08-25-02:10:
-  The review lane starts expanded too. This initial state is computed once per mount, and moving a
-  card between columns remounts it, so a card that was expanded in in-progress collapsed the moment
-  it reached review — exactly where a review-column workflow has gates worth watching.
-  */
   const [showSteps, setShowSteps] = useState(
     isWipColumn ||
-    isReviewColumn ||
     (isIntakeColumn && task.steps.some(s => s.status === "done" || s.status === "skipped"))
   );
   const [missionTitle, setMissionTitle] = useState<string | null>(null);
@@ -1772,9 +1765,21 @@ function TaskCardComponent({
   operator saw nothing for the stage those gates were promoted into. Resolved by TRAIT, not by the
   hardcoded `in-review` id, so a renamed board behaves the same.
   */
+  /*
+  FNXC:TaskCardWorkflowProgress 2026-08-25-11:40:
+  The review lane shows its stage as a BADGE, not a step list. A review-column workflow has few
+  milestones in a fixed order (Code Review -> Documentation -> merge), so the running-gate badge
+  already answers "where is this card", and a list of two rows plus every finished implementation
+  step is noise on a board.
+  It also removes a whole failure mode: the list is built from `task.enabledWorkflowSteps`, which is
+  frozen on the card at planning time, so a card planned before a workflow changed rendered a
+  milestone that no longer exists as permanently `pending`. No list, no ghost.
+  Cost, stated: a non-blocking gate that failed is no longer visible from the board — open the card.
+  Blocking failures still move the card back to in-progress, which is visible.
+  */
   const showProgressSection =
     unifiedProgress.total > 0
-    && (task.status === "executing" || isWipColumn || isReviewColumn);
+    && (task.status === "executing" || isWipColumn);
 
   /*
   FNXC:BoardPerformance 2026-07-26-09:46:

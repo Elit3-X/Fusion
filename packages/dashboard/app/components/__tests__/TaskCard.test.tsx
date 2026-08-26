@@ -2790,20 +2790,15 @@ describe("TaskCard", () => {
     expect(badge).toHaveTextContent(label);
     expect(badge?.className).toContain("pulsing");
     /*
-    FNXC:TaskCardWorkflowProgress 2026-08-25-01:10:
-    The review lane now RENDERS its breakdown: a review-column workflow runs Verification,
-    Documentation & Delivery and Code Review there as real advancing work, and suppressing the
-    section left the operator with no signal for that stage. The running-gate badge remains a
-    distinct, additive affordance — it is not replaced by the bar.
+    FNXC:TaskCardWorkflowProgress 2026-08-25-11:40:
+    The BADGE is the review lane's whole progress affordance: no bar, no counter, no step list.
+    A review-column workflow has few milestones in a fixed order, so the running gate answers "where
+    is this card" on its own. Suppressing the section also removes a real defect: the list is built
+    from `enabledWorkflowSteps`, frozen on the card at planning time, so a card planned before a
+    workflow changed rendered a milestone that no longer exists as permanently `pending`.
     */
-    expect(container.querySelector(".card-progress")).not.toBeNull();
-    /*
-    FNXC:TaskCardWorkflowProgress 2026-08-25-02:10:
-    The list is EXPANDED on arrival in the review lane, as it already was in in-progress. The
-    initial state is computed once per mount and a column move remounts the card, so a card the
-    operator had open collapsed itself at exactly the point its review gates start running.
-    */
-    expect(container.querySelector(".card-steps-list")).not.toBeNull();
+    expect(container.querySelector(".card-progress")).toBeNull();
+    expect(container.querySelector(".card-steps-list")).toBeNull();
   });
 
   /*
