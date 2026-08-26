@@ -29,4 +29,23 @@ describe("review-gated parse-step preservation", () => {
     expect(writes).toEqual([[{ name: "Wire documentation link resolver", status: "pending" }, { name: "Testing & Verification", status: "pending" }]]);
     expect(audits).toContain("implementation-only-leakage");
   });
+
+  /*
+  FNXC:PlanningDocumentationStep 2026-08-26-05:56:
+  A planned `Testing & Verification` step is the INTENDED plan on these workflows — the executor owns
+  testing because a readonly reviewer cannot run commands. Auditing it as review-gate leakage made
+  every card report a problem with its own correct plan, which is how a signal stops being read.
+  */
+  it("does not report leakage for the testing step the planner is meant to emit", async () => {
+    const writes: TaskStep[][] = [];
+    const audits: string[] = [];
+    const runner = new ParseStepsNodeRunner({
+      readArtifact: async () => "### Step 1: Add the retry guard\n### Step 2: Testing & Verification",
+      writeSteps: async (_task, steps) => { writes.push(steps); },
+      audit: (reason) => audits.push(reason),
+    });
+    await runner.run(node({ artifact: "PROMPT.md", parser: "step-headings", implementationOnlySteps: true }), { task: task(), context: {} });
+    expect(writes[0]?.map((step) => step.name)).toEqual(["Add the retry guard", "Testing & Verification"]);
+    expect(audits).not.toContain("implementation-only-leakage");
+  });
 });

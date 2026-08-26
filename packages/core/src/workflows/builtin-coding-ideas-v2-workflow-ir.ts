@@ -9,30 +9,29 @@ import { codeReviewRemediationStepsNode } from "./builtin-workflow-remediation-n
 const clone = (ir: WorkflowIr): WorkflowIr => JSON.parse(JSON.stringify(ir)) as WorkflowIr;
 
 /*
-FNXC:CodingIdeasV2Workflow 2026-08-24-05:35:
+FNXC:CodingIdeasV2Workflow 2026-08-26-05:56:
 Operator intent: keep the Coding (Ideas) board exactly as it is (manual "Ideas" intake, autoTriage
-false), but stop hiding testing and documentation inside the implementation checklist. They become
-VISIBLE review-column gates, and the merge is the last thing that happens after delivery.
+false), and enforce ONE rule the inherited board does not — nothing in `in-review` writes code.
 
-in-progress : steps            = implementation only
-in-review   : verification -> documentation-delivery -> completion-summary -> code-review -> merge
+in-progress : steps (implementation + its tests) -> the executor's own final verification
+in-review   : code-review -> documentation-delivery -> merge
 
-Ordering is NOT cosmetic. `execute-workflow-graph.ts` refuses any write-capable node once a Code
-Review APPROVE exists (`workspace-review-seal-required`): a passed review seals the tree so nothing
-unreviewed can reach main. `verification-step` (its name matches the write-capable classifier) and
-`documentation-delivery-step` (`toolMode: "coding"`) are both write-capable, so both MUST precede
-`code-review`. builtin:review-gated-coding places them after it and therefore deadlocks on every
-task the moment the review approves — that defect is the reason this ordering is explicit here.
+Work and proof of work both finish in `in-progress`. The executor plans and runs its own tests, then
+the FN-3345 gate re-runs the project's configured test/build commands as an independent measurement;
+a red result appends NAMED fix steps to the card instead of letting it advance (see
+bounce-verification-failure.ts). A card only crosses into review once that is green.
 
-`completion-summary` runs BEFORE `code-review`, matching the inherited graph. It escapes the review
-seal (it is `toolMode: "readonly"`, so the write-capable classifier ignores it), which made "summary
-last, so it can describe the approved state" look correct — and it is wrong. The node still acquires
-a task worktree, and ANY node running between the review and the merge changes the tree the review
-approved, so `canMergeTask` refuses with "task has no provable approval for the content being
-merged" (FN-180's review-diff fingerprint). Measured: the pipeline-smoke S01 run on this workflow
-failed exactly there, then looped through verification-remediation. The seal is not the only thing
-ordering these nodes; the merge fingerprint is the other, and it is stricter.
-It stays best-effort with a success-only edge — a summary failure must never wedge a task.
+`in-review` is then three read-only milestones. Code Review judges the work — it is the only gate
+that can hold the card. Documentation reports on it. The merge is the last thing that happens.
+
+Ordering is still NOT cosmetic, for a stricter reason than the review seal: ANY node that runs
+between the review and the merge changes the tree the review approved, so `canMergeTask` refuses
+with "task has no provable approval for the content being merged" (FN-180's review-diff
+fingerprint). Measured on pipeline-smoke S01, where a readonly completion-summary node placed after
+the review failed exactly there — readonly was not enough, because it still acquired a worktree.
+Documentation may follow the review ONLY because it writes nothing at all: no repository files, no
+worktree-visible change. The write-capable seal (`workspace-review-seal-required`) is the second,
+weaker constraint on this ordering.
 */
 const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   const ir = clone(BUILTIN_CODING_IDEAS_WORKFLOW_IR);
@@ -178,20 +177,10 @@ unhandled failure modes.`;
   ir.edges = ir.edges.filter((edge) => edge.from !== "completion-summary" && edge.to !== "completion-summary");
 
   /*
-  FNXC:CodingIdeasV2Workflow 2026-08-24-05:35:
-  Both remediation loops re-enter at `verification`, never directly at `code-review`. That is what
-  keeps the documentation honest: a REVISE sends the fix back to in-progress, then the walk replays
-  verification AND documentation-delivery, so the docs and changeset are regenerated to include what
-  the review demanded before it re-reads them. Re-entering at `code-review` would leave the docs
-  describing a tree that no longer exists. `verification` is the rework-region head (`reworkRegion:
-  true`, `maxReworkCycles: 3`), which is what makes these edges legal.
-  */
-  /*
   FNXC:CodingIdeasV2Workflow 2026-08-24-20:40:
-  Push ONLY the genuinely new edges. `completion-summary -> code-review`, `code-review -> merge-gate`
-  and the code-review rework are inherited from Coding (Ideas) and were being re-pushed, so the
-  graph carried each of them twice — a duplicated success edge out of a review gate is a second,
-  competing traversal of the same lane.
+  Push ONLY the genuinely new edges. `code-review -> merge-gate` and the code-review rework are
+  inherited from Coding (Ideas) and were being re-pushed, so the graph carried each of them twice —
+  a duplicated success edge out of a review gate is a second, competing traversal of the same lane.
   */
   /* `code-review -> merge-gate` is inherited and must not survive: Documentation now sits between them. */
   ir.edges = ir.edges.filter((edge) => !(edge.from === "code-review" && edge.to === "merge-gate"));

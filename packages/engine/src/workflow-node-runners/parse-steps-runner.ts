@@ -133,9 +133,20 @@ export class ParseStepsNodeRunner implements WorkflowNodeRunner {
       return step;
     });
     if (cfg.implementationOnlySteps === true) {
-      const leakage = steps.filter((step) => /(^|[^a-z])(testing|verification|documentation|delivery)([^a-z]|$)/i.test(step.name));
+      /*
+      FNXC:PlanningDocumentationStep 2026-08-26-05:56:
+      TESTING IS NO LONGER LEAKAGE. This audit used to flag `testing|verification` too, from the
+      revision that moved test execution into a review-column gate. That reversed: a readonly
+      reviewer cannot run commands, so testing belongs to the executor and the planner emits a
+      `Testing & Verification` step ON PURPOSE. Flagging it made every card on such a workflow report
+      review-gate leakage for its own intended plan, which trains an operator to ignore the signal.
+      Documentation and delivery ARE still leakage: those are produced by the in-review Documentation
+      milestone, and a step planning them is duplicated work (see stripDocumentationDeliveryStep).
+      Detection stays deliberately non-destructive — an implementation step name can legitimately
+      contain these words.
+      */
+      const leakage = steps.filter((step) => /(^|[^a-z])(documentation|delivery)([^a-z]|$)/i.test(step.name));
       if (leakage.length > 0) {
-        // Detection is deliberately non-destructive: implementation names can legitimately contain these words.
         this.audit("implementation-only-leakage", `parse-steps node '${node.id}' detected possible review-gate work: ${leakage.map((step) => step.name).join(", ")}`);
       }
     }
