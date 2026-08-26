@@ -19,6 +19,7 @@ import { getErrorMessage } from "@fusion/core";
 import { PLANNER_AGENT_ROLE } from "@fusion/core";
 import { linkifyFilePaths } from "../utils/filePathLinkify";
 import { formatRelativeTimeAgo } from "../utils/relativeTimeAgo";
+import { AiDisclosure } from "./AiDisclosure";
 import { ProviderIcon } from "./ProviderIcon";
 import { PreciseTimestamp } from "./PreciseTimestamp";
 import {
@@ -1216,6 +1217,13 @@ export function TaskChatTab({ task, columnFlags, projectId, active, addToast, on
                     </div>
                   </div>
                 </header>
+                <AiDisclosure
+                  kind="generated-output"
+                  provider={modelInfo?.provider}
+                  modelId={modelInfo?.modelId}
+                  compact
+                  testId={`task-chat-ai-disclosure-${itemIndex}`}
+                />
                 <div className="task-chat-group-bubbles">
                   {segments.map((segment) => {
                     /*

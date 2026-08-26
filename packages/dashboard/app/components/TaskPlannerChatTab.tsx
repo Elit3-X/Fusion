@@ -1586,6 +1586,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
                     showAssistantModelTag={Boolean(activeModelTag)}
                     activeModelTag={activeModelTag}
                     activeModelProvider={displayedModelProvider ?? null}
+                    activeModelId={displayedModelId ?? null}
                     toolCallRenderer={(toolCall, index) => renderPlannerToolCall(message, toolCall, index)}
                   />
                 );
@@ -1608,6 +1609,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
                   showAssistantModelTag={Boolean(activeModelTag)}
                   activeModelTag={activeModelTag}
                   activeModelProvider={displayedModelProvider ?? null}
+                  activeModelId={displayedModelId ?? null}
                   activeSessionId={sessionId}
                   projectId={projectId}
                   isAwaitingQuestionAnswer={message.role === "assistant"}
@@ -1634,6 +1636,7 @@ export function TaskPlannerChatTab({ task, columnFlags, projectId, active, expan
                 showAssistantModelTag={Boolean(activeModelTag)}
                 activeModelTag={activeModelTag}
                 activeModelProvider={displayedModelProvider ?? null}
+                activeModelId={displayedModelId ?? null}
               />
             )}
           </>
