@@ -1201,10 +1201,41 @@ export class PipelineSmokeHarness {
    * Restart the real engine from a confirmed-but-not-finalized durable row and prove that exactly
    * one fast-path finalization resumes without replaying any graph work item or merge body.
    */
+  /*
+  FNXC:PipelineSmoke 2026-08-26-07:52:
+  SETTLE AFTER A RESTART, NEVER SNAPSHOT IT.
+
+  A restarted engine finalizes a merge-confirmed row through its own asynchronous startup recovery.
+  Reading the row once, immediately, asks "has recovery finished?" at an arbitrary instant and treats
+  "not yet" as "never" — which sends the caller down the `admitAndMerge` fallback. That fallback
+  cannot succeed here BY CONSTRUCTION: staging deliberately replaced the row's step results with a
+  single PENDING code-review row and its steps with a pending stale step, so merge admission is
+  correctly refused and the scenario fails with "post-merge restart parked finalization".
+
+  So the test's outcome depended on whether recovery beat a single read — passing in isolation (19/19
+  across 8 runs) and failing intermittently under full-lane load, where the machine is busy. That is a
+  property of how fast the suite happens to run, not of the product. `builtin:coding-ideas-v2` is the
+  variant that surfaced it because its extra in-review milestone lands the restart in the racy window
+  more often.
+
+  Same remedy and same shape as `settleActiveMerge` and FN-WF's earlier `driveToManualMergeHold` fix:
+  a BOUNDED event-loop drain, not a wall-clock wait. It costs nothing when recovery has already
+  finished, and it cannot mask a genuine hang — exhausting the budget still falls through to the
+  fallback, which reports the real refusal.
+  */
+  private async settleRestartFinalization(task: PipelineTaskSeed): Promise<Task> {
+    let current = await this.freshTask(task.id);
+    for (let tick = 0; tick < 200 && current.column !== task.completeColumn; tick += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      current = await this.freshTask(task.id);
+    }
+    return current;
+  }
+
   async restartPostMergeFinalization(task: PipelineTaskSeed): Promise<PipelineScenarioResult> {
     const staged = await this.stageConfirmedMergeForFinalization(task, { status: "merging" });
     const restarted = await this.restartComposition(task.id, { restartEngine: true });
-    const afterRestart = await this.freshTask(task.id);
+    const afterRestart = await this.settleRestartFinalization(task);
     if (afterRestart.mergeDetails?.mergeConfirmed !== true) {
       throw new Error("S17: restart lost durable post-merge proof before finalization.");
     }
