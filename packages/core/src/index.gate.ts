@@ -1121,6 +1121,7 @@ export {
   getTaskHardMergeBlocker,
   getMergeConfirmedFinalizationBlocker,
   getUnfinishedStepTitles,
+  hasNonTerminalSteps,
   REVIEW_ELIGIBLE_SENTINEL_COLUMN,
   MERGE_CONFIRMED_TRANSIENT_STATUSES,
   clearMergeConfirmedTransientStatus,

@@ -337,6 +337,25 @@ const NON_TERMINAL_STEP_STATUSES = new Set([
   "in-progress",
 ]);
 
+/*
+FNXC:MergeBlockerReasons 2026-08-26-11:40:
+The RULE behind the "task has incomplete steps" blocker, exported so a caller can ask the question
+instead of matching the sentence.
+
+`merge-confirmed-finalize.ts` carved out one case — a no-op merge with no landed commit whose work is
+unfinished must fall through to stale-merge cleanup rather than consume the run — by comparing the
+blocker reason with `===` against that exact string. The merge-authority work then made refusals more
+informative, so a card in an error state reports `task is marked 'failed': … task has incomplete
+steps`. Same meaning, different sentence, and the carve-out silently stopped applying: a filter
+pinned to "subject is exactly Invoice" once invoices began arriving as "Invoice — March 2026".
+
+A blocker MESSAGE is written for an operator to read and will be reworded again. The condition it
+describes is what callers actually mean, so give them that.
+*/
+export function hasNonTerminalSteps(task: Pick<Task, "steps">): boolean {
+  return (task.steps ?? []).some((step) => NON_TERMINAL_STEP_STATUSES.has(step.status));
+}
+
 const NON_TERMINAL_WORKFLOW_STATUSES = new Set<WorkflowStepResult["status"]>([
   "pending",
 ]);
