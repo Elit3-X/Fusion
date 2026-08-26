@@ -45,103 +45,100 @@ describe("builtin:coding-ideas-v2", () => {
   between the review and the merge invalidates FN-180's review-diff fingerprint:
   "task has no provable approval for the content being merged". Measured in pipeline-smoke S01.
   */
-  it("runs verify -> document -> summarize -> review -> merge in review", () => {
+  /*
+  FNXC:CodingIdeasV2Workflow 2026-08-25-10:20:
+  In-review is THREE milestones: Code Review -> Documentation -> Delivery (the merge nodes).
+  The previous shape ran a separate deterministic `verification` gate and a `completion-summary`
+  node. Both are gone: Code Review runs the commands itself so one node owns the verdict, and
+  Documentation writes the card summary in the same pass as the delivery note.
+  */
+  it("runs review -> document -> merge in review", () => {
     expect(successChainFrom("steps")).toEqual([
-      "verification",
-      "documentation-delivery",
-      "completion-summary",
       "code-review",
+      "documentation-delivery",
       "merge-gate",
     ]);
 
-    for (const nodeId of ["verification", "documentation-delivery", "code-review", "completion-summary"]) {
+    for (const nodeId of ["code-review", "documentation-delivery"]) {
       expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === nodeId)?.column)
         .toBe("in-review");
     }
+    for (const removed of ["verification", "verification-remediation", "completion-summary"]) {
+      expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.some((node) => node.id === removed), `${removed} must be gone`).toBe(false);
+      expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.edges.some((edge) => edge.from === removed || edge.to === removed)).toBe(false);
+    }
 
-    // Coding (Ideas) carries no post-merge-verification node, so V2 inherits none either.
     expect(resolveWorkflowOptionalSteps(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR).map((step) => step.templateId))
-      .toEqual(["plan-review", "verification", "documentation-delivery", "code-review"]);
-    expect(resolveRequiredPreMergeStepIds(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR, undefined))
-      .toEqual(new Set(["plan-review", "verification", "documentation-delivery", "code-review"]));
+      .toEqual(["plan-review", "code-review", "documentation-delivery"]);
   });
 
   /*
-  FNXC:CodingIdeasV2Workflow 2026-08-24-05:35:
-  Both remediation loops must re-enter at `verification`, never at `code-review`. A REVISE has to
-  replay documentation-delivery so the docs and changeset are regenerated to include what the review
-  demanded; re-entering at the review would merge documentation describing a superseded tree.
+  FNXC:CodingIdeasV2Workflow 2026-08-25-10:20:
+  Code Review is the ONLY gate that can hold a card, so its verdict must rest on commands it ran
+  itself. The prompt is augmented rather than edited so the shared reviewer used by builtin:coding
+  and builtin:coding-ideas is untouched; the evidence rule is what stops a reviewer asserting "tests
+  pass" in prose, which is the same false green a silently-passing gate produced mechanically.
   */
-  /*
-  FNXC:ReviewGatedRemediation 2026-08-24-20:10:
-  Verification rework re-enters `verification` — a failing test needs re-running, and the doc node
-  downstream is replayed with it. Code Review rework returns to `code-review`, as the inherited graph
-  does: its remediation node is a coding session that completes the trailing steps the REVISE
-  reopened, and routing it through `verification` walked past the foreach so the reopened step was
-  never re-executed and the merge boundary refused with `merge-boundary-unproven` (measured on S05).
-  Cost, stated rather than hidden: a Code Review REVISE does not regenerate the documentation.
-  */
-  it("routes each rework to the stage that can actually redo the work", () => {
-    expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.edges).toEqual(expect.arrayContaining([
-      { from: "verification", to: "verification-remediation", condition: "failure" },
-      { from: "code-review", to: "code-review-remediation", condition: "failure" },
-      { from: "verification-remediation", to: "verification", condition: "success", kind: "rework" },
-      { from: "code-review-remediation", to: "code-review", condition: "success", kind: "rework" },
-    ]));
-    // Verification rework replays the docs, because the doc node sits downstream of it.
-    expect(successChainFrom("verification")).toContain("documentation-delivery");
+  it("makes Code Review run the checks and forbids a verdict without execution evidence", () => {
+    const template = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "code-review")?.config?.template as
+      { nodes?: Array<{ id: string; config?: { prompt?: string } }> } | undefined;
+    const prompt = template?.nodes?.find((node) => node.id === "code-review-step")?.config?.prompt ?? "";
 
-    for (const remediationId of ["verification-remediation", "code-review-remediation"]) {
-      expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === remediationId)?.column)
-        .toBe("in-progress");
+    expect(prompt).toContain("fn_run_verification");
+    expect(prompt).toContain("NEVER claim a check passed without its output");
+    expect(prompt).toContain("A non-zero exit is REVISE");
+    // Absent commands are reported, never treated as a failure: that was never the merge contract.
+    expect(prompt).toContain("do not treat the absence as failure");
+
+    // The shared reviewer keeps its original prompt for the other built-ins.
+    const inherited = BUILTIN_CODING_IDEAS_WORKFLOW_IR.nodes.find((node) => node.id === "code-review")?.config?.template as
+      { nodes?: Array<{ id: string; config?: { prompt?: string } }> } | undefined;
+    expect(inherited?.nodes?.find((node) => node.id === "code-review-step")?.config?.prompt ?? "")
+      .not.toContain("fn_run_verification");
+  });
+
+  /*
+  FNXC:DocumentationMilestone 2026-08-25-10:20:
+  Documentation REPORTS: it never vetoes and never writes the repository. Both properties are load
+  bearing. As a blocking gate it bounced a task whose own plan forbade implementing anything, and the
+  card then looped through the review lane every five minutes indefinitely. As a repository writer it
+  had to be forced ahead of the review, because content changing after approval is exactly what the
+  review seal refuses.
+  */
+  it("makes Documentation advisory and repository-read-only, after the review", () => {
+    const template = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "documentation-delivery")?.config?.template as
+      { nodes?: Array<{ id: string; config?: Record<string, unknown> }> } | undefined;
+    const config = template?.nodes?.find((node) => node.id === "documentation-delivery-step")?.config ?? {};
+
+    expect(config.gateMode).toBe("advisory");
+    expect(config.toolMode).toBe("readonly");
+    expect(String(config.prompt)).toContain("Do NOT modify repository files");
+    // It absorbs the former completion-summary milestone.
+    expect(String(config.prompt)).toContain("fn_task_done(summary=");
+
+    // Failure reaches the merge exactly like success: a delivery note cannot strand approved code.
+    for (const condition of ["success", "failure"]) {
+      expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.edges).toContainEqual(
+        { from: "documentation-delivery", to: "merge-gate", condition },
+      );
     }
   });
 
-  /*
-  FNXC:ReviewGatedRemediation 2026-08-24-14:40:
-  BOTH gates must derive named remediation steps. `review-remediation-steps` appends numbered work
-  to `task.steps` from the reviewer's findings and widens the PROMPT.md File Scope, so a bounced card
-  arrives in in-progress with visible work; the inherited `pre-merge-remediation` returns it with an
-  unchanged checklist. Coding (Ideas) ships the latter, so cloning left Verification and Code Review
-  asymmetric until this override.
-  */
-  /*
-  FNXC:ReviewGatedRemediation 2026-08-24-18:30:
-  Both gates must append NAMED remediation steps, because this workflow also sets the parse node's
-  `implementationOnlySteps` + `preserveRemediationSteps`, which `resolveStepReopenPolicy` reads as
-  reopen policy "none". The two are a matched pair: with trailing-step reopening disabled, a
-  remediation that appends nothing returns the card to in-progress with every step already done and
-  nothing left to execute. Inheriting Coding (Ideas)' `pre-merge-remediation` stalled the card after
-  a Code Review REVISE.
-  */
-  /*
-  FNXC:ReviewGatedRemediation 2026-08-24-20:10:
-  Named remediation (`review-remediation-steps`) is UNAVAILABLE to a foreach-executed workflow: the
-  parse node preserves an appended step and then answers `already-expanded`, because the foreach is
-  pinned to the list it first expanded, so that step never receives an instance and stays `pending`
-  forever. Code Review therefore keeps the inherited `pre-merge-remediation`, which reopens trailing
-  steps the foreach already owns. Change this only together with a foreach that can re-expand.
-  */
-  /*
-  FNXC:ReviewGatedRemediation 2026-08-24-22:10:
-  A rejected review appends NAMED work derived from its findings, so a bounced card arrives in
-  in-progress showing exactly what must be fixed. This depends on the foreach covering steps
-  appended after expansion (`FNXC:WorkflowForeachGrowth`); with the count pinned, an appended step
-  never received an instance and stayed `pending` forever.
-  */
-  it("appends named remediation steps for both review gates", () => {
+  it("returns a rejected review to in-progress as named work", () => {
+    expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.edges).toEqual(expect.arrayContaining([
+      { from: "code-review", to: "code-review-remediation", condition: "failure" },
+      { from: "code-review-remediation", to: "code-review", condition: "success", kind: "rework" },
+    ]));
+    expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "code-review-remediation")?.column)
+      .toBe("in-progress");
+
     const parse = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "parse")?.config;
     expect(parse?.preserveRemediationSteps).toBe(true);
     expect(parse?.implementationOnlySteps).toBe(true);
 
-    for (const [remediationId, gateId] of [
-      ["verification-remediation", "verification"],
-      ["code-review-remediation", "code-review"],
-    ]) {
-      const config = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === remediationId)?.config;
-      expect(config?.workflowAction, `${remediationId} must append named steps`).toBe("review-remediation-steps");
-      expect(config?.forWorkflowStepId).toBe(gateId);
-    }
+    const config = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "code-review-remediation")?.config;
+    expect(config?.workflowAction, "code-review-remediation must append named steps").toBe("review-remediation-steps");
+    expect(config?.forWorkflowStepId).toBe("code-review");
 
     // The inherited workflow reopens trailing steps instead, and must stay that way.
     expect(BUILTIN_CODING_IDEAS_WORKFLOW_IR.nodes.find((node) => node.id === "code-review-remediation")?.config?.workflowAction)

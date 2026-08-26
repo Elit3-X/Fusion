@@ -17,7 +17,7 @@ describe("builtin:review-gated-coding", () => {
       { templateId: "plan-review", name: "Plan Review", description: "", phase: "pre-merge", defaultOn: true },
       { templateId: "verification", name: "Verification", description: "", phase: "pre-merge", defaultOn: true },
       { templateId: "code-review", name: "Code Review", description: "", phase: "pre-merge", defaultOn: true },
-      { templateId: "documentation-delivery", name: "Documentation & Delivery", description: "", phase: "pre-merge", defaultOn: true },
+      { templateId: "documentation-delivery", name: "Documentation", description: "", phase: "pre-merge", defaultOn: true },
       { templateId: "post-merge-verification", name: "Post-merge verification", description: "", phase: "post-merge", defaultOn: false },
     ]);
     expect(resolveRequiredPreMergeStepIds(BUILTIN_REVIEW_GATED_CODING_WORKFLOW_IR, undefined))

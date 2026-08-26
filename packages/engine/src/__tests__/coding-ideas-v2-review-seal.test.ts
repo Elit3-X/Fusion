@@ -57,40 +57,47 @@ describe("builtin:coding-ideas-v2 review seal", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps both write-capable gates strictly before Code Review", () => {
-    /*
-    FNXC:WorkflowReviewSeal 2026-08-25-02:10:
-    Assert the PREMISE, not just the outcome, or this ratchet measures nothing.
-    `documentation-delivery` is genuinely write-capable (`toolMode: "coding"`) and is what the seal
-    exists to order. `verification` is NOT: it is a deterministic gate that runs commands and reads
-    exit codes, and it was only ever classified write-capable because the old predicate matched its
-    display NAME. It still runs before the review — not for the seal, but because anything between
-    the review and the merge invalidates the review-diff fingerprint.
-    */
-    const documentation = ir.nodes.find((node) => node.id === "documentation-delivery");
-    expect(documentation, "documentation-delivery is missing").toBeDefined();
-    expect(isWriteCapable(documentation!), "documentation-delivery must be write-capable").toBe(true);
+  /*
+  FNXC:WorkflowReviewSeal 2026-08-25-10:20:
+  The seal invariant became STRONGER, not weaker: the review lane now contains NO write-capable node
+  at all, so there is nothing to order against Code Review.
+  Previously two gates ran in in-review and had to be forced ahead of the review: a deterministic
+  `verification` gate (classified write-capable only because the old predicate matched its display
+  NAME), and `documentation-delivery`, which wrote repository docs. Verification is gone — Code
+  Review runs the commands itself — and Documentation no longer touches the repository, so it may
+  legally follow the review, which is the ordering its own author always intended.
+  Assert the PREMISE too: an empty review lane would make this vacuously true.
+  */
+  it("runs no write-capable node anywhere in the review lane", () => {
+    const reviewLane = ir.nodes.filter((node) => node.column === "in-review");
+    expect(reviewLane.map((node) => node.id)).toEqual(expect.arrayContaining([
+      "code-review", "documentation-delivery", "merge-gate",
+    ]));
 
-    const verification = ir.nodes.find((node) => node.id === "verification");
-    expect(verification, "verification is missing").toBeDefined();
-    expect(isWriteCapable(verification!), "a deterministic gate must not be classified write-capable").toBe(false);
-
-    const chain = successChainFrom(ir, "steps").map((node) => node.id);
-    expect(chain.indexOf("verification")).toBeLessThan(chain.indexOf("code-review"));
-    expect(chain.indexOf("documentation-delivery")).toBeLessThan(chain.indexOf("code-review"));
     /*
-    Not seal-driven but merge-driven: `completion-summary` escapes the write-capable classifier
-    (readonly) yet still acquires a worktree, and any node between the review and the merge
-    invalidates FN-180's review-diff fingerprint ("no provable approval for the content being
-    merged"). Nothing may sit between them.
+    `code-review` is itself write-capable and must stay so: the reviewer fixes findings inline, which
+    happens BEFORE it issues its own verdict, so it cannot invalidate an approval that does not yet
+    exist. The seal governs what runs AFTER the sealer — which is why it is the one exclusion here,
+    and why the exclusion is named rather than filtered away silently.
     */
-    expect(chain.indexOf("completion-summary")).toBeLessThan(chain.indexOf("code-review"));
-    expect(chain[chain.indexOf("code-review") + 1]).toBe("merge-gate");
+    const offenders = reviewLane.filter((node) => node.id !== "code-review" && isWriteCapable(node)).map((node) => node.id);
+    expect(offenders, "no node other than the reviewer may write in the review lane").toEqual([]);
+    expect(isWriteCapable(ir.nodes.find((node) => node.id === "code-review")!), "the reviewer keeps its inline-fix capability").toBe(true);
   });
 
-  it("keeps the completion summary readonly so it may run after the seal", () => {
-    const summary = ir.nodes.find((node) => node.id === "completion-summary");
-    expect(summary?.config?.toolMode).toBe("readonly");
-    expect(isWriteCapable(summary!)).toBe(false);
+  /*
+  FNXC:WorkflowReviewSeal 2026-08-25-10:20:
+  Documentation may follow the review ONLY because it cannot write the repository. If someone
+  restores `toolMode: "coding"` here, the card silently regains the FN-175 shape: content mutating
+  after the approval that is supposed to cover it. This is the assertion that catches that.
+  */
+  it("lets Documentation follow the review because it cannot write the repository", () => {
+    const documentation = ir.nodes.find((node) => node.id === "documentation-delivery");
+    expect(documentation, "documentation-delivery is missing").toBeDefined();
+    expect(isWriteCapable(documentation!), "Documentation must not be write-capable if it runs after the review").toBe(false);
+
+    const chain = successChainFrom(ir, "steps").map((node) => node.id);
+    expect(chain.indexOf("code-review")).toBeLessThan(chain.indexOf("documentation-delivery"));
+    expect(chain[chain.indexOf("documentation-delivery") + 1]).toBe("merge-gate");
   });
 });

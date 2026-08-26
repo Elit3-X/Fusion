@@ -1,9 +1,9 @@
 import type { WorkflowIr } from "./workflow-ir-types.js";
 import { parseWorkflowIr } from "./workflow-ir.js";
 import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./builtin-coding-ideas-workflow-ir.js";
-import { verificationOptionalGroupNode } from "./builtin-verification-gate-group.js";
+
 import { documentationDeliveryOptionalGroupNode } from "./builtin-documentation-delivery-group.js";
-import { codeReviewRemediationStepsNode, verificationRemediationNode } from "./builtin-workflow-remediation-nodes.js";
+import { codeReviewRemediationStepsNode } from "./builtin-workflow-remediation-nodes.js";
 import { builtinPromptConfig, builtinSeamPrompt } from "./builtin-workflow-prompts.js";
 import { applyImplementationOnlyStepReview } from "./builtin-plan-review-group.js";
 
@@ -94,10 +94,58 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   The planner is still constrained — that is the SEAM PROMPT's job, not this flag, which only audits.
   */
 
+  /*
+  FNXC:CodingIdeasV2Workflow 2026-08-25-10:20:
+  In-review is THREE milestones: Code Review -> Documentation -> Delivery (the merge).
+
+  A separate deterministic `Verification` gate is deliberately GONE. It duplicated the executor's
+  own verification, it produced a green badge on projects that had configured no command, and it
+  split the merge evidence across two authorities that could disagree. Code Review now RUNS the
+  commands itself and rules on their real output, so exit codes still decide and one node owns the
+  verdict.
+
+  `completion-summary` is gone as a milestone too: the card summary is written by Documentation in
+  the same pass as the delivery note, which removes one model call per card.
+
+  Documentation runs AFTER the review — the ordering the original documentation-delivery node always
+  intended ("runs after passing verification and code review") and which the review seal previously
+  forbade. It is legal now because Documentation no longer writes the repository: it records a
+  Fusion-side delivery note, artifacts, follow-ups, and the card summary. Repository documentation
+  is the EXECUTOR's call during implementation, where it is reviewed with the code it documents.
+  */
   const codeReviewIndex = ir.nodes.findIndex((node) => node.id === "code-review");
   if (codeReviewIndex < 0) throw new Error("coding-ideas-v2 requires the inherited code-review gate");
-  ir.nodes.splice(codeReviewIndex, 0, verificationOptionalGroupNode("in-review"), documentationDeliveryOptionalGroupNode("in-review"));
-  ir.nodes.push(verificationRemediationNode());
+  /*
+  FNXC:CodingIdeasV2Workflow 2026-08-25-10:20:
+  Code Review RUNS the checks here; it does not receive someone else's verdict. The shared prompt is
+  AUGMENTED rather than edited, so `builtin:coding` and `builtin:coding-ideas` keep the reviewer they
+  have always had.
+  The evidence requirement is the whole point. A reviewer that may state "tests pass" without
+  running anything reproduces, in prose, the false green a silently-passing gate produced
+  mechanically — and a fluent claim is harder to spot than a 46ms step. Absent commands report that
+  fact instead of blocking: a project that never configured verification has never been refused a
+  merge on that basis, and this is not the place to change that contract.
+  */
+  const codeReviewStep = (ir.nodes[codeReviewIndex]?.config?.template as { nodes?: Array<{ id: string; config?: Record<string, unknown> }> } | undefined)
+    ?.nodes?.find((node) => node.id === "code-review-step");
+  if (!codeReviewStep?.config) throw new Error("coding-ideas-v2 requires the inherited code-review-step template node");
+  codeReviewStep.config.prompt = `${String(codeReviewStep.config.prompt ?? "")}
+
+## Step 0: Run the checks yourself (do this FIRST)
+
+This review is the only gate before merge, so the verdict must rest on real command output.
+
+1. Determine the project's lint, test, and build commands. Prefer explicitly configured commands; otherwise infer them from the repository (package scripts, Makefile, CI config).
+2. Run them with \`fn_run_verification\`, scoped to what the change touches. Do NOT run a full workspace suite as your normal path.
+3. Quote, in your review, each command you ran with its exit code and the tail of its output.
+
+Rules that are not negotiable:
+- A non-zero exit is REVISE. State which command failed and the failing output.
+- NEVER claim a check passed without its output in your review. A verdict with no execution evidence is invalid.
+- If no command is determinable, say so explicitly ("no lint/test/build command could be determined") and review the diff on its merits. Do not invent a command, and do not treat the absence as failure.`;
+  ir.nodes.splice(codeReviewIndex + 1, 0, documentationDeliveryOptionalGroupNode("in-review"));
+  const summaryIndex = ir.nodes.findIndex((node) => node.id === "completion-summary");
+  if (summaryIndex >= 0) ir.nodes.splice(summaryIndex, 1);
   /*
   FNXC:ReviewGatedRemediation 2026-08-24-18:30:
   Both gates MUST derive named remediation steps, because this workflow also sets the parse node's
@@ -116,9 +164,8 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   /* Code Review keeps the inherited `pre-merge-remediation`, which reopens trailing steps the
      foreach already owns. See the parse-node note above. */
 
-  ir.edges = ir.edges.filter((edge) => !(
-    (edge.from === "steps" && edge.to === "completion-summary")
-  ));
+  /* Every inherited edge touching `completion-summary` dies with the node; the lane is rebuilt below. */
+  ir.edges = ir.edges.filter((edge) => edge.from !== "completion-summary" && edge.to !== "completion-summary");
 
   /*
   FNXC:CodingIdeasV2Workflow 2026-08-24-05:35:
@@ -136,12 +183,21 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   graph carried each of them twice — a duplicated success edge out of a review gate is a second,
   competing traversal of the same lane.
   */
+  /* `code-review -> merge-gate` is inherited and must not survive: Documentation now sits between them. */
+  ir.edges = ir.edges.filter((edge) => !(edge.from === "code-review" && edge.to === "merge-gate"));
   ir.edges.push(
-    { from: "steps", to: "verification", condition: "success" },
-    { from: "verification", to: "documentation-delivery", condition: "success" },
-    { from: "documentation-delivery", to: "completion-summary", condition: "success" },
-    { from: "verification", to: "verification-remediation", condition: "failure" },
-    { from: "verification-remediation", to: "verification", condition: "success", kind: "rework" },
+    { from: "steps", to: "code-review", condition: "success" },
+    { from: "code-review", to: "documentation-delivery", condition: "success" },
+    { from: "documentation-delivery", to: "merge-gate", condition: "success" },
+    /*
+    FNXC:CodingIdeasV2Workflow 2026-08-25-10:20:
+    Documentation is ADVISORY: it reports, it never vetoes. Its failure edge reaches the merge gate
+    exactly like its success edge, so a delivery note that could not be written cannot strand a
+    card whose code is already approved. Measured why: as a blocking gate it bounced a task whose
+    own plan said not to implement anything ("No task-specific implementation is present"), and the
+    card looped through the review lane every five minutes indefinitely.
+    */
+    { from: "documentation-delivery", to: "merge-gate", condition: "failure" },
   );
   /*
   FNXC:ReviewGatedRemediation 2026-08-24-20:10:

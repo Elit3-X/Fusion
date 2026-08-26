@@ -237,14 +237,36 @@ describe("built-in workflows", () => {
     }
   });
 
-  it("all built-in workflows generate a task completion summary as a graph node", () => {
+  /*
+  FNXC:WorkflowCompletion 2026-08-25-10:20:
+  The invariant is that every built-in PRODUCES a card summary, not that it owns a node called
+  `completion-summary`. `builtin:coding-ideas-v2` folds the summary into its Documentation milestone,
+  writing it in the same pass as the delivery note and saving a model call per card. Pinning the node
+  id would have forced a second read-only session that exists only to satisfy a test.
+  What must NOT weaken: a workflow with neither a summary node nor a summary-writing milestone still
+  fails here, so a future built-in cannot ship with no card summary at all.
+  */
+  it("all built-in workflows produce a task completion summary", () => {
     for (const workflow of BUILTIN_WORKFLOWS) {
       if (workflow.kind === "fragment") continue;
       const summaryNodes = workflow.ir.nodes.filter((node) => node.id === "completion-summary");
-      expect(summaryNodes, workflow.id).toHaveLength(1);
-      expect(summaryNodes[0]?.kind, workflow.id).toBe("prompt");
-      expect(summaryNodes[0]?.config?.summaryTarget, workflow.id).toBe("task");
-      expect(summaryNodes[0]?.config?.toolMode, workflow.id).toBe("readonly");
+      if (summaryNodes.length > 0) {
+        expect(summaryNodes, workflow.id).toHaveLength(1);
+        expect(summaryNodes[0]?.kind, workflow.id).toBe("prompt");
+        expect(summaryNodes[0]?.config?.summaryTarget, workflow.id).toBe("task");
+        expect(summaryNodes[0]?.config?.toolMode, workflow.id).toBe("readonly");
+        continue;
+      }
+
+      const writesSummary = workflow.ir.nodes.some((node) => {
+        const template = node.config?.template as { nodes?: Array<{ config?: { prompt?: string } }> } | undefined;
+        const prompts = [
+          typeof node.config?.prompt === "string" ? node.config.prompt : "",
+          ...(template?.nodes ?? []).map((child) => child.config?.prompt ?? ""),
+        ];
+        return prompts.some((prompt) => prompt.includes("fn_task_done(summary="));
+      });
+      expect(writesSummary, `${workflow.id} has no completion-summary node and no milestone that writes the card summary`).toBe(true);
     }
   });
 
