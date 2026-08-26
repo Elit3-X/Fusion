@@ -40,6 +40,7 @@ import {
   resolveOptionalReviewRevisionBudget,
   resolveOptionalStepRevisionBudget,
   resolveStepReopenPolicy,
+  isReportingOnlyOptionalGroup,
   resolveWorkflowIrForTask,
 } from "@fusion/core";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
@@ -381,6 +382,52 @@ export async function requestPreMergeOptionalStepFix(
     && (info.nodeId === "verification" || (info.nodeId === "code-review" && info.verdict === "REVISE"))
   ) {
     return deps.appendReviewRemediationSteps(liveTask, info);
+  }
+
+  /*
+  FNXC:ReportingOnlyGroup 2026-08-26-06:56:
+  A REPORTING group cannot reopen implementation. It observes accepted work and records what it
+  found; it has no verdict to enforce, so a revision request from it is feedback, not a work order.
+
+  Measured on a real card: the Documentation milestone returned an advisory REVISE asking for
+  implementation work. This seam bounced the card to `in-progress` — where, under this workflow's
+  named-remediation policy, `sendTaskBackForFix` reopens NOTHING. With no pending step the foreach
+  answered `already-expanded`, the walk replayed Code Review over an UNCHANGED tree, and the card
+  merged when the second Documentation pass happened to pass. The reviewer's demand was never
+  implemented, and 2 model calls plus a worktree acquisition were spent proving nothing.
+
+  Returning false routes traversal down the node's own failure edge, which for a reporter reaches
+  the merge gate — the behaviour its contract always described. The feedback stays on the card.
+  */
+  if (workflowIr && isReportingOnlyOptionalGroup(workflowIr, info.nodeId)) {
+    await deps.store.logEntry(
+      taskId,
+      `${info.stepName} recorded feedback but cannot reopen implementation`,
+      `${info.stepName} reports on accepted work and carries no approval, so no executor remediation was scheduled. Feedback:\n${info.feedback}`,
+      deps.getRunContextFor(taskId),
+    );
+    return false;
+  }
+
+  /*
+  FNXC:EmptyBounceGuard 2026-08-26-06:56:
+  Last line of defence for the named-remediation policy: under `none`, `sendTaskBackForFix` reopens
+  no step, so every bounce that did not append named work is a card sent back with nothing to do.
+  The two paths that CAN append have already returned above; anything still here would bounce empty.
+  Refuse visibly instead — a parked card an operator can see beats a silent loop that re-reviews an
+  unchanged tree until a non-deterministic verdict lets it through.
+  */
+  if (resolveStepReopenPolicy(workflowIr) === "none") {
+    executorLog.warn(
+      `${taskId}: pre-merge remediation NOT scheduled for step "${info.stepName}" — this workflow appends named remediation steps, and no gate owns that for node "${info.nodeId ?? "unknown"}". Card left parked.`,
+    );
+    await deps.store.logEntry(
+      taskId,
+      `${info.stepName} requested changes but no remediation owner exists for it`,
+      `This workflow reopens implementation only through named remediation steps, which are produced by the Verification and Code Review gates. Node "${info.nodeId ?? "unknown"}" has no such owner, so the card was not bounced with an empty step list. Feedback:\n${info.feedback}`,
+      deps.getRunContextFor(taskId),
+    );
+    return false;
   }
 
   if (info.verdict !== "REVISE") {

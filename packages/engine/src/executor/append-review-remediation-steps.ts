@@ -14,10 +14,20 @@ export type AppendReviewRemediationStepsDeps = {
  * refuses a blind return to implementation: no candidate, out-of-scope evidence, duplicate-only
  * work, or the fourth wave is a human hold rather than an empty executor dispatch.
  */
+/*
+FNXC:VerificationRemediation 2026-08-26-06:31:
+`worktreePath` lets a caller that already HOLDS the live checkout hand it in instead of falling back
+to `task.worktree`. The executor's deterministic-verification gate is such a caller, and the fallback
+is not safe for it: `performWorkflowRerunBounce` persists whatever path it receives back onto
+`task.worktree`, so an empty fallback WIPES the pointer — the card renders "Unassigned" and
+self-healing can no longer reclaim the worktree as idle. Graph-driven callers (the Code Review
+remediation node) have no such path in hand and keep the task-record fallback.
+*/
 export async function appendReviewRemediationSteps(
   deps: AppendReviewRemediationStepsDeps,
   task: Task,
   info: RequestPreMergeOptionalStepFixInfo,
+  options: { worktreePath?: string } = {},
 ): Promise<boolean> {
   const gate = info.nodeId === "verification" ? "Verification" : info.nodeId === "code-review" ? "Code Review" : undefined;
   if (!gate) return false;
@@ -47,7 +57,7 @@ export async function appendReviewRemediationSteps(
   await widenPromptFileScope(deps.store, task.id, prompt, remediationDeclaredFiles(appended.appended));
   await deps.sendTaskBackForFix(
     live,
-    live.worktree ?? "",
+    options.worktreePath?.trim() || live.worktree || "",
     info.feedback,
     info.stepName,
     `Review gate ${gate} requested named remediation`,

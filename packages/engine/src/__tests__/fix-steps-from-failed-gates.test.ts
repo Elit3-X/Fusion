@@ -121,6 +121,28 @@ describe("fix steps appear on the card when a gate fails", () => {
     expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
   });
 
+  /*
+  FNXC:VerificationRemediation 2026-08-26-06:31:
+  `performWorkflowRerunBounce` PERSISTS the bounce path onto `task.worktree`. A caller holding the
+  live checkout must therefore hand it over rather than let an unset task record supply "": that
+  would wipe the pointer the remediation is about to run in, render the card "Unassigned", and stop
+  self-healing reclaiming the worktree as idle.
+  */
+  it("bounces into the checkout it was given, not an unset task record", async () => {
+    const { task, sendTaskBackForFix, store } = harness();
+    task.worktree = undefined;
+
+    await appendReviewRemediationSteps(
+      { store: store as never, readTaskArtifact: async () => task.prompt, sendTaskBackForFix },
+      task,
+      { stepName: "Verification (test)", feedback: FAILING_OUTPUT, phase: "pre-merge", status: "failed", nodeId: "verification" },
+      { worktreePath: "/tmp/live-checkout" },
+    );
+
+    expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
+    expect(sendTaskBackForFix.mock.calls[0]?.[1]).toBe("/tmp/live-checkout");
+  });
+
   it("turns a Code Review REVISE into named work on the card", async () => {
     const { deps, task, pending, sendTaskBackForFix } = harness();
 
@@ -190,6 +212,57 @@ describe("fix steps appear on the card when a gate fails", () => {
 
     expect(pending()).toHaveLength(0);
     expect(store.appendRemediationSteps).not.toHaveBeenCalled();
+    expect(sendTaskBackForFix).not.toHaveBeenCalled();
+  });
+
+  /*
+  FNXC:ReportingOnlyGroup 2026-08-26-06:56:
+  Documentation only documents. Measured on a real card (mult-021): its advisory REVISE asked for
+  implementation work, this seam bounced the card to `in-progress`, and under this workflow's
+  named-remediation policy `sendTaskBackForFix` reopened NOTHING — no pending step, foreach
+  `already-expanded`, Code Review replayed over an unchanged tree, and the card merged when the
+  second Documentation pass happened to pass. The demand was never implemented and two model calls
+  were spent proving nothing.
+  */
+  it("records Documentation feedback without reopening implementation", async () => {
+    const { deps, task, store, pending, sendTaskBackForFix } = harness();
+
+    const scheduled = await requestPreMergeOptionalStepFix(deps as never, task.id, task, {
+      stepName: "Documentation",
+      feedback: "Implement the scoped removal and absence regression contract before documenting completion.",
+      phase: "pre-merge",
+      status: "advisory_failure",
+      verdict: "REVISE",
+      nodeId: "documentation-delivery",
+    });
+
+    expect(scheduled, "a reporter schedules no work").toBe(false);
+    expect(pending()).toHaveLength(0);
+    expect(sendTaskBackForFix, "the card must not bounce with an empty step list").not.toHaveBeenCalled();
+    // The feedback still reaches the operator on the card.
+    expect(store.logEntry.mock.calls.some(([, title]) => String(title).includes("cannot reopen implementation"))).toBe(true);
+  });
+
+  /*
+  FNXC:EmptyBounceGuard 2026-08-26-06:56:
+  The general invariant behind that fix: under named-remediation policy, only the gates that can
+  APPEND work may bounce. Any other node reaching the bounce would send the card back with nothing
+  to do, which is indistinguishable from a hang and re-reviews an unchanged tree on a loop.
+  */
+  it("refuses to bounce a card for a gate that owns no remediation", async () => {
+    const { deps, task, pending, sendTaskBackForFix } = harness();
+
+    const scheduled = await requestPreMergeOptionalStepFix(deps as never, task.id, task, {
+      stepName: "Some Custom Gate",
+      feedback: "please change something",
+      phase: "pre-merge",
+      status: "failed",
+      verdict: "REVISE",
+      nodeId: "some-custom-gate",
+    });
+
+    expect(scheduled).toBe(false);
+    expect(pending()).toHaveLength(0);
     expect(sendTaskBackForFix).not.toHaveBeenCalled();
   });
 

@@ -293,6 +293,7 @@ export {
   resolveWorkflowOptionalSteps,
   resolveDefaultOnOptionalGroupIds,
   isWorkflowOptionalGroupEnabled,
+  isReportingOnlyOptionalGroup,
 } from "./workflows/workflow-optional-steps.js";
 export type { ResolvedWorkflowOptionalStep } from "./workflows/workflow-optional-steps.js";
 export { resolveRequiredPreMergeStepIds, resolvePreMergeGateForTask } from "./merge/required-pre-merge-steps.js";

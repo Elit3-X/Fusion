@@ -53,6 +53,7 @@ export type BounceVerificationFailureDeps = {
       status: "failed";
       nodeId: string;
     },
+    options?: { worktreePath?: string },
   ) => Promise<boolean>;
   sendTaskBackForFix: (
     task: Task,
@@ -96,13 +97,22 @@ export async function bounceVerificationFailure(
      * classify the executor's own just-written files as upstream work and park instead of fixing.
      */
     const liveTask = await deps.store.getTask(task.id).catch(() => task);
-    const appended = await deps.appendReviewRemediationSteps(liveTask ?? task, {
-      stepName,
-      feedback,
-      phase: "pre-merge",
-      status: "failed",
-      nodeId: "verification",
-    });
+    /*
+     * Hand over the checkout this gate just verified. Falling back to `task.worktree` would let an
+     * empty pointer reach `performWorkflowRerunBounce`, which persists it — wiping the worktree the
+     * remediation is about to run in. The legacy branch below has always passed this same path.
+     */
+    const appended = await deps.appendReviewRemediationSteps(
+      liveTask ?? task,
+      {
+        stepName,
+        feedback,
+        phase: "pre-merge",
+        status: "failed",
+        nodeId: "verification",
+      },
+      { worktreePath },
+    );
     if (appended) return "named-remediation";
     /* Parked: drop the completed-task watchdog the bounce would otherwise have cleared. */
     deps.clearCompletedTaskWatchdog(task.id);

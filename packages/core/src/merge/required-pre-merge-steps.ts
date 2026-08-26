@@ -23,6 +23,14 @@ export function resolveRequiredPreMergeStepIds(
   return new Set(
     resolveWorkflowOptionalSteps(ir)
       .filter((step) => step.phase === "pre-merge")
+      /*
+      FNXC:ReportingOnlyGroup 2026-08-26-06:56:
+      A reporting group records what it observed; it carries no approval, so requiring one from it can
+      only produce a false blocker. Measured: the Documentation milestone returned an advisory REVISE,
+      which records `advisory_failure`, which this set turned into "task has enabled pre-merge
+      workflow steps without a current approval" — a reporter holding the merge door shut.
+      */
+      .filter((step) => !step.reportingOnly)
       .filter((step) => isWorkflowOptionalGroupEnabled(enabledWorkflowSteps, step.templateId, step.defaultOn))
       .map((step) => step.templateId),
   );

@@ -80,6 +80,14 @@ describe("deterministic verification failure → named remediation", () => {
         status: "failed",
         phase: "pre-merge",
       }),
+      /*
+      FNXC:VerificationRemediation 2026-08-26-06:31:
+      The checkout this gate just verified is handed over explicitly. `performWorkflowRerunBounce`
+      PERSISTS the path it receives onto `task.worktree`, so falling back to an empty task record
+      would wipe the pointer the remediation is about to run in — the card renders "Unassigned" and
+      self-healing can no longer reclaim the worktree. The legacy bounce below always passed it.
+      */
+      { worktreePath: "/tmp/fn-vr-1" },
     );
     // Remediation performs the bounce itself; a second one would double-dispatch the executor.
     expect(deps.sendTaskBackForFix).not.toHaveBeenCalled();

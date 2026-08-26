@@ -32,6 +32,15 @@ export function documentationDeliveryOptionalGroupNode(column: string): Workflow
     config: {
       name: "Documentation",
       defaultOn: true,
+      /*
+      FNXC:ReportingOnlyGroup 2026-08-26-06:56:
+      Documentation ONLY documents. `gateMode: "advisory"` on the inner node was not enough and the
+      gap was measured on a real card: its REVISE recorded `advisory_failure`, which held the merge
+      door ("no current approval") AND bounced the card to implementation with no work to do, where
+      it re-ran Code Review against an unchanged tree and merged on the second pass by luck.
+      `reportingOnly` states the contract once: no approval to withhold, no remediation to request.
+      */
+      reportingOnly: true,
       template: {
         nodes: [{
           id: "documentation-delivery-step",

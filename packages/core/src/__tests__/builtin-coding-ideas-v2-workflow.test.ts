@@ -139,6 +139,36 @@ describe("builtin:coding-ideas-v2", () => {
     }
   });
 
+  /*
+  FNXC:ReportingOnlyGroup 2026-08-26-06:56:
+  The advisory failure edge above was NOT enough, measured on a real card: Documentation's REVISE
+  recorded `advisory_failure`, which the required-approval set read as "no current approval" — so the
+  reporter held the merge door shut — while the same REVISE also bounced the card to implementation.
+  `reportingOnly` states the contract once, and BOTH doors read it.
+  */
+  it("cannot hold the merge: Documentation carries no approval", () => {
+    const documentation = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "documentation-delivery");
+    expect(documentation?.config?.reportingOnly).toBe(true);
+
+    const required = resolveRequiredPreMergeStepIds(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR, undefined);
+    expect([...required].sort()).toEqual(["code-review", "plan-review"]);
+    expect(required.has("documentation-delivery"), "a reporter must never gate the merge").toBe(false);
+
+    // Enabling it explicitly must not turn it into a gate either.
+    expect(resolveRequiredPreMergeStepIds(
+      BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR,
+      ["plan-review", "code-review", "documentation-delivery"],
+    ).has("documentation-delivery")).toBe(false);
+
+    // The gates that DO carry approval are untouched, here and on the inherited board.
+    expect([...resolveRequiredPreMergeStepIds(BUILTIN_CODING_IDEAS_WORKFLOW_IR, undefined)].sort())
+      .toEqual(["code-review", "plan-review"]);
+    for (const groupId of ["plan-review", "code-review"]) {
+      expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === groupId)?.config?.reportingOnly)
+        .toBeUndefined();
+    }
+  });
+
   it("returns a rejected review to in-progress as named work", () => {
     expect(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.edges).toEqual(expect.arrayContaining([
       { from: "code-review", to: "code-review-remediation", condition: "failure" },
