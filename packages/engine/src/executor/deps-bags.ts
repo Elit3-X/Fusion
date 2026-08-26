@@ -294,6 +294,8 @@ export function buildRunImplementationDeps(
       "finalizeMergeConfirmedWorkflowGraphTask", "cleanupMergeStateForReverification", "createWorktree",
       "emitWorktreeReanchoredAudit", "buildInjectedRuntimeEnv", "reconcileStepsFromGitHistory",
       "setActiveStepExecutor", "captureWorkspaceModifiedFiles", "runExecutorDeterministicVerification",
+      /* FNXC:VerificationRemediation 2026-08-26-04:58: the FN-3345 gate needs the named-remediation authority for `stepReopenPolicy: "none"` workflows. */
+      "appendReviewRemediationSteps",
       "attemptExecutorVerificationFix", "deleteActiveStepExecutor", "createTaskUpdateTool",
       "createTaskAddDepTool", "createTaskDoneTool", "createReviewDisputeTool", "createSpawnAgentTool",
       "resolveInstructionsForRole", "finalizeAlreadyReviewedTask",

@@ -126,6 +126,8 @@ import { createFallbackModelObserver } from "../auth/fallback-model-observer.js"
 import { buildSessionSkillContext } from "../cli-runtime/session-skill-context.js";
 import { dropPreHeldExecutorSlot } from "../concurrency/concurrency.js";
 import { resolveAuthoritativeExternalExecutionRoute } from "./resolve-authoritative-external-execution-route.js";
+// FNXC:VerificationRemediation 2026-08-26-04:58: the FN-3345 gate's bounce shape lives in its own seam so it is testable without a real session.
+import { bounceVerificationFailure as bounceVerificationFailureSeam } from "./bounce-verification-failure.js";
 import { isContextLimitError } from "../errors/context-limit-detector.js";
 import { withRateLimitRetry } from "../errors/rate-limit-retry.js";
 import { recordRetry } from "../errors/retry-burned-logger.js";
@@ -253,6 +255,7 @@ export type RunImplementationDeps = {
   MAX_AUTO_RECOVERY_ATTEMPTS: number;
   getRunContextFor: (taskId: string) => EngineRunContext | undefined;
   addActiveWorktree: AnyFn;
+  appendReviewRemediationSteps: AnyFn;
   attemptExecutorVerificationFix: AnyFn;
   buildActionGateContext: AnyFn;
   buildInjectedRuntimeEnv: AnyFn;
@@ -1500,19 +1503,28 @@ export async function runImplementation(
                     await resolveWorkflowIrForTask(deps.store, task.id).catch(() => undefined),
                   );
 
+                  /*
+                  FNXC:VerificationRemediation 2026-08-26-04:58:
+                  A red deterministic verification hands the executor NAMED work, never a bare bounce. Which
+                  shape that takes is `stepReopenPolicy`'s call, and getting it wrong silently discards the
+                  measurement — see the rationale in bounce-verification-failure.ts.
+                  */
+                  const bounceVerificationFailure = (failureFeedback: string, reason: string) =>
+                    bounceVerificationFailureSeam(
+                      {
+                        store: deps.store,
+                        appendReviewRemediationSteps: deps.appendReviewRemediationSteps,
+                        sendTaskBackForFix: deps.sendTaskBackForFix,
+                        clearCompletedTaskWatchdog: deps.clearCompletedTaskWatchdog,
+                      },
+                      { task, worktreePath, failedType, feedback: failureFeedback, reason, stepReopenPolicy },
+                    );
+
                   if (maxFixRetries === 0) {
                     executorLog.log(`${task.id}: [verification] fix retries set to 0 — sending task back immediately`);
-                    await deps.sendTaskBackForFix(
-                      task, worktreePath,
+                    await bounceVerificationFailure(
                       `${failedType} command \`${failedCommand}\` failed (exit ${failedResult.exitCode}):\n${summary}`,
-                      `Verification (${failedType})`,
                       `Deterministic verification failed (${failedType})`,
-                      true,
-                      true,
-                      undefined,
-                      undefined,
-                      undefined,
-                      stepReopenPolicy,
                     );
                     return;
                   }
@@ -1554,17 +1566,9 @@ export async function runImplementation(
 
                   if (!fixSucceeded) {
                     executorLog.log(`${task.id}: [verification] all fix attempts exhausted (${maxFixRetries}/${maxFixRetries}) — sending task back`);
-                    await deps.sendTaskBackForFix(
-                      task, worktreePath,
+                    await bounceVerificationFailure(
                       `${failedType} command \`${failedCommand}\` failed (exit ${failedResult.exitCode}) after ${maxFixRetries} fix attempts:\n${summary}`,
-                      `Verification (${failedType})`,
                       `Deterministic verification failed after ${maxFixRetries} fix attempts`,
-                      true,
-                      true,
-                      undefined,
-                      undefined,
-                      undefined,
-                      stepReopenPolicy,
                     );
                     return;
                   }
