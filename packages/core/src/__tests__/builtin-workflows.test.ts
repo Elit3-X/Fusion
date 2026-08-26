@@ -245,6 +245,16 @@ describe("built-in workflows", () => {
   id would have forced a second read-only session that exists only to satisfy a test.
   What must NOT weaken: a workflow with neither a summary node nor a summary-writing milestone still
   fails here, so a future built-in cannot ship with no card summary at all.
+
+  FNXC:WorkflowCompletion 2026-08-26-07:34:
+  THE MILESTONE BRANCH USED TO ASSERT A PROMPT STRING (`fn_task_done(summary=`), and that is how this
+  guard stayed green while the product lost its card summary. `fn_task_done` is NOT available to a
+  `toolMode: "readonly"` workflow step — the allowlist is read/grep/find/ls plus a few read-only task
+  reads — so the prompt was asking for a call that could never happen. The test proved the milestone
+  had been TOLD to write a summary, not that one could ever be written.
+  The mechanism is `summaryTarget: "task"`, the projection contract that persists a node's own output.
+  Assert that, wherever the node lives: a top-level node or inside an optional-group template, since
+  the executing node of a group is its template child.
   */
   it("all built-in workflows produce a task completion summary", () => {
     for (const workflow of BUILTIN_WORKFLOWS) {
@@ -259,12 +269,9 @@ describe("built-in workflows", () => {
       }
 
       const writesSummary = workflow.ir.nodes.some((node) => {
-        const template = node.config?.template as { nodes?: Array<{ config?: { prompt?: string } }> } | undefined;
-        const prompts = [
-          typeof node.config?.prompt === "string" ? node.config.prompt : "",
-          ...(template?.nodes ?? []).map((child) => child.config?.prompt ?? ""),
-        ];
-        return prompts.some((prompt) => prompt.includes("fn_task_done(summary="));
+        const template = node.config?.template as { nodes?: Array<{ config?: Record<string, unknown> }> } | undefined;
+        return node.config?.summaryTarget === "task"
+          || (template?.nodes ?? []).some((child) => child.config?.summaryTarget === "task");
       });
       expect(writesSummary, `${workflow.id} has no completion-summary node and no milestone that writes the card summary`).toBe(true);
     }

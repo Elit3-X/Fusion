@@ -34,6 +34,8 @@ import {
   type WorkflowStepOutcome,
 } from "./workflow-step-verdict.js";
 import { parseAwaitInputSentinel } from "./await-input-parse.js";
+// FNXC:ReviewLaneRecommendations 2026-08-26-07:34: a readonly review node holds no writer; projection is its only durable channel.
+import { parseWorkflowStepRecommendations, resolveMaxRecommendationsPerTask } from "./workflow-step-recommendations.js";
 import { buildAgentPersona } from "./agent-binding-pure.js";
 import { reviewWorkspacePerRepo } from "./workspace-review-per-repo.js";
 import type { ReviewResult } from "../execution/reviewer.js";
@@ -757,7 +759,25 @@ export async function runGraphCustomNode(
       contextPatch.supersededFindingSourceWorkflowStepId = outcome.supersededFindingSourceWorkflowStepId;
       contextPatch.supersededFindingIds = outcome.supersededFindingIds;
     }
-    if (cfg.summaryTarget === "task" && typeof stepOutput === "string" && stepOutput.trim()) {
+    /*
+    FNXC:ReviewLaneRecommendations 2026-08-26-07:34:
+    A node declaring `recommendationsTarget: "task"` proposes follow-up work through its OUTPUT, not
+    through a tool. It has none: a readonly workflow-step session is limited to read/grep/find/ls plus
+    a few read-only task reads, and `fn_task_create` is explicitly denied there. Projection is the
+    only durable channel such a node has, and proposing is the only thing it may do — an operator
+    turns a proposal into a task from the Recommendations tab.
+    The JSON block is REMOVED from the text before the summary projection reads it, so a card summary
+    never shows the machine payload that produced it.
+    */
+    let projectedText = typeof stepOutput === "string" ? stepOutput : "";
+    if (cfg.recommendationsTarget === "task" && projectedText.trim()) {
+      const proposed = parseWorkflowStepRecommendations(projectedText, {
+        max: resolveMaxRecommendationsPerTask(settings),
+      });
+      if (proposed.recommendations.length > 0) contextPatch.recommendations = proposed.recommendations;
+      projectedText = proposed.remainingText;
+    }
+    if (cfg.summaryTarget === "task" && projectedText.trim()) {
       /*
        * FNXC:WorkflowCompletion 2026-06-29-11:09:
        * Built-in completion-summary nodes are agent/model workflow steps. Persist
@@ -765,7 +785,7 @@ export async function runGraphCustomNode(
        * authored during workflow execution, before review/merge, and not only
        * synthesized later by recovery fallback code.
        */
-      contextPatch.summary = stepOutput.trim();
+      contextPatch.summary = projectedText.trim();
     }
     /*
      * FNXC:PlanReview 2026-06-29-02:05:

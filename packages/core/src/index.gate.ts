@@ -299,6 +299,8 @@ export type { ResolvedWorkflowOptionalStep } from "./workflows/workflow-optional
 export { resolveRequiredPreMergeStepIds, resolvePreMergeGateForTask } from "./merge/required-pre-merge-steps.js";
 export type { ResolvedPreMergeGate } from "./merge/required-pre-merge-steps.js";
 export { resolveStepReopenPolicy } from "./workflows/workflow-step-reopen-policy.js";
+/* FNXC:ReviewLaneRecommendations 2026-08-26-07:34: shared with the engine so a review-lane projection is screened by the same rule as the store boundary. */
+export { normalizeTaskRecommendations } from "./tasks/recommendation-validation.js";
 export type { StepReopenPolicy } from "./workflows/workflow-step-reopen-policy.js";
 export {
   applyPromptOverridesToIr,

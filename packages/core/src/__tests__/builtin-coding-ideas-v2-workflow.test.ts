@@ -127,9 +127,19 @@ describe("builtin:coding-ideas-v2", () => {
 
     expect(config.gateMode).toBe("advisory");
     expect(config.toolMode).toBe("readonly");
-    expect(String(config.prompt)).toContain("Do NOT modify repository files");
-    // It absorbs the former completion-summary milestone.
-    expect(String(config.prompt)).toContain("fn_task_done(summary=");
+    expect(String(config.prompt)).toContain("do not modify repository files");
+    /*
+    FNXC:DocumentationMilestone 2026-08-26-07:34:
+    This assertion USED to require the prompt to say `fn_task_done(summary=` — a call this session
+    cannot make, since a readonly workflow step has no writer at all. It proved the milestone had
+    been told to write a summary, not that one could be written, and the card silently lost its
+    agent-authored summary. Assert the projection contracts that actually persist output instead.
+    */
+    expect(config.summaryTarget).toBe("task");
+    expect(config.recommendationsTarget).toBe("task");
+    for (const tool of ["fn_task_done", "fn_task_document_write", "fn_artifact_register", "fn_task_create"]) {
+      expect(String(config.prompt), `${tool} is denied to a readonly workflow step`).not.toContain(tool);
+    }
 
     // Failure reaches the merge exactly like success: a delivery note cannot strand approved code.
     for (const condition of ["success", "failure"]) {
