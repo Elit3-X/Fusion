@@ -6154,14 +6154,38 @@ export class ProjectEngine {
 
   private wireAutoMerge(store: TaskStore, _cwd: string): void {
     this.taskMovedHandler = async ({ task, to }: { task: Task; to: string }) => {
-      const handoffReviewColumn = (await resolveTaskLifecycleColumns(store, task.id))?.review ?? "in-review";
+      const handoffLifecycleColumns = await resolveTaskLifecycleColumns(store, task.id);
+      const handoffReviewColumn = handoffLifecycleColumns?.review ?? "in-review";
+      /*
+      FNXC:MergeInFlightRevoke 2026-08-26-13:05:
+      A SUCCESSFUL merge moves its own card to the complete lane, and that move must not read as the
+      card abandoning the merge.
+
+      This is the column half of the defect FN-184 fixed for the status half, in this same file:
+      "this fence re-reads the task from the store, so by construction it observes the `status:
+      \"merging\"` stamp `runAiMerge` wrote for THIS merge — without neutralization the fence revokes
+      the very merge it is guarding". The status was neutralized; the column was not.
+
+      Measured on a live multi-repository card: `all 2 sub-repo(s) landed — task → done` at
+      19:58:00.762 was immediately followed by `Aborting active merge (left-review-lane-during-merge)`.
+      Both repositories were already on the integration branch, so the abort cancelled nothing — but
+      it tore down the merge primitive after the fact, which is why the card's journal carried
+      `Workflow node merge requested merge` twice, 132ms apart, for one merge. The same fence firing a
+      few hundred milliseconds earlier would abort a merge that is genuinely mid-flight.
+
+      The guard's real subject is a card the GRAPH pulled BACK — a REVISE returning it to
+      implementation — which must take ownership away from an in-flight merge. Reaching the terminal
+      lane is the opposite: it is the merge's own completion.
+      */
+      const handoffCompleteColumns = new Set<string>(["done"]);
+      if (handoffLifecycleColumns?.complete) handoffCompleteColumns.add(handoffLifecycleColumns.complete);
       /*
       FNXC:MergeInFlightRevoke 2026-08-23-07:24:
       FN-180 requires an active merge to lose ownership as soon as its card leaves
       the resolved review lane. This is a cancellation, not a failure: preserve the
       branch and worktree so the graph can route the task through its current gate.
       */
-      if (this.activeMergeTaskId === task.id && to !== handoffReviewColumn) {
+      if (this.activeMergeTaskId === task.id && to !== handoffReviewColumn && !handoffCompleteColumns.has(to)) {
         this.mergeQueue = this.mergeQueue.filter((queuedTaskId) => queuedTaskId !== task.id);
         this.abortActiveMerge(task.id, "left-review-lane-during-merge");
         return;
