@@ -3285,9 +3285,33 @@ async function mergeAndReview(input: {
       };
       await persistState(persistedState, state);
       if (clean) {
+        /*
+        FNXC:MergeReviewConfirmation 2026-08-26-10:11:
+        Landing requires TWO consecutive clean approvals of the same candidate (see the
+        `consecutiveCleanApprovals >= 2` gate below), so this line is written twice per squash — by
+        design, and previously WORD FOR WORD. An operator reading the task journal saw the same
+        sentence repeated with the same SHA and had no way to tell a confirmation from a duplicated
+        invocation; it was reported as an anomaly precisely because the log made a safety feature
+        look like a bug. Number the approval so the second one reads as what it is.
+        */
+        const approvalNumber = state.consecutiveCleanApprovals;
+        /*
+        The SHA sits immediately after `approved`, and the pass number inside `(pass N)`, because
+        `SelfHealingManager.getApprovedAiMergeReviewShas` PARSES this line with
+        `/AI merge review \(pass \d+\): approved(?:\s+(?:squash|commit)\s+([0-9a-f]{7,40}))?/`.
+        That parser has never matched anything: no emitter ever wrote the parenthetical, so
+        `hasApprovedAiMergeReview` always answered false and the recovery it guards could not run.
+        Two sides, each individually reasonable, coupled through a log line nobody compared — the
+        same shape as every other defect in this series. Keep the suffixes AFTER the SHA so the
+        capture group cannot be pushed out of reach by an optional clause.
+        */
+        const suffixes = [
+          unconfirmed ? `${unconfirmed} prior finding(s) unconfirmed` : "",
+          approvalNumber >= 2 ? "confirmation pass" : "",
+        ].filter(Boolean);
         await log(repeatedInvalidAcknowledgement
           ? "AI merge review: approved; ignoring repeated unusable prior-finding acknowledgement"
-          : `AI merge review: approved${unconfirmed ? ` — ${unconfirmed} prior finding(s) unconfirmed` : ""} squash ${candidateSha}`);
+          : `AI merge review (pass ${approvalNumber}): approved squash ${candidateSha}${suffixes.length ? ` — ${suffixes.join("; ")}` : ""}`);
         if (state.consecutiveCleanApprovals >= 2) {
           await assertCurrentEpisodeIdentity();
           return { squashSha: candidateSha === tipSha ? null : candidateSha, priorReasons: [] };

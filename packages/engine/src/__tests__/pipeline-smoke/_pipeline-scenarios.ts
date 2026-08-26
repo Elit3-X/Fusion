@@ -231,11 +231,34 @@ export const PIPELINE_SCENARIOS: readonly PipelineScenario[] = [
     act: PIPELINE_SCENARIO_DRIVERS.s19Act,
     invariants: ["no legacy column id appears in persisted trail", "both cloned built-ins converge"],
   },
+  /*
+  FNXC:PipelineSmoke 2026-08-26-10:11:
+  The journal an operator reads is a deliverable, and until now nothing asserted it. Every anomaly
+  reported from a live board this week was plainly visible there and invisible to this lane: an abort
+  breadcrumb on a card that was never interrupted, a line written twice, and an approval whose own
+  text admitted it had verified nothing. Each was the observable trace of a real defect — a lying
+  provenance label, a duplicated invocation, a merge approved without checks — and each was dismissed
+  as noise until traced. Running on all three coding built-ins because the defects were not specific
+  to one lane.
+  */
+  {
+    id: "S20",
+    title: "A completed task leaves a journal with no anomalies",
+    workflows: ["builtin:coding-ideas", "builtin:coding-ideas-v2", "builtin:coding"],
+    expectedTerminal: "merged-done",
+    arrange: PIPELINE_SCENARIO_DRIVERS.s20Arrange,
+    act: PIPELINE_SCENARIO_DRIVERS.s20Act,
+    invariants: [
+      "no abort is claimed on an uninterrupted card",
+      "no journal line is written twice in a row",
+      "no approval records that it verified nothing",
+    ],
+  },
 ] as const;
 
 export function assertPipelineScenarioTable(scenarios: readonly PipelineScenario[] = PIPELINE_SCENARIOS): void {
-  if (scenarios.length !== 19) {
-    throw new Error(`Pipeline smoke requires exactly 19 scenarios; received ${scenarios.length}.`);
+  if (scenarios.length !== 20) {
+    throw new Error(`Pipeline smoke requires exactly 20 scenarios; received ${scenarios.length}.`);
   }
   const ids = new Set(scenarios.map((scenario) => scenario.id));
   if (ids.size !== scenarios.length || [...ids].some((id, index) => id !== `S${String(index + 1).padStart(2, "0")}`)) {

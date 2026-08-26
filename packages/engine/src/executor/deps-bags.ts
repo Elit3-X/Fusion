@@ -1369,8 +1369,9 @@ export function buildPauseAbortMarkerDeps(host: any): any {
     ...facadeFields(host, [
       "pausedAborted", "pausedAbortProvenance", "completionFinalizedTaskIds",
     ]),
-    markPausedAborted: (id: string, provenance?: unknown, source?: string) =>
-      host.markPausedAborted(id, provenance, source),
+    /* FNXC:PausedAbortProvenance 2026-08-26-09:52: forward the quiet flag so the breadcrumb can wait for evidence. */
+    markPausedAborted: (id: string, provenance?: unknown, source?: string, options?: { quiet?: boolean }) =>
+      host.markPausedAborted(id, provenance, source, options),
   };
 }
 

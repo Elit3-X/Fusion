@@ -98,6 +98,57 @@ export const PIPELINE_SCENARIO_DRIVERS = {
   }),
   s02Act: driver("run Planning through merge on the production graph", driveMerged),
 
+  /*
+  FNXC:PipelineSmoke 2026-08-26-10:11:
+  THE JOURNAL IS A DELIVERABLE. Every anomaly reported from a live board this week was visible in the
+  task log and invisible to this lane, because no scenario asserted what an operator actually reads:
+  an abort breadcrumb on a card that was never interrupted, the same line written twice, and an
+  approval whose own text admitted it had verified nothing.
+
+  Those are not cosmetic. Each one is the observable trace of a real defect — a lying provenance
+  label, a duplicated invocation, and a merge approved without checks — and each was dismissed as log
+  noise until it was traced. Asserting the journal is how this lane catches that class at all.
+
+  The checks are deliberately about SHAPE, never wording: a specific sentence would pin prose and
+  break on the first honest rewording.
+  */
+  s20Arrange: driver("create a task whose operator journal must stay clean", async (context) => {
+    await arrangeTask(context, "S20");
+  }),
+  s20Act: driver("drive to merge, then assert the journal an operator reads has no anomalies", async (context) => {
+    const task = taskFor(context);
+    context.result = await context.harness.driveToDeclaredTerminal(task.id, "merged-done");
+
+    const live = await context.harness.freshTask(task.id);
+    const entries = (live.log ?? []).map((entry) => `${entry.action ?? ""}`.trim()).filter(Boolean);
+    const violations: string[] = [];
+
+    /* A card that completed normally was never interrupted, so it must not claim it was. */
+    const abortClaims = entries.filter((line) => line.startsWith("Pause abort marked"));
+    if (abortClaims.length > 0) {
+      violations.push(`journal claims an abort on an uninterrupted card: ${abortClaims.join(" | ")}`);
+    }
+
+    /* The same sentence twice in a row is a duplicated invocation wearing a log line. */
+    for (let index = 1; index < entries.length; index += 1) {
+      if (entries[index] === entries[index - 1]) {
+        violations.push(`journal repeats a line back to back: ${entries[index]}`);
+        break;
+      }
+    }
+
+    /* An approval that says it could not check is the failure mode this whole series was about. */
+    const unverifiedApproval = entries.find((line) =>
+      /approved|approve\b/i.test(line) && /could not run|unavailable|nothing was verified|not verified/i.test(line));
+    if (unverifiedApproval) {
+      violations.push(`journal records an approval that verified nothing: ${unverifiedApproval}`);
+    }
+
+    if (violations.length > 0) {
+      throw new Error(`S20 operator journal anomalies:\n- ${violations.join("\n- ")}`);
+    }
+  }),
+
   s03Arrange: driver("create an unpromoted Idea", async (context) => {
     await arrangeTask(context, "S03", { initialColumn: "creation" });
   }),
