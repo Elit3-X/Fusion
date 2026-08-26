@@ -2414,7 +2414,7 @@ export {
 export type { StoredAuthCredential } from "./secrets/oauth-credential-interop.js";
 
 // ── Error helpers ─────────────────────────────────────────
-export { getErrorMessage } from "./process/error-message.js";
+export { getErrorMessage, describeErrorChain, summarizeErrorForOperator } from "./process/error-message.js";
 
 // ── Secrets crypto ───────────────────────────────────────
 export {

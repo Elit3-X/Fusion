@@ -2696,7 +2696,7 @@ export {
 export type { ProviderInstanceRef } from "./provider-instance.js";
 
 // ── Error helpers ─────────────────────────────────────────
-export { getErrorMessage } from "./process/error-message.js";
+export { getErrorMessage, describeErrorChain, summarizeErrorForOperator } from "./process/error-message.js";
 
 // ── Secrets crypto ───────────────────────────────────────
 export {
