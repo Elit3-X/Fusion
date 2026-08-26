@@ -4,8 +4,6 @@ import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./builtin-coding-ideas-workflo
 
 import { documentationDeliveryOptionalGroupNode } from "./builtin-documentation-delivery-group.js";
 import { codeReviewRemediationStepsNode } from "./builtin-workflow-remediation-nodes.js";
-import { builtinPromptConfig, builtinSeamPrompt } from "./builtin-workflow-prompts.js";
-import { applyImplementationOnlyStepReview } from "./builtin-plan-review-group.js";
 
 const clone = (ir: WorkflowIr): WorkflowIr => JSON.parse(JSON.stringify(ir)) as WorkflowIr;
 
@@ -40,25 +38,25 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   ir.name = "builtin-coding-ideas-v2";
 
   /*
-  FNXC:CodingIdeasV2Workflow 2026-08-24-05:35:
-  The planner must stop emitting "Testing & Verification" and "Documentation & Delivery" steps: they
-  are gates now, and leaving them in PROMPT.md would run the same work twice under the same names.
-  `planning-implementation-only` is the seam that carries that instruction.
+  FNXC:CodingIdeasV2Workflow 2026-08-25-14:10:
+  The planner emits "Testing & Verification" again — the DEFAULT triage prompt, unmodified.
+
+  An earlier revision routed planning through `planning-implementation-only`, whose contract strips
+  that step region and replaces it with "Do NOT emit a Testing & Verification step", on the theory
+  that a review-column gate would run the checks instead. Two things were wrong with that. The gate
+  never executed (its node kind was not routed, so it reported PASS in ~46ms without running
+  anything), and even after that was fixed, a review node runs `toolMode: "readonly"` — `bash` is
+  denied and `fn_run_verification` is not in the allowlist — so a reviewer CANNOT run lint, tests or
+  build no matter what its prompt says.
+  Meanwhile the stripped section was the mature contract: real automated tests only ("typechecks and
+  builds are NOT tests"), per-step test authoring, a final lint/tests/typecheck/build pass ordered
+  before delivery, an explicit duty to update tests that encode behaviour this task changes, and
+  setting up a test framework when the project has none. Deleting it left the planner FORBIDDEN from
+  planning tests while nothing else ran them.
+  Testing belongs to the executor, which has the tools to write and run it. The reviewer judges
+  CONFORMITY of that work; it does not perform it.
   */
-  /*
-  FNXC:ReviewGatedPlanning 2026-08-24-06:45:
-  The SEAM stays `planning`; only the PROMPT changes. `resolveSeamName`
-  (engine/workflows/workflow-node-handlers.ts) accepts exactly seven seam names and throws
-  `WorkflowIrError: Unsupported workflow seam` for anything else. Declaring
-  `seam: "planning-implementation-only"` therefore made the `plan` node throw on every task: the
-  graph failed at `plan`, the card bounced back to todo, and the board reported "Execution dispatch
-  refused — task is still unplanned" — i.e. pressing Start appeared to do nothing.
-  builtin:review-gated-coding still carries that unsupported seam; it is fixed there too.
-  */
-  const plan = ir.nodes.find((node) => node.id === "plan");
-  if (plan) plan.config = { ...plan.config, ...builtinPromptConfig("planning", "Plan"), prompt: builtinSeamPrompt("planning-implementation-only") };
-  const planReview = ir.nodes.find((node) => node.id === "plan-review");
-  if (planReview) applyImplementationOnlyStepReview(planReview);
+  /* Plan Review no longer rejects a plan for containing test steps: they belong there again. */
   /*
   FNXC:ReviewGatedRemediation 2026-08-24-22:10:
   Named remediation is enabled: `implementationOnlySteps` + `preserveRemediationSteps` select
@@ -116,53 +114,48 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   const codeReviewIndex = ir.nodes.findIndex((node) => node.id === "code-review");
   if (codeReviewIndex < 0) throw new Error("coding-ideas-v2 requires the inherited code-review gate");
   /*
-  FNXC:CodingIdeasV2Workflow 2026-08-25-10:20:
-  Code Review RUNS the checks here; it does not receive someone else's verdict. The shared prompt is
-  AUGMENTED rather than edited, so `builtin:coding` and `builtin:coding-ideas` keep the reviewer they
-  have always had.
-  The evidence requirement is the whole point. A reviewer that may state "tests pass" without
-  running anything reproduces, in prose, the false green a silently-passing gate produced
-  mechanically — and a fluent claim is harder to spot than a 46ms step. Absent commands report that
-  fact instead of blocking: a project that never configured verification has never been refused a
-  merge on that basis, and this is not the place to change that contract.
+  FNXC:CodingIdeasV2Workflow 2026-08-25-14:10:
+  Code Review judges the TESTS, it does not run them. A review node runs `toolMode: "readonly"`,
+  whose allowlist is read/grep/find/ls plus a few read-only task tools: `bash` is explicitly denied
+  and `fn_run_verification` is absent. An earlier revision instructed this reviewer to run lint,
+  tests and build; it never could, and measured review durations of 19s and 23s on real cards show
+  it silently reviewed the diff alone. Telling a session to do what its tool policy forbids invites
+  the one failure mode worse than a missing check: a fluent claim that the check passed.
+  The shared prompt is AUGMENTED rather than edited, so `builtin:coding` and `builtin:coding-ideas`
+  keep the reviewer they have always had.
   */
   const codeReviewStep = (ir.nodes[codeReviewIndex]?.config?.template as { nodes?: Array<{ id: string; config?: Record<string, unknown> }> } | undefined)
     ?.nodes?.find((node) => node.id === "code-review-step");
   if (!codeReviewStep?.config) throw new Error("coding-ideas-v2 requires the inherited code-review-step template node");
   codeReviewStep.config.prompt = `${String(codeReviewStep.config.prompt ?? "")}
 
-## Step 0: Run the checks yourself (do this FIRST)
+## Step 0: Judge the TESTS before you judge the code
 
-This review is the only gate before merge, so the verdict must rest on real command output.
+You cannot run anything: this session is read-only, \`bash\` is denied and no verification tool is
+available to you. Do not claim you ran lint, tests or a build, and do not ask for a command to be
+run. The executor already wrote and ran the tests; your job is to rule on whether that work is
+sound.
 
-1. Determine the project's lint, test, and build commands. Prefer explicitly configured commands; otherwise infer them from the repository (package scripts, Makefile, CI config).
-2. Run them with \`fn_run_verification\`, scoped to what the change touches. Do NOT run a full workspace suite as your normal path.
-3. Quote, in your review, each command you ran with its exit code and the tail of its output.
+Read the test files in the diff and rule on FOUR things:
 
-Rules that are not negotiable:
-- A non-zero exit is REVISE. State which command failed and the failing output.
-- NEVER claim a check passed without its output in your review. A verdict with no execution evidence is invalid.
-- If no command is determinable, say so explicitly ("no lint/test/build command could be determined") and review the diff on its merits. Do not invent a command, and do not treat the absence as failure.`;
+1. **They exist.** A behavioural change with no test is a REVISE. Say which change is uncovered.
+2. **They are real tests.** Assertions executed by a test runner. A typecheck is not a test, a build
+   is not a test, and manual verification is not a test.
+3. **They assert BEHAVIOUR.** Never a comment, a date stamp, or prose lifted from source. Asserting
+   that a comment exists tests nothing a user or caller can observe. Code-construct guards
+   (call-site allowlists, architectural ratchets) are legitimate and stay.
+4. **They cover the INVARIANT, not just the reported case.** For a bug fix, a test that only
+   reproduces the single reported symptom is incomplete: require every known surface. If this task
+   CHANGED, GATED or REMOVED behaviour, the tests that encoded the OLD behaviour must have been
+   updated or deleted in the same change — they live outside the File Scope and targeted
+   verification will not have surfaced them.
+
+Then review the code itself for what tests do not catch: logic errors, broken edge cases, and
+unhandled failure modes.`;
+
   ir.nodes.splice(codeReviewIndex + 1, 0, documentationDeliveryOptionalGroupNode("in-review"));
   const summaryIndex = ir.nodes.findIndex((node) => node.id === "completion-summary");
   if (summaryIndex >= 0) ir.nodes.splice(summaryIndex, 1);
-  /*
-  FNXC:ReviewGatedRemediation 2026-08-24-18:30:
-  Both gates MUST derive named remediation steps, because this workflow also sets the parse node's
-  `implementationOnlySteps` + `preserveRemediationSteps`, and `resolveStepReopenPolicy` reads that
-  pair as reopen policy "none". The two are a matched pair: with trailing-step reopening disabled,
-  a remediation that appends nothing returns the card to in-progress with every step already done
-  and no work to execute. Inheriting Coding (Ideas)' `pre-merge-remediation` therefore stalled the
-  card after a Code Review REVISE — S05 ("REVISE twice, then approve") failed with
-  "did not persist completed implementation-step projection".
-  An earlier attempt at this alignment was reverted because the merge then ran `git merge --squash`
-  with an empty ref. That was NOT this node: the pipeline-smoke merger mock resolved its branch from
-  `task.branch`, which is absent on a workspace row and unset at install time, and it is fixed at
-  the harness. The node id is kept so the inherited edges stay valid;
-  `appendReviewRemediationSteps` keys on the failing GATE id, not on this node's id.
-  */
-  /* Code Review keeps the inherited `pre-merge-remediation`, which reopens trailing steps the
-     foreach already owns. See the parse-node note above. */
 
   /* Every inherited edge touching `completion-summary` dies with the node; the lane is rebuilt below. */
   ir.edges = ir.edges.filter((edge) => edge.from !== "completion-summary" && edge.to !== "completion-summary");

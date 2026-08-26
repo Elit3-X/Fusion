@@ -79,22 +79,29 @@ describe("builtin:coding-ideas-v2", () => {
   and builtin:coding-ideas is untouched; the evidence rule is what stops a reviewer asserting "tests
   pass" in prose, which is the same false green a silently-passing gate produced mechanically.
   */
-  it("makes Code Review run the checks and forbids a verdict without execution evidence", () => {
+  it("makes Code Review judge the tests without pretending it can run them", () => {
     const template = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "code-review")?.config?.template as
-      { nodes?: Array<{ id: string; config?: { prompt?: string } }> } | undefined;
-    const prompt = template?.nodes?.find((node) => node.id === "code-review-step")?.config?.prompt ?? "";
+      { nodes?: Array<{ id: string; config?: { prompt?: string; toolMode?: string } }> } | undefined;
+    const step = template?.nodes?.find((node) => node.id === "code-review-step");
+    const prompt = step?.config?.prompt ?? "";
 
-    expect(prompt).toContain("fn_run_verification");
-    expect(prompt).toContain("NEVER claim a check passed without its output");
-    expect(prompt).toContain("A non-zero exit is REVISE");
-    // Absent commands are reported, never treated as a failure: that was never the merge contract.
-    expect(prompt).toContain("do not treat the absence as failure");
+    /*
+    FNXC:CodingIdeasV2Workflow 2026-08-25-14:10:
+    A review node is `toolMode: "readonly"`, whose allowlist is read/grep/find/ls plus a few
+    read-only task tools: `bash` is denied and `fn_run_verification` is absent. An earlier revision
+    instructed this reviewer to run lint/tests/build; it never could, and real cards showed 19s and
+    23s reviews that silently read the diff alone. Instructing a session to do what its tool policy
+    forbids invites the worst failure mode: a fluent claim that the check passed.
+    */
+    expect(step?.config?.toolMode).toBe("readonly");
+    expect(prompt, "a readonly reviewer must not be told to run a verification tool").not.toContain("fn_run_verification");
+    expect(prompt).toContain("You cannot run anything");
 
-    // The shared reviewer keeps its original prompt for the other built-ins.
-    const inherited = BUILTIN_CODING_IDEAS_WORKFLOW_IR.nodes.find((node) => node.id === "code-review")?.config?.template as
-      { nodes?: Array<{ id: string; config?: { prompt?: string } }> } | undefined;
-    expect(inherited?.nodes?.find((node) => node.id === "code-review-step")?.config?.prompt ?? "")
-      .not.toContain("fn_run_verification");
+    // It rules on the tests the EXECUTOR wrote: existence, realness, behaviour, invariant coverage.
+    expect(prompt).toContain("A behavioural change with no test is a REVISE");
+    expect(prompt).toContain("A typecheck is not a test");
+    expect(prompt).toContain("They assert BEHAVIOUR");
+    expect(prompt).toContain("not just the reported case");
   });
 
   /*
@@ -146,55 +153,25 @@ describe("builtin:coding-ideas-v2", () => {
   });
 
   /*
-  FNXC:ReviewGatedPlanning 2026-08-24-06:30:
-  Measured failure this guards: a task on V2 still emitted "Testing & Verification" and
-  "Documentation & Delivery" steps and ran them in in-progress, duplicating the review gates. The
-  seam appended a prohibition to a prompt whose template MANDATED both steps, and the parse node
-  only audits. Assert the template region is genuinely gone, not merely contradicted.
+  FNXC:CodingIdeasV2Workflow 2026-08-25-14:10:
+  This asserts the REVERSAL of what it used to. Plan Review previously carried an
+  "implementation-only steps" criterion that REJECTED any plan containing testing or verification
+  work, because review-column gates were supposed to run those checks. None ever did — the
+  deterministic gate was not routed and reported PASS in ~46ms without running anything, and a
+  readonly reviewer cannot run commands at all. Measured on a real card: a plan was bounced for
+  "implementation steps include testing and verification work that must be handled as review-column
+  gates", after the gate it named had already been deleted.
+  Testing belongs in the plan and is executed by the executor, so this criterion must stay gone.
   */
-  it("stops the planner emitting the gates as duplicate implementation steps", () => {
-    const ir = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR;
-    const plan = ir.nodes.find((node) => node.id === "plan");
-    const parse = ir.nodes.find((node) => node.id === "parse");
-    const prompt = plan?.config?.prompt;
-
-    /*
-    FNXC:ReviewGatedPlanning 2026-08-24-06:45:
-    The seam must stay `planning`: `resolveSeamName` accepts seven names and throws
-    `Unsupported workflow seam` otherwise, which made the plan node fail on every task and the
-    board report "Execution dispatch refused — task is still unplanned". Only the PROMPT differs.
-    */
-    expect(plan?.config?.seam).toBe("planning");
-    expect(typeof prompt).toBe("string");
-    expect(prompt).not.toContain("### Step {N-1}: Testing & Verification");
-    expect(prompt).not.toContain("### Step {N}: Documentation & Delivery");
-    expect(prompt).toContain("OVERRIDES the step template above");
-    // The base workflow must keep the ordinary template.
-    const basePlan = BUILTIN_CODING_IDEAS_WORKFLOW_IR.nodes.find((node) => node.id === "plan");
-    expect(basePlan?.config?.prompt).toContain("### Step {N}: Documentation & Delivery");
-    /*
-    The planner constraint lives in the SEAM PROMPT; `implementationOnlySteps` only audits leakage
-    ("Detection is deliberately non-destructive"). Paired with `preserveRemediationSteps` it also
-    selects named remediation — see the remediation test below.
-    */
-    expect(parse?.config?.implementationOnlySteps).toBe(true);
-  });
-
-  /*
-  FNXC:ReviewGatedPlanning 2026-08-24-06:30:
-  Setting requireImplementationOnlySteps on an already-built plan-review node is inert: the prompt
-  is assembled by planReviewOptionalGroupNode, and no engine code reads the flag. Assert the
-  reviewer actually carries the criterion, not just the boolean.
-  */
-  it("gives Plan Review the implementation-only criterion in its prompt, not just a flag", () => {
+  it("no longer rejects a plan for containing testing steps", () => {
     const planReview = BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR.nodes.find((node) => node.id === "plan-review");
     const reviewConfig = (planReview?.config.template as { nodes?: Array<{ config?: Record<string, unknown> }> })
       .nodes?.[0]?.config;
 
-    expect(reviewConfig?.requireImplementationOnlySteps).toBe(true);
-    expect(reviewConfig?.prompt).toContain("## Review-gated implementation steps");
+    expect(reviewConfig?.requireImplementationOnlySteps).not.toBe(true);
+    expect(reviewConfig?.prompt).not.toContain("## Review-gated implementation steps");
 
-    // The inherited workflow's reviewer must stay untouched.
+    // The inherited workflow's reviewer never carried it and must stay untouched.
     const baseReview = BUILTIN_CODING_IDEAS_WORKFLOW_IR.nodes.find((node) => node.id === "plan-review");
     const baseConfig = (baseReview?.config.template as { nodes?: Array<{ config?: Record<string, unknown> }> })
       .nodes?.[0]?.config;

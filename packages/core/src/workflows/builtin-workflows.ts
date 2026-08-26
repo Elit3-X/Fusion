@@ -7,7 +7,6 @@ import { BUILTIN_MARKETING_WORKFLOW_IR } from "./builtin-marketing-workflow-ir.j
 import { BUILTIN_PR_WORKFLOW_IR } from "./builtin-pr-workflow-ir.js";
 import { BUILTIN_STEPWISE_CODING_WORKFLOW_IR } from "./builtin-stepwise-coding-workflow-ir.js";
 import { BUILTIN_STEPWISE_FINAL_REVIEW_CODING_WORKFLOW_IR } from "./builtin-stepwise-final-review-coding-workflow-ir.js";
-import { BUILTIN_REVIEW_GATED_CODING_WORKFLOW_IR } from "./builtin-review-gated-coding-workflow-ir.js";
 import { BUILTIN_WORKFLOW_SETTINGS } from "./builtin-workflow-settings.js";
 import { builtinPromptConfig } from "./builtin-workflow-prompts.js";
 import { browserVerificationOptionalGroupNode } from "./builtin-browser-verification-group.js";
@@ -546,19 +545,6 @@ export const BUILTIN_WORKFLOWS: WorkflowDefinition[] = [
       "merge-manual-hold": { x: 1590, y: 240 },
       "post-merge-verification": { x: 2270, y: 160 },
       end: { x: 2440, y: 160 },
-    },
-    createdAt: BUILTIN_TS,
-    updatedAt: BUILTIN_TS,
-  },
-  {
-    id: "builtin:review-gated-coding",
-    name: "Coding (review-gated)",
-    description: "Coding pipeline with deterministic verification, code review, and delivery gates in review.",
-    kind: "workflow",
-    ir: BUILTIN_REVIEW_GATED_CODING_WORKFLOW_IR,
-    layout: {
-      start: { x: 60, y: 160 }, plan: { x: 230, y: 160 }, "plan-review": { x: 400, y: 160 }, "plan-replan": { x: 400, y: 320 }, "plan-review-no-op": { x: 570, y: 320 }, parse: { x: 570, y: 160 }, steps: { x: 740, y: 160 },
-      verification: { x: 910, y: 160 }, "verification-remediation": { x: 910, y: 320 }, "code-review": { x: 1080, y: 160 }, "code-review-remediation-steps": { x: 1080, y: 320 }, "documentation-delivery": { x: 1250, y: 160 }, "completion-summary": { x: 1420, y: 160 }, "merge-gate": { x: 1590, y: 160 }, "branch-group-member-integration": { x: 1760, y: 80 }, "branch-group-promotion": { x: 1930, y: 80 }, "merge-attempt": { x: 2100, y: 160 }, "merge-retry": { x: 2270, y: 80 }, "recovery-router": { x: 2270, y: 240 }, "merge-manual-hold": { x: 1760, y: 240 }, "post-merge-verification": { x: 2440, y: 160 }, end: { x: 2610, y: 160 }, "review-pending-handoff": { x: 740, y: 320 },
     },
     createdAt: BUILTIN_TS,
     updatedAt: BUILTIN_TS,

@@ -273,7 +273,14 @@ describe("built-in workflows", () => {
   it("merge-capable built-ins expose a default-off post-merge verification node after merge proof", () => {
     for (const workflow of BUILTIN_WORKFLOWS) {
       if (workflow.kind === "fragment") continue;
-      if (workflow.id === "builtin:coding-ideas") continue; // intentionally minimal pipeline
+      /*
+      FNXC:WorkflowCatalog 2026-08-25-14:40:
+      Coding (Ideas) is an intentionally minimal pipeline with no post-merge verification, and
+      `builtin:coding-ideas-v2` DERIVES from it — it inherits the absence rather than declining the
+      node. Its own review lane is where verification is judged; adding a post-merge node would
+      re-open the checks after the merge that its review already covered.
+      */
+      if (workflow.id === "builtin:coding-ideas" || workflow.id === "builtin:coding-ideas-v2") continue;
       const mergeNode = workflow.ir.nodes.find((node) => node.id === "merge-attempt" || node.id === "merge");
       if (!mergeNode) continue;
 
@@ -915,13 +922,21 @@ describe("built-in workflows", () => {
     expect(defaultEnabledBuiltinWorkflowIds()).not.toContain("builtin:pr-workflow");
     expect(getBuiltinWorkflow("builtin:pr-workflow")!.kind).toBe("fragment");
     expect(defaultEnabledBuiltinWorkflowIds().length).toBeGreaterThanOrEqual(5);
+    /*
+    FNXC:WorkflowCatalog 2026-08-25-14:40:
+    `builtin:coding-ideas-v2` sits third, immediately after the Ideas workflow it derives from, which
+    is where a reader looking for the coding lane expects it. It displaced `builtin:review-heavy`
+    from this five-entry window; the window exists to pin ORDER STABILITY and `builtin:coding` first,
+    not to freeze the catalog size, and `review-heavy` is still asserted as enabled below.
+    */
     expect(defaultEnabledBuiltinWorkflowIds().slice(0, 5)).toEqual([
       "builtin:coding",
       "builtin:coding-ideas",
+      "builtin:coding-ideas-v2",
       "builtin:legacy-coding",
       "builtin:quick-fix",
-      "builtin:review-heavy",
     ]);
+    expect(defaultEnabledBuiltinWorkflowIds()).toContain("builtin:review-heavy");
     expect(defaultEnabledBuiltinWorkflowIds()).toContain("builtin:stepwise-coding");
   });
 
