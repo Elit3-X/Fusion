@@ -1387,13 +1387,64 @@ export async function applySchemaBaseline(
     }
 
     /* FNXC:MemoryFocus 2026-08-14-10:30: register 0066 explicitly (renumbered from 0061 on 2026-08-20 — the upstream FN-066..FN-094 batch owns 0061-0064 — and from 0065 on 2026-08-23 when upstream's FN-149 claimed 0065). */
-    if (!chatSessionMemoryFocusAlreadyApplied) {
+    /*
+    FNXC:MemoryFocus 2026-08-26-08:31:
+    VERIFY THE COLUMN, NOT ONLY THE LEDGER ROW — the same defence `recommendations` already carries
+    above, for the same reason, one table over.
+
+    A ledger row asserts "a migration with this NUMBER ran". For a migration renumbered four times
+    (0059 → 0060 → 0061 → 0065 → 0066, each time because upstream claimed the sequence first) that is
+    not the same claim as "this COLUMN exists": a database carrying a row from one numbering while
+    another migration owned that number on the boot that recorded it converges to a ledger the applier
+    trusts absolutely and a schema that does not match it.
+
+    Measured on a real dev database: `column "memory_focus" does not exist` on every chat-session read,
+    because `select()` emits the binary's full column list. Every chat query 500s, the task planner
+    chat never opens, and startup reports success — the applier had nothing left to do.
+
+    The SQL is `ADD COLUMN IF NOT EXISTS`, so replaying it is free when the column is already there.
+    A settings-only schema has no chat_sessions relation and stays a no-op.
+    */
+    const chatSessionMemoryFocusColumnState = (await tx.execute(sql`
+      SELECT
+        to_regclass('project.chat_sessions') IS NOT NULL AS chat_sessions_exists,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'project'
+            AND table_name = 'chat_sessions'
+            AND column_name = 'memory_focus'
+        ) AS memory_focus_exists
+    `)) as unknown as Array<{ chat_sessions_exists: boolean; memory_focus_exists: boolean }>;
+    const chatSessionMemoryFocusColumnMissing = chatSessionMemoryFocusColumnState[0]?.chat_sessions_exists
+      && !chatSessionMemoryFocusColumnState[0]?.memory_focus_exists;
+    if (!chatSessionMemoryFocusAlreadyApplied || chatSessionMemoryFocusColumnMissing) {
       const migrationSql = await readFile(CHAT_SESSION_MEMORY_FOCUS_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${CHAT_SESSION_MEMORY_FOCUS_VERSION}) ON CONFLICT (version) DO NOTHING`);
       schemaChanged = true;
     }
-    if (!sessionContentionWaitStateAlreadyApplied) {
+    /*
+    FNXC:WorkspaceContention 2026-08-26-08:31:
+    The OTHER renumbered migration on this branch (0066 → 0067, because released chat memory focus
+    owns 0066) carries the identical ledger-versus-schema hazard, so it takes the identical defence:
+    verify the materialized columns, not only the marker. Its SQL is `ADD COLUMN IF NOT EXISTS`, so a
+    replay over a healthy schema is free.
+    */
+    const sessionContentionColumnState = (await tx.execute(sql`
+      SELECT
+        to_regclass('project.tasks') IS NOT NULL AS tasks_exists,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'project'
+            AND table_name = 'tasks'
+            AND column_name = 'session_contention_wait_reason'
+        ) AS wait_reason_exists
+    `)) as unknown as Array<{ tasks_exists: boolean; wait_reason_exists: boolean }>;
+    const sessionContentionColumnsMissing = sessionContentionColumnState[0]?.tasks_exists
+      && !sessionContentionColumnState[0]?.wait_reason_exists;
+    if (!sessionContentionWaitStateAlreadyApplied || sessionContentionColumnsMissing) {
       const migrationSql = await readFile(SESSION_CONTENTION_WAIT_STATE_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${SESSION_CONTENTION_WAIT_STATE_VERSION}) ON CONFLICT (version) DO NOTHING`);
