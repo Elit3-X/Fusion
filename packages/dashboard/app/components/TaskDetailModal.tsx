@@ -4577,6 +4577,25 @@ export function TaskDetailContent({
       .catch(() => undefined);
   }, [activityFeedIsEmpty, task.id, projectId, requestTaskDetail]);
 
+  /*
+  FNXC:TaskActivityFeedFreshness 2026-08-26-12:20:
+  Rescue an empty Feed whenever it is VISIBLE, not only when the operator switches to it.
+
+  The retry used to hang off `selectActivityView`, so it could not fire on a card that OPENS on Feed
+  — which is how a deep link and the board's activity affordance land (`initialTab: "logs"`). Combined
+  with the mount effect trusting `"prompt" in task` as proof of a complete detail (an SSE snapshot
+  keeps `prompt` and empties `log`), a done task with real entries displayed "(no activity)"
+  permanently. Reported from a live board.
+
+  The guard inside `refreshEmptyActivityFeed` still returns immediately when the feed is populated, so
+  a card that already holds its journal pays nothing — and a genuinely empty task asks once, because
+  the callback identity is stable while it stays empty.
+  */
+  useEffect(() => {
+    if (!active || activeTab !== "chat" || activitySegment !== "feed") return;
+    refreshEmptyActivityFeed();
+  }, [active, activeTab, activitySegment, refreshEmptyActivityFeed]);
+
   const selectActivityView = useCallback((value: ActivitySegment) => {
     activityViewMenuViewportGuardUntilRef.current = 0;
     setActiveTab("chat");
