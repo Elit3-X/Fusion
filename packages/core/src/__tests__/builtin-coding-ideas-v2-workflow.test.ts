@@ -2,9 +2,17 @@ import { describe, expect, it } from "vitest";
 import { resolveRequiredPreMergeStepIds } from "../merge/required-pre-merge-steps.js";
 import { BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR } from "../workflows/builtin-coding-ideas-v2-workflow-ir.js";
 import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "../workflows/builtin-coding-ideas-workflow-ir.js";
+import { BUILTIN_CODING_WORKFLOW_IR } from "../workflows/builtin-coding-workflow-ir.js";
 import { getBuiltinWorkflow } from "../workflows/builtin-workflows.js";
 import { parseWorkflowIr, serializeWorkflowIr } from "../workflows/workflow-ir.js";
+import { builtinSeamPrompt, stripDocumentationDeliveryStep } from "../workflows/builtin-workflow-prompts.js";
 import { resolveWorkflowOptionalSteps } from "../workflows/workflow-optional-steps.js";
+
+/** The planning seam prompt a task on this workflow actually receives. */
+function planningPrompt(ir: { nodes: Array<{ kind: string; config?: Record<string, unknown> }> }): string {
+  const node = ir.nodes.find((candidate) => candidate.kind === "prompt" && candidate.config?.seam === "planning");
+  return String(node?.config?.prompt ?? "");
+}
 
 /** The single-success-edge walk an executing task actually follows from a node. */
 function successChainFrom(start: string): string[] {
@@ -177,6 +185,52 @@ describe("builtin:coding-ideas-v2", () => {
       .nodes?.[0]?.config;
     expect(baseConfig?.requireImplementationOnlySteps).toBeUndefined();
     expect(baseConfig?.prompt).not.toContain("## Review-gated implementation steps");
+  });
+
+  /*
+  FNXC:PlanningDocumentationStep 2026-08-26-05:56:
+  Testing is planned, documentation is not. Keeping both had the executor perform the delivery note,
+  artifact registration and follow-up tasks, and the in-review Documentation milestone perform the
+  same three tool calls again — both writing task document `docs`, so the review pass overwrote the
+  executor's. Repository documentation stays implementation work, done inside the step that made a
+  doc wrong so Code Review sees it in the diff.
+  */
+  it("plans testing but not documentation", () => {
+    const prompt = planningPrompt(BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR);
+
+    expect(prompt, "the executor owns testing and must keep planning it")
+      .toContain("### Step {N-1}: Testing & Verification");
+    expect(prompt, "documentation is a review milestone, not a task step")
+      .not.toContain("### Step {N}: Documentation & Delivery");
+    expect(prompt).toContain("Documentation is not a step");
+
+    // Testing & Verification is now the LAST step the template mandates.
+    const mandatedSteps = [...prompt.matchAll(/^### Step \{[^}]+\}: (.+)$/gm)].map((match) => match[1]);
+    expect(mandatedSteps.at(-1)).toBe("Testing & Verification");
+
+    // The strip removes one block, not the remainder of the template.
+    for (const survivor of ["## Documentation Requirements", "## Completion Criteria", "## Git Commit Convention"]) {
+      expect(prompt, `${survivor} must survive the strip`).toContain(survivor);
+    }
+
+    // The shared template every other coding workflow uses is untouched.
+    for (const ir of [BUILTIN_CODING_IDEAS_WORKFLOW_IR, BUILTIN_CODING_WORKFLOW_IR]) {
+      expect(planningPrompt(ir)).toContain("### Step {N}: Documentation & Delivery");
+      expect(planningPrompt(ir)).not.toContain("Documentation is not a step");
+    }
+    expect(builtinSeamPrompt("planning")).toContain("### Step {N}: Documentation & Delivery");
+  });
+
+  /*
+  A reworded base prompt must WEAKEN the instruction, never break planning: the abandoned
+  `planning-implementation-only` seam proved a trailing sentence loses to the detailed template, so
+  the strip is preferred — but an append still beats emitting nothing at all.
+  */
+  it("degrades to an appended prohibition when the template anchors stop matching", () => {
+    const reworded = "# Task template\n\n### Phase 9: Docs and handover\n\n- [ ] write docs\n";
+    const result = stripDocumentationDeliveryStep(reworded);
+    expect(result.startsWith(reworded)).toBe(true);
+    expect(result).toContain("Documentation is not a step");
   });
 
   it("never mutates the inherited Coding (Ideas) graph", () => {

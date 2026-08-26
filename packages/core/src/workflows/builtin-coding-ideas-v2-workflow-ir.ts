@@ -3,6 +3,7 @@ import { parseWorkflowIr } from "./workflow-ir.js";
 import { BUILTIN_CODING_IDEAS_WORKFLOW_IR } from "./builtin-coding-ideas-workflow-ir.js";
 
 import { documentationDeliveryOptionalGroupNode } from "./builtin-documentation-delivery-group.js";
+import { stripDocumentationDeliveryStep } from "./builtin-workflow-prompts.js";
 import { codeReviewRemediationStepsNode } from "./builtin-workflow-remediation-nodes.js";
 
 const clone = (ir: WorkflowIr): WorkflowIr => JSON.parse(JSON.stringify(ir)) as WorkflowIr;
@@ -57,6 +58,22 @@ const RAW_BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR: WorkflowIr = (() => {
   CONFORMITY of that work; it does not perform it.
   */
   /* Plan Review no longer rejects a plan for containing test steps: they belong there again. */
+  /*
+  FNXC:PlanningDocumentationStep 2026-08-26-05:56:
+  Testing is planned; documentation is NOT. The planner keeps the default prompt's
+  `Testing & Verification` step and loses its `Documentation & Delivery` step, because this workflow
+  runs a Documentation MILESTONE in review that writes the card summary, the delivery note, the
+  artifacts, and the follow-up tasks. Keeping both had the executor perform those four actions and
+  the milestone perform them again — three were the identical tool calls, and both wrote task
+  document `docs`, so the review pass silently overwrote the executor's.
+  Repository documentation survives as implementation work: the executor updates a doc its own change
+  made wrong, inside the step that made it, so Code Review sees it in the diff.
+  The strip is scoped to THIS workflow's copy of the prompt; `builtin:coding` and
+  `builtin:coding-ideas` keep the shared template untouched.
+  */
+  const plan = ir.nodes.find((node) => node.id === "plan");
+  if (!plan?.config) throw new Error("coding-ideas-v2 requires the inherited planning node");
+  plan.config.prompt = stripDocumentationDeliveryStep(String(plan.config.prompt ?? ""));
   /*
   FNXC:ReviewGatedRemediation 2026-08-24-22:10:
   Named remediation is enabled: `implementationOnlySteps` + `preserveRemediationSteps` select
