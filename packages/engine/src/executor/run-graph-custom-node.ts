@@ -602,9 +602,27 @@ export async function runGraphCustomNode(
           const repoEnv = mode === "prompt"
             ? (await deps.buildInjectedRuntimeEnv(live.id, repoWorktreePath, undefined)).env
             : nodeEnv;
+          /*
+          FNXC:WorkspaceReviewScope 2026-08-26-09:12:
+          Hand the reviewer the base of the repository it is actually reading. The singular
+          `task.baseCommitSha` does not resolve inside a sub-repository worktree, so the scope capture
+          returned nothing and the prompt told the reviewer there were no modified files — after the
+          executor had COMMITTED in that repository. Measured on a real card: the reviewer reported
+          the delivered fixtures as never delivered. The per-repo base was already recorded and
+          already used by this file's own evidence capture; it simply never reached the reviewer.
+          */
+          const repoDiffBaseCommitSha = repoRelPath
+            ? live.workspaceWorktrees?.[repoRelPath]?.baseCommitSha ?? undefined
+            : undefined;
           const repoOutcome = mode === "script"
             ? await deps.executeScriptWorkflowStep(live, step, repoWorktreePath, settings, repoEnv)
-            : await deps.executeWorkflowStep(live, step, repoWorktreePath, settings, repoEnv, { unattended, principalAgentId, outputLanguage, sessionBoundary: reviewBoundary });
+            : await deps.executeWorkflowStep(live, step, repoWorktreePath, settings, repoEnv, {
+              unattended,
+              principalAgentId,
+              outputLanguage,
+              sessionBoundary: reviewBoundary,
+              ...(repoDiffBaseCommitSha ? { diffBaseCommitSha: repoDiffBaseCommitSha } : {}),
+            });
           return {
             verdict: (repoOutcome.verdict ?? (repoOutcome.success ? "APPROVE" : "UNAVAILABLE")) as ReviewResult["verdict"],
             review: repoOutcome.output ?? repoOutcome.error ?? "",

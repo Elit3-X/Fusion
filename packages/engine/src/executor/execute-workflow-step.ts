@@ -130,8 +130,28 @@ export async function executeWorkflowStep(
   worktreePath: string,
   settings: Settings,
   taskEnv?: NodeJS.ProcessEnv,
-  stepOptions?: { unattended?: boolean; principalAgentId?: string; outputLanguage?: ResolvedTaskOutputLanguage; sessionBoundary?: SessionBoundaryDescriptor },
+  /*
+  FNXC:WorkspaceReviewScope 2026-08-26-09:12:
+  `diffBaseCommitSha` overrides the SINGULAR `task.baseCommitSha` when a caller runs this step against
+  a checkout that does not share it. A workspace Code Review does exactly that: it invokes the step
+  once per SUB-REPOSITORY worktree, each with its own base recorded in
+  `task.workspaceWorktrees[repo].baseCommitSha`.
+
+  Without the override the scope capture resolved the singular base inside a sub-repo, found nothing,
+  and told the reviewer "(no modified files detected for this task)". Measured on a real multi-repo
+  card whose executor had COMMITTED in both repositories: the reviewer went looking, could not see the
+  committed fixtures inside its own scope, and reported them as never delivered — a factual, confident
+  rejection produced entirely by a wrong diff base.
+  */
+  stepOptions?: {
+    unattended?: boolean;
+    principalAgentId?: string;
+    outputLanguage?: ResolvedTaskOutputLanguage;
+    sessionBoundary?: SessionBoundaryDescriptor;
+    diffBaseCommitSha?: string;
+  },
 ): Promise<WorkflowStepOutcome> {
+  const diffBaseCommitSha = stepOptions?.diffBaseCommitSha ?? task.baseCommitSha;
     let toolMode: "coding" | "readonly" = workflowStep.toolMode || "readonly";
     // (U3) Genuinely-unattended run — set FUSION_HEADLESS=1 below so skills record
     // assumptions and proceed instead of parking on a question. Explicit opt-in
@@ -256,11 +276,11 @@ export async function executeWorkflowStep(
     // open-ended review prompts (e.g. "verify visual polish") have been
     // observed to spend the entire timeout budget reading pre-existing files
     // that match the task description's keywords. See FN-3327 post-mortem.
-    const scopedFiles = await deps.captureModifiedFiles(worktreePath, task.baseCommitSha, task.id, undefined, "workflow-step-handler");
+    const scopedFiles = await deps.captureModifiedFiles(worktreePath, diffBaseCommitSha, task.id, undefined, "workflow-step-handler");
     let diffShortstat: string | undefined;
     let reviewInputFingerprint: string | undefined;
     try {
-      const baseRef = await resolveDiffBaseRef(worktreePath, task.baseCommitSha);
+      const baseRef = await resolveDiffBaseRef(worktreePath, diffBaseCommitSha);
       if (baseRef) {
         const { stdout } = await execAsync(`git diff --shortstat ${baseRef}..HEAD`, {
           cwd: worktreePath,
