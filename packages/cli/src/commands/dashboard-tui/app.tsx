@@ -889,7 +889,7 @@ function HelpOverlay() {
     ["[→] / [↓] / [n]", t("tui.helpShortcutNextPanel", "Next panel (Main; ↑/↓ scroll on Logs)")],
     ["[←] / [↑] / [p]", t("tui.helpShortcutPrevPanel", "Previous panel (Main; ↑/↓ scroll on Logs)")],
     ["[Enter]", t("tui.helpShortcutExpandLog", "Expand log + release mouse for text selection (Logs)")],
-    ["[v]", t("tui.helpShortcutRawLogs", "Raw logs: no borders, mouse released — select a range to copy (Logs)")],
+    ["[V]", t("tui.helpShortcutRawLogs", "Raw logs: no borders, mouse released — select a range to copy (Logs)")],
     ["[r]", t("tui.helpShortcutRefreshStats", "Refresh stats (Utilities)")],
     ["[c]", t("tui.helpShortcutClearLogs", "Clear logs (Utilities)")],
     ["[k]", t("tui.helpShortcutKillVitest", "Kill all vitest processes (Utilities)")],
@@ -1060,7 +1060,6 @@ function StatusModeSingle({
   state: DashboardState;
   controller: DashboardTUI;
 }) {
-  const { t } = useTranslation("cli");
   const focused = state.activeSection;
   const { stdout } = useStdout();
   const rows = stdout?.rows ?? 24;
@@ -1116,17 +1115,6 @@ function StatusModeSingle({
   logs unusable. One trailing hint line stays, because a full-screen view with no visible way out is
   worse than one extra row.
   */
-  if (state.logsRawMode) {
-    return (
-      <Box flexDirection="column" flexGrow={1}>
-        <RawLogs state={state} rows={Math.max(1, rows - 1)} />
-        <Box flexShrink={0}>
-          <Text dimColor>{t("tui.rawLogsHint", "[v/Esc] leave raw logs · select with the mouse to copy")}</Text>
-        </Box>
-      </Box>
-    );
-  }
-
   return (
     <Box flexDirection="column" flexGrow={1}>
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
@@ -4643,12 +4631,17 @@ export function DashboardApp({ controller }: DashboardAppProps) {
       }
 
       /*
-      FNXC:TuiRawLogs 2026-08-26-14:10:
-      [v] shows the logs alone, chrome-free and mouse-released, so a terminal click-drag copies clean
+      FNXC:TuiRawLogs 2026-08-26-14:40:
+      SHIFT+V, not [v]: the Utilities panel already advertises `[v] Auto-Kill Vitest` on the same
+      screen. The two handlers are mutually exclusive at runtime (utility actions require the
+      Utilities section, this branch requires log focus), so there is no functional clash — but two
+      different `[v]` legends visible at once is a UI anyone would misread.
+
+      Shows the logs alone, chrome-free and mouse-released, so a terminal click-drag copies clean
       text. `[c]` already copies ONE selected line; this is the path for copying a range, which no
       keyboard shortcut can express. Esc returns (handled with the other escapes above).
       */
-      if (input === "v" || input === "V") {
+      if (input === "V") {
         controller.setLogsRawMode(!state.logsRawMode);
         if (!state.logsRawMode) controller.setShowHelp(false);
         return;
@@ -4752,6 +4745,27 @@ export function DashboardApp({ controller }: DashboardAppProps) {
     resizeTick,
     hasSystemInfo: Boolean(state.systemInfo),
   });
+
+  /*
+  FNXC:TuiRawLogs 2026-08-26-14:40:
+  Raw mode replaces the ENTIRE frame, above the layout choice — header included.
+
+  It was first added inside the single-pane layout only, which is the narrow one. On a wide terminal
+  the dashboard renders the GRID layout instead (System / Stats / Utilities / Settings beside Logs),
+  so the toggle changed state and nothing moved on screen. The point of this mode is that NO chrome
+  survives a rectangular selection, and chrome is drawn by both layouts plus the header — so the
+  escape has to happen before either is chosen.
+  */
+  if (state.mode === "status" && state.logsRawMode) {
+    return (
+      <Box key={layoutKey} flexDirection="column" height={rows} width={cols} overflow="hidden">
+        <RawLogs state={state} rows={Math.max(1, rows - 1)} />
+        <Box height={1} flexShrink={0}>
+          <Text dimColor>{t("tui.rawLogsHint", "[V/Esc] leave raw logs · select with the mouse to copy")}</Text>
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box key={layoutKey} flexDirection="column" height={rows} width={cols} overflow="hidden">
