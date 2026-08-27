@@ -1845,7 +1845,9 @@ For setup prerequisites, security caveats for tokenized URLs/QR links, and troub
 
 ## Skills API
 
-The Skills view now supports the full browse-and-install loop for skills.sh entries: use **Skills Catalog** to search the catalog, click **Install** on any card with a source repository, and the dashboard will run the same installer as the CLI (`npx skills add <owner/repo> -y -a pi`, with `--skill <slug>` when applicable). On success, the view refreshes **Discovered Skills** immediately so the newly installed skill appears without a page reload.
+The Skills view now supports the full browse-and-install loop for skills.sh entries: use **Skills Catalog** to search the catalog, click **Install** on any card with a source repository, and the dashboard will run the same installer as the CLI (`npx skills add <owner/repo> -y -a pi`, with `--skill <slug>` when applicable). On success, the view refreshes **Discovered Skills** and the catalog immediately; entries already installed for the selected project show **Installed** rather than an install button.
+
+Discovery is scoped to the requested project root. It merges `<root>/.fusion/skills`, `<root>/.pi/skills`, `<root>/.agents/skills` and its repository ancestors, user/global agent sources, and project-enabled plugin skills. For duplicate project-local skills, Fusion-owned `.fusion/skills` takes precedence over `.pi/skills`, which takes precedence over project `.agents/skills`; plugin skills remain a final bare-name deduplicated merge. Catalog `installation.installed` is computed from this same project inventory.
 
 The Skills API provides endpoints for managing execution skills. Skills are toggled via project-scoped settings in `.fusion/settings.json`. Toggle entries match the skill body’s relative path beneath `skills/` (for example, `api/api-versioning/SKILL.md`), not just its displayed name. Stale flat-layout entries such as `-api-versioning/SKILL.md` are ignored for skills that now use a categorized body path, keeping the Skills view and agent-session manifest aligned.
 
@@ -1880,7 +1882,7 @@ List all discovered skills with their enabled state.
 ```
 
 **Skill ID Format:** `encodeURIComponent(metadata.source) + "::" + relativePath`
-- Top-level skills use `source: "*"`
+- Auto-discovered project skills, including Fusion-owned `.fusion/skills`, use `source: "auto"`
 - Package skills use the package source identifier
 
 **Error Response:** `404 Not Found`
