@@ -103,6 +103,10 @@ Fusion persists one canonical ordered vocabulary: `off`, `minimal`, `low`, `medi
 
 Custom-provider models are presumed thinking-capable and expose all seven levels by default; no capability checkbox or other configuration is required. Fusion registers these levels with pi as transmissible, while pi owns API-specific `off` translation and up-then-down clamping. Consequently, a global or inherited thinking level that custom providers previously ignored is now sent to the gateway. A strict gateway can reject an unsupported effort; select **Off** for that gateway, which pi translates to its explicit non-reasoning form or omits when the API has no such form.
 
+#### Reasoning-summary detail
+
+When a real thinking effort is resolved, Fusion requests `reasoning.summary: "detailed"` for Responses-family models: `openai-responses`, `openai-codex-responses`, and `azure-openai-responses`. Pi forwards the effort through its simple stream path but not this summary preference; without Fusion's request shaping, those APIs use their shortest `"auto"` summary. Non-Responses APIs are unchanged. If a provider rejects detailed summaries, Fusion retries that run with the previous request shape. Detailed summaries can consume slightly more output tokens.
+
 | `ntfyEnabled` | `boolean` | `false` | Enable ntfy push notifications. |
 | `agentClarificationEnabled` | `boolean` | `false` | Legacy default for programmatic Planning Mode session notification eligibility. Dashboard Planning Mode always starts its infinite, user-validated interview with follow-up questions enabled; this setting no longer suppresses questions or creates a final summary. |
 | `failureNotificationMode` | `"sticky-only" \| "terminal-only" \| "all"` | `"sticky-only"` | Failure notification behavior. `sticky-only` defers failed-task notifications by `failureNotificationDelayMs` and suppresses transient self-recoveries. `terminal-only` suppresses while auto-retry is still active and only dispatches when `paused === true` or `column === "in-review"` with `status === "failed"`. `all` restores legacy immediate failure notifications. |
