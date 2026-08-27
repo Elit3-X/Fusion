@@ -2174,4 +2174,3 @@ The three-dot menu is the sole card move/action entry point. Keep this shared bu
 
 /* FNXC:TaskRevert 2026-08-01-19:51: Reverted tasks require visible resolution controls, not hover-only menu actions. */
 .card-reverted-actions { display: inline-flex; gap: var(--space-1); }
-.reverted-tasks-section { display: grid; gap: var(--space-2); padding: var(--space-3); }
