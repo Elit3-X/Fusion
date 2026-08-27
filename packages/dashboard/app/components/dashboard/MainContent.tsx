@@ -155,6 +155,7 @@ export function MainContent({
   globalPaused,
   updateTask,
   retryTask,
+  restartTaskStage,
   archiveTask,
   unarchiveTask,
   revertTask,
@@ -910,6 +911,7 @@ export function MainContent({
             onUpdateTask={updateTask}
             onRetryTask={retryTask}
             onUnpauseTask={unpauseTask}
+            onRestartStage={restartTaskStage}
             onResetTask={resetTask}
             onDuplicateTask={duplicateTask}
             onMergeTask={mergeTask}
@@ -976,7 +978,8 @@ export function MainContent({
               onRetryTask={retryTask}
               onPauseTask={pauseTask}
               onUnpauseTask={unpauseTask}
-              onResetTask={resetTask}
+              onRestartStage={restartTaskStage}
+            onResetTask={resetTask}
               onDuplicateTask={duplicateTask}
               /*
               FNXC:Navigation 2026-06-22-09:00:
@@ -1031,7 +1034,8 @@ export function MainContent({
           onUpdateTask={updateTask}
           onRetryTask={retryTask}
           onUnpauseTask={unpauseTask}
-          onResetTask={resetTask}
+          onRestartStage={restartTaskStage}
+            onResetTask={resetTask}
           onDuplicateTask={duplicateTask}
           onMergeTask={mergeTask}
           onArchiveTask={archiveTask}
@@ -1080,7 +1084,8 @@ export function MainContent({
         onArchiveTask={archiveTask}
         onRevertTask={revertTask}
         onMergeTask={mergeTask}
-        onResetTask={resetTask}
+        onRestartStage={restartTaskStage}
+            onResetTask={resetTask}
         onDuplicateTask={duplicateTask}
         onRefinementCreated={(task) => ingestCreatedTasks([task])}
         onOpenDetail={(task, options) => openDetailTask(task, undefined, options)}

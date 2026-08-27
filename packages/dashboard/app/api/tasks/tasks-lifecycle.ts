@@ -168,6 +168,14 @@ export function recoverBranchBinding(id: string, projectId?: string): Promise<Re
   return api<RecoverBranchBindingOutcome>(withProjectId(`/tasks/${id}/recover-branch-binding`, projectId), { method: "POST" });
 }
 
+export function restartTaskStage(id: string, projectId?: string): Promise<Task> {
+  return api<Task>(withProjectId(`/tasks/${id}/restart-stage`, projectId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
+}
+
 export function resetTask(id: string, projectId?: string): Promise<Task> {
   return api<Task>(withProjectId(`/tasks/${id}/reset`, projectId), {
     method: "POST",

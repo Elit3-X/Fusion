@@ -425,6 +425,7 @@ export interface TaskDetailModalProps {
   affordance surface for this policy-gated escape hatch.
   */
   onBypassReview?: (id: string, reason: string) => Promise<Task>;
+  onRestartStage?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   onTaskUpdated?: (task: Task) => void;
@@ -810,6 +811,7 @@ export function TaskDetailContent({
   onPauseTask,
   onUnpauseTask,
   onBypassReview,
+  onRestartStage,
   onResetTask,
   onDuplicateTask,
   onTaskUpdated,
@@ -3421,6 +3423,25 @@ export function TaskDetailContent({
   FNXC:TaskReset 2026-08-19-06:45:
   Reset is destructive: confirmation explains that the owned worktree and current plan are discarded, while the success toast is emitted only after the server has fenced work, completed cleanup, and committed the fresh Planning state.
   */
+  const handleRestartStage = useCallback(async () => {
+    if (!onRestartStage) return;
+    const confirmed = await confirm({
+      title: t("taskDetail.restartStage.confirmTitle", "Restart current stage"),
+      message: t("taskDetail.restartStage.confirmMessage", "Discard this stage's work while keeping earlier stages and leaving the card in its current column?"),
+      confirmLabel: t("taskDetail.restartStage.btn", "Restart stage"),
+      cancelLabel: t("common.cancel", "Cancel"),
+      danger: true,
+    });
+    if (!confirmed) return;
+    requestClose();
+    try {
+      await onRestartStage(task.id);
+      addToast(t("taskDetail.restartStage.success", "Restarted the current stage"), "success");
+    } catch (err) {
+      addToast(getErrorMessage(err), "error");
+    }
+  }, [addToast, confirm, onRestartStage, requestClose, t, task.id]);
+
   const handleReset = useCallback(async () => {
     if (!onResetTask) return;
     const shouldReset = await confirm({
@@ -4275,6 +4296,7 @@ export function TaskDetailContent({
     canRetryTask,
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
+    hasRestartStageHandler: Boolean(onRestartStage),
     hasResetHandler: Boolean(onResetTask),
     hasBypassReviewHandler: Boolean(onBypassReview),
     mergeStrategy,
@@ -4286,6 +4308,7 @@ export function TaskDetailContent({
     onOpenRefine: handleOpenRefineModal,
     onRespecify: handleRespecify,
     onRetry: handleRetry,
+    onRestartStage: handleRestartStage,
     onReset: handleReset,
     onTogglePause: handleTogglePause,
     onMerge: handleMergeMenuItemClick,
@@ -4299,6 +4322,7 @@ export function TaskDetailContent({
     canRetryTask,
     onDuplicateTask,
     onRetryTask,
+    onRestartStage,
     onResetTask,
     onBypassReview,
     mergeStrategy,
@@ -4310,6 +4334,7 @@ export function TaskDetailContent({
     handleOpenRefineModal,
     handleRespecify,
     handleRetry,
+    handleRestartStage,
     handleReset,
     handleTogglePause,
     handleMergeMenuItemClick,

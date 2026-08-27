@@ -1205,6 +1205,16 @@ export {
   buildAutoPauseClearPatch,
   buildManualRetryResetPatch,
 } from "./tasks/manual-retry-reset.js";
+export {
+  RESTART_STAGE_FENCE_REASON,
+  planTaskColumnRestart,
+} from "./tasks/task-column-restart.js";
+export type {
+  TaskColumnRestartEntryNode,
+  TaskColumnRestartPlan,
+  TaskColumnRestartRefusal,
+  TaskColumnRestartScope,
+} from "./tasks/task-column-restart.js";
 export type {
   TaskIdIntegrityAnomaly,
   TaskIdIntegrityAnomalyKind,

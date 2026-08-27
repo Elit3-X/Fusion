@@ -214,6 +214,7 @@ export interface MainContentProps {
     updates: { title?: string; description?: string; dependencies?: string[]; dismissNearDuplicate?: boolean },
   ) => Promise<Task>;
   retryTask: (id: string) => Promise<Task>;
+  restartTaskStage: (id: string) => Promise<Task>;
   archiveTask: (id: string, options?: { removeLineageReferences?: boolean }) => Promise<Task>;
   unarchiveTask: (id: string) => Promise<Task>;
   /*

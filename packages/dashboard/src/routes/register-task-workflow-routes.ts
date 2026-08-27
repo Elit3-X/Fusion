@@ -138,6 +138,7 @@ import { FUSION_CLIENT_HEADER, resolveHttpDeleteCallerKind, isValidTaskBranchNam
 import { ApiError, badRequest, conflict, notFound } from "../api-error.js";
 // FNXC:TaskLookup404 2026-07-26-11:40: shared task-miss -> 404 mapping seam.
 import { isTaskLookupMiss, rethrowTaskApiError } from "./task-lookup-error.js";
+import { restartTaskStage } from "./task-restart-stage.js";
 import type { ApiRoutesContext } from "./types.js";
 import { deriveAutoTaskBranch, derivePerTaskBranch, getBranchSelectionMode, resolveBranchSelection } from "./branch-selection.js";
 import { isDaemonAuthActive } from "../auth-middleware.js";
@@ -3951,6 +3952,26 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         }
       });
 
+      res.json(updated);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) throw err;
+      rethrowTaskApiError(err, req.params.id);
+    }
+  });
+
+  // Restart only the current workflow stage without moving the card.
+  router.post("/tasks/:id/restart-stage", async (req, res) => {
+    try {
+      const { store: scopedStore, engine } = await getProjectContext(req);
+      const selfHealingManager = _resolveSelfHealingManager(scopedStore);
+      const updated = await restartTaskStage({
+        store: scopedStore,
+        engine,
+        taskId: req.params.id,
+        confirm: (req.body ?? {}).confirm === true,
+        activeMergeTaskId: selfHealingManager?.getActiveMergeTaskId?.() ?? null,
+        staleMergingStatusMinAgeMs: selfHealingManager?.getStaleMergingStatusMinAgeMs?.(),
+      });
       res.json(updated);
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;

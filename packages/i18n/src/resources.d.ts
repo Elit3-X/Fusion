@@ -8417,6 +8417,12 @@ export default interface Resources {
       "respecify": {
         "btn": "Respecify"
       },
+      "restartStage": {
+        "btn": "Restart stage",
+        "confirmMessage": "Discard this stage's work while keeping earlier stages and leaving the card in its current column?",
+        "confirmTitle": "Restart current stage",
+        "success": "Restarted the current stage"
+      },
       "retries": {
         "branchConflict": "Branch conflict recovery",
         "branchConflictTitle": "FN-4068 branch-conflict recovery retries",

@@ -640,6 +640,7 @@ interface TaskCardProps {
   onRetryTask?: (id: string) => Promise<Task>;
   onUnpauseTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
+  onRestartStage?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   onMergeTask?: (id: string) => Promise<MergeResult>;
   onOpenDetailWithTab?: (task: Task | TaskDetail, initialTab: "changes" | "retries" | "workflow") => void;
@@ -865,6 +866,7 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previous.onRetryTask === next.onRetryTask &&
     previous.onUnpauseTask === next.onUnpauseTask &&
     previous.onResetTask === next.onResetTask &&
+    previous.onRestartStage === next.onRestartStage &&
     previous.onDuplicateTask === next.onDuplicateTask &&
     previous.onMergeTask === next.onMergeTask &&
     previous.onOpenDetailWithTab === next.onOpenDetailWithTab &&
@@ -1011,6 +1013,7 @@ function TaskCardComponent({
   onRetryTask,
   onUnpauseTask,
   onResetTask,
+  onRestartStage,
   onDuplicateTask,
   onMergeTask,
   onOpenDetailWithTab,
@@ -2602,6 +2605,24 @@ function TaskCardComponent({
     }
   }, [addToast, isPaused, onPauseTask, onUnpauseTask, task.id, t]);
 
+  const handleTaskActionRestartStage = useCallback(async () => {
+    if (!onRestartStage) return;
+    const confirmed = await confirm({
+      title: t("taskDetail.restartStage.confirmTitle", "Restart current stage"),
+      message: t("taskDetail.restartStage.confirmMessage", "Discard this stage's work while keeping earlier stages and leaving the card in its current column?"),
+      confirmLabel: t("taskDetail.restartStage.btn", "Restart stage"),
+      cancelLabel: t("common.cancel", "Cancel"),
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await onRestartStage(task.id);
+      addToast(t("taskDetail.restartStage.success", "Restarted the current stage"), "success");
+    } catch (err) {
+      addToast(getErrorMessage(err), "error");
+    }
+  }, [addToast, confirm, onRestartStage, t, task.id]);
+
   const handleTaskActionReset = useCallback(async () => {
     if (!onResetTask) return;
     const shouldReset = await confirm({
@@ -2721,6 +2742,7 @@ function TaskCardComponent({
     canRetryTask,
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
+    hasRestartStageHandler: Boolean(onRestartStage),
     hasResetHandler: Boolean(onResetTask),
     hasAssignedAgent: Boolean(task.assignedAgentId),
     autoMergeEnabled: effectiveAutoMerge,
@@ -2732,6 +2754,7 @@ function TaskCardComponent({
     onOpenRefine: onOpenRefine ? () => onOpenRefine(task) : undefined,
     onRespecify: handleTaskActionRespecify,
     onRetry: onRetryTask ? handleTaskActionRetry : undefined,
+    onRestartStage: onRestartStage ? handleTaskActionRestartStage : undefined,
     onReset: onResetTask ? handleTaskActionReset : undefined,
     onTogglePause: (isPaused ? onUnpauseTask : onPauseTask) ? handleTaskActionTogglePause : undefined,
     onMerge: onMergeTask ? handleTaskActionMerge : undefined,
@@ -2745,6 +2768,7 @@ function TaskCardComponent({
     canRetryTask,
     onDuplicateTask,
     onRetryTask,
+    onRestartStage,
     onResetTask,
     effectiveAutoMerge,
     mergeStrategy,

@@ -274,6 +274,7 @@ interface ListViewProps {
   onRevertTask?: (id: string, body?: RevertTaskOptions) => Promise<RevertTaskResult>;
   onMergeTask: (id: string) => Promise<MergeResult>;
   onResetTask?: (id: string) => Promise<Task>;
+  onRestartStage?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   /** App-owned ingestion seam for successful split-detail refinements. */
   onRefinementCreated?: (task: Task) => void;
@@ -389,6 +390,7 @@ export function ListView({
   onRevertTask,
   onMergeTask,
   onResetTask,
+  onRestartStage,
   onDuplicateTask,
   onRefinementCreated,
   onPopOut,
@@ -2086,6 +2088,7 @@ export function ListView({
       canRetryTask,
       hasDuplicateHandler: Boolean(onDuplicateTask),
       hasRetryHandler: Boolean(onRetryTask),
+      hasRestartStageHandler: Boolean(onRestartStage),
       hasResetHandler: Boolean(onResetTask),
       hasAssignedAgent: Boolean(task.assignedAgentId),
       autoMergeEnabled: effectiveAutoMerge,
@@ -2128,6 +2131,22 @@ export function ListView({
           await onRetryTask(task.id);
         } catch (err) {
           addToast(t("tasks.retryFailed", "Failed to retry {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(err) }), "error");
+        }
+      } : undefined,
+      onRestartStage: onRestartStage ? async () => {
+        const confirmed = await confirm({
+          title: t("taskDetail.restartStage.confirmTitle", "Restart current stage"),
+          message: t("taskDetail.restartStage.confirmMessage", "Discard this stage's work while keeping earlier stages and leaving the card in its current column?"),
+          confirmLabel: t("taskDetail.restartStage.btn", "Restart stage"),
+          cancelLabel: t("common.cancel", "Cancel"),
+          danger: true,
+        });
+        if (!confirmed) return;
+        try {
+          await onRestartStage(task.id);
+          addToast(t("taskDetail.restartStage.success", "Restarted the current stage"), "success");
+        } catch (err) {
+          addToast(getErrorMessage(err), "error");
         }
       } : undefined,
       onReset: onResetTask ? async () => {
@@ -2211,7 +2230,7 @@ export function ListView({
       actions.push({ id: model.reviewAction.id, label: model.reviewAction.label, disabled: model.reviewAction.disabled, onSelect: model.reviewAction.onSelect });
     }
     return actions.filter((action) => "items" in action || action.tone === "note" || action.disabled === true || Boolean(action.onSelect));
-  }, [addToast, autoMerge, getTaskColumnFlags, confirm, getTaskPlanningWorkflowId, handleListContextCheckPrStatus, handleListContextEnableGithubTracking, handleListTaskArchive, handleListTaskDelete, handleListTaskRevert, isMobile, lastFetchTimeMs, mergeStrategy, onDuplicateTask, onMergeTask, onOpenDetail, onPlanningMode, onPauseTask, onResetTask, onRetryTask, onUnpauseTask, onArchiveTask, onRevertTask, onReviseTask, onTasksUpdated, projectId, t, useSinglePaneList]);
+  }, [addToast, autoMerge, getTaskColumnFlags, confirm, getTaskPlanningWorkflowId, handleListContextCheckPrStatus, handleListContextEnableGithubTracking, handleListTaskArchive, handleListTaskDelete, handleListTaskRevert, isMobile, lastFetchTimeMs, mergeStrategy, onDuplicateTask, onMergeTask, onOpenDetail, onPlanningMode, onPauseTask, onRestartStage, onResetTask, onRetryTask, onUnpauseTask, onArchiveTask, onRevertTask, onReviseTask, onTasksUpdated, projectId, t, useSinglePaneList]);
 
   const contextMenuActions = useMemo(
     () => (contextMenuState ? buildListContextMenuActions(contextMenuState.task) : []),
@@ -3530,6 +3549,7 @@ export function ListView({
                       onRetryTask={onRetryTask}
                       onPauseTask={onPauseTask}
                       onUnpauseTask={onUnpauseTask}
+                      onRestartStage={onRestartStage}
                       onResetTask={onResetTask}
                       onDuplicateTask={onDuplicateTask}
                       onPopOut={onPopOut ? () => onPopOut(selectedTaskSnapshot) : undefined}

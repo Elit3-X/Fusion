@@ -184,6 +184,7 @@ export { TriageProcessor, type TriageProcessorOptions } from "./triage.js";
 export { TaskExecutor, type TaskExecutorOptions } from "./executor.js";
 export {
   WorkflowGraphExecutor,
+  resolveColumnResumeNode,
   type WorkflowGraphExecutorDeps,
   type WorkflowGraphExecutorResult,
 } from "./workflows/workflow-graph-executor.js";

@@ -50,6 +50,7 @@ export interface RightDockControllerInput {
   /* FNXC:ReviewLaneBypass 2026-07-09-00:00 (FN-7720): threaded through so the right-dock host renders the same TaskDetailContent bypass affordance as the full modal/floating hosts. */
   onBypassReview?: (id: string, reason: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
+  onRestartStage?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   onTaskUpdated?: (task: Task) => void;
   openSettings: (section?: string) => void;
@@ -280,6 +281,7 @@ export function useRightDockController(input: RightDockControllerInput): RightDo
       onPauseTask={input.onPauseTask}
       onUnpauseTask={input.onUnpauseTask}
       onBypassReview={input.onBypassReview}
+      onRestartStage={input.onRestartStage}
       onResetTask={input.onResetTask}
       onDuplicateTask={input.onDuplicateTask}
       onTaskUpdated={input.onTaskUpdated}

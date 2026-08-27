@@ -95,6 +95,7 @@ export interface BuildTaskActionMenuModelOptions {
   canRetryTask?: boolean;
   hasDuplicateHandler?: boolean;
   hasRetryHandler?: boolean;
+  hasRestartStageHandler?: boolean;
   hasResetHandler?: boolean;
   hasAssignedAgent?: boolean;
   hasBypassReviewHandler?: boolean;
@@ -112,6 +113,7 @@ export interface BuildTaskActionMenuModelOptions {
   onOpenRefine?: () => void;
   onRespecify?: () => void;
   onRetry?: () => void;
+  onRestartStage?: () => void;
   onReset?: () => void;
   onTogglePause?: () => void;
   onMerge?: () => void;
@@ -272,6 +274,7 @@ export function buildTaskActionMenuModel(options: BuildTaskActionMenuModelOption
     canRetryTask = false,
     hasDuplicateHandler = Boolean(options.onDuplicate),
     hasRetryHandler = Boolean(options.onRetry),
+    hasRestartStageHandler = Boolean(options.onRestartStage),
     hasResetHandler = Boolean(options.onReset),
     hasAssignedAgent = Boolean(task.assignedAgentId),
     hasBypassReviewHandler = Boolean(options.onBypassReview),
@@ -348,6 +351,16 @@ export function buildTaskActionMenuModel(options: BuildTaskActionMenuModelOption
       label: t("taskDetail.githubTracking.enableCheckboxLabel", "Enable GitHub tracking"),
       onSelect: options.onEnableGithubTracking,
     });
+  }
+
+  /*
+  FNXC:ColumnRestart 2026-08-28-00:00:
+  Restart stage is an explicit healthy-stage restart, distinct from failure-only Retry. Hosts that
+  do not supply the handler omit it entirely; the client has no workflow IR, so the server explains
+  the narrower no-entry-node refusal instead of rendering a disabled shell.
+  */
+  if (hasRestartStageHandler && isMutableLiveColumn(task.column, currentColumnFlags)) {
+    destructiveActions.push({ id: "restart-stage", label: t("taskDetail.restartStage.btn", "Restart stage"), tone: "danger", onSelect: options.onRestartStage });
   }
 
   if (hasResetHandler && isMutableLiveColumn(task.column, currentColumnFlags)) {

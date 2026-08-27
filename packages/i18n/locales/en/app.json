@@ -8201,6 +8201,12 @@
       "confirmMessage": "This will erase all progress for {{id}} and start the task from scratch. Continue?",
       "resetSuccess": "Reset {{id}} — fresh run will be allocated"
     },
+    "restartStage": {
+      "btn": "Restart stage",
+      "confirmTitle": "Restart current stage",
+      "confirmMessage": "Discard this stage's work while keeping earlier stages and leaving the card in its current column?",
+      "success": "Restarted the current stage"
+    },
     "respecify": {
       "btn": "Respecify"
     },

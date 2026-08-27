@@ -602,7 +602,7 @@ function AppInner() {
       ?.columns.find((column) => column.id === task.column)?.flags;
   }, [footerBoardWorkflows, isRemote]);
 
-  const { tasks, isStale, createTask, moveTask, pauseTask, unpauseTask, deleteTask, mergeTask, retryTask, bypassReview, resetTask, updateTask, duplicateTask, archiveTask, unarchiveTask, revertTask, archiveAllDone, loadArchivedTasks, loadMoreArchivedTasks, changeArchivedSortMode, archivedSortMode, archivedHasMore, archivedLoadingMore, ingestCreatedTasks, lastFetchTimeMs } = useTasks(
+  const { tasks, isStale, createTask, moveTask, pauseTask, unpauseTask, deleteTask, mergeTask, retryTask, bypassReview, restartTaskStage, resetTask, updateTask, duplicateTask, archiveTask, unarchiveTask, revertTask, archiveAllDone, loadArchivedTasks, loadMoreArchivedTasks, changeArchivedSortMode, archivedSortMode, archivedHasMore, archivedLoadingMore, ingestCreatedTasks, lastFetchTimeMs } = useTasks(
     {
       ...(currentProject ? { projectId: currentProject.id } : {}),
       searchQuery: searchQuery || undefined,
@@ -1647,7 +1647,7 @@ function AppInner() {
 
   // Props for the extracted <MainContent> switch (see components/dashboard/MainContent.tsx).
   // Every value is passed by its App name; the switch renders the same subtrees as before.
-  const rightDock = useRightDockController({ active: rightDockActive, projectId: currentProject?.id, addToast, columnFlagsByTaskId: footerColumnFlagsByTaskId, settingsLoaded, researchReadinessVersion, goalAnchorId, tasks: isRemote && remoteData.tasks.length > 0 ? remoteData.tasks : tasks, workflowSteps, subscribePluginEvents, openDetailTask, openTaskPopup: popOutTaskDetailForCurrentView, onOpenSessionInNewWindow: openSessionInNewWindow, openMobileTasksInPopup, openFileInBrowser, onUpdateTask: updateTask, onDeleteTask: deleteTask, onArchiveTask: archiveTask, onRevertTask: revertTask, onMergeTask: mergeTask, onRetryTask: retryTask, onPauseTask: pauseTask, onUnpauseTask: unpauseTask, onBypassReview: bypassReview, onResetTask: resetTask, onDuplicateTask: duplicateTask, onTaskUpdated: (task: Task) => ingestCreatedTasks([task]), openSettings: (section?: string) => openSettingsWithNav(section as SectionId), onOpenUsage: openUsageWithNav, onOpenActivityLog: openActivityLogWithNav, onOpenGitHubImport: openGitHubImportWithNav, onOpenGitManager: openGitManagerWithNav, onOpenSchedules: openSchedulesWithNav, onSendSelectionToTask: modalManager.openNewTaskWithDescription, onCreateTaskFromInsight: handleInsightTaskCreate, onNavigateToMission: handleOpenMission, onTaskCreated: (task: Task) => ingestCreatedTasks([task]), prAuthAvailable, autoMerge, taskDetailChatFirst, visibilityOptions: { experimentalFeatures: { insights: insightsEnabled, memoryView: memoryEnabled, devServerView: devServerEnabled, researchView: researchEnabled, evalsView: evalsEnabled, goalsView: goalsEnabled }, showSkillsTab: skillsEnabled, pluginDashboardViews }, footerVisible: executorFooterVisible });
+  const rightDock = useRightDockController({ active: rightDockActive, projectId: currentProject?.id, addToast, columnFlagsByTaskId: footerColumnFlagsByTaskId, settingsLoaded, researchReadinessVersion, goalAnchorId, tasks: isRemote && remoteData.tasks.length > 0 ? remoteData.tasks : tasks, workflowSteps, subscribePluginEvents, openDetailTask, openTaskPopup: popOutTaskDetailForCurrentView, onOpenSessionInNewWindow: openSessionInNewWindow, openMobileTasksInPopup, openFileInBrowser, onUpdateTask: updateTask, onDeleteTask: deleteTask, onArchiveTask: archiveTask, onRevertTask: revertTask, onMergeTask: mergeTask, onRetryTask: retryTask, onPauseTask: pauseTask, onUnpauseTask: unpauseTask, onBypassReview: bypassReview, onRestartStage: restartTaskStage, onResetTask: resetTask, onDuplicateTask: duplicateTask, onTaskUpdated: (task: Task) => ingestCreatedTasks([task]), openSettings: (section?: string) => openSettingsWithNav(section as SectionId), onOpenUsage: openUsageWithNav, onOpenActivityLog: openActivityLogWithNav, onOpenGitHubImport: openGitHubImportWithNav, onOpenGitManager: openGitManagerWithNav, onOpenSchedules: openSchedulesWithNav, onSendSelectionToTask: modalManager.openNewTaskWithDescription, onCreateTaskFromInsight: handleInsightTaskCreate, onNavigateToMission: handleOpenMission, onTaskCreated: (task: Task) => ingestCreatedTasks([task]), prAuthAvailable, autoMerge, taskDetailChatFirst, visibilityOptions: { experimentalFeatures: { insights: insightsEnabled, memoryView: memoryEnabled, devServerView: devServerEnabled, researchView: researchEnabled, evalsView: evalsEnabled, goalsView: goalsEnabled }, showSkillsTab: skillsEnabled, pluginDashboardViews }, footerVisible: executorFooterVisible });
 
   /*
   FNXC:OpenTasksInRightSidebar 2026-06-28-00:00:
@@ -1854,6 +1854,7 @@ function AppInner() {
     closeTaskDetailMainPanel,
     setMainPanelDetailTask,
     mergeTask,
+    restartTaskStage,
     resetTask,
     duplicateTask,
     unpauseTask,
@@ -2350,7 +2351,7 @@ function AppInner() {
         onRefinementCreated={(task) => ingestCreatedTasks([task])}
         onPlanningMode={openPlanningWithInitialPlanWithNav}
         onOpenChatWithPrefill={openChatWithPrefill}
-        taskOperations={{ moveTask, deleteTask, mergeTask, archiveTask, revertTask, retryTask, pauseTask, unpauseTask, bypassReview, resetTask, duplicateTask }}
+        taskOperations={{ moveTask, deleteTask, mergeTask, archiveTask, revertTask, retryTask, pauseTask, unpauseTask, bypassReview, restartTaskStage, resetTask, duplicateTask }}
         deepLink={{ handleDetailClose }}
         settings={{ prAuthAvailable, autoMerge, openTasksInRightSidebar, openMobileTasksInPopup, taskPopupsBoardListOnly, showCostBadgeOnCards, taskDetailChatFirst, chatMessageLayout, themeMode, colorTheme, dashboardFontScalePct, shadcnCustomColors, resolvedThemeMode, setThemeMode, setColorTheme, setDashboardFontScalePct, setShadcnCustomColors, setQuickChatButtonModeImmediate, setChatMessageLayoutImmediate, setOpenTasksInRightSidebarImmediate, setOpenMobileTasksInPopupImmediate, setTaskPopupsBoardListOnlyImmediate, setShowCostBadgeOnCardsImmediate, setTaskDetailChatFirstImmediate, setMobileNavPrimaryItemsImmediate }}
         onSettingsClose={handleSettingsCloseWithNav}

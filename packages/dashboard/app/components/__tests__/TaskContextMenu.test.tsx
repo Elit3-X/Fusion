@@ -46,6 +46,17 @@ describe("TaskContextMenu shared task action model", () => {
     expect(actionIds(makeTask({ column: "archived" }), { hasResetHandler: true })).toEqual(["delete"]);
   });
 
+  it("shows Restart stage only for wired mutable live columns before Reset", () => {
+    const onRestartStage = vi.fn();
+    const onReset = vi.fn();
+    const active = buildTaskActionMenuModel({ task: makeTask(), t, onRestartStage, onReset });
+    expect(active.actions.map((action) => action.id)).toEqual(["respecify", "pause", "restart-stage", "reset", "delete"]);
+    expect(active.actions.find((action) => action.id === "restart-stage")).toMatchObject({ tone: "danger" });
+    expect(actionIds(makeTask())).not.toContain("restart-stage");
+    expect(actionIds(makeTask({ column: "done" }), { onRestartStage })).not.toContain("restart-stage");
+    expect(actionIds(makeTask({ column: "archive" as any }), { onRestartStage, currentColumnFlags: { archived: true } })).not.toContain("restart-stage");
+  });
+
   it("exposes Plan only for pre-execution hold columns with a host callback", () => {
     const onPlan = vi.fn();
     const eligibleCases: Array<[string, Partial<Parameters<typeof buildTaskActionMenuModel>[0]>]> = [

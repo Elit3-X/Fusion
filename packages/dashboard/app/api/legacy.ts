@@ -103,6 +103,7 @@ export {
   apiPromoteBranchGroup,
   apiAbandonBranchGroup,
   retryTask,
+  restartTaskStage,
   bypassReview,
   relaunchCliSession,
   recoverBranchBinding,

@@ -8400,6 +8400,12 @@
     },
     "debug": {
       "none": ""
+    },
+    "restartStage": {
+      "btn": "",
+      "confirmTitle": "",
+      "confirmMessage": "",
+      "success": ""
     }
   },
   "taskDocuments": {
