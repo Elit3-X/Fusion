@@ -29,6 +29,7 @@ cd ../kb-worktrees/<branch-name>
 - Do not cite `.fusion/tasks/<id>/<file>` paths in Context/Steps/File Scope unless the file already exists, is explicitly created as a `(new)` Artifact, or is sibling `PROMPT.md`/`task.json`/`attachments/*`.
 - Dangling task-local file references are a blocking spec REVISE.
 - Save planning scratch and interim notes via `fn_task_document_write` instead of inventing on-disk task-local files.
+- Every generated or hand-authored `PROMPT.md` must place `## What This Delivers` after `## Original Description` and before `## Before → After Transformation`. Use plain product language with no file paths or symbol names so an operator can confirm intent at a glance; Plan Review treats a missing or jargon-only summary as a blocking REVISE.
 
 #### External-integration evidence
 

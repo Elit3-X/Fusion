@@ -2787,6 +2787,17 @@ The original operator prompt is now rendered as Markdown (shared PROMPT.md rende
   overflow-wrap: anywhere;
 }
 
+/*
+FNXC:TaskDetailPlan 2026-08-27-10:22:
+The summary-first Definition view keeps its disclosure aligned to the plan content on desktop and
+stretches it on touch layouts, preserving a clear tap target without creating a separate button system.
+*/
+.detail-section--plan-prompt .detail-plan-details-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: var(--space-xs);
+}
+
 .task-detail-content--embedded .detail-section--plan-prompt {
   width: 100%;
   min-width: 0;
@@ -2987,6 +2998,11 @@ The original operator prompt is now rendered as Markdown (shared PROMPT.md rende
   .detail-section--original-prompt .markdown-body {
     min-width: 0;
     max-width: 100%;
+  }
+
+  .detail-section--plan-prompt .detail-plan-details-toggle {
+    align-self: stretch;
+    width: 100%;
   }
 
   .detail-section--plan-prompt .detail-spec-edit-trigger,

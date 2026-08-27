@@ -85,6 +85,7 @@ import { getInReviewStallCopy, shouldShowInReviewStallBadge } from "../utils/inR
 import { getUnifiedTaskProgress } from "../utils/taskProgress";
 import { getStalePausedReviewCopy, shouldShowStalePausedReviewBadge } from "../utils/stalePausedReviewCopy";
 import { getTaskAgeStalenessCopy } from "../utils/taskAgeStalenessCopy";
+import { splitTaskPlanSummary } from "../utils/taskPlanSummary";
 import { getPriorityColorVar, getPriorityIcon, getPriorityLabel } from "../utils/priorityIndicator";
 import { hasPendingAutomaticRecovery, isTaskManuallyRetryable } from "../utils/taskRecovery";
 import { findInReviewStallLogEntry, IN_REVIEW_STALL_LOG_REGEX } from "../utils/findInReviewStallLogEntry";
@@ -999,6 +1000,7 @@ export function TaskDetailContent({
     } as TaskDetail)
     : ({ ...task, prompt: "" } as TaskDetail);
   const activityLog = workingTask.log ?? [];
+  const planSummary = useMemo(() => splitTaskPlanSummary(workingTask.prompt || ""), [workingTask.prompt]);
   /*
   FNXC:RepositoryScope 2026-08-21-00:29:
   Scope edits must replace the local snapshot with the server's authoritative, land-fenced task.
@@ -1701,6 +1703,10 @@ export function TaskDetailContent({
   const [gitlabTrackingExpanded, setGitlabTrackingExpanded] = useState(false);
   // FNXC:TaskDetailPlan 2026-07-04-00:00: Original prompt is collapsed by default (see render site below); operator must click the chevron toggle to reveal the markdown-rendered text.
   const [originalPromptExpanded, setOriginalPromptExpanded] = useState(false);
+  const [planDetailsExpanded, setPlanDetailsExpanded] = useState(false);
+  useEffect(() => {
+    setPlanDetailsExpanded(false);
+  }, [workingTask.id]);
   const [githubTrackingExpanded, setGithubTrackingExpanded] = useState(false);
   const [githubRepoOverrideDraft, setGithubRepoOverrideDraft] = useState(task.githubTracking?.repoOverride ?? "");
   const [githubTrackingEnabledDraft, setGithubTrackingEnabledDraft] = useState<boolean | null>(null);
@@ -6677,11 +6683,51 @@ export function TaskDetailContent({
             ) : detailLoading ? (
               <div className="spec-loading"><LoadingSpinner label={t("taskDetail.spec.loading", "Loading specification…")} /></div>
             ) : workingTask.prompt ? (
-              <div className="markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
-                  {workingTask.prompt.replace(/^#\s+[^\n]*\n+/, "")}
-                </ReactMarkdown>
-              </div>
+              planSummary.hasSummary ? (
+                <>
+                  {/*
+                  FNXC:TaskDetailPlan 2026-08-27-10:22:
+                  Definition shows the product summary and Before → After first so operators can confirm
+                  intent at a glance. A plan without either summary heading stays fully visible, while
+                  remaining technical detail is available through this explicit disclosure.
+                  */}
+                  <div className="markdown-body" data-testid="task-detail-plan-summary">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
+                      {planSummary.summaryMarkdown}
+                    </ReactMarkdown>
+                  </div>
+                  {planSummary.restMarkdown.trim() && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm touch-target detail-plan-details-toggle"
+                        data-testid="task-detail-plan-details-toggle"
+                        aria-expanded={planDetailsExpanded}
+                        aria-controls={`${workingTask.id}-plan-details`}
+                        onClick={() => setPlanDetailsExpanded((expanded) => !expanded)}
+                      >
+                        <ChevronRight size={16} className={planDetailsExpanded ? "detail-source-chevron--expanded" : undefined} />
+                        {planDetailsExpanded
+                          ? t("taskDetail.spec.hideDetailsBtn", "Hide details")
+                          : t("taskDetail.spec.moreDetailsBtn", "See more details")}
+                      </button>
+                      {planDetailsExpanded && (
+                        <div className="markdown-body" id={`${workingTask.id}-plan-details`} data-testid="task-detail-plan-details">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
+                            {planSummary.restMarkdown}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : (
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
+                    {planSummary.restMarkdown}
+                  </ReactMarkdown>
+                </div>
+              )
             ) : (
               <div className="detail-prompt">{t("taskDetail.spec.noPrompt", "(no prompt)")}</div>
             )}
