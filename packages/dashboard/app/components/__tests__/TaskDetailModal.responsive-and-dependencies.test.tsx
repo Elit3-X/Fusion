@@ -160,6 +160,7 @@ describe("TaskDetailModal", () => {
       expect(modelBlock).toContain("inline-size: calc(var(--space-2xl) - var(--space-xs));");
       expect(modelBlock).not.toContain("text-overflow: ellipsis;");
       expect(css).toMatch(/\.task-planner-chat-empty\s*\{[^}]*margin:\s*0 auto auto;/);
+      expect(composerBlock).toContain("position: relative;");
       expect(composerBlock).toContain("display: flex;");
       expect(composerBlock).toContain("flex-wrap: wrap;");
       expect(composerBlock).toContain("align-items: stretch;");
@@ -169,13 +170,9 @@ describe("TaskDetailModal", () => {
       expect(inputBlock).toContain("min-height: calc(var(--space-2xl) + var(--space-sm));");
       expect(inputBlock).not.toContain("min-height: 5rem;");
       expect(mobileComposerBlock).toContain("flex-direction: row;");
-      /*
-      FNXC:TaskChatDefaultModel 2026-08-23-20:05:
-      FN-033 gave the narrow composer a wrapping model/thinking control row (`.task-planner-chat-target-controls`
-      takes `flex: 1 1 100%`), so the mobile composer wraps by design; the input and send button still
-      share one row, which the sizing assertions below pin.
-      */
       expect(mobileComposerBlock).toContain("flex-wrap: wrap;");
+      expect(css).not.toContain(".task-planner-chat-target-controls");
+      expect(css).toMatch(/\.task-planner-chat-composer \.chat-thinking-popover\s*\{[^}]*left:\s*var\(--space-md\);[^}]*right:\s*var\(--space-md\);[^}]*width:\s*auto;/);
       expect(mobileComposerBlock).toContain("align-items: flex-end;");
       /*
       FNXC:ChatComposerHeight 2026-08-23-20:15:

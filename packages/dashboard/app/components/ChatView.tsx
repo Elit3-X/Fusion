@@ -2937,6 +2937,7 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
             agentId={activeSession?.agentId}
             modelProvider={activeSession?.modelProvider}
             modelId={activeSession?.modelId}
+            targetKey={activeSession?.id ?? null}
             onChange={(level) => {
               if (activeSession) {
                 void setSessionThinkingLevel(activeSession.id, level);
