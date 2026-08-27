@@ -302,7 +302,7 @@ Public API surface:
 Settings boundary:
 - Global default policy: `GlobalSettings.secretsAccessPolicy` (used by `resolveSecretAccessPolicy`).
 - Project-level secrets settings: `ProjectSettings.secretsEnv`. Cross-node sync passphrase state surfaces read-only via `GlobalSettings.secretsSyncPassphraseConfigured` (derived from `hasSyncPassphraseConfigured(secretsStore)` against the reserved `__sync_passphrase__` row in `secrets_global`).
-- Agent secret reads are exposed via `fn_secret_get` (`packages/cli/src/extension.ts:1542-1629`).
+- Agent secret reads are exposed via `fn_secret_get` (`packages/cli/src/extension.ts`). Policy-allowed reads deliver plaintext in model-visible tool content while retaining `details.value` for host consumers; refusal and pending outcomes remain plaintext-free.
 - Cross-node sync routes ship at `/api/nodes/:id/secrets/push`, `/api/nodes/:id/secrets/pull`, `/api/secrets/sync-receive`, `/api/secrets/sync-export` with inbound Bearer apiKey validation (`packages/dashboard/src/routes/register-secrets-sync-inbound-routes.ts:99-114`, `:181-196`).
 
 ### Mesh state read path for dashboard topology
