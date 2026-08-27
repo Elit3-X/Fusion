@@ -79,7 +79,6 @@ function renderIn(column: string, payload: unknown) {
       initialTab="details"
       task={makeTask({ column })}
       onClose={noop}
-      onMoveTask={noopMove}
       onDeleteTask={noopDelete}
       onMergeTask={noopMerge}
       onOpenDetail={noopOpenDetail}

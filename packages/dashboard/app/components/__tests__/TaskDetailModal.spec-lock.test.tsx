@@ -59,7 +59,6 @@ describe("TaskDetailModal spec-lock report", () => {
         active
         task={makeTask({ prompt: "## Mission\n\nChanged" })}
         onRequestClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -97,7 +96,6 @@ describe("TaskDetailModal spec-lock report", () => {
         active
         task={makeTask()}
         onRequestClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -123,7 +121,6 @@ describe("TaskDetailModal spec-lock report", () => {
         active
         task={makeTask()}
         onRequestClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}

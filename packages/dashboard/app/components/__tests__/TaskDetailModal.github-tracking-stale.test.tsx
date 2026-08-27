@@ -32,7 +32,6 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
         initialTab="details"
         task={taskA}
         onClose={() => {}}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -47,7 +46,6 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
         initialTab="details"
         task={taskB}
         onClose={() => {}}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -86,7 +84,6 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
         initialTab="details"
         task={taskA}
         onClose={() => {}}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -105,7 +102,6 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
         initialTab="details"
         task={taskB}
         onClose={() => {}}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -142,7 +138,6 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
         initialTab="details"
         task={taskA}
         onClose={() => {}}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -159,7 +154,6 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
         initialTab="details"
         task={taskB}
         onClose={() => {}}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -189,7 +183,6 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
         initialTab="details"
         task={taskA}
         onClose={() => {}}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}

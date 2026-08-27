@@ -15,7 +15,7 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sharedRehypePlugins, createMermaidCodeComponent } from "./markdownPipeline";
-import type { Task, TaskDetail, TaskAttachment, Column, ColumnId, MergeResult, Settings, GlobalSettings, Agent, TaskPriority, TaskSourceIssue, WorkflowStepResult, GithubIssueAction, TaskGitLabTrackedItem, PlannerOversightLevel, PlannerOverseerRuntimeSnapshot, TaskVerificationRequest, ThinkingLevel } from "@fusion/core";
+import type { Task, TaskDetail, TaskAttachment, ColumnId, MergeResult, Settings, GlobalSettings, Agent, TaskPriority, TaskSourceIssue, WorkflowStepResult, GithubIssueAction, TaskGitLabTrackedItem, PlannerOversightLevel, PlannerOverseerRuntimeSnapshot, TaskVerificationRequest, ThinkingLevel } from "@fusion/core";
 import {
   DEFAULT_TASK_PRIORITY,
   REPO_OVERRIDE_RE,
@@ -402,7 +402,6 @@ export interface TaskDetailModalProps {
   columnFlagsByTaskId?: ReadonlyMap<string, BlockerFanoutColumnFlags>;
   onClose: () => void;
   onOpenDetail: (task: Task | TaskDetail, initialTab?: DetailTaskTab) => void; // For clicking linked task details
-  onMoveTask: (id: string, column: Column, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
   /** Opens a New Task draft from a reverted task description. */
   onReviseTask?: (task: Task) => void;
   onDeleteTask: (id: string, options?: {
@@ -594,7 +593,7 @@ function resolveTaskWorkflowMetadata(payload: BoardWorkflowsPayload, task: Pick<
 
   const moveColumns = workflow.columns
     .filter((column) => column.flags.hiddenFromBoard !== true)
-    .map((column) => ({ id: column.id as ColumnId, label: column.name, flags: column.flags, ...(column.moveTargets ? { moveTargets: column.moveTargets } : {}) }));
+    .map((column) => ({ id: column.id as ColumnId, label: column.name, flags: column.flags }));
   const currentColumnFlags = moveColumns.find((column) => column.id === task.column)?.flags;
   return { id: workflow.id, name, icon: workflow.icon, fields: workflow.fields ?? null, moveColumns, currentColumnFlags };
 }
@@ -802,7 +801,6 @@ export function TaskDetailContent({
   tasks = [],
   columnFlagsByTaskId,
   onOpenDetail,
-  onMoveTask,
   onDeleteTask,
   onReviseTask,
   onArchiveTask,
@@ -1723,7 +1721,6 @@ export function TaskDetailContent({
   const activeTaskIdRef = useRef(task.id);
 
   // Split-menu dropdown state for footer actions
-  const [showMoveMenu, setShowMoveMenu] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [showActivityViewMenu, setShowActivityViewMenu] = useState(false);
   const [activityViewMenuPosition, setActivityViewMenuPosition] = useState<ActivityViewMenuPosition | null>(null);
@@ -1742,9 +1739,7 @@ export function TaskDetailContent({
   const [githubRepoOverrideError, setGithubRepoOverrideError] = useState<string | null>(null);
   const [isSavingGithubTracking, setIsSavingGithubTracking] = useState(false);
   const [isCheckingPrStatus, setIsCheckingPrStatus] = useState(false);
-  const moveMenuRef = useRef<HTMLDivElement>(null);
   const activityListRef = useRef<HTMLDivElement>(null);
-  const moveButtonRef = useRef<HTMLButtonElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const activityViewDropdownRef = useRef<HTMLDivElement>(null);
   const activityViewMenuRef = useRef<HTMLDivElement>(null);
@@ -2163,20 +2158,16 @@ export function TaskDetailContent({
 
   // Close task-detail dropdown menus on outside click
   useEffect(() => {
-    const hasOpenMenu = showMoveMenu || showActionsMenu || showActivityViewMenu || showOversightMenu || showInlinePriorityPicker;
+    const hasOpenMenu = showActionsMenu || showActivityViewMenu || showOversightMenu || showInlinePriorityPicker;
     if (!hasOpenMenu) return;
 
     const handleClick = (e: MouseEvent) => {
       const target = e.target as Node;
-      const inMoveMenu = moveMenuRef.current?.contains(target);
       const inActionsMenu = actionsMenuRef.current?.contains(target);
       const inActivityViewMenu = activityViewMenuRef.current?.contains(target) || activityViewButtonRef.current?.contains(target);
       const inOversightMenu = oversightMenuRef.current?.contains(target) || oversightMenuButtonRef.current?.contains(target);
       const inInlinePriorityPicker = inlinePriorityPickerRef.current?.contains(target);
 
-      if (!inMoveMenu && showMoveMenu) {
-        setShowMoveMenu(false);
-      }
       if (!inActionsMenu && showActionsMenu) {
         setShowActionsMenu(false);
       }
@@ -2195,17 +2186,16 @@ export function TaskDetailContent({
 
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [showMoveMenu, showActionsMenu, showActivityViewMenu, showOversightMenu, showInlinePriorityPicker]);
+  }, [showActionsMenu, showActivityViewMenu, showOversightMenu, showInlinePriorityPicker]);
 
   // Close task-detail dropdown menus on Escape key (before modal Escape handler)
   useEffect(() => {
-    const hasOpenMenu = showMoveMenu || showActionsMenu || showActivityViewMenu || showOversightMenu || showInlinePriorityPicker;
+    const hasOpenMenu = showActionsMenu || showActivityViewMenu || showOversightMenu || showInlinePriorityPicker;
     if (!hasOpenMenu) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation(); // Prevent modal from closing
-        if (showMoveMenu) setShowMoveMenu(false);
         if (showActionsMenu) setShowActionsMenu(false);
         if (showActivityViewMenu) {
           activityViewMenuViewportGuardUntilRef.current = 0;
@@ -2223,7 +2213,7 @@ export function TaskDetailContent({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [showMoveMenu, showActionsMenu, showActivityViewMenu, showOversightMenu, showInlinePriorityPicker]);
+  }, [showActionsMenu, showActivityViewMenu, showOversightMenu, showInlinePriorityPicker]);
 
   /*
   FNXC:TaskDetailPlan 2026-08-03-02:32:
@@ -3106,63 +3096,6 @@ export function TaskDetailContent({
     return () => document.removeEventListener("keydown", handleKey);
   }, [embedded, requestClose, isEditing]);
 
-  const handleMove = useCallback(
-    async (column: Column) => {
-      try {
-        const hasStepProgress = task.steps.some((step) => step.status !== "pending");
-        /*
-        FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — R8 drift conversion):
-        The TARGET column's role, not this card's — moving BACK into a pre-implementation
-        lane is what risks discarding step progress. (The same site in TaskCard is where I
-        first got this backwards; its regression test caught it.) Falls back to the legacy
-        ids when the destination has no resolved metadata.
-        */
-        const targetFlags = workflowMoveMetadata?.moveColumns?.find((candidate) => candidate.id === column)?.flags;
-        /*
-        FNXC:WorkflowLifecycleColumns 2026-07-29-23:40 DELIBERATE-LITERAL: the fallback arm only. Same reasoning as
-        the TaskCard site: a wrong guess skips the preserve-progress prompt and discards steps with
-        no way back. Reason in full above.
-        */
-        const targetIsPreImplementation = targetFlags
-          ? targetFlags.intake === true || targetFlags.hold === true
-          : column === "todo" || column === "triage";
-        const shouldPrompt = targetIsPreImplementation && hasStepProgress;
-
-        let moveOptions: { preserveProgress?: boolean } | undefined;
-        if (shouldPrompt) {
-          const keepProgress = await confirm({
-            title: t("taskDetail.move.preserveProgressTitle", "Preserve Progress?"),
-            message: t("taskDetail.move.preserveProgressMessage", "This task has completed steps. Keep progress before moving?"),
-            confirmLabel: t("taskDetail.move.keepProgress", "Keep Progress"),
-            cancelLabel: t("taskDetail.move.resetProgress", "Reset Progress"),
-          });
-
-          if (keepProgress) {
-            moveOptions = { preserveProgress: true };
-          } else {
-            const resetProgress = await confirm({
-              title: t("taskDetail.move.resetProgressTitle", "Reset Progress?"),
-              message: t("taskDetail.move.resetProgressMessage", "Reset all step progress before moving this task?"),
-              confirmLabel: t("taskDetail.move.resetProgress", "Reset Progress"),
-              cancelLabel: t("taskDetail.move.cancelMove", "Cancel Move"),
-              danger: true,
-            });
-            if (!resetProgress) {
-              return;
-            }
-          }
-        }
-
-        await onMoveTask(task.id, column, moveOptions);
-        requestClose();
-        addToast(t("taskDetail.move.movedTo", "Moved to {{column}}", { column: columnLabel(column) }), "success");
-      } catch (err) {
-        addToast(getErrorMessage(err), "error");
-      }
-    },
-    [task.id, task.steps, onMoveTask, requestClose, addToast, confirm],
-  );
-
   const handleDelete = useCallback(async (canProceed: () => boolean = () => true) => {
     let allowResurrection = false;
     let deletionSucceeded = false;
@@ -3735,17 +3668,10 @@ export function TaskDetailContent({
     handleOpenRefineModal();
   }, [handleOpenRefineModal, initialAction?.action, initialAction?.requestId]);
 
-  // Helper to close dropdown menus after action
+  // Helper to close the retained footer Actions menu after an action.
   const closeMenus = useCallback(() => {
-    setShowMoveMenu(false);
     setShowActionsMenu(false);
   }, []);
-
-  // Menu item click handlers that close menus after action
-  const handleMoveMenuItemClick = useCallback((column: Column) => {
-    closeMenus();
-    handleMove(column);
-  }, [closeMenus]);
 
   const handleMergeMenuItemClick = useCallback(() => {
     closeMenus();
@@ -4338,7 +4264,6 @@ export function TaskDetailContent({
   const taskActionMenuModel = useMemo(() => buildTaskActionMenuModel({
     task,
     t,
-    columnLabel,
     /*
     FNXC:WorkflowResolvedColumns 2026-07-30-18:10 (PR #2761 review — greptile, and the finding is on my
     own change): BOTH FIELDS OR NEITHER. Guarding `currentColumnFlags` alone left `moveColumns` coming
@@ -4347,7 +4272,6 @@ export function TaskDetailContent({
     menu then offers destinations from a card the operator is no longer looking at.
     */
     currentColumnFlags: detailColumnFlags,
-    workflowMoveColumns: detailFlagsAreForThisTask ? workflowMoveMetadata?.moveColumns : undefined,
     canRetryTask,
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
@@ -4371,7 +4295,6 @@ export function TaskDetailContent({
   }), [
     task,
     t,
-    columnLabel,
     workflowMoveMetadata,
     canRetryTask,
     onDuplicateTask,
@@ -4394,72 +4317,12 @@ export function TaskDetailContent({
     handleCheckPrStatus,
     handleBypassReview,
   ]);
-  const primaryMoveAction = taskActionMenuModel.moveTransitions[0];
-  const primaryMoveTransition = primaryMoveAction?.column;
-  const secondaryMoveTransitions = taskActionMenuModel.moveTransitions.slice(1);
-  const hasSecondaryMoveOptions = secondaryMoveTransitions.length > 0;
   const reviewAction = taskActionMenuModel.reviewAction;
-
-  const closeMoveMenuAndFocusTrigger = useCallback(() => {
-    setShowMoveMenu(false);
-    moveButtonRef.current?.focus();
-  }, []);
-
-  const handleMoveButtonClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    if (!hasSecondaryMoveOptions) {
-      if (primaryMoveTransition) {
-        void handleMoveMenuItemClick(primaryMoveTransition as Column);
-      }
-      return;
-    }
-
-    const arrowZone = event.currentTarget.querySelector<HTMLSpanElement>(".detail-move-btn__arrow");
-    const clickedArrow = Boolean(
-      (event.target instanceof Element && event.target.closest(".detail-move-btn__arrow")) ||
-      (arrowZone && event.clientX > 0 && event.clientX >= arrowZone.getBoundingClientRect().left),
-    );
-
-    if (clickedArrow) {
-      setShowMoveMenu((prev) => !prev);
-      setShowActionsMenu(false);
-      return;
-    }
-
-    if (primaryMoveTransition) {
-      void handleMoveMenuItemClick(primaryMoveTransition as Column);
-    }
-  }, [hasSecondaryMoveOptions, primaryMoveTransition, handleMoveMenuItemClick]);
-
-  const handleMoveButtonKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (!hasSecondaryMoveOptions) {
-      return;
-    }
-
-    const shouldOpenMenu = event.key === "ArrowDown" || (event.altKey && event.key === "ArrowDown");
-    if (!shouldOpenMenu) {
-      return;
-    }
-
-    event.preventDefault();
-    setShowMoveMenu(true);
-    setShowActionsMenu(false);
-  }, [hasSecondaryMoveOptions]);
-
-  const handleMoveMenuKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Escape") {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    closeMoveMenuAndFocusTrigger();
-  }, [closeMoveMenuAndFocusTrigger]);
 
   /*
   FNXC:PlannerOversight 2026-07-04-19:00:
   FN-7545 — mobile oversight overflow-menu open/close/keyboard handling,
-  mirroring `handleMoveButtonClick`/`handleMoveButtonKeyDown`/`handleMoveMenuKeyDown`
-  above so the two popovers behave consistently (toggle on click, ArrowDown
+  keeping header overflow behavior consistent with the retained activity menu (toggle on click, ArrowDown
   opens, Escape closes and returns focus to the trigger).
   */
   const closeOversightMenuAndFocusTrigger = useCallback(() => {
@@ -4469,7 +4332,6 @@ export function TaskDetailContent({
 
   const handleOversightMenuButtonClick = useCallback(() => {
     setShowOversightMenu((prev) => !prev);
-    setShowMoveMenu(false);
     setShowActionsMenu(false);
   }, []);
 
@@ -4662,15 +4524,6 @@ export function TaskDetailContent({
     event.stopPropagation();
     closeActivityViewMenuAndFocusTrigger();
   }, [closeActivityViewMenuAndFocusTrigger]);
-
-  useEffect(() => {
-    if (!showMoveMenu) {
-      return;
-    }
-
-    const firstMenuItem = moveMenuRef.current?.querySelector<HTMLButtonElement>(".detail-move-menu-item");
-    firstMenuItem?.focus();
-  }, [showMoveMenu]);
 
   /*
   FNXC:PlannerOversight 2026-07-17-16:35:
@@ -7510,7 +7363,6 @@ export function TaskDetailContent({
                     className="btn btn-sm"
                     onClick={() => {
                       setShowActionsMenu((prev) => !prev);
-                      setShowMoveMenu(false);
                     }}
                     aria-haspopup="menu"
                     aria-expanded={showActionsMenu}
@@ -7544,97 +7396,20 @@ export function TaskDetailContent({
 
               <div className="modal-actions-spacer" />
 
-              {/* Move dropdown — column transitions and merge actions */}
-              <div className="detail-move-dropdown" ref={moveMenuRef}>
-                {isReviewColumn ? (
-                  <div className="detail-move-actions-in-review">
-                    <div>
-                      <button
-                        ref={moveButtonRef}
-                        className="btn btn-primary btn-sm detail-move-btn"
-                        onClick={handleMoveButtonClick}
-                        onKeyDown={handleMoveButtonKeyDown}
-                        disabled={!primaryMoveTransition}
-                        aria-label={primaryMoveAction?.primaryLabel}
-                        aria-haspopup={hasSecondaryMoveOptions ? "menu" : undefined}
-                        aria-expanded={hasSecondaryMoveOptions ? showMoveMenu : undefined}
-                      >
-                        <span className="detail-move-btn__label">
-                          {primaryMoveAction?.primaryLabel ?? t("taskDetail.move.moveTo", "Move to {{column}}", { column: "" })}
-                        </span>
-                        {hasSecondaryMoveOptions && (
-                          <span className="detail-move-btn__arrow" aria-hidden="true">
-                            <ChevronDown size={12} />
-                          </span>
-                        )}
-                      </button>
-                      {showMoveMenu && hasSecondaryMoveOptions && (
-                        <div className="detail-move-menu" role="menu" onKeyDown={handleMoveMenuKeyDown}>
-                          {secondaryMoveTransitions.map((moveAction) => (
-                            <button
-                              key={moveAction.column}
-                              className="detail-move-menu-item"
-                              role="menuitem"
-                              onClick={() => handleMoveMenuItemClick(moveAction.column as Column)}
-                              onKeyDown={handleMoveMenuKeyDown}
-                            >
-                              {moveAction.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {reviewAction && (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        onClick={reviewAction.onSelect}
-                        disabled={reviewAction.disabled}
-                      >
-                        <span className="detail-footer-button-label">
-                          {reviewAction.label}
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <button
-                      ref={moveButtonRef}
-                      className="btn btn-primary btn-sm detail-move-btn"
-                      onClick={handleMoveButtonClick}
-                      onKeyDown={handleMoveButtonKeyDown}
-                      disabled={!primaryMoveTransition}
-                      aria-label={primaryMoveAction?.primaryLabel}
-                      aria-haspopup={hasSecondaryMoveOptions ? "menu" : undefined}
-                      aria-expanded={hasSecondaryMoveOptions ? showMoveMenu : undefined}
-                    >
-                      <span className="detail-move-btn__label">
-                        {primaryMoveAction?.primaryLabel ?? t("taskDetail.move.moveTo", "Move to {{column}}", { column: "" })}
-                      </span>
-                      {hasSecondaryMoveOptions && (
-                        <span className="detail-move-btn__arrow" aria-hidden="true">
-                          <ChevronDown size={12} />
-                        </span>
-                      )}
-                    </button>
-                    {showMoveMenu && hasSecondaryMoveOptions && (
-                      <div className="detail-move-menu" role="menu" onKeyDown={handleMoveMenuKeyDown}>
-                        {secondaryMoveTransitions.map((moveAction) => (
-                          <button
-                            key={moveAction.column}
-                            className="detail-move-menu-item"
-                            role="menuitem"
-                            onClick={() => handleMoveMenuItemClick(moveAction.column as Column)}
-                            onKeyDown={handleMoveMenuKeyDown}
-                          >
-                            {moveAction.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/*
+              FNXC:TaskDetailFooter 2026-08-27-12:01:
+              FN-198 deliberately leaves no relocation control in the footer. The review action is
+              its only primary footer button, while lifecycle placement stays workflow-owned.
+              */}
+              {reviewAction && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={reviewAction.onSelect}
+                  disabled={reviewAction.disabled}
+                >
+                  <span className="detail-footer-button-label">{reviewAction.label}</span>
+                </button>
+              )}
             </>
           )}
       </div>

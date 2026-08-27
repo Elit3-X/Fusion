@@ -15,7 +15,6 @@ import { TaskDetailContent, TaskDetailModal } from "../TaskDetailModal";
 setupTaskDetailModalHooks();
 
 const sharedProps = {
-  onMoveTask: noopMove,
   onDeleteTask: noopDelete,
   onMergeTask: noopMerge,
   onOpenDetail: noopOpenDetail,

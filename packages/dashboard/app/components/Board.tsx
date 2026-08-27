@@ -622,7 +622,7 @@ export function Board({ tasks, projectId, maxConcurrent, effectiveMaxConcurrent 
     for (const workflow of boardWorkflows?.workflows ?? []) {
       map.set(workflow.id, workflow.columns
         .filter((column) => !column.flags.hiddenFromBoard)
-        .map((column) => ({ id: column.id, label: column.name, flags: column.flags, ...(column.moveTargets ? { moveTargets: column.moveTargets } : {}) })));
+        .map((column) => ({ id: column.id, label: column.name, flags: column.flags })));
     }
     return map;
   }, [boardWorkflows]);

@@ -20,7 +20,6 @@ describe("FN-4224 GitHub tracking header layout", () => {
           githubTracking: { enabled: false },
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}

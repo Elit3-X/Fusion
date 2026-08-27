@@ -93,7 +93,6 @@ function renderSummarizeTitleModal(overrides: Parameters<typeof makeTask>[0] = {
       initialTab="details"
       task={task}
       onClose={noop}
-      onMoveTask={noopMove}
       onDeleteTask={noopDelete}
       onMergeTask={noopMerge}
       onOpenDetail={noopOpenDetail}
@@ -125,7 +124,6 @@ describe("TaskDetailModal reset confirmations", () => {
       <TaskDetailModal
         task={makeTask({ id: "FN-001", column: "in-progress" as any })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -150,7 +148,6 @@ describe("TaskDetailModal reset confirmations", () => {
       <TaskDetailModal
         task={makeTask({ id: "FN-002", column: "in-progress" as any })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -178,7 +175,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -258,7 +254,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         task={makeTask({ id: "FN-7324-A", column: "todo" as any })}
         taskDetailChatFirst
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -275,7 +270,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         task={makeTask({ id: "FN-7324-B", column: "todo" as any })}
         taskDetailChatFirst
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -313,7 +307,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column: "todo" as any, status: "failed", error: "Planner failed hard" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -349,7 +342,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column: "todo" as any, status: "failed", error: "Activity failure stays visible" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -378,7 +370,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column: "todo" as any, status: "failed" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -399,7 +390,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column: "todo" as any, status: "in-progress", error: "Ignored because task is not failed" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -438,7 +428,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column: "todo" as any, status: "failed", error: "Workflow graph terminated with failure at node 'steps#0:step-execute'" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -480,7 +469,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column: "in-progress" as any, status: "failed", error: "Workflow graph terminated with failure at node 'unknown'" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -513,7 +501,6 @@ describe("TaskDetailModal planner Chat tab", () => {
         taskDetailChatFirst
         task={makeTask({ column: "in-progress" as any, status: "failed", error: "Workflow graph terminated with failure at node 'unknown'" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -540,7 +527,6 @@ describe("TaskDetailModal base-branch editor", () => {
         initialTab="details"
         task={makeTask({ id: "FN-8811", column: "todo" as any, baseBranch })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -724,7 +710,6 @@ describe("TaskDetailModal GitHub tracking CTA", () => {
           description: "",
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -750,7 +735,6 @@ describe("TaskDetailModal GitHub tracking CTA", () => {
           description: "",
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -774,7 +758,6 @@ describe("TaskDetailModal GitHub tracking CTA", () => {
           description: "A meaningful first line.\nMore text.",
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -799,7 +782,6 @@ describe("TaskDetailModal Activity feed loading", () => {
         task={task as any}
         initialTab={initialTab}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -883,7 +865,6 @@ describe("TaskDetailModal Activity feed loading", () => {
         initialTab="details"
         task={makeSlimTask() as any}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1008,7 +989,6 @@ describe("TaskDetailModal Activity feed loading", () => {
         embedded
         initialTab="chat"
         onRequestClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1151,7 +1131,6 @@ describe("TaskDetailModal Chat task merge", () => {
         initialTab="chat"
         projectId="project-7309"
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1193,7 +1172,6 @@ describe("TaskDetailModal Chat task merge", () => {
         embedded
         initialTab="chat"
         onRequestClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1243,7 +1221,6 @@ describe("TaskDetailModal Chat task merge", () => {
         initialTab="chat"
         projectId="project-1"
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1288,7 +1265,6 @@ describe("TaskDetailModal Raw Logs agent loading", () => {
         initialTab="details"
         task={makeTask({ prompt: "# Loaded" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1329,7 +1305,6 @@ describe("TaskDetailModal Raw Logs agent loading", () => {
         initialTab="details"
         task={makeTask({ id: "FN-6040", prompt: "# Loaded" })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1361,7 +1336,6 @@ describe("TaskDetailModal branch group surfacing", () => {
         initialTab="details"
         task={makeTask({ id, branchContext })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1405,7 +1379,6 @@ describe("TaskDetailModal branch group surfacing", () => {
         initialTab="details"
         task={makeTask({ id: "FN-6041", branchContext })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={onOpenDetail}
@@ -1441,7 +1414,6 @@ describe("TaskDetailModal delete affordance", () => {
             onClose();
             setOpen(false);
           }}
-          onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
           onOpenDetail={noopOpenDetail}
@@ -1486,7 +1458,6 @@ describe("TaskDetailModal delete affordance", () => {
         embedded
         task={makeTask({ column: "triage" })}
         onRequestClose={onRequestClose}
-        onMoveTask={noopMove}
         onDeleteTask={onDeleteTask}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1518,7 +1489,6 @@ describe("TaskDetailModal delete affordance", () => {
         embedded
         task={makeTask({ column: "triage" })}
         onRequestClose={onRequestClose}
-        onMoveTask={noopMove}
         onDeleteTask={onDeleteTask}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1572,7 +1542,6 @@ describe("TaskDetailModal delete affordance", () => {
         embedded
         task={makeTask({ column: "triage" })}
         onRequestClose={onRequestClose}
-        onMoveTask={noopMove}
         onDeleteTask={onDeleteTask}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1614,7 +1583,6 @@ describe("TaskDetailModal delete affordance", () => {
         initialTab="details"
         task={makeTask({ column: "done" })}
         onClose={onClose}
-        onMoveTask={noopMove}
         onDeleteTask={onDeleteTask}
         onArchiveTask={onArchiveTask}
         onMergeTask={noopMerge}
@@ -1659,7 +1627,6 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
           ],
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1695,7 +1662,6 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
           },
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1723,7 +1689,6 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
           log: [{ timestamp: "2026-05-13T00:01:00.000Z", action: "Something else" }],
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1750,7 +1715,6 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
           },
         })}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
@@ -1791,7 +1755,6 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
         initialTab="details"
         task={task}
         onClose={noop}
-        onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
         onOpenDetail={noopOpenDetail}
