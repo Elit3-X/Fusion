@@ -729,8 +729,14 @@ function AppInner() {
   }, [initialLoadComplete]);
 
   const [quickChatOpen, setQuickChatOpen] = useState(false);
+  /*
+  FNXC:ChatWindows 2026-08-27-09:23:
+  FN-193 requires a newly created conversation to open beside its origin only inside a resolved project. Chat hosts are unreachable before project resolution, but this callback still refuses a missing id so it cannot create an unowned pop-out entry after the server session already exists.
+  */
   const openSessionInNewWindow = useCallback((session: import("./hooks/useChat").ChatSessionInfo) => {
-    if (currentProject?.id) popOutChat(currentProject.id, session);
+    const projectId = currentProject?.id;
+    if (!projectId) return;
+    popOutChat(projectId, session);
   }, [currentProject?.id, popOutChat]);
   const [chatComposerPrefill, setChatComposerPrefill] = useState<{ text: string; nonce: number } | null>(null);
   const [quickChatEverOpenedProjectId, setQuickChatEverOpenedProjectId] = useState<string | null>(null);

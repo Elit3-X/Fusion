@@ -590,6 +590,9 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   A dedicated pop-out starts on its requested thread; ordinary hosts still start on the list.
   Visible Back must consume its pushed navigation entry; popstate uses the raw
   return callback so either route restores the same list state.
+
+  FNXC:ChatWindows 2026-08-27-09:09:
+  FN-193 makes useChat expose initialDirectSession on the first committed render. Seed detail and previous detail state from that same requested session so a dedicated pop-out paints its thread without pushing a phantom navigation-history entry.
   */
   const [detailOpen, setDetailOpen] = useState(() => Boolean(initialDirectSession));
   /*
