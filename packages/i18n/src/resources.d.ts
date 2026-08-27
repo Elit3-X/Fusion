@@ -1173,6 +1173,12 @@ export default interface Resources {
       "requestSingular": "request",
       "requests": "Approval requests"
     },
+    "artifactImageViewer": {
+      "close": "Close artifact preview",
+      "loading": "Loading image artifact…",
+      "openTask": "Open task",
+      "retry": "Retry"
+    },
     "auth": {
       "clearAndRetry": "Clear token and retry",
       "pasteToken": "Paste token",
@@ -1344,6 +1350,10 @@ export default interface Resources {
       "pendingEditEmpty": "Queued messages cannot be empty",
       "pendingHeading": "Pending messages",
       "pendingLabel": "Pending messages",
+      "preserveToStash": "Preserve to Stash",
+      "preserveToStashDone": "Uploaded {{uploaded}} messages to Stash ({{skipped}} already stored)",
+      "preserveToStashFailed": "Stash upload failed: {{error}}",
+      "preserveToStashWorking": "Uploading to Stash…",
       "questionAnsweredLabel": "Answered",
       "questionAnsweredWithoutContent": "A later user reply answered this question.",
       "questionConfirmNo": "No",
@@ -6435,6 +6445,7 @@ export default interface Resources {
         "startupModelSync": "Startup Model Sync",
         "syncOpenRouterModelListAtStartup": " Sync OpenRouter model list at startup ",
         "syncOpencodeGoModelListAtStartup": " Sync opencode-go model list at startup ",
+        "syncOrcaRouterModelListAtStartup": " Sync OrcaRouter model list at startup ",
         "text": "text",
         "thinkingEffort": "Thinking Effort",
         "throughput": "throughput",
@@ -6442,6 +6453,7 @@ export default interface Resources {
         "useDefault": "Use default",
         "usedAutomaticallyIfThePrimaryDefaultModelHits": "Used automatically if the primary default model hits a retryable provider error like rate limiting or overload. No default — unset.",
         "whenEnabledStartupFetchesTheLatestAvailableModels": " When enabled, startup fetches the latest available models from the OpenRouter API so model pickers always include the newest catalog. Default: enabled. ",
+        "whenEnabledStartupFetchesTheLatestOrcaRouterModels": " When enabled, startup fetches the latest available models from the OrcaRouter API so model pickers include the OrcaRouter catalog. Default: enabled. ",
         "whenEnabledStartupRefreshesModelsThroughTheLocal": " When enabled, startup refreshes models through the local "
       },
       "header": {
@@ -6532,8 +6544,15 @@ export default interface Resources {
         "agentsSearchWithQmdFirstFallBackTo": ". Agents search with qmd first, fall back to local files when qmd is missing, and open exact line windows only when needed. ",
         "autoSummarizeMemory": " Auto-Summarize Memory ",
         "automaticallyCompactMemoryWhenItExceedsTheThreshold": "Automatically compact memory when it exceeds the threshold on a schedule. Default: disabled.",
+        "backendFile": "Local files (.fusion/memory)",
+        "backendHelp": "Which store agent memory reads/writes. Per project: qmd (indexed, default), local files, a read-only backend, or Stash (personal knowledge-base). Switching backends retro-actively is not supported.",
+        "backendLabel": "Memory backend",
+        "backendQmd": "qmd (indexed retrieval — default)",
+        "backendReadonly": "Read-only (external management)",
+        "backendStash": "Stash (personal knowledge-base)",
         "bytesUpdated": " bytes · updated ",
         "cannotSave": "Cannot save: ",
+        "capOnTranscriptEventsUploadedPerTask": "Cap on transcript events uploaded per task (default 20000). The most recent events are kept.",
         "checkingMemoryWriteAccess": "Checking memory write access...",
         "compactSelectedFile": "Compact Selected File",
         "compacting": "Compacting…",
@@ -6545,12 +6564,14 @@ export default interface Resources {
         "dreamSchedule": "Dream Schedule",
         "dreaming": " Dreaming… ",
         "enableMemoryTools": " Enable memory tools ",
+        "executorSessionCapture": "Executor session capture",
         "failedToLoadBackendStatus": "Failed to load backend status: ",
         "for": "for \"",
         "installQmd": "Install qmd",
         "installing": "Installing…",
         "loadingMemory": "Loading memory…",
         "manuallyTriggerDreamProcessingNow": "Manually trigger dream processing now.",
+        "maxTranscriptEventsPerTask": "Max transcript events per task",
         "memory": "Memory",
         "memoryCompacted": "Memory file compacted",
         "memoryFile": "Memory File",
@@ -6573,9 +6594,13 @@ export default interface Resources {
         "saveMemory": "Save Memory",
         "scheduleCron": "Schedule (cron)",
         "searchMemoryWithQmd": "Search memory with qmd",
+        "stashUrlHelp": "Base URL of the Stash server (e.g. http://127.0.0.1:3457). Used only when the backend above is Stash. Default: empty (uses the built-in default Stash URL). The API key lives in the global secrets store, never in settings.",
+        "stashUrlLabel": "Stash server URL",
+        "stashUrlPlaceholder": "http://127.0.0.1:3457",
         "testRetrieval": "Test Retrieval",
         "testing": "Testing…",
-        "turnsDailyNotesIntoDREAMSMdAndPromotes": "Turns daily notes into DREAMS.md and promotes reusable lessons into MEMORY.md. Default: disabled."
+        "turnsDailyNotesIntoDREAMSMdAndPromotes": "Turns daily notes into DREAMS.md and promotes reusable lessons into MEMORY.md. Default: disabled.",
+        "uploadTaskAgentLogTranscriptToStash": "Upload each task's agent-log transcript (agent-log.jsonl) to Stash when the task terminalizes (done or failed). Off: only the completion/failure anchor event is captured. Default: enabled."
       },
       "merge": {
         "aICorrectiveRoundsBeforeLandingTheBestResult": "AI corrective rounds before landing the best result (advisory concern) or hard-failing (unfixable correctness concern). Default 3. The reviewer uses your project&apos;s reviewer/validator model.",
@@ -8024,6 +8049,13 @@ export default interface Resources {
         "unassigned": "Agent unassigned"
       },
       "agentLink": "agent {{id}}",
+      "aiMergeReview": {
+        "approvedWithPending": "Approved — {{count}} prior finding(s) unconfirmed",
+        "candidate": "Candidate:",
+        "dismissFinding": "Dismiss this finding",
+        "terminalGuidance": "Rebase or re-push the branch, dismiss a finding with justification, or land manually.",
+        "title": "AI merge review reconciliation"
+      },
       "attachments": {
         "attachBtn": "Attach Screenshot",
         "attached": "Screenshot attached",
@@ -8079,6 +8111,9 @@ export default interface Resources {
         "totalTokens": "Total tokens",
         "unknownModel": "(unknown)"
       },
+      "debug": {
+        "none": "No debug details available."
+      },
       "delete": {
         "actionClosed": "closed",
         "actionDeleted": "deleted",
@@ -8119,6 +8154,13 @@ export default interface Resources {
         "noAvailableTasks": "No available tasks",
         "none": "(no dependencies)",
         "overlapBlocker": "File scope overlap blocker:",
+        "overlapFiles": {
+          "error": "Could not load overlapping files.",
+          "loading": "Loading overlapping files…",
+          "matches": "matches {{path}}",
+          "noScope": "The blocker declares no file scope.",
+          "none": "No overlapping files found."
+        },
         "removeTitle": "Remove dependency {{id}}",
         "searchPlaceholder": "Search tasks…",
         "stale": "(stale)"
@@ -8522,11 +8564,15 @@ export default interface Resources {
         "workflowResults": "Workflow results"
       },
       "tabs": {
+        "attachments": "Attachments",
         "changes": "Changes",
         "chat": "Chat",
         "comments": "Comments",
         "cost": "Cost",
+        "debug": "Debug",
         "definition": "Definition",
+        "dependencies": "Dependencies",
+        "details": "Details",
         "documents": "Artifacts",
         "logs": "Logs",
         "model": "Model",

@@ -1054,6 +1054,8 @@ describe("TaskDetailModal", () => {
         "Activity",
         "Chat",
         "Plan",
+        "Dependencies",
+        "Attachments",
         "Changes",
         "Review",
         "Comments",
@@ -1064,6 +1066,8 @@ describe("TaskDetailModal", () => {
         "Workflow",
         "Stats",
         "Routing",
+        "Details",
+        "Debug",
       ]);
       expect(tabs[0].classList.contains("detail-tab-active")).toBe(true);
       expect(Array.from(tabs).slice(1).every((t) => !t.classList.contains("detail-tab-active"))).toBe(true);
@@ -2031,7 +2035,7 @@ describe("TaskDetailModal", () => {
     function renderWithSearch(taskOverrides: Partial<TaskDetail> = {}) {
       return render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={makeTask(taskOverrides)}
           tasks={searchTasks}
           onClose={noop}
@@ -2133,7 +2137,7 @@ describe("TaskDetailModal", () => {
 
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={makeTask({ dependencies: ["FN-001", "FN-002"] })}
           tasks={allTasks}
           onClose={noop}
@@ -2168,7 +2172,7 @@ describe("TaskDetailModal", () => {
 
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={makeTask({ dependencies: ["FN-001"] })}
           tasks={allTasks}
           onClose={noop}
@@ -2188,7 +2192,7 @@ describe("TaskDetailModal", () => {
     it("renders dependency ID as label when no title or description available", () => {
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={makeTask({ dependencies: ["FN-001"] })}
           // No tasks prop - dependency not found
           onClose={noop}
@@ -2215,7 +2219,7 @@ describe("TaskDetailModal", () => {
 
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={makeTask({ dependencies: ["FN-001"] })}
           tasks={allTasks}
           onClose={noop}
@@ -2242,7 +2246,7 @@ describe("TaskDetailModal", () => {
 
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={makeTask({ dependencies: ["FN-001"] })}
           tasks={allTasks}
           onClose={noop}
@@ -2281,7 +2285,7 @@ describe("TaskDetailModal", () => {
       });
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           projectId={projectId}
           task={task}
           onOpenDetail={onOpenDetail}
@@ -2313,7 +2317,7 @@ describe("TaskDetailModal", () => {
       mockFetch.mockResolvedValue(mockDetail);
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={task}
           onOpenDetail={onOpenDetail}
           onClose={noop}
@@ -2342,7 +2346,7 @@ describe("TaskDetailModal", () => {
       mockFetch.mockResolvedValue(fullTask);
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           projectId={projectId}
           task={slimTask}
           onOpenDetail={noopOpenDetail}
@@ -2384,7 +2388,7 @@ describe("TaskDetailModal", () => {
       });
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           projectId={projectId}
           task={task}
           onOpenDetail={onOpenDetail}
@@ -2426,7 +2430,7 @@ describe("TaskDetailModal", () => {
       });
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           projectId={projectId}
           task={task}
           tasks={[task, makeTask({ id: "FN-100", dependencies: [task.id] })]}
@@ -2460,7 +2464,7 @@ describe("TaskDetailModal", () => {
 
       render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={task}
           onOpenDetail={onOpenDetail}
           onClose={noop}
@@ -2492,7 +2496,7 @@ describe("TaskDetailModal", () => {
 
       const { baseElement: container } = render(
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="dependencies"
           task={tasks[0]}
           tasks={tasks}
           onOpenDetail={noopOpenDetail}

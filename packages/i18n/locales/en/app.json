@@ -7952,7 +7952,14 @@
       "overlapBlocker": "File scope overlap blocker:",
       "removeTitle": "Remove dependency {{id}}",
       "searchPlaceholder": "Search tasks…",
-      "stale": "(stale)"
+      "stale": "(stale)",
+      "overlapFiles": {
+        "loading": "Loading overlapping files…",
+        "error": "Could not load overlapping files.",
+        "noScope": "The blocker declares no file scope.",
+        "none": "No overlapping files found.",
+        "matches": "matches {{path}}"
+      }
     },
     "description": {
       "showLess": "Show less",
@@ -8344,7 +8351,11 @@
       "worktreeTerminal": "Terminal",
       "workflow": "Workflow",
       "cost": "Cost",
-      "recommendations": "Recommendations"
+      "recommendations": "Recommendations",
+      "dependencies": "Dependencies",
+      "attachments": "Attachments",
+      "details": "Details",
+      "debug": "Debug"
     },
     "terminal": {
       "loading": "Loading terminal…"
@@ -8423,6 +8434,9 @@
       "candidate": "Candidate:",
       "dismissFinding": "Dismiss this finding",
       "terminalGuidance": "Rebase or re-push the branch, dismiss a finding with justification, or land manually."
+    },
+    "debug": {
+      "none": "No debug details available."
     }
   },
   "taskDocuments": {

@@ -1073,7 +1073,7 @@ describe("TaskDetailModal", () => {
   it("shows active file scope overlap blocker in Dependencies section", () => {
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-T", column: "todo", overlapBlockedBy: "FN-OVER" })}
         tasks={[
           makeTask({ id: "FN-T", column: "todo", overlapBlockedBy: "FN-OVER" }),
@@ -1095,7 +1095,7 @@ describe("TaskDetailModal", () => {
   it("keeps clear overlap blocker button when slim live task omits overlapBlockedBy", () => {
     const { rerender } = render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-T", column: "todo", overlapBlockedBy: "FN-OVER" })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1110,7 +1110,7 @@ describe("TaskDetailModal", () => {
 
     rerender(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-T", column: "todo", overlapBlockedBy: undefined })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1138,7 +1138,7 @@ describe("TaskDetailModal", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-T", column: "todo", overlapBlockedBy: "FN-OVER", status: "queued" })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1178,7 +1178,7 @@ describe("TaskDetailModal", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-T", column: "todo", overlapBlockedBy: "FN-OLD", status: "queued" })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1202,7 +1202,7 @@ describe("TaskDetailModal", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-T", column: "todo", overlapBlockedBy: "FN-OVER", status: "queued" })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1241,7 +1241,7 @@ describe("TaskDetailModal", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-B", column: "building" })}
         tasks={tasks}
         columnFlagsByTaskId={columnFlagsByTaskId}
@@ -1260,7 +1260,7 @@ describe("TaskDetailModal", () => {
   it("shows overlap blockedBy summary in Blocking section", () => {
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="dependencies"
         task={makeTask({ id: "FN-B", column: "in-progress" })}
         tasks={[
           makeTask({ id: "FN-B", column: "in-progress" }),
@@ -1696,7 +1696,7 @@ describe("TaskDetailModal", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="attachments"
         task={makeTask({
           attachments: [
             {
@@ -1731,7 +1731,7 @@ describe("TaskDetailModal", () => {
   it("leaves attachment href/src URLs unchanged when no daemon token is present", () => {
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="attachments"
         task={makeTask({
           attachments: [
             {

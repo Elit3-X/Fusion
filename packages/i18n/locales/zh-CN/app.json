@@ -7942,7 +7942,14 @@
       "overlapBlocker": "文件范围重叠阻断器：",
       "removeTitle": "移除依赖 {{id}}",
       "searchPlaceholder": "搜索任务…",
-      "stale": "（已过期）"
+      "stale": "（已过期）",
+      "overlapFiles": {
+        "loading": "",
+        "error": "",
+        "noScope": "",
+        "none": "",
+        "matches": ""
+      }
     },
     "description": {
       "showLess": "显示更少",
@@ -8279,7 +8286,11 @@
       "workflow": "工作流",
       "summary": "Summary",
       "cost": "",
-      "recommendations": ""
+      "recommendations": "",
+      "dependencies": "",
+      "attachments": "",
+      "details": "",
+      "debug": ""
     },
     "terminal": {
       "loading": ""
@@ -8413,6 +8424,9 @@
       "candidate": "",
       "dismissFinding": "",
       "terminalGuidance": ""
+    },
+    "debug": {
+      "none": ""
     }
   },
   "taskDocuments": {
@@ -9735,6 +9749,5 @@
     "close": "",
     "loading": "",
     "retry": ""
-
   }
 }

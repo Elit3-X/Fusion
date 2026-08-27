@@ -4105,3 +4105,44 @@ operator recovery without treating acquisition count as task intent.
   margin: var(--space-sm) 0;
   padding-inline-start: var(--space-lg);
 }
+
+/*
+FNXC:TaskDetailOverlapFiles 2026-08-27-11:06:
+Operators need the scheduler's matching file pairs directly beside an overlap blocker. Keep this compact, tokenized list readable in the dependency tab without changing the existing blocker action row.
+*/
+.detail-overlap-files {
+  margin-block: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  color: var(--text-muted);
+}
+
+.detail-overlap-files__list {
+  display: grid;
+  gap: var(--space-xs);
+  margin: var(--space-xs) 0 0;
+  padding-inline-start: var(--space-lg);
+}
+
+.detail-overlap-files__list code {
+  font-family: var(--font-mono);
+}
+
+.detail-overlap-files__loading {
+  color: var(--color-warning);
+}
+
+.detail-overlap-files__error {
+  color: var(--color-error);
+}
+
+@media (max-width: 768px) {
+  .detail-overlap-files {
+    overflow-wrap: anywhere;
+  }
+
+  .detail-overlap-files__list {
+    padding-inline-start: var(--space-md);
+  }
+}

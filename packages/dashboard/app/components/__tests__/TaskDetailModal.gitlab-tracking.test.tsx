@@ -22,7 +22,7 @@ const projectIssue = {
 function renderModal(task = makeTask({ column: "todo", gitlabTracking: { item: projectIssue } }), onTaskUpdated = vi.fn()) {
   return render(
     <TaskDetailModal
-      initialTab="definition"
+      initialTab="details"
       task={task}
       onClose={noop}
       onMoveTask={noopMove}
@@ -83,7 +83,7 @@ describe("TaskDetailModal GitLab tracking", () => {
 
     rerender(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         /*
         FNXC:TaskDetailStateStability 2026-08-15-22:25:
         FN-8796 (1320265455) made mergeTaskSnapshot clock-arbitrated: an equal-clock sparse

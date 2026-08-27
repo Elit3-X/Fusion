@@ -1,6 +1,6 @@
 /*
 FNXC:TaskDetailTabs 2026-06-17-08:20:
-FN-7324 keeps the stable internal `chat` tab as Activity for explicit legacy links, but the omitted non-done default is now planner Chat. Tests that assert Definition-only sections must opt into `initialTab="definition"` so they verify the intended surface instead of the Chat landing state.
+FN-7324 keeps the stable internal `chat` tab as Activity for explicit legacy links, but the omitted non-done default is now planner Chat. Tests that assert Definition-only sections must opt into `initialTab="details"` so they verify the intended surface instead of the Chat landing state.
 */
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -90,7 +90,7 @@ function renderSummarizeTitleModal(overrides: Parameters<typeof makeTask>[0] = {
 
   const result = render(
     <TaskDetailModal
-      initialTab="definition"
+      initialTab="details"
       task={task}
       onClose={noop}
       onMoveTask={noopMove}
@@ -537,7 +537,7 @@ describe("TaskDetailModal base-branch editor", () => {
     const onTaskUpdated = vi.fn();
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({ id: "FN-8811", column: "todo" as any, baseBranch })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -717,7 +717,7 @@ describe("TaskDetailModal GitHub tracking CTA", () => {
     const user = userEvent.setup();
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({
           githubTracking: { enabled: true },
           title: "",
@@ -743,7 +743,7 @@ describe("TaskDetailModal GitHub tracking CTA", () => {
     const user = userEvent.setup();
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({
           githubTracking: { enabled: true },
           title: "Real title",
@@ -767,7 +767,7 @@ describe("TaskDetailModal GitHub tracking CTA", () => {
     const user = userEvent.setup();
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({
           githubTracking: { enabled: true },
           title: "",
@@ -880,7 +880,7 @@ describe("TaskDetailModal Activity feed loading", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeSlimTask() as any}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1285,7 +1285,7 @@ describe("TaskDetailModal Raw Logs agent loading", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({ prompt: "# Loaded" })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1326,7 +1326,7 @@ describe("TaskDetailModal Raw Logs agent loading", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({ id: "FN-6040", prompt: "# Loaded" })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1358,7 +1358,7 @@ describe("TaskDetailModal branch group surfacing", () => {
   function renderTaskWithBranchContext(id: string) {
     return (
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({ id, branchContext })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1402,7 +1402,7 @@ describe("TaskDetailModal branch group surfacing", () => {
     vi.mocked(fetchTaskDetail).mockResolvedValueOnce(makeTask({ id: "FN-landed", column: "done" as any }));
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({ id: "FN-6041", branchContext })}
         onClose={noop}
         onMoveTask={noopMove}
@@ -1435,7 +1435,7 @@ describe("TaskDetailModal delete affordance", () => {
       if (!open) return null;
       return (
         <TaskDetailModal
-          initialTab="definition"
+          initialTab="details"
           task={makeTask({ column: "triage", ...props.task })}
           onClose={() => {
             onClose();
@@ -1482,7 +1482,7 @@ describe("TaskDetailModal delete affordance", () => {
 
     render(
       <TaskDetailContent
-        initialTab="definition"
+        initialTab="details"
         embedded
         task={makeTask({ column: "triage" })}
         onRequestClose={onRequestClose}
@@ -1514,7 +1514,7 @@ describe("TaskDetailModal delete affordance", () => {
 
     render(
       <TaskDetailContent
-        initialTab="definition"
+        initialTab="details"
         embedded
         task={makeTask({ column: "triage" })}
         onRequestClose={onRequestClose}
@@ -1568,7 +1568,7 @@ describe("TaskDetailModal delete affordance", () => {
 
     render(
       <TaskDetailContent
-        initialTab="definition"
+        initialTab="details"
         embedded
         task={makeTask({ column: "triage" })}
         onRequestClose={onRequestClose}
@@ -1611,7 +1611,7 @@ describe("TaskDetailModal delete affordance", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({ column: "done" })}
         onClose={onClose}
         onMoveTask={noopMove}
@@ -1640,7 +1640,7 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
     const user = userEvent.setup();
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({
           column: "in-review",
           /*
@@ -1684,7 +1684,7 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
     const user = userEvent.setup();
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({
           column: "in-review",
           mergeRetries: 3,
@@ -1711,7 +1711,7 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
     const user = userEvent.setup();
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({
           column: "in-review",
           // FNXC:InReviewStallBadge 2026-07-26-18:21: repointed off the now-suppressed `merge-blocker`; this guards the no-log copy, not a specific code.
@@ -1739,7 +1739,7 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
   it("FN-4570: hides merge-blocker diagnostic while task is actively merging", () => {
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={makeTask({
           column: "in-review",
           status: "merging-fix",
@@ -1788,7 +1788,7 @@ describe("TaskDetailModal in-review stall diagnostics", () => {
   ])("does not render diagnostic row for $label", ({ task }) => {
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={task}
         onClose={noop}
         onMoveTask={noopMove}

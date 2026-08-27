@@ -1,6 +1,6 @@
 /*
 FNXC:TaskDetailTabs 2026-06-17-08:20:
-FN-7306 labels the stable internal `chat` tab as Activity and keeps it as the default TaskDetailModal tab. Tests that assert Definition-only sections must opt into `initialTab="definition"` so they verify the intended surface instead of the Activity landing state.
+FN-7306 labels the stable internal `chat` tab as Activity and keeps it as the default TaskDetailModal tab. Tests that assert Definition-only sections must opt into `initialTab="details"` so they verify the intended surface instead of the Activity landing state.
 */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -29,7 +29,7 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
 
     const { rerender } = render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={taskA}
         onClose={() => {}}
         onMoveTask={noopMove}
@@ -44,7 +44,7 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
     await user.click(screen.getByRole("button", { name: "Enable GitHub tracking" }));
     rerender(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={taskB}
         onClose={() => {}}
         onMoveTask={noopMove}
@@ -83,7 +83,7 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
 
     const { rerender } = render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={taskA}
         onClose={() => {}}
         onMoveTask={noopMove}
@@ -102,7 +102,7 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
 
     rerender(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={taskB}
         onClose={() => {}}
         onMoveTask={noopMove}
@@ -139,7 +139,7 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
 
     const { rerender } = render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={taskA}
         onClose={() => {}}
         onMoveTask={noopMove}
@@ -156,7 +156,7 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
 
     rerender(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={taskB}
         onClose={() => {}}
         onMoveTask={noopMove}
@@ -186,7 +186,7 @@ describe("TaskDetailModal GitHub tracking stale await guards (FN-5148)", () => {
 
     render(
       <TaskDetailModal
-        initialTab="definition"
+        initialTab="details"
         task={taskA}
         onClose={() => {}}
         onMoveTask={noopMove}

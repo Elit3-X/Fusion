@@ -36,9 +36,9 @@ import {
   isWipColumnRole,
 } from "../utils/columnRoles";
 import { resolveEffectiveAutoMerge } from "../../../core/src/merge/task-merge";
-import { uploadAttachment, deleteAttachment, updateTask, repairOverlapBlocker, fetchTaskDetail, fetchTaskPrompt, fetchSpecLock, fetchTaskVerificationRequest, fetchSettings, fetchTaskEffectiveSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, refreshPrStatus, fetchBoardWorkflows, updateTaskCustomFields, summarizeTitle, fetchWorkflowSettingValues, nudgeOverseer, stopOverseer, explainOverseer, fetchModels, fetchNodes, api } from "../api";
+import { uploadAttachment, deleteAttachment, updateTask, repairOverlapBlocker, fetchOverlapBlockerReport, fetchTaskDetail, fetchTaskPrompt, fetchSpecLock, fetchTaskVerificationRequest, fetchSettings, fetchTaskEffectiveSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, refreshPrStatus, fetchBoardWorkflows, updateTaskCustomFields, summarizeTitle, fetchWorkflowSettingValues, nudgeOverseer, stopOverseer, explainOverseer, fetchModels, fetchNodes, api } from "../api";
 import { updateTaskRepositoryScope } from "../api/tasks/tasks";
-import type { RevertTaskOptions, RevertTaskResult, ModelInfo, NodeInfo, SpecLockResponse } from "../api";
+import type { RevertTaskOptions, RevertTaskResult, ModelInfo, NodeInfo, SpecLockResponse, TaskOverlapBlockerReport } from "../api";
 import type { BoardWorkflowsPayload, WorkflowFieldDefinition, CustomFieldRejection } from "../api";
 import { WorkflowIcon } from "./WorkflowIcon";
 import { ApiRequestError } from "../api";
@@ -276,7 +276,7 @@ function formatDurationCompact(ageMs: number): string {
   return `${minutes}m`;
 }
 
-type TabId = "summary" | "recommendations" | "cost" | "definition" | "chat" | "planner-chat" | "logs" | "changes" | "review" | "pr" | "comments" | "model" | "workflow" | "documents" | "stats" | "routing" | "retries" | "terminal" | "worktree-terminal" | `plugin-${string}`;
+type TabId = "summary" | "recommendations" | "cost" | "definition" | "dependencies" | "attachments" | "details" | "debug" | "chat" | "planner-chat" | "logs" | "changes" | "review" | "pr" | "comments" | "model" | "workflow" | "documents" | "stats" | "routing" | "retries" | "terminal" | "worktree-terminal" | `plugin-${string}`;
 type ActivitySegment = "current" | "feed" | "raw-logs" | "interventions";
 
 /*
@@ -303,7 +303,7 @@ Activity view switching lives in the top-level Activity tab dropdown for Live, F
 */
 function resolveDefaultTab(initialTab: TabId | undefined, column: ColumnId, taskDetailChatFirst = false): TabId {
   if (initialTab === "retries") {
-    return "definition";
+    return "details";
   }
   if (initialTab === "logs") {
     return "chat";
@@ -875,6 +875,9 @@ export function TaskDetailContent({
   );
   const [verificationRequest, setVerificationRequest] = useState<TaskVerificationRequest | null>(null);
   const [specLock, setSpecLock] = useState<SpecLockResponse | null>(null);
+  const [overlapBlockerReport, setOverlapBlockerReport] = useState<TaskOverlapBlockerReport | null>(null);
+  const [overlapBlockerReportError, setOverlapBlockerReportError] = useState(false);
+  const [overlapBlockerReportLoading, setOverlapBlockerReportLoading] = useState(false);
   const detailRequestGenerationRef = useRef(0);
   const detailRequestRef = useRef<{ key: string; promise: Promise<TaskDetail> } | null>(null);
   /*
@@ -923,11 +926,11 @@ export function TaskDetailContent({
 
   /*
   FNXC:SpecLockTaskDetail 2026-08-09-07:36:
-  Both modal and right-dock hosts render this shared content, so the Definition tab requests the
+  Both modal and right-dock hosts render this shared content, so the Debug tab requests the
   persisted report once per visible task. Rendering must not re-evaluate prompt prose in-browser.
   */
   useEffect(() => {
-    if (!active || activeTab !== "definition") return;
+    if (!active || activeTab !== "debug") return;
     let cancelled = false;
     void fetchSpecLock(task.id, projectId)
       .then((value) => { if (!cancelled) setSpecLock(value); })
@@ -1000,6 +1003,32 @@ export function TaskDetailContent({
     } as TaskDetail)
     : ({ ...task, prompt: "" } as TaskDetail);
   const activityLog = workingTask.log ?? [];
+
+  useEffect(() => {
+    if (!active || activeTab !== "dependencies" || !workingTask.overlapBlockedBy) {
+      setOverlapBlockerReport(null);
+      setOverlapBlockerReportError(false);
+      setOverlapBlockerReportLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const identity = `${projectId ?? ""}:${workingTask.id}:${workingTask.overlapBlockedBy}`;
+    setOverlapBlockerReportLoading(true);
+    setOverlapBlockerReportError(false);
+    void fetchOverlapBlockerReport(workingTask.id, projectId)
+      .then((report) => {
+        if (!cancelled && identity === `${projectId ?? ""}:${workingTask.id}:${workingTask.overlapBlockedBy}`) {
+          setOverlapBlockerReport(report);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOverlapBlockerReportError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setOverlapBlockerReportLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [active, activeTab, projectId, workingTask.id, workingTask.overlapBlockedBy]);
   const planSummary = useMemo(() => splitTaskPlanSummary(workingTask.prompt || ""), [workingTask.prompt]);
   /*
   FNXC:RepositoryScope 2026-08-21-00:29:
@@ -5856,6 +5885,12 @@ export function TaskDetailContent({
             >
               {t("taskDetail.tabs.definition", "Plan")}
             </button>
+            <button className={`detail-tab${activeTab === "dependencies" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("dependencies")}>
+              {t("taskDetail.tabs.dependencies", "Dependencies")}
+            </button>
+            <button className={`detail-tab${activeTab === "attachments" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("attachments")}>
+              {t("taskDetail.tabs.attachments", "Attachments")}
+            </button>
             {(isWipColumn || isReviewColumn || isDoneColumn) && (
               <button
                 className={`detail-tab${activeTab === "changes" ? " detail-tab-active" : ""}`}
@@ -5929,6 +5964,16 @@ export function TaskDetailContent({
               onClick={() => setActiveTab("routing")}
             >
               {t("taskDetail.tabs.routing", "Routing")}
+            </button>
+            {/*
+            FNXC:TaskDetailTabs 2026-08-27-11:06:
+            Definition is plan-only: steps and PROMPT.md. Original prompt, retries, source and agent metadata, tracking, and no-commits live in Details; dependency/blocking and attachments have dedicated tabs; diagnostics live in Debug. The retries deep link resolves to Details so its disclosure remains useful. Details always has the original-prompt fallback, Agent, and no-commits controls, so no empty state is needed.
+            */}
+            <button className={`detail-tab${activeTab === "details" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("details")}>
+              {t("taskDetail.tabs.details", "Details")}
+            </button>
+            <button className={`detail-tab${activeTab === "debug" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("debug")}>
+              {t("taskDetail.tabs.debug", "Debug")}
             </button>
             {showCliTab && (
               <button
@@ -6362,8 +6407,268 @@ export function TaskDetailContent({
           ) : activeTab === "worktree-terminal" && showWorktreeTerminalTab ? (
             /* FNXC:TaskDetailTabKeepAlive 2026-07-22-12:55: body renders from the kept-alive sibling below the ternary. */
             null
-          ) : (
-          <>
+          ) : activeTab === "dependencies" ? (
+            <>
+          <div className="detail-deps">
+            <h4>{t("taskDetail.deps.heading", "Dependencies")}</h4>
+            {dependencies.length > 0 ? (
+              <ul className="detail-dep-list">
+                {dependencies.map((dep) => {
+                  // Look up dependency metadata from tasks prop
+                  const depTask = tasks.find((t) => t.id === dep);
+                  const depLabel = depTask?.title || depTask?.description || dep;
+
+                  return (
+                    <li key={dep} className="detail-dep-item">
+                      <span
+                        className="detail-dep-link"
+                        onClick={() => handleDepClick(dep)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleDepClick(dep);
+                          }
+                        }}
+                        role="link"
+                        tabIndex={0}
+                        title={t("taskDetail.deps.clickToView", "Click to view {{id}}", { id: dep })}
+                      >
+                        <span className="detail-dep-id">{dep}</span>
+                        <span className="detail-dep-label">{truncate(depLabel, 40)}</span>
+                      </span>
+                      <button
+                        className="dep-remove-btn"
+                        onClick={(e) => handleRemoveDep(e, dep)}
+                        title={t("taskDetail.deps.removeTitle", "Remove dependency {{id}}", { id: dep })}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="detail-empty-inline">{t("taskDetail.deps.none", "(no dependencies)")}</div>
+            )}
+            {workingTask.overlapBlockedBy && (
+              <div className="detail-empty-inline">
+                <span>
+                  {t("taskDetail.deps.overlapBlocker", "File scope overlap blocker:")} {workingTask.overlapBlockedBy}
+                  {!overlapBlockerActive && ` ${t("taskDetail.deps.stale", "(stale)")}`}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => void handleClearOverlapBlocker()}
+                  title={t("taskDetail.deps.clearBlockerTitle", "Clear overlap blocker {{id}}", { id: workingTask.overlapBlockedBy })}
+                >
+                  {t("taskDetail.deps.clearBtn", "Clear")}
+                </button>
+              </div>
+            )}
+            {workingTask.overlapBlockedBy && (
+              <div className="detail-overlap-files" aria-live="polite">
+                {overlapBlockerReportLoading ? (
+                  <div className="detail-overlap-files__loading">{t("taskDetail.deps.overlapFiles.loading", "Loading overlapping files…")}</div>
+                ) : overlapBlockerReportError ? (
+                  <div className="detail-overlap-files__error">{t("taskDetail.deps.overlapFiles.error", "Could not load overlapping files.")}</div>
+                ) : overlapBlockerReport?.blockerScopeCount === 0 ? (
+                  <div>{t("taskDetail.deps.overlapFiles.noScope", "The blocker declares no file scope.")}</div>
+                ) : overlapBlockerReport && overlapBlockerReport.overlaps.length === 0 ? (
+                  <div>{t("taskDetail.deps.overlapFiles.none", "No overlapping files found.")}</div>
+                ) : overlapBlockerReport ? (
+                  <ul className="detail-overlap-files__list">
+                    {overlapBlockerReport.overlaps.map(({ path, blockerPath }) => (
+                      <li key={`${path}:${blockerPath}`}>
+                        <code>{path}</code>
+                        {path !== blockerPath && <span> {t("taskDetail.deps.overlapFiles.matches", "matches {{path}}", { path: blockerPath })}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )}
+            <div className="dep-trigger-wrap">
+              <button
+                type="button"
+                className="btn btn-sm dep-trigger"
+                onClick={() => {
+                  if (showDepDropdown) setDepSearch("");
+                  setShowDepDropdown((v) => !v);
+                }}
+              >
+                {t("taskDetail.deps.addBtn", "Add Dependency")}
+              </button>
+              {showDepDropdown && (() => {
+                const term = depSearch.toLowerCase();
+                const filtered = term
+                  ? availableTasks.filter((t) =>
+                      t.id.toLowerCase().includes(term) ||
+                      (t.title && t.title.toLowerCase().includes(term)) ||
+                      (t.description && t.description.toLowerCase().includes(term))
+                    )
+                  : availableTasks;
+                return (
+                  <div className="dep-dropdown">
+                    <input
+                      className="dep-dropdown-search"
+                      placeholder={t("taskDetail.deps.searchPlaceholder", "Search tasks…")}
+                      autoFocus
+                      value={depSearch}
+                      onChange={(e) => setDepSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    {filtered.length === 0 ? (
+                      <div className="dep-dropdown-empty">{t("taskDetail.deps.noAvailableTasks", "No available tasks")}</div>
+                    ) : (
+                      filtered.map((t) => (
+                        <div
+                          key={t.id}
+                          className="dep-dropdown-item"
+                          onClick={() => {
+                            handleAddDep(t.id);
+                            setShowDepDropdown(false);
+                          }}
+                        >
+                          <span className="dep-dropdown-id">{t.id}</span>
+                          <span className="dep-dropdown-title">{truncate(t.title || t.description || t.id, 30)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+          <div className="detail-deps detail-blocking">
+            <h4>{t("taskDetail.blocking.heading", "Blocking")}</h4>
+            {blockingEntry && (
+              <div className="detail-empty-inline">
+                {overlapBlockingSummary}
+              </div>
+            )}
+            {blockingDependents.length > 0 ? (
+              <ul className="detail-dep-list">
+                {blockingDependents.map((dependent) => (
+                  <li key={dependent.id} className="detail-dep-item">
+                    <span
+                      className="detail-dep-link"
+                      onClick={() => handleDepClick(dependent.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleDepClick(dependent.id);
+                        }
+                      }}
+                      role="link"
+                      tabIndex={0}
+                      title={t("taskDetail.deps.clickToView", "Click to view {{id}}", { id: dependent.id })}
+                    >
+                      <span className="detail-dep-id">{dependent.id}</span>
+                      <span className="detail-dep-label">{truncate(dependent.label, 40)}</span>
+                    </span>
+                    {dependent.stale && (
+                      <span
+                        className="detail-blocking-item--stale"
+                        title={t("taskDetail.blocking.staleTitle", "Stale blockedBy edge: self-healing clearStaleBlockedBy should clear this automatically")}
+                      >
+                        {t("taskDetail.blocking.stale", "(stale)")}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="detail-empty-inline">{t("taskDetail.blocking.none", "(no downstream tasks blocked)")}</div>
+            )}
+          </div>
+            </>
+          ) : activeTab === "attachments" ? (
+            <>
+          <div className="detail-section">
+            <h4>{t("taskDetail.attachments.heading", "Attachments")}</h4>
+            {attachments.length > 0 ? (
+              <div className="detail-attachments-grid">
+                {attachments.map((a) => {
+                  const attachmentUrl = appendTokenQuery(`/api/tasks/${task.id}/attachments/${a.filename}`);
+                  return (
+                    <div key={a.filename} className="detail-attachment-card">
+                      <a
+                        className="detail-attachment-link"
+                        href={attachmentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <img
+                          src={attachmentUrl}
+                          alt={a.originalName}
+                          className="detail-attachment-image"
+                        />
+                      </a>
+                      <div className="detail-attachment-meta">
+                        {a.originalName} ({formatBytes(a.size)})
+                      </div>
+                      <button
+                        className="detail-attachment-delete"
+                        onClick={() => handleDeleteAttachment(a.filename)}
+                        title={t("taskDetail.attachments.deleteTitle", "Delete attachment")}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="detail-empty-inline">{t("taskDetail.attachments.none", "(no attachments)")}</div>
+            )}
+            <button
+              className="btn btn-sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? t("taskDetail.attachments.uploading", "Uploading…") : t("taskDetail.attachments.attachBtn", "Attach Screenshot")}
+            </button>
+          </div>
+            </>
+          ) : activeTab === "details" ? (
+            <>
+          <div className="detail-section detail-section--original-prompt">
+            {/**
+             * FNXC:TaskDetailPlan 2026-07-04-00:00:
+             * Operators need the exact prompt they entered to stay visible after planning generates PROMPT.md. Keep this section read-only and backed by task.description so PROMPT.md editing/revision controls cannot imply they mutate the original request.
+             *
+             * FNXC:TaskDetailPlan 2026-07-04-00:00:
+             * The original operator prompt is now rendered as Markdown (shared PROMPT.md renderer) and collapsed by default behind a chevron toggle, superseding the earlier plain-preserved-text rule. It remains read-only and backed by task.description; the generated PROMPT.md editor/revision flow is unaffected. The toggle only renders when there is content — the empty fallback never shows a chevron.
+             */}
+            <div className="detail-source-header">
+              <h4>{t("taskDetail.originalPrompt.heading", "Original prompt")}</h4>
+              {hasOriginalTaskPrompt && (
+                <button
+                  type="button"
+                  className="detail-source-toggle"
+                  aria-expanded={originalPromptExpanded}
+                  aria-label={originalPromptExpanded ? t("taskDetail.originalPrompt.collapse", "Collapse original prompt") : t("taskDetail.originalPrompt.expand", "Expand original prompt")}
+                  onClick={() => setOriginalPromptExpanded((expanded) => !expanded)}
+                >
+                  <ChevronRight size={16} className={originalPromptExpanded ? "detail-source-chevron--expanded" : undefined} />
+                </button>
+              )}
+            </div>
+            {hasOriginalTaskPrompt ? (
+              originalPromptExpanded && (
+                <div className="markdown-body" data-testid="task-detail-original-prompt">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
+                    {originalTaskPrompt}
+                  </ReactMarkdown>
+                </div>
+              )
+            ) : (
+              <p className="detail-original-prompt-empty">
+                {t("taskDetail.originalPrompt.empty", "No original prompt recorded.")}
+              </p>
+            )}
+          </div>
           {/* FNXC:TaskDetailSummaryTab 2026-07-29-00:00: FN-8197 keeps Definition focused on plan, retry, and source metadata; completed merge metadata renders exclusively in the done-only Summary tab. */}
           {(retrySummary?.total ?? 0) > 0 && (
             <div className="detail-section detail-retries-section">
@@ -6538,199 +6843,6 @@ export function TaskDetailContent({
                 )}
               </div>
             </div>
-          </div>
-          <div className="detail-section detail-step-progress">
-            <h4>{t("taskDetail.progress.heading", "Progress")}</h4>
-            {unifiedProgress.total > 0 ? (
-              <div className="step-progress-wrapper">
-                <div className="step-progress-bar">
-                  {unifiedProgress.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`step-progress-segment step-progress-segment--${item.status} step-progress-segment--source-${item.source}`}
-                      data-tooltip={`${item.name} (${item.source === "workflow" ? "workflow step · " : ""}${item.status})`}
-                      style={{ backgroundColor: getStepStatusColor(item.status) }}
-                    />
-                  ))}
-                </div>
-                <span className="step-progress-label">
-                  {t("taskDetail.progress.stepCount", { count: unifiedProgress.completed, total: unifiedProgress.total, defaultValue_one: "{{count}}/{{total}} step", defaultValue_other: "{{count}}/{{total}} steps" })}
-                </span>
-              </div>
-            ) : (
-              <div className="step-progress-empty">{t("taskDetail.progress.noSteps", "(no steps defined)")}</div>
-            )}
-          </div>
-          <div className="detail-section detail-section--original-prompt">
-            {/**
-             * FNXC:TaskDetailPlan 2026-07-04-00:00:
-             * Operators need the exact prompt they entered to stay visible after planning generates PROMPT.md. Keep this section read-only and backed by task.description so PROMPT.md editing/revision controls cannot imply they mutate the original request.
-             *
-             * FNXC:TaskDetailPlan 2026-07-04-00:00:
-             * The original operator prompt is now rendered as Markdown (shared PROMPT.md renderer) and collapsed by default behind a chevron toggle, superseding the earlier plain-preserved-text rule. It remains read-only and backed by task.description; the generated PROMPT.md editor/revision flow is unaffected. The toggle only renders when there is content — the empty fallback never shows a chevron.
-             */}
-            <div className="detail-source-header">
-              <h4>{t("taskDetail.originalPrompt.heading", "Original prompt")}</h4>
-              {hasOriginalTaskPrompt && (
-                <button
-                  type="button"
-                  className="detail-source-toggle"
-                  aria-expanded={originalPromptExpanded}
-                  aria-label={originalPromptExpanded ? t("taskDetail.originalPrompt.collapse", "Collapse original prompt") : t("taskDetail.originalPrompt.expand", "Expand original prompt")}
-                  onClick={() => setOriginalPromptExpanded((expanded) => !expanded)}
-                >
-                  <ChevronRight size={16} className={originalPromptExpanded ? "detail-source-chevron--expanded" : undefined} />
-                </button>
-              )}
-            </div>
-            {hasOriginalTaskPrompt ? (
-              originalPromptExpanded && (
-                <div className="markdown-body" data-testid="task-detail-original-prompt">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
-                    {originalTaskPrompt}
-                  </ReactMarkdown>
-                </div>
-              )
-            ) : (
-              <p className="detail-original-prompt-empty">
-                {t("taskDetail.originalPrompt.empty", "No original prompt recorded.")}
-              </p>
-            )}
-          </div>
-          <div className="detail-section detail-section--plan-prompt">
-            {!isEditingSpec && (
-              <div className="detail-spec-edit-trigger">
-                {/**
-                 * FNXC:TaskDetailPlan 2026-06-30-00:00:
-                 * The Plan tab keeps the internal definition route for stable links, while exposing a direct PROMPT.md editor action so operators can comment on the executable task plan file without replacing the inline AI revision flow.
-                 *
-                 * FNXC:TaskDetailPlan 2026-06-30-00:00:
-                 * The Plan prompt surfaces must span the task-detail card body in modal and embedded renderings. Keep the scoped wrapper around markdown, no-prompt fallback, inline edit, and AI revision controls so width fixes do not alter unrelated detail sections.
-                 */}
-                {fileBrowser && (
-                  <button
-                    className="btn btn-sm"
-                    onClick={openPromptFile}
-                    title={t("taskDetail.spec.openPromptTitle", "Open this task's PROMPT.md in the file editor")}
-                  >
-                    {t("taskDetail.spec.openPromptBtn", "Open PROMPT.md")}
-                  </button>
-                )}
-                <button className="btn btn-sm" onClick={enterSpecEditMode}>
-                  {t("taskDetail.spec.editBtn", "Edit")}
-                </button>
-              </div>
-            )}
-            {isEditingSpec ? (
-              <div className="spec-editor-edit-mode">
-                <textarea
-                  className="spec-editor-textarea"
-                  value={specEditContent}
-                  onChange={(e) => setSpecEditContent(e.target.value)}
-                  onKeyDown={handleSpecTextareaKeyDown}
-                  disabled={isSavingSpec}
-                  placeholder={t("taskDetail.spec.placeholder", "Enter task specification in Markdown...")}
-                  rows={12}
-                />
-                <div className="spec-editor-actions-row">
-                  <button
-                    className="btn btn-sm"
-                    onClick={exitSpecEditMode}
-                    disabled={isSavingSpec}
-                  >
-                    {t("common.cancel", "Cancel")}
-                  </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => void handleSaveSpecFromEdit()}
-                    disabled={specEditContent === (workingTask.prompt || "") || isSavingSpec}
-                  >
-                    {isSavingSpec ? t("taskDetail.spec.saving", "Saving…") : t("common.save", "Save")}
-                  </button>
-                </div>
-                <div className="spec-editor-hint">
-                  <kbd>Ctrl</kbd>+<kbd>Enter</kbd> {t("taskDetail.spec.hintSave", "to save")} · <kbd>Escape</kbd> {t("taskDetail.spec.hintCancel", "to cancel")}
-                </div>
-                {/* AI Revision Section */}
-                <div className="spec-editor-revision">
-                  <h4>{t("taskDetail.spec.aiReviseHeading", "Ask AI to Revise")}</h4>
-                  <p className="spec-editor-revision-help">
-                    {t("taskDetail.spec.aiReviseHelp", "Provide feedback for the AI to improve this specification. The task will move to planning for replanning.")}
-                  </p>
-                  <textarea
-                    className="spec-editor-feedback"
-                    value={specFeedback}
-                    onChange={(e) => setSpecFeedback(e.target.value)}
-                    placeholder={t("taskDetail.spec.feedbackPlaceholder", "e.g., 'Add more details about error handling', 'Split this into smaller steps', 'Include tests for the API endpoints'...")}
-                    disabled={isRequestingRevision}
-                    rows={4}
-                    maxLength={2000}
-                  />
-                  <div className="spec-editor-revision-actions">
-                    <span className="spec-editor-char-count">
-                      {specFeedback.length}/2000
-                    </span>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => void handleRequestRevisionFromEdit()}
-                      disabled={!specFeedback.trim() || isRequestingRevision}
-                    >
-                      {isRequestingRevision ? t("taskDetail.spec.requesting", "Requesting…") : t("taskDetail.spec.requestRevisionBtn", "Request AI Revision")}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : detailLoading ? (
-              <div className="spec-loading"><LoadingSpinner label={t("taskDetail.spec.loading", "Loading specification…")} /></div>
-            ) : workingTask.prompt ? (
-              planSummary.hasSummary ? (
-                <>
-                  {/*
-                  FNXC:TaskDetailPlan 2026-08-27-10:22:
-                  Definition shows the product summary and Before → After first so operators can confirm
-                  intent at a glance. A plan without either summary heading stays fully visible, while
-                  remaining technical detail is available through this explicit disclosure.
-                  */}
-                  <div className="markdown-body" data-testid="task-detail-plan-summary">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
-                      {planSummary.summaryMarkdown}
-                    </ReactMarkdown>
-                  </div>
-                  {planSummary.restMarkdown.trim() && (
-                    <>
-                      <button
-                        type="button"
-                        className="btn btn-sm touch-target detail-plan-details-toggle"
-                        data-testid="task-detail-plan-details-toggle"
-                        aria-expanded={planDetailsExpanded}
-                        aria-controls={`${workingTask.id}-plan-details`}
-                        onClick={() => setPlanDetailsExpanded((expanded) => !expanded)}
-                      >
-                        <ChevronRight size={16} className={planDetailsExpanded ? "detail-source-chevron--expanded" : undefined} />
-                        {planDetailsExpanded
-                          ? t("taskDetail.spec.hideDetailsBtn", "Hide details")
-                          : t("taskDetail.spec.moreDetailsBtn", "See more details")}
-                      </button>
-                      {planDetailsExpanded && (
-                        <div className="markdown-body" id={`${workingTask.id}-plan-details`} data-testid="task-detail-plan-details">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
-                            {planSummary.restMarkdown}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </>
-              ) : (
-                <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
-                    {planSummary.restMarkdown}
-                  </ReactMarkdown>
-                </div>
-              )
-            ) : (
-              <div className="detail-prompt">{t("taskDetail.spec.noPrompt", "(no prompt)")}</div>
-            )}
           </div>
           {showGitLabTrackingSection && (
             <div className="detail-section detail-gitlab-tracking-section" data-testid="detail-gitlab-tracking-section">
@@ -6965,202 +7077,9 @@ export function TaskDetailContent({
               <small>{t("taskDetail.noCommits.hint", "Allows the task to complete without producing git commits. Use for evaluation, verification, or audit tasks where the deliverable is the recorded decision.")}</small>
             </div>
           </div>
-          <div className="detail-section">
-            <h4>{t("taskDetail.attachments.heading", "Attachments")}</h4>
-            {attachments.length > 0 ? (
-              <div className="detail-attachments-grid">
-                {attachments.map((a) => {
-                  const attachmentUrl = appendTokenQuery(`/api/tasks/${task.id}/attachments/${a.filename}`);
-                  return (
-                    <div key={a.filename} className="detail-attachment-card">
-                      <a
-                        className="detail-attachment-link"
-                        href={attachmentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <img
-                          src={attachmentUrl}
-                          alt={a.originalName}
-                          className="detail-attachment-image"
-                        />
-                      </a>
-                      <div className="detail-attachment-meta">
-                        {a.originalName} ({formatBytes(a.size)})
-                      </div>
-                      <button
-                        className="detail-attachment-delete"
-                        onClick={() => handleDeleteAttachment(a.filename)}
-                        title={t("taskDetail.attachments.deleteTitle", "Delete attachment")}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="detail-empty-inline">{t("taskDetail.attachments.none", "(no attachments)")}</div>
-            )}
-            <button
-              className="btn btn-sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? t("taskDetail.attachments.uploading", "Uploading…") : t("taskDetail.attachments.attachBtn", "Attach Screenshot")}
-            </button>
-          </div>
-          <div className="detail-deps">
-            <h4>{t("taskDetail.deps.heading", "Dependencies")}</h4>
-            {dependencies.length > 0 ? (
-              <ul className="detail-dep-list">
-                {dependencies.map((dep) => {
-                  // Look up dependency metadata from tasks prop
-                  const depTask = tasks.find((t) => t.id === dep);
-                  const depLabel = depTask?.title || depTask?.description || dep;
-
-                  return (
-                    <li key={dep} className="detail-dep-item">
-                      <span
-                        className="detail-dep-link"
-                        onClick={() => handleDepClick(dep)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleDepClick(dep);
-                          }
-                        }}
-                        role="link"
-                        tabIndex={0}
-                        title={t("taskDetail.deps.clickToView", "Click to view {{id}}", { id: dep })}
-                      >
-                        <span className="detail-dep-id">{dep}</span>
-                        <span className="detail-dep-label">{truncate(depLabel, 40)}</span>
-                      </span>
-                      <button
-                        className="dep-remove-btn"
-                        onClick={(e) => handleRemoveDep(e, dep)}
-                        title={t("taskDetail.deps.removeTitle", "Remove dependency {{id}}", { id: dep })}
-                      >
-                        ×
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <div className="detail-empty-inline">{t("taskDetail.deps.none", "(no dependencies)")}</div>
-            )}
-            {workingTask.overlapBlockedBy && (
-              <div className="detail-empty-inline">
-                <span>
-                  {t("taskDetail.deps.overlapBlocker", "File scope overlap blocker:")} {workingTask.overlapBlockedBy}
-                  {!overlapBlockerActive && ` ${t("taskDetail.deps.stale", "(stale)")}`}
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => void handleClearOverlapBlocker()}
-                  title={t("taskDetail.deps.clearBlockerTitle", "Clear overlap blocker {{id}}", { id: workingTask.overlapBlockedBy })}
-                >
-                  {t("taskDetail.deps.clearBtn", "Clear")}
-                </button>
-              </div>
-            )}
-            <div className="dep-trigger-wrap">
-              <button
-                type="button"
-                className="btn btn-sm dep-trigger"
-                onClick={() => {
-                  if (showDepDropdown) setDepSearch("");
-                  setShowDepDropdown((v) => !v);
-                }}
-              >
-                {t("taskDetail.deps.addBtn", "Add Dependency")}
-              </button>
-              {showDepDropdown && (() => {
-                const term = depSearch.toLowerCase();
-                const filtered = term
-                  ? availableTasks.filter((t) =>
-                      t.id.toLowerCase().includes(term) ||
-                      (t.title && t.title.toLowerCase().includes(term)) ||
-                      (t.description && t.description.toLowerCase().includes(term))
-                    )
-                  : availableTasks;
-                return (
-                  <div className="dep-dropdown">
-                    <input
-                      className="dep-dropdown-search"
-                      placeholder={t("taskDetail.deps.searchPlaceholder", "Search tasks…")}
-                      autoFocus
-                      value={depSearch}
-                      onChange={(e) => setDepSearch(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    {filtered.length === 0 ? (
-                      <div className="dep-dropdown-empty">{t("taskDetail.deps.noAvailableTasks", "No available tasks")}</div>
-                    ) : (
-                      filtered.map((t) => (
-                        <div
-                          key={t.id}
-                          className="dep-dropdown-item"
-                          onClick={() => {
-                            handleAddDep(t.id);
-                            setShowDepDropdown(false);
-                          }}
-                        >
-                          <span className="dep-dropdown-id">{t.id}</span>
-                          <span className="dep-dropdown-title">{truncate(t.title || t.description || t.id, 30)}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-          <div className="detail-deps detail-blocking">
-            <h4>{t("taskDetail.blocking.heading", "Blocking")}</h4>
-            {blockingEntry && (
-              <div className="detail-empty-inline">
-                {overlapBlockingSummary}
-              </div>
-            )}
-            {blockingDependents.length > 0 ? (
-              <ul className="detail-dep-list">
-                {blockingDependents.map((dependent) => (
-                  <li key={dependent.id} className="detail-dep-item">
-                    <span
-                      className="detail-dep-link"
-                      onClick={() => handleDepClick(dependent.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          handleDepClick(dependent.id);
-                        }
-                      }}
-                      role="link"
-                      tabIndex={0}
-                      title={t("taskDetail.deps.clickToView", "Click to view {{id}}", { id: dependent.id })}
-                    >
-                      <span className="detail-dep-id">{dependent.id}</span>
-                      <span className="detail-dep-label">{truncate(dependent.label, 40)}</span>
-                    </span>
-                    {dependent.stale && (
-                      <span
-                        className="detail-blocking-item--stale"
-                        title={t("taskDetail.blocking.staleTitle", "Stale blockedBy edge: self-healing clearStaleBlockedBy should clear this automatically")}
-                      >
-                        {t("taskDetail.blocking.stale", "(stale)")}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="detail-empty-inline">{t("taskDetail.blocking.none", "(no downstream tasks blocked)")}</div>
-            )}
-          </div>
+            </>
+          ) : activeTab === "debug" ? (
+            <>
           {workingTask.ageStaleness && (() => {
             const copy = getTaskAgeStalenessCopy(workingTask.ageStaleness);
             if (!copy) return null;
@@ -7180,7 +7099,10 @@ export function TaskDetailContent({
               </div>
             );
           })()}
-          {/* FNXC:SpecLockTaskDetail 2026-08-15-12:54: Spec alignment is low-frequency lock/hash provenance, so it renders LAST in the Definition (Plan) tab — operators opening Plan must see plan content first, not the alignment report. Keep this block at the tail of the Definition fragment. */}
+          {/*
+          FNXC:SpecLockTaskDetail 2026-08-27-11:06:
+          Spec alignment is low-frequency lock/hash provenance. It belongs in Debug so Definition remains reserved for steps and PROMPT.md, while the report is fetched only when this tab is visible.
+          */}
           {specLock && (
             <section className="detail-section spec-lock-report" data-testid="spec-lock-report" aria-label={t("taskDetail.specLock.alignmentLabel", "Spec lock alignment")}>
               <div className="detail-source-header">
@@ -7223,7 +7145,169 @@ export function TaskDetailContent({
                 </ul>
               ) : null}
             </section>
-          )}
+          )}              {!workingTask.ageStaleness && !specLock && (
+                <div className="detail-empty-inline">{t("taskDetail.debug.none", "No debug details available.")}</div>
+              )}
+            </>
+          ) : (
+          <>
+          <div className="detail-section detail-step-progress">
+            <h4>{t("taskDetail.progress.heading", "Progress")}</h4>
+            {unifiedProgress.total > 0 ? (
+              <div className="step-progress-wrapper">
+                <div className="step-progress-bar">
+                  {unifiedProgress.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`step-progress-segment step-progress-segment--${item.status} step-progress-segment--source-${item.source}`}
+                      data-tooltip={`${item.name} (${item.source === "workflow" ? "workflow step · " : ""}${item.status})`}
+                      style={{ backgroundColor: getStepStatusColor(item.status) }}
+                    />
+                  ))}
+                </div>
+                <span className="step-progress-label">
+                  {t("taskDetail.progress.stepCount", { count: unifiedProgress.completed, total: unifiedProgress.total, defaultValue_one: "{{count}}/{{total}} step", defaultValue_other: "{{count}}/{{total}} steps" })}
+                </span>
+              </div>
+            ) : (
+              <div className="step-progress-empty">{t("taskDetail.progress.noSteps", "(no steps defined)")}</div>
+            )}
+          </div>
+          <div className="detail-section detail-section--plan-prompt">
+            {!isEditingSpec && (
+              <div className="detail-spec-edit-trigger">
+                {/**
+                 * FNXC:TaskDetailPlan 2026-06-30-00:00:
+                 * The Plan tab keeps the internal definition route for stable links, while exposing a direct PROMPT.md editor action so operators can comment on the executable task plan file without replacing the inline AI revision flow.
+                 *
+                 * FNXC:TaskDetailPlan 2026-06-30-00:00:
+                 * The Plan prompt surfaces must span the task-detail card body in modal and embedded renderings. Keep the scoped wrapper around markdown, no-prompt fallback, inline edit, and AI revision controls so width fixes do not alter unrelated detail sections.
+                 */}
+                {fileBrowser && (
+                  <button
+                    className="btn btn-sm"
+                    onClick={openPromptFile}
+                    title={t("taskDetail.spec.openPromptTitle", "Open this task's PROMPT.md in the file editor")}
+                  >
+                    {t("taskDetail.spec.openPromptBtn", "Open PROMPT.md")}
+                  </button>
+                )}
+                <button className="btn btn-sm" onClick={enterSpecEditMode}>
+                  {t("taskDetail.spec.editBtn", "Edit")}
+                </button>
+              </div>
+            )}
+            {isEditingSpec ? (
+              <div className="spec-editor-edit-mode">
+                <textarea
+                  className="spec-editor-textarea"
+                  value={specEditContent}
+                  onChange={(e) => setSpecEditContent(e.target.value)}
+                  onKeyDown={handleSpecTextareaKeyDown}
+                  disabled={isSavingSpec}
+                  placeholder={t("taskDetail.spec.placeholder", "Enter task specification in Markdown...")}
+                  rows={12}
+                />
+                <div className="spec-editor-actions-row">
+                  <button
+                    className="btn btn-sm"
+                    onClick={exitSpecEditMode}
+                    disabled={isSavingSpec}
+                  >
+                    {t("common.cancel", "Cancel")}
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => void handleSaveSpecFromEdit()}
+                    disabled={specEditContent === (workingTask.prompt || "") || isSavingSpec}
+                  >
+                    {isSavingSpec ? t("taskDetail.spec.saving", "Saving…") : t("common.save", "Save")}
+                  </button>
+                </div>
+                <div className="spec-editor-hint">
+                  <kbd>Ctrl</kbd>+<kbd>Enter</kbd> {t("taskDetail.spec.hintSave", "to save")} · <kbd>Escape</kbd> {t("taskDetail.spec.hintCancel", "to cancel")}
+                </div>
+                {/* AI Revision Section */}
+                <div className="spec-editor-revision">
+                  <h4>{t("taskDetail.spec.aiReviseHeading", "Ask AI to Revise")}</h4>
+                  <p className="spec-editor-revision-help">
+                    {t("taskDetail.spec.aiReviseHelp", "Provide feedback for the AI to improve this specification. The task will move to planning for replanning.")}
+                  </p>
+                  <textarea
+                    className="spec-editor-feedback"
+                    value={specFeedback}
+                    onChange={(e) => setSpecFeedback(e.target.value)}
+                    placeholder={t("taskDetail.spec.feedbackPlaceholder", "e.g., 'Add more details about error handling', 'Split this into smaller steps', 'Include tests for the API endpoints'...")}
+                    disabled={isRequestingRevision}
+                    rows={4}
+                    maxLength={2000}
+                  />
+                  <div className="spec-editor-revision-actions">
+                    <span className="spec-editor-char-count">
+                      {specFeedback.length}/2000
+                    </span>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => void handleRequestRevisionFromEdit()}
+                      disabled={!specFeedback.trim() || isRequestingRevision}
+                    >
+                      {isRequestingRevision ? t("taskDetail.spec.requesting", "Requesting…") : t("taskDetail.spec.requestRevisionBtn", "Request AI Revision")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : detailLoading ? (
+              <div className="spec-loading"><LoadingSpinner label={t("taskDetail.spec.loading", "Loading specification…")} /></div>
+            ) : workingTask.prompt ? (
+              planSummary.hasSummary ? (
+                <>
+                  {/*
+                  FNXC:TaskDetailPlan 2026-08-27-10:22:
+                  Definition shows the product summary and Before → After first so operators can confirm
+                  intent at a glance. A plan without either summary heading stays fully visible, while
+                  remaining technical detail is available through this explicit disclosure.
+                  */}
+                  <div className="markdown-body" data-testid="task-detail-plan-summary">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
+                      {planSummary.summaryMarkdown}
+                    </ReactMarkdown>
+                  </div>
+                  {planSummary.restMarkdown.trim() && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm touch-target detail-plan-details-toggle"
+                        data-testid="task-detail-plan-details-toggle"
+                        aria-expanded={planDetailsExpanded}
+                        aria-controls={`${workingTask.id}-plan-details`}
+                        onClick={() => setPlanDetailsExpanded((expanded) => !expanded)}
+                      >
+                        <ChevronRight size={16} className={planDetailsExpanded ? "detail-source-chevron--expanded" : undefined} />
+                        {planDetailsExpanded
+                          ? t("taskDetail.spec.hideDetailsBtn", "Hide details")
+                          : t("taskDetail.spec.moreDetailsBtn", "See more details")}
+                      </button>
+                      {planDetailsExpanded && (
+                        <div className="markdown-body" id={`${workingTask.id}-plan-details`} data-testid="task-detail-plan-details">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
+                            {planSummary.restMarkdown}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : (
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={sharedRehypePlugins} components={markdownLinkifyComponents}>
+                    {planSummary.restMarkdown}
+                  </ReactMarkdown>
+                </div>
+              )
+            ) : (
+              <div className="detail-prompt">{t("taskDetail.spec.noPrompt", "(no prompt)")}</div>
+            )}
+          </div>
           </>
           )}
           </>

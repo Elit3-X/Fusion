@@ -7952,7 +7952,14 @@
       "overlapBlocker": "Bloqueador de sobreposição de escopo de arquivos:",
       "removeTitle": "Remover dependência {{id}}",
       "searchPlaceholder": "Buscar tarefas…",
-      "stale": "(desatualizado)"
+      "stale": "(desatualizado)",
+      "overlapFiles": {
+        "loading": "",
+        "error": "",
+        "noScope": "",
+        "none": "",
+        "matches": ""
+      }
     },
     "description": {
       "showLess": "Mostrar menos",
@@ -8344,7 +8351,11 @@
       "worktreeTerminal": "Terminal",
       "workflow": "Fluxo de trabalho",
       "cost": "Custo",
-      "recommendations": "Recomendações"
+      "recommendations": "Recomendações",
+      "dependencies": "",
+      "attachments": "",
+      "details": "",
+      "debug": ""
     },
     "terminal": {
       "loading": "Carregando terminal…"
@@ -8423,6 +8434,9 @@
       "candidate": "",
       "dismissFinding": "",
       "terminalGuidance": ""
+    },
+    "debug": {
+      "none": ""
     }
   },
   "taskDocuments": {
@@ -9735,6 +9749,5 @@
     "close": "",
     "loading": "",
     "retry": ""
-
   }
 }

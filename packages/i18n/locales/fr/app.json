@@ -7942,7 +7942,14 @@
       "overlapBlocker": "Bloqueur de chevauchement de portée de fichier :",
       "removeTitle": "Supprimer la dépendance {{id}}",
       "searchPlaceholder": "Rechercher des tâches…",
-      "stale": "(obsolète)"
+      "stale": "(obsolète)",
+      "overlapFiles": {
+        "loading": "",
+        "error": "",
+        "noScope": "",
+        "none": "",
+        "matches": ""
+      }
     },
     "description": {
       "showLess": "Afficher moins",
@@ -8279,7 +8286,11 @@
       "workflow": "Workflow",
       "summary": "Summary",
       "cost": "",
-      "recommendations": ""
+      "recommendations": "",
+      "dependencies": "",
+      "attachments": "",
+      "details": "",
+      "debug": ""
     },
     "terminal": {
       "loading": ""
@@ -8413,6 +8424,9 @@
       "candidate": "",
       "dismissFinding": "",
       "terminalGuidance": ""
+    },
+    "debug": {
+      "none": ""
     }
   },
   "taskDocuments": {
@@ -9735,6 +9749,5 @@
     "close": "",
     "loading": "",
     "retry": ""
-
   }
 }

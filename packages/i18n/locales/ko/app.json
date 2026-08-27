@@ -7942,7 +7942,14 @@
       "overlapBlocker": "파일 범위 겹침 차단기:",
       "removeTitle": "의존성 {{id}} 제거",
       "searchPlaceholder": "작업 검색…",
-      "stale": "(오래됨)"
+      "stale": "(오래됨)",
+      "overlapFiles": {
+        "loading": "",
+        "error": "",
+        "noScope": "",
+        "none": "",
+        "matches": ""
+      }
     },
     "description": {
       "showLess": "간략히 보기",
@@ -8279,7 +8286,11 @@
       "workflow": "워크플로",
       "summary": "Summary",
       "cost": "",
-      "recommendations": ""
+      "recommendations": "",
+      "dependencies": "",
+      "attachments": "",
+      "details": "",
+      "debug": ""
     },
     "terminal": {
       "loading": ""
@@ -8413,6 +8424,9 @@
       "candidate": "",
       "dismissFinding": "",
       "terminalGuidance": ""
+    },
+    "debug": {
+      "none": ""
     }
   },
   "taskDocuments": {
@@ -9735,6 +9749,5 @@
     "close": "",
     "loading": "",
     "retry": ""
-
   }
 }

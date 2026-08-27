@@ -194,7 +194,7 @@ describe("TaskDetailModal tab persistence", () => {
     expectActivitySegment("Feed");
 
     rerenderDetail(view.rerender, { task, initialTab: "retries" });
-    expect(screen.getByRole("button", { name: "Plan" })).toHaveClass("detail-tab-active");
+    expect(screen.getByRole("button", { name: "Details" })).toHaveClass("detail-tab-active");
     expect(screen.getByRole("button", { name: "Collapse retries details" })).toHaveAttribute("aria-expanded", "true");
   });
 
