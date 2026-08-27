@@ -39,7 +39,7 @@ import { useBoardWorkflows } from "../hooks/useBoardWorkflows";
 import { useUnmappedWorkflowRefetch } from "../hooks/useUnmappedWorkflowRefetch";
 import { TaskContextMenu, buildTaskActionMenuModel, buildTaskMoveMenuItems, getTaskPrAutomationLabel, type TaskContextMenuColumnMetadata, type TaskMenuItemDescriptor } from "./TaskContextMenu";
 import type { DetailTaskOpenOptions, DetailTaskTab } from "../hooks/useModalManager";
-import { isTaskReverted, partitionRevertedTasks } from "../utils/taskRevert";
+import { isTaskReverted } from "../utils/taskRevert";
 import { getTaskTitleDisplay } from "../utils/taskTitleDisplay";
 
 const COLUMN_COLOR_MAP: Record<Column, string> = {
@@ -1209,10 +1209,19 @@ export function ListView({
     selected-workflow and aggregate groupings. Display-only: the task's stored column is untouched,
     so the move menu and any engine rebound still see the real column.
     */
+    /*
+    FNXC:TaskRevert 2026-08-27-02:34:
+    The removed reverted section previously deduplicated ids. Keep that protection while grouping
+    rows in their own columns so duplicate optimistic/refetch data cannot duplicate reverted work.
+    */
+    const seenRevertedTaskIds = new Set<string>();
     columnFiltered.forEach((task) => {
+      if (isTaskReverted(task.sourceMetadata)) {
+        if (seenRevertedTaskIds.has(task.id)) return;
+        seenRevertedTaskIds.add(task.id);
+      }
       const column = workflowMode ? task.column : (isColumn(task.column) ? task.column : DEFAULT_COLUMN);
       if (groups[column] !== undefined) {
-        if (isTaskReverted(task.sourceMetadata) && listColumns.find((candidate) => candidate.id === column)?.flags.complete) return;
         groups[column].push(task);
         return;
       }
@@ -2263,6 +2272,14 @@ export function ListView({
         onSelect: isRevertable ? () => void handleListTaskRevert(task) : undefined,
       });
     }
+    /*
+    FNXC:TaskRevert 2026-08-27-02:18:
+    The removed list reverted section exposed Delete and Revise actions. Delete remains in the
+    shared menu model; Revise belongs here so desktop right-click and mobile long-press retain it.
+    */
+    if (onReviseTask && isTaskReverted(task.sourceMetadata) && (isCompleteColumnRole(taskColumnFlags, task.column) || isArchivedColumnRole(taskColumnFlags, task.column))) {
+      actions.push({ id: "revise", label: t("tasks.revise", "Revise"), onSelect: () => onReviseTask(task) });
+    }
     actions.push(...buildTaskMoveMenuItems(
       model.moveTransitions,
       (column) => void handleListContextMove(task, column),
@@ -2272,7 +2289,7 @@ export function ListView({
       actions.push({ id: model.reviewAction.id, label: model.reviewAction.label, disabled: model.reviewAction.disabled, onSelect: model.reviewAction.onSelect });
     }
     return actions.filter((action) => "items" in action || action.tone === "note" || action.disabled === true || Boolean(action.onSelect));
-  }, [addToast, autoMerge, columnFlagsById, getTaskColumnFlags, confirm, getListColumnLabel, getTaskPlanningWorkflowId, handleListContextCheckPrStatus, handleListContextEnableGithubTracking, handleListContextMove, handleListTaskArchive, handleListTaskDelete, handleListTaskRevert, isMobile, lastFetchTimeMs, listContextMenuColumns, taskContextMenuColumnsByTaskId, mergeStrategy, onDuplicateTask, onMergeTask, onOpenDetail, onPlanningMode, onPauseTask, onResetTask, onRetryTask, onUnpauseTask, onArchiveTask, onRevertTask, onTasksUpdated, projectId, t, useSinglePaneList]);
+  }, [addToast, autoMerge, columnFlagsById, getTaskColumnFlags, confirm, getListColumnLabel, getTaskPlanningWorkflowId, handleListContextCheckPrStatus, handleListContextEnableGithubTracking, handleListContextMove, handleListTaskArchive, handleListTaskDelete, handleListTaskRevert, isMobile, lastFetchTimeMs, listContextMenuColumns, taskContextMenuColumnsByTaskId, mergeStrategy, onDuplicateTask, onMergeTask, onOpenDetail, onPlanningMode, onPauseTask, onResetTask, onRetryTask, onUnpauseTask, onArchiveTask, onRevertTask, onReviseTask, onTasksUpdated, projectId, t, useSinglePaneList]);
 
   const contextMenuActions = useMemo(
     () => (contextMenuState ? buildListContextMenuActions(contextMenuState.task) : []),
@@ -2986,18 +3003,6 @@ export function ListView({
                 }}
               />
             </div>
-        {partitionRevertedTasks(tasks).reverted.length > 0 && (
-          <section className="list-reverted-tasks" aria-label={t("tasks.revertedTasks", "Reverted Tasks")} data-testid="list-reverted-tasks">
-            <h2>{t("tasks.revertedTasks", "Reverted Tasks")}</h2>
-            {partitionRevertedTasks(tasks).reverted.map((task) => (
-              <div key={`reverted-${task.id}`} className="list-card">
-                <button type="button" className="btn" onClick={() => onOpenDetail(task)}>{task.id}: {task.title}</button>
-                <button type="button" className="btn" onClick={() => void handleListTaskDelete(task)}>{t("tasks.delete", "Delete")}</button>
-                {onReviseTask && <button type="button" className="btn" onClick={() => onReviseTask(task)}>{t("tasks.revise", "Revise")}</button>}
-              </div>
-            ))}
-          </section>
-        )}
         {filteredCount === 0 ? (
           <div className="list-empty">
             {searchQuery ? t("listView.noTasksMatch", "No tasks match your filter") : t("listView.noTasksYet", "No tasks yet")}
@@ -3168,6 +3173,9 @@ export function ListView({
                                     {statusBadgeLabel}
                                   </span>
                                 ) : null}
+                                {isTaskReverted(task.sourceMetadata) && (isCompleteColumnRole(getTaskColumnFlags(task), task.column) || isArchivedColumnRole(getTaskColumnFlags(task), task.column)) && (
+                                  <span className="list-status-badge list-status-badge--reverted" title={t("tasks.revertedBadgeTitle", "This task's changes were reverted")} aria-label={t("tasks.revertedBadgeTitle", "This task's changes were reverted")}>{t("tasks.revertedBadge", "Reverted")}</span>
+                                )}
                                 {showOptionalGateBadge && optionalGateBadge && (
                                   /*
                                   FNXC:TaskCardPlanReviewBadge 2026-07-11-12:10:
@@ -3450,6 +3458,9 @@ export function ListView({
                                       </span>
                                     ) : showOptionalGateBadge ? null : (
                                       <span className="list-status-badge">-</span>
+                                    )}
+                                    {isTaskReverted(task.sourceMetadata) && (isCompleteColumnRole(getTaskColumnFlags(task), task.column) || isArchivedColumnRole(getTaskColumnFlags(task), task.column)) && (
+                                      <span className="list-status-badge list-status-badge--reverted" title={t("tasks.revertedBadgeTitle", "This task's changes were reverted")} aria-label={t("tasks.revertedBadgeTitle", "This task's changes were reverted")}>{t("tasks.revertedBadge", "Reverted")}</span>
                                     )}
                                     {showOptionalGateBadge && optionalGateBadge && (
                                       /*

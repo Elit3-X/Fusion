@@ -182,6 +182,8 @@ On mobile board-card detail, **Back to board** also restores the prior board/car
 
 ### Board panning and mobile Kanban column snapping
 
+Reverted work remains in its own workflow column and is marked with a **Reverted** label; it is not collected into a separate board, list, or right-dock group. Its resolution actions remain available on the Board and right-dock card, in the List row context menu, and in Task Detail: use **Delete** to remove the task or **Revise** to create a follow-up revision.
+
 <!-- FNXC:BoardNavigationDocs 2026-08-21-18:21: FN-115 preserves native task-card activation until horizontal Board pan intent is proven, so stationary clicks continue to reach the configured popup, right-dock, or main-panel detail destination. -->
 On desktop and tablet, an ordinary task-card click opens the configured task-detail destination (popup, right dock, or main panel). Drag horizontally from an empty Board surface or a task card's noninteractive body or text to pan the Board viewport only after the gesture crosses horizontal intent; that pan suppresses its compatibility click and does not open detail. The gesture never moves a task: card controls, links, fields, editing, context menus, and file drops keep their normal behavior, and **Move to** in the task context menu remains the only relocation path. Fusion does not auto-scroll at Board edges. Phone touch scrolling and column snapping are unchanged.
 
@@ -2564,7 +2566,7 @@ per-modal geometry coverage.
 
 ### Reverted task resolution
 
-When a completed task is successfully reverted, Fusion removes it from ordinary Done collections. It remains discoverable in the **Reverted Tasks** resolution section in Board, List, and the right dock. Open the task for provenance, choose **Delete** to use the existing guarded deletion flow, or choose **Revise** to open New Task with the original description prefilled.
+When a completed task is successfully reverted, it remains in its ordinary workflow column or list group with a **Reverted** label. It is not moved to a separate group. Open the task for provenance, choose **Delete** from the Board or right-dock card, List row context menu, or task detail to use the existing guarded deletion flow, or choose **Revise** from those same resolution surfaces to open New Task with the original description prefilled.
 
 ### Todo Lists plugin enablement
 

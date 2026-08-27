@@ -7660,6 +7660,19 @@ describe("TaskCard reverted chip", () => {
     expect(screen.getByLabelText("This task's changes were reverted")).toBeInTheDocument();
   });
 
+  it("renders Delete and Revise resolution actions when handlers are supplied", () => {
+    const onReviseTask = vi.fn();
+    const task = makeTask({ column: "done", sourceMetadata: { revertedAt: "2026-07-16T00:00:00.000Z" } });
+    render(
+      <TaskCard task={task} onOpenDetail={noop} onDeleteTask={vi.fn()} onReviseTask={onReviseTask} addToast={noop} />,
+    );
+
+    const actions = document.querySelector(".card-reverted-actions") as HTMLElement;
+    expect(within(actions).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(within(actions).getByRole("button", { name: "Revise" }));
+    expect(onReviseTask).toHaveBeenCalledWith(task);
+  });
+
   it("does not render for missing, blank, or non-completed revert markers", () => {
     const { rerender } = render(
       <TaskCard task={makeTask({ column: "done" })} onOpenDetail={noop} addToast={noop} />,
