@@ -119,6 +119,12 @@ There is an important route/helper distinction when auto-merge is off. `revertWo
 
 Archiving a workspace task synchronously removes every recorded member worktree. Fusion holds a per-repository reservation through disposal and branch cleanup. A failed removal is quarantined so a later acquisition can reconcile the orphan; successful siblings are released. `archiveTask(..., { cleanup: false })` intentionally retains worktrees, while self-healing remains a backstop. For the task lifecycle details, see [Workspace worktree cleanup on archive](./task-management.md#workspace-worktree-cleanup-on-archive).
 
+## Task Reset
+
+Reset returns a workspace task to fresh planning. It fences active task runtime owners, removes every recorded per-repository worktree, removes the empty workspace task directory when possible, deletes the current plan, and clears the task's workspace coordination leases and land intents. It then publishes the same task back to its intake column with pending steps and `needs-replan`.
+
+Reset retains the task ID, title, description, dependencies, workflow selection, comments, attachments, operator-authored documents, logs, and per-repository branches. A live, foreign, unsafe, or unprovable repository is reported as an actionable per-repository conflict. Fusion does not publish a partial reset when any repository cannot be cleaned safely.
+
 ## Limitations and known sharp edges
 
 - Landing is non-atomic. A later failure does not undo earlier local integration-ref advances; use task logs, per-repository history, and `landedSha` proof before retrying or manually recovering.

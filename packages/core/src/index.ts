@@ -3044,6 +3044,8 @@ export {
   isLegacyWorkspaceWorktreeLayout,
 } from "./tasks/worktree-layout.js";
 export type { WorkspaceWorktreeContext } from "./tasks/worktree-layout.js";
+export { buildTaskResetWorktreePlan, SINGULAR_RESET_WORKTREE_REPO_REL } from "./tasks/task-reset-targets.js";
+export type { BuildTaskResetWorktreePlanOptions, TaskResetWorktreePlan, TaskResetWorktreeTarget } from "./tasks/task-reset-targets.js";
 export type { AgentActivityEventType, AgentActivityAttribution, AgentActivityIdProvenance, AgentActivityIdCandidate, AgentActivityAttributionClaim, AgentActivityMetadataValueSpec, AgentActivityEvent, AgentActivityEventInput, AgentActivityQuery } from "./types/agents/agents.js";
 export { AGENT_ACTIVITY_EVENT_TYPES, AGENT_ACTIVITY_ATTRIBUTIONS, AGENT_ACTIVITY_LANE_SENTINELS, AGENT_ACTIVITY_GENERATED_ID_PATTERNS, AGENT_ACTIVITY_HANDOFF_REASONS, AGENT_ACTIVITY_TOOL_NAMES, AGENT_ACTIVITY_WORKFLOW_STEP_IDS, AGENT_ACTIVITY_METADATA_SCHEMA, AGENT_ACTIVITY_METADATA_KEYS, isAgentActivityEventType } from "./types/agents/agents.js";
 export { appendAgentActivityEvent, queryAgentActivityEvents, getMaxAgentActivitySeq, pruneAgentActivityEvents } from "./task-store/async/async-agent-activity.js";

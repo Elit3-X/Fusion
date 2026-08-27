@@ -13,8 +13,8 @@ const AWAITING_PLANNING_ENRICH_LIMIT = 200;
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { existsSync } from "node:fs";
-import { readFile, rm, stat, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, rm, rmdir, stat, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type {
   TaskStore,
   Task,
@@ -87,6 +87,8 @@ import {
   canonicalizeWorktreePath,
   acquireWorktreePathReservation,
   disposeTaskBeforeReset,
+  buildTaskResetWorktreePlan,
+  SINGULAR_RESET_WORKTREE_REPO_REL,
   type NearDuplicateCandidate,
   type ThinkingLevel,
 } from "@fusion/core";
@@ -121,7 +123,6 @@ import {
   getRegisteredWorktreeBranches,
   pruneWorktreeAdminEntries,
   isInsideConfiguredWorktreesDir,
-  resolveWorktreesDir,
   resumeApprovedPlanReviewHandoff,
   type ApprovedPlanReviewHandoffResult,
   type AiUndoTaskResult,
@@ -3740,46 +3741,69 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       const updated = await scopedStore.withPlanningLifecycleLock(req.params.id, async () => {
         const task = await scopedStore.getTask(req.params.id);
         if (!task) throw notFound(`Task ${req.params.id} not found`);
-        if (task.workspaceWorktrees && Object.keys(task.workspaceWorktrees).length > 0) {
-          throw conflict("Reset does not support workspace tasks; no cancellation or cleanup was started");
-        }
         const intakeColumn = await resolveIntakeColumnForTask(scopedStore, task.id);
         const settings = await scopedStore.getSettings();
         const rootDir = scopedStore.getRootDir();
-        const worktreePath = task.worktree ? await canonicalizeWorktreePath(task.worktree) : undefined;
-        let reservation: Awaited<ReturnType<typeof acquireWorktreePathReservation>> | undefined;
+        const resetPlan = buildTaskResetWorktreePlan(task, { rootDir, settings });
+        const reservations: Awaited<ReturnType<typeof acquireWorktreePathReservation>>[] = [];
+        const targetSuffix = (repoRel: string) => repoRel === SINGULAR_RESET_WORKTREE_REPO_REL ? "" : ` (${repoRel})`;
+        const isStrictDescendant = (root: string, candidate: string) => {
+          const pathRelative = relative(resolve(root), resolve(candidate));
+          return pathRelative !== "" && !pathRelative.startsWith("..") && !isAbsolute(pathRelative);
+        };
+        const targetPaths = (plan: ReturnType<typeof buildTaskResetWorktreePlan>) => plan.targets
+          .map((target) => target.canonicalPath)
+          .sort();
 
-        if (worktreePath) {
-          const canonicalRoot = await canonicalizeWorktreePath(rootDir);
-          if (
-            worktreePath === canonicalRoot
-            || !isInsideConfiguredWorktreesDir(rootDir, settings, worktreePath)
-          ) {
-            throw badRequest("Reset refuses an external, unsafe, foreign, or project-root worktree path");
-          }
-          if (existsSync(worktreePath)) {
-            const resolvedPath = await realpath(worktreePath);
-            if (!isInsideConfiguredWorktreesDir(rootDir, settings, resolvedPath)) {
-              throw badRequest("Reset refuses an unsafe worktree path outside the configured worktree root");
+        try {
+          // FNXC:TaskReset 2026-08-27-22:20: Validate every target before cancellation so a later repository cannot leave an earlier one half-reset.
+          for (const target of resetPlan.targets) {
+            const canonicalRoot = await canonicalizeWorktreePath(rootDir);
+            const canonicalRepoRoot = await canonicalizeWorktreePath(target.repoRootDir);
+            const canonicalContainmentRoot = await canonicalizeWorktreePath(target.containmentRoot);
+            const workspaceContext = resetPlan.layout === "workspace-legacy"
+              ? { workspaceRootDir: rootDir, repoRelPath: target.repoRel }
+              : undefined;
+            const contained = resetPlan.layout === "workspace-task-dir"
+              ? isStrictDescendant(target.containmentRoot, target.canonicalPath)
+              : isInsideConfiguredWorktreesDir(target.repoRootDir, settings, target.canonicalPath, workspaceContext);
+            if (
+              target.canonicalPath === canonicalRoot
+              || target.canonicalPath === canonicalRepoRoot
+              || target.canonicalPath === canonicalContainmentRoot
+              || !contained
+            ) {
+              throw badRequest("Reset refuses an external, unsafe, foreign, or project-root worktree path");
             }
-          }
-          /*
-          FNXC:TaskReset 2026-08-19-07:05:
-          A path under `.worktrees` is only disposable when Git's managed registration identifies it as the task's stored branch. Directory placement and an absent competing task row are not ownership proof, so a foreign/operator checkout fails closed before cancellation, reservation, or deletion.
-          */
-          const registeredBranches = await getRegisteredWorktreeBranches(rootDir);
-          const taskBranch = typeof task.branch === "string" ? task.branch.trim() : "";
-          let registeredOwner = false;
-          if (taskBranch.length > 0) {
-            for (const entry of registeredBranches) {
-              if (entry.branch === taskBranch && await canonicalizeWorktreePath(entry.worktreePath) === worktreePath) {
-                registeredOwner = true;
-                break;
+            if (existsSync(target.canonicalPath)) {
+              const resolvedPath = await realpath(target.canonicalPath);
+              const resolvedContained = resetPlan.layout === "workspace-task-dir"
+                ? isStrictDescendant(target.containmentRoot, resolvedPath)
+                : isInsideConfiguredWorktreesDir(target.repoRootDir, settings, resolvedPath, workspaceContext);
+              if (!resolvedContained) {
+                throw badRequest("Reset refuses an unsafe worktree path outside the configured worktree root");
               }
             }
-          }
-          if (!registeredOwner) {
-            throw conflict("Reset refuses a worktree whose managed task ownership cannot be proven");
+            /*
+            FNXC:TaskReset 2026-08-27-22:20:
+            Every workspace child is disposable only when its own repository's Git registration
+            identifies its stored branch. Placement and absent competing task rows are not ownership
+            proof, so each repository fails closed before cancellation, reservation, or deletion.
+            */
+            const registeredBranches = await getRegisteredWorktreeBranches(target.repoRootDir);
+            const targetBranch = typeof target.branch === "string" ? target.branch.trim() : "";
+            let registeredOwner = false;
+            if (targetBranch.length > 0) {
+              for (const entry of registeredBranches) {
+                if (entry.branch === targetBranch && await canonicalizeWorktreePath(entry.worktreePath) === target.canonicalPath) {
+                  registeredOwner = true;
+                  break;
+                }
+              }
+            }
+            if (!registeredOwner) {
+              throw conflict(`Reset refuses a worktree whose managed task ownership cannot be proven${targetSuffix(target.repoRel)}`);
+            }
           }
 
           const listTasks = (scopedStore as TaskStore & {
@@ -3788,61 +3812,102 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           if (typeof listTasks === "function") {
             const otherOwners = await listTasks.call(scopedStore, { includeArchived: true, slim: true });
             for (const candidate of otherOwners) {
-              if (candidate.id === task.id || !candidate.worktree) continue;
-              if (await canonicalizeWorktreePath(candidate.worktree) === worktreePath) {
-                throw conflict("Reset refuses a worktree path owned by another task");
+              if (candidate.id === task.id) continue;
+              const candidatePaths = [candidate.worktree, ...Object.values(candidate.workspaceWorktrees ?? {}).map((entry) => entry.worktreePath)]
+                .filter((path): path is string => typeof path === "string");
+              for (const candidatePath of candidatePaths) {
+                const canonicalCandidatePath = await canonicalizeWorktreePath(candidatePath);
+                const target = resetPlan.targets.find((entry) => entry.canonicalPath === canonicalCandidatePath);
+                if (target) throw conflict(`Reset refuses a worktree path owned by another task${targetSuffix(target.repoRel)}`);
               }
             }
           }
-          const worktreesDir = resolveWorktreesDir(rootDir, settings);
-          reservation = await acquireWorktreePathReservation({
-            canonicalPath: worktreePath,
-            worktreesDir,
-            rootDir,
-          });
-        }
 
-        try {
+          for (const target of resetPlan.targets) {
+            reservations.push(await acquireWorktreePathReservation({
+              canonicalPath: target.canonicalPath,
+              worktreesDir: target.reservationWorktreesDir,
+              rootDir: target.repoRootDir,
+            }));
+          }
+
           /*
-          FNXC:TaskReset 2026-08-19-06:30:
-          Reset ordering is deliberately validate/reserve → await the runtime cancellation fence → confirm the stored target → remove the configured worktree or reconcile confirmed absence → delete only PROMPT.md → finalize runtime bindings → atomically publish intake/needs-replan. No durable reset field or success signal is written before both filesystem artifacts are absent.
+          FNXC:TaskReset 2026-08-27-22:20:
+          Reset validates and reserves every target, fences runtime work, confirms the target set,
+          then removes or reconciles every repository before deleting PROMPT.md and publishing.
+          A target failure aborts the whole reset with a repository-specific conflict; no partial
+          filesystem cleanup is represented as a durable fresh-planning success.
           */
           await disposeTaskBeforeReset(scopedStore, task);
           const fencedTask = await scopedStore.getTask(req.params.id);
           if (!fencedTask) throw notFound(`Task ${req.params.id} disappeared during reset`);
-          const fencedPath = fencedTask.worktree ? await canonicalizeWorktreePath(fencedTask.worktree) : undefined;
-          if (fencedPath !== worktreePath) {
+          const fencedPlan = buildTaskResetWorktreePlan(fencedTask, { rootDir, settings });
+          if (JSON.stringify(targetPaths(fencedPlan)) !== JSON.stringify(targetPaths(resetPlan))) {
             throw conflict("Reset target changed while cancellation was settling; retry Reset");
           }
 
-          if (worktreePath) {
-            if (existsSync(worktreePath)) {
-              /*
-              FNXC:TaskReset 2026-08-22-04:32:
-              Reset has fenced planner and executor owners while holding the planning lock. The helper only reconciles proven-stale self-owned registrations under the normal staleness gates; it never forces a live session.
-              */
+          for (const target of resetPlan.targets) {
+            if (existsSync(target.canonicalPath)) {
               let removal;
               try {
-                removal = await removeTaskResetWorktree({ worktreePath, rootDir, settings, taskId: req.params.id });
+                removal = await removeTaskResetWorktree({
+                  worktreePath: target.canonicalPath,
+                  rootDir: target.repoRootDir,
+                  settings,
+                  taskId: req.params.id,
+                });
               } catch (error) {
                 if (error instanceof ResetWorktreeForeignSessionError || error instanceof ActiveSessionWorktreeRemovalError) {
                   const message = error instanceof ResetWorktreeForeignSessionError
                     ? `Reset is blocked by active task ${error.details.holderTaskId} (${error.details.holderKind}); stop or finish it before retrying Reset`
                     : `Reset is blocked by active task ${error.details.taskId} (${error.details.kind}); stop or finish it before retrying Reset`;
-                  throw conflict(message);
+                  throw conflict(`${message}${targetSuffix(target.repoRel)}`);
                 }
                 throw error;
               }
-              if (!removal.removed && existsSync(worktreePath)) {
-                throw conflict(`Reset incomplete; worktree removal failed for ${req.params.id}`);
+              if (!removal.removed && existsSync(target.canonicalPath)) {
+                throw conflict(`Reset incomplete; worktree removal failed for ${req.params.id}${targetSuffix(target.repoRel)}`);
               }
             } else {
-              // The pointer is retained for retry safety, but the path is already absent.
-              await pruneWorktreeAdminEntries({ rootDir, reason: "task-reset-already-absent", target: worktreePath });
+              await pruneWorktreeAdminEntries({
+                rootDir: target.repoRootDir,
+                reason: "task-reset-already-absent",
+                target: target.canonicalPath,
+              });
             }
-            if (existsSync(worktreePath)) {
-              throw conflict(`Reset incomplete; worktree remains for ${req.params.id}`);
+            if (existsSync(target.canonicalPath)) {
+              throw conflict(`Reset incomplete; worktree remains for ${req.params.id}${targetSuffix(target.repoRel)}`);
             }
+          }
+
+          if (resetPlan.workspaceTaskDir) {
+            // FNXC:TaskReset 2026-08-27-22:20: Nested repository paths leave empty parents that Reset removes only one directory at a time before attempting the task directory.
+            for (const target of resetPlan.targets) {
+              let emptyParent = dirname(target.canonicalPath);
+              while (isStrictDescendant(resetPlan.workspaceTaskDir, emptyParent)) {
+                try {
+                  await rmdir(emptyParent);
+                } catch {
+                  break;
+                }
+                emptyParent = dirname(emptyParent);
+              }
+            }
+            try {
+              await rmdir(resetPlan.workspaceTaskDir);
+            } catch (error) {
+              const code = (error as NodeJS.ErrnoException).code;
+              if (code !== "ENOTEMPTY" && code !== "ENOENT") {
+                severityAuditLog.warn("task-reset workspace task directory removal failed", {
+                  taskId: req.params.id,
+                  workspaceTaskDir: resetPlan.workspaceTaskDir,
+                  error: String(error),
+                });
+              }
+            }
+          }
+          if (resetPlan.ignoredSingularWorktree) {
+            await scopedStore.logEntry(req.params.id, `Reset ignored unmatched workspace singular worktree pointer: ${resetPlan.ignoredSingularWorktree}`);
           }
 
           const promptPath = join(rootDir, ".fusion", "tasks", req.params.id, "PROMPT.md");
@@ -3874,11 +3939,12 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           */
           return storeWithPublisher.resetTaskPublication(req.params.id, intakeColumn);
         } finally {
-          if (reservation?.state === "held") {
+          for (const reservation of reservations) {
+            if (reservation.state !== "held") continue;
             try {
               await reservation.release();
             } catch (error) {
-              // FNXC:TaskReset 2026-08-19-06:45: Reservation release is post-cleanup housekeeping; never turn a committed reset into a false failure.
+              // FNXC:TaskReset 2026-08-27-22:20: Reservation release is post-cleanup housekeeping; never turn a committed reset into a false failure.
               severityAuditLog.warn("task-reset reservation release failed", { taskId: req.params.id, error: String(error) });
             }
           }

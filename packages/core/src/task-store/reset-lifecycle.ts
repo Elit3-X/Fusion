@@ -126,6 +126,7 @@ function assertResetTask(task: Task, intakeColumn: ColumnId): void {
     task.worktree != null || task.branch != null || task.sessionFile != null
     || task.checkedOutBy != null || task.workflowIrPin != null || task.workflowStepResults?.length
     || task.review != null || task.reviewState != null || task.awaitingApprovalReason != null
+    || Object.keys(task.workspaceWorktrees ?? {}).length > 0
   ) {
     throw new Error("Reset publication returned stale execution or review state");
   }
@@ -195,6 +196,21 @@ export async function resetTaskPublicationImpl(
       await tx.delete(schema.project.completionHandoffMarkers).where(and(projectScopeFor(schema.project.completionHandoffMarkers.projectId, projectId), eq(schema.project.completionHandoffMarkers.taskId, taskId)));
       await tx.delete(schema.project.mergeQueue).where(and(projectScopeFor(schema.project.mergeQueue.projectId, projectId), eq(schema.project.mergeQueue.taskId, taskId)));
       await tx.delete(schema.project.mergeRequests).where(and(projectScopeFor(schema.project.mergeRequests.projectId, projectId), eq(schema.project.mergeRequests.taskId, taskId)));
+      /*
+      FNXC:TaskReset 2026-08-27-22:20:
+      Reset clears workspace acquire leases and land intents in the same publication transaction.
+      A retained acquire lease would make the next dispatch raise WorkspaceRepoAcquireBusyError until
+      TTL expiry, while a retained pending land intent could revive partial-land recovery for worktrees
+      the reset no longer owns.
+      */
+      await tx.delete(schema.project.workspaceLandIntents).where(and(
+        projectScopeFor(schema.project.workspaceLandIntents.projectId, projectId),
+        eq(schema.project.workspaceLandIntents.taskId, taskId),
+      ));
+      await tx.delete(schema.project.workspaceCoordinationLeases).where(and(
+        projectScopeFor(schema.project.workspaceCoordinationLeases.projectId, projectId),
+        eq(schema.project.workspaceCoordinationLeases.ownerTaskId, taskId),
+      ));
       await tx.delete(schema.project.artifacts).where(and(
         projectScopeFor(schema.project.artifacts.projectId, projectId), eq(schema.project.artifacts.taskId, taskId),
         sql`coalesce(${schema.project.artifacts.metadata}->>'source', '') <> 'attachment'`,

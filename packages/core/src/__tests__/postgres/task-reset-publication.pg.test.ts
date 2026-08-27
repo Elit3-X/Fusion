@@ -79,6 +79,33 @@ pgDescribe("TaskStore reset publication", () => {
     expect(await store.hasWorkflowRunStepInstancesForTask(task.id)).toBe(false);
   });
 
+  it("clears workspace worktrees, acquire leases, and land intents with publication", async () => {
+    const { store, task } = await seedPopulatedResetState();
+    const now = new Date().toISOString();
+    await store.updateTask(task.id, {
+      workspaceWorktrees: { api: { worktreePath: "/tmp/fn-reset/api", branch: "fusion/fn-reset" } },
+    });
+    const db = h.layer().db;
+    await db.insert(schema.project.workspaceCoordinationLeases).values({
+      leaseKey: `${task.id}:api`, kind: "acquire", ownerTaskId: task.id, ownerNodeId: "execute",
+      ownerIncarnationId: "test", status: "held", acquiredAt: now, renewedAt: now,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(), createdAt: now, updatedAt: now,
+    });
+    await db.insert(schema.project.workspaceLandIntents).values({
+      taskId: task.id, repoRelPath: "api", remoteUrl: "https://example.invalid/api.git", integrationRef: "main",
+      intendedSha: "a".repeat(40), expectedTip: "b".repeat(40), fenceRefName: "refs/fusion/test",
+      fenceRefSha: "c".repeat(40), ownerTaskId: task.id, ownerNodeId: "execute", ownerIncarnationId: "test",
+      fenceToken: 0n, status: "pending", createdAt: now, updatedAt: now,
+    });
+
+    const reset = await store.resetTaskPublication(task.id, "todo");
+
+    expect(reset).toMatchObject({ column: "todo", status: "needs-replan" });
+    expect(reset.workspaceWorktrees).toBeUndefined();
+    await expect(db.select().from(schema.project.workspaceCoordinationLeases).where(eq(schema.project.workspaceCoordinationLeases.ownerTaskId, task.id))).resolves.toEqual([]);
+    await expect(db.select().from(schema.project.workspaceLandIntents).where(eq(schema.project.workspaceLandIntents.taskId, task.id))).resolves.toEqual([]);
+  });
+
   it("clears run projections while retaining operator documents, attachments, and released symbol-lock history", async () => {
     const { store, task } = await seedPopulatedResetState();
     const originalTitle = task.title;
@@ -125,6 +152,18 @@ pgDescribe("TaskStore reset publication", () => {
     const now = new Date().toISOString();
     await store.upsertTaskDocument(task.id, { key: "agent-only", content: "must survive rollback", author: "agent" });
     await h.layer().db.insert(schema.project.artifacts).values({ id: `${task.id}-rollback-artifact`, type: "document", title: "rollback", authorId: "agent", taskId: task.id, createdAt: now, updatedAt: now });
+    await store.updateTask(task.id, { workspaceWorktrees: { api: { worktreePath: "/tmp/fn-reset/api", branch: "fusion/fn-reset" } } });
+    await h.layer().db.insert(schema.project.workspaceCoordinationLeases).values({
+      leaseKey: `${task.id}:rollback`, kind: "acquire", ownerTaskId: task.id, ownerNodeId: "execute",
+      ownerIncarnationId: "test", status: "held", acquiredAt: now, renewedAt: now,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(), createdAt: now, updatedAt: now,
+    });
+    await h.layer().db.insert(schema.project.workspaceLandIntents).values({
+      taskId: task.id, repoRelPath: "api", remoteUrl: "https://example.invalid/api.git", integrationRef: "main",
+      intendedSha: "a".repeat(40), expectedTip: "b".repeat(40), fenceRefName: "refs/fusion/test",
+      fenceRefSha: "c".repeat(40), ownerTaskId: task.id, ownerNodeId: "execute", ownerIncarnationId: "test",
+      fenceToken: 0n, status: "pending", createdAt: now, updatedAt: now,
+    });
     const [beforeFailure] = await h.layer().db.select({
       column: schema.project.tasks.column,
       status: schema.project.tasks.status,
@@ -152,5 +191,7 @@ pgDescribe("TaskStore reset publication", () => {
     expect(await store.hasWorkflowRunStepInstancesForTask(task.id)).toBe(true);
     expect(await h.layer().db.select().from(schema.project.taskDocuments).where(eq(schema.project.taskDocuments.taskId, task.id))).toEqual([expect.objectContaining({ key: "agent-only" })]);
     expect(await h.layer().db.select().from(schema.project.artifacts).where(eq(schema.project.artifacts.taskId, task.id))).toEqual([expect.objectContaining({ id: `${task.id}-rollback-artifact` })]);
+    expect(await h.layer().db.select().from(schema.project.workspaceCoordinationLeases).where(eq(schema.project.workspaceCoordinationLeases.ownerTaskId, task.id))).toEqual([expect.objectContaining({ leaseKey: `${task.id}:rollback` })]);
+    expect(await h.layer().db.select().from(schema.project.workspaceLandIntents).where(eq(schema.project.workspaceLandIntents.taskId, task.id))).toEqual([expect.objectContaining({ repoRelPath: "api" })]);
   });
 });

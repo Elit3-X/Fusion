@@ -2469,6 +2469,8 @@ export {
   isLegacyWorkspaceWorktreeLayout,
 } from "./tasks/worktree-layout.js";
 export type { WorkspaceWorktreeContext } from "./tasks/worktree-layout.js";
+export { buildTaskResetWorktreePlan, SINGULAR_RESET_WORKTREE_REPO_REL } from "./tasks/task-reset-targets.js";
+export type { BuildTaskResetWorktreePlanOptions, TaskResetWorktreePlan, TaskResetWorktreeTarget } from "./tasks/task-reset-targets.js";
 /*
 FNXC:WorkflowStepResults 2026-07-19-01:00:
 Keep this gate-safe barrel's workflow-step-results re-exports in SYNC with the main barrel (index.ts). The `engine-core` vitest project builds its @fusion/core from THIS file (scripts/build-engine-core-gate-bundle.mjs), so any lease/step-result export present in index.ts but missing here resolves to `undefined` ONLY under engine-core — which is exactly how U3's `classifyReviewLease` went missing and threw "classifyReviewLease is not a function" on every defaultOn Plan Review run in that project (caught by task-pipeline-smoke). When adding an export to the index.ts workflow-step-results block, add it here too.
