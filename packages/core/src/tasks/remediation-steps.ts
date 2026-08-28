@@ -11,9 +11,15 @@ export interface RemediationStepInput {
  * Review remediation names deliberately omit their gate. `Fix (Verification): …` collides with
  * legacy lexical replay/evidence rules, while the durable remediation provenance is the sole
  * authority for gate identity.
+ *
+ * FNXC:ReviewRemediationLabels 2026-08-28-23:05:
+ * Code Review titles are short operator-facing headlines, while bodies can hold 4,000-character
+ * explanations. Render the title on task cards, list rows, and detail progress, but preserve the
+ * body in remediation.detail for deduplication and executor instructions.
  */
-export function formatRemediationStepName(input: { detail?: string; name?: string }): string {
-  const detail = (input.detail ?? input.name ?? "review finding").replace(/\s+/g, " ").trim();
+export function formatRemediationStepName(input: { title?: string; detail?: string; name?: string }): string {
+  const source = [input.title, input.detail, input.name].find((value) => value?.trim()) ?? "review finding";
+  const detail = source.replace(/\s+/g, " ").trim();
   return `Fix: ${detail || "review finding"}`;
 }
 

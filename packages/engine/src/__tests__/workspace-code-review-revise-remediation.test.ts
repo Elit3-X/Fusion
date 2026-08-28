@@ -253,7 +253,9 @@ describe("workspace Code Review REVISE symptom", () => {
 
     await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, info)).resolves.toBe(true);
 
-    expect(task.steps?.find((step) => step.remediation?.findingId === reportedFinding.id)).toMatchObject({
+    const remediation = task.steps?.find((step) => step.remediation?.findingId === reportedFinding.id);
+    expect(remediation).toMatchObject({
+      name: `Fix: ${reportedFinding.title}`,
       status: "pending",
       remediation: {
         gate: "Code Review",
@@ -261,14 +263,16 @@ describe("workspace Code Review REVISE symptom", () => {
         wave: 1,
         filePath: "repo2/tests/test_txt_absence.sh",
         findingId: "repo2:MULT-029-source-location-unchecked",
+        detail: reportedFinding.body,
       },
     });
+    expect(remediation?.name).not.toContain(reportedFinding.body);
     expect(task.steps?.map((step) => [step.name, step.status])).toEqual([
       ["Preflight", "done"],
       ["Establish destination ownership", "done"],
       ["Remove stale source ownership", "done"],
       ["Testing & Verification", "done"],
-      [expect.stringContaining("Replace or add the source-location check"), "pending"],
+      [expect.stringContaining(reportedFinding.title), "pending"],
       ["Testing & Verification", "pending"],
     ]);
     expect(task.prompt).toContain("- `repo2/tests/test_txt_absence.sh`");

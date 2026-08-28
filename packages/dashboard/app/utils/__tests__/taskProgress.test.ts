@@ -528,6 +528,26 @@ describe("getUnifiedTaskProgress", () => {
     ]);
   });
 
+  it("passes remediation names through verbatim in full and implementation scopes", () => {
+    const remediationName = "Fix: concise retry guard headline";
+    const task = makeTask({
+      steps: [
+        { name: "Implement retry guard", status: "done" },
+        {
+          name: remediationName,
+          status: "pending",
+          remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Long reviewer explanation" },
+        },
+      ] as Task["steps"],
+    });
+
+    const full = getUnifiedTaskProgress(task);
+    const implementation = getUnifiedTaskProgress(task, { scope: "implementation" });
+    for (const progress of [full, implementation]) {
+      expect(progress.items).toContainEqual(expect.objectContaining({ id: "step-1", name: remediationName, status: "pending" }));
+    }
+  });
+
   it("maps impl step statuses straight through and skipped as completed", () => {
     const progress = getUnifiedTaskProgress(
       makeTask({

@@ -80,6 +80,19 @@ describe("review remediation steps", () => {
     }
   });
 
+  it("prefers finding titles while retaining legacy name fallbacks", () => {
+    expect(formatRemediationStepName({ title: "Short headline", detail: "Long reviewer explanation", name: "Legacy label" }))
+      .toBe("Fix: Short headline");
+    expect(formatRemediationStepName({ title: " \n\t ", detail: "Long reviewer explanation" }))
+      .toBe("Fix: Long reviewer explanation");
+    expect(formatRemediationStepName({ name: "Legacy label" })).toBe("Fix: Legacy label");
+    expect(formatRemediationStepName({})).toBe("Fix: review finding");
+
+    const multiLine = formatRemediationStepName({ title: "Short\n  headline\tfor operators" });
+    expect(multiLine).toBe("Fix: Short headline for operators");
+    expect(multiLine).not.toContain("\n");
+  });
+
   it("recognizes open equivalence structurally", () => {
     const existing = remediation("missing undefined case");
     expect(hasOpenEquivalentRemediationStep([existing], remediation("missing undefined case"))).toBe(true);

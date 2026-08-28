@@ -1,24 +1,79 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task, TaskStep } from "@fusion/core";
-import { planRemediationPlacement } from "@fusion/core";
+import { hasOpenEquivalentRemediationStep, planRemediationPlacement } from "@fusion/core";
 import { deriveRemediationSteps } from "../executor/derive-remediation-steps.js";
 import { appendReviewRemediationSteps } from "../executor/append-review-remediation-steps.js";
 
 describe("deriveRemediationSteps", () => {
   const base = { gateStepId: "code-review", wave: 1, prompt: "## File Scope\n- `src/**`", changedFiles: [] } as const;
 
-  it("turns each blocking code-review finding into provenance-backed work", () => {
+  it("turns each blocking code-review finding into title-labelled provenance-backed work", () => {
+    const body = [
+      "Reverse the guard before the retry executes.",
+      "The current condition lets invalid retries proceed.",
+    ].join("\n");
     const result = deriveRemediationSteps({
       ...base,
       gate: "Code Review",
-      findings: [{ id: "finding-1", title: "wrong guard", body: "Reverse the guard", filePath: "src/guard.ts", line: 8, severity: "critical" }],
+      findings: [{ id: "finding-1", title: "wrong guard", body, filePath: "src/guard.ts", line: 8, severity: "critical" }],
     });
     expect(result.steps).toEqual([expect.objectContaining({
-      name: "Fix: Reverse the guard",
+      name: "Fix: wrong guard",
       status: "pending",
-      remediation: expect.objectContaining({ gate: "Code Review", findingId: "finding-1", filePath: "src/guard.ts", line: 8 }),
+      remediation: expect.objectContaining({
+        gate: "Code Review",
+        findingId: "finding-1",
+        filePath: "src/guard.ts",
+        line: 8,
+        detail: body,
+      }),
     })]);
-    expect(result.steps[0].name).not.toMatch(/test|verif|qa|review/i);
+    expect(result.steps[0]!.name).not.toContain("Reverse the guard");
+    expect(result.steps[0]!.name).not.toContain("\n");
+    expect(result.steps[0]!.name).not.toMatch(/test|verif|qa|review/i);
+  });
+
+  it("falls back to the body for a legacy code-review finding with a blank title", () => {
+    const result = deriveRemediationSteps({
+      ...base,
+      gate: "Code Review",
+      findings: [{ id: "legacy", title: " \n\t", body: "Preserve the fallback detail", filePath: "src/legacy.ts", severity: "critical" }],
+    });
+
+    expect(result.steps[0]).toMatchObject({
+      name: "Fix: Preserve the fallback detail",
+      remediation: { detail: "Preserve the fallback detail" },
+    });
+  });
+
+  it("deduplicates code-review findings by durable body rather than title", () => {
+    const result = deriveRemediationSteps({
+      ...base,
+      gate: "Code Review",
+      findings: [
+        { id: "same-1", title: "first headline", body: "Same durable finding body", filePath: "src/guard.ts", severity: "critical" },
+        { id: "same-2", title: "second headline", body: "Same durable finding body", filePath: "src/guard.ts", severity: "critical" },
+      ],
+    });
+
+    expect(result.steps.map((step) => step.name)).toEqual(["Fix: first headline", "Fix: second headline"]);
+    expect(hasOpenEquivalentRemediationStep([result.steps[0]!], result.steps[1]!)).toBe(true);
+  });
+
+  it("uses titles for findings inside a confirmed workspace repository", () => {
+    const result = deriveRemediationSteps({
+      ...base,
+      gate: "Code Review",
+      prompt: "## File Scope\n- `repo-b/**`",
+      confirmedRepositories: ["repo-a"],
+      findings: [{ id: "workspace", title: "workspace guard", body: "Repair the workspace guard", filePath: "repo-a/src/x.ts", severity: "critical" }],
+    });
+
+    expect(result).toMatchObject({ outOfScope: [] });
+    expect(result.steps[0]).toMatchObject({
+      name: "Fix: workspace guard",
+      remediation: { detail: "Repair the workspace guard", filePath: "repo-a/src/x.ts" },
+    });
   });
 
   it("does not create work for non-blocking or out-of-scope findings", () => {

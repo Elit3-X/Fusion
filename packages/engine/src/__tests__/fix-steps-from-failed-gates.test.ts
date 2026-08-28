@@ -180,16 +180,18 @@ describe("fix steps appear on the card when a gate fails", () => {
 
     expect(scheduled).toBe(true);
     expect(pending()).toHaveLength(2);
-    expect(pending()[0]!.name).toContain("Reverse the retry guard condition");
+    expect(pending()[0]!.name).toContain("inverted guard");
+    expect(pending()[0]!.name).not.toContain("Reverse the retry guard condition");
     expect(pending()[0]!.remediation).toMatchObject({
       gate: "Code Review",
       findingId: "finding-1",
       filePath: "packages/engine/src/retry.ts",
+      detail: "Reverse the retry guard condition",
     });
     expect(task.steps?.map((step) => [step.name, step.status])).toEqual([
       ["Add the retry guard", "done"],
       ["Testing & Verification", "done"],
-      [expect.stringContaining("Reverse the retry guard condition"), "pending"],
+      [expect.stringContaining("inverted guard"), "pending"],
       ["Testing & Verification", "pending"],
     ]);
     expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
@@ -356,7 +358,16 @@ describe("fix steps appear on the card when a gate fails", () => {
     });
 
     expect(pending()).toHaveLength(2);
-    expect(pending()[0]?.name).toBe("Fix: b");
+    expect(pending()[0]).toMatchObject({
+      name: "Fix: t",
+      remediation: {
+        gate: "Code Review",
+        findingId: "f1",
+        filePath: "packages/engine/src/retry.ts",
+        detail: "b",
+      },
+    });
+    expect(pending()[0]!.name).not.toContain("b");
     expect(pending()[1]).toEqual({ name: "Testing & Verification", status: "pending" });
   });
 });

@@ -85,10 +85,24 @@ export function deriveRemediationSteps(input: DeriveRemediationStepsInput): Deri
   const evidenceDigest = input.gate === "Verification"
     ? verificationEvidenceDigest(input.verificationOutput)
     : undefined;
-  const candidates: Array<{ filePath?: string; line?: number; detail: string; findingId?: string }> = input.gate === "Code Review"
+  const candidates: Array<{ filePath?: string; line?: number; title?: string; detail: string; findingId?: string }> = input.gate === "Code Review"
     ? (input.findings ?? [])
       .filter((finding) => isBlockingFinding(finding, input.blockingSeverity ?? "critical"))
-      .map((finding) => ({ filePath: finding.filePath, line: finding.line, detail: finding.body || finding.title, findingId: finding.id }))
+      .map((finding) => {
+        /*
+         * FNXC:ReviewRemediationLabels 2026-08-28-23:08:
+         * The title labels operator-visible task cards, list rows, and detail progress. Keep the
+         * body in durable detail because hasOpenEquivalentRemediationStep, convergence signatures,
+         * and the executor's **Required fix:** instruction use that provenance.
+         */
+        return {
+          filePath: finding.filePath,
+          line: finding.line,
+          title: finding.title,
+          detail: finding.body || finding.title,
+          findingId: finding.id,
+        };
+      })
     : verificationCandidates(input);
   const declaredScope = extractFileScope(input.prompt ?? "");
   const changedFiles = new Set((input.changedFiles ?? []).map(normalized));
@@ -105,7 +119,7 @@ export function deriveRemediationSteps(input: DeriveRemediationStepsInput): Deri
       continue;
     }
     steps.push({
-      name: formatRemediationStepName({ detail: candidate.detail }),
+      name: formatRemediationStepName({ title: candidate.title, detail: candidate.detail }),
       status: "pending",
       remediation: {
         wave: input.wave,
