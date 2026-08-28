@@ -569,7 +569,7 @@ export type { ImplementationExit } from "./types/workflow-events.js";
 export type { WorkflowEventBus, WorkflowEventSubscriber, WorkflowEventSubscription } from "./workflow-events.js";
 export { findWorkflowEventShapeViolations, isIdsOnlyWorkflowEvent, MAX_ID_VALUE_LENGTH } from "./types/workflow-events.js";
 export type { WorkflowLifecycleEvent, WorkflowLifecycleEventType, WorkflowLifecycleEventBase, TaskTransitionedEvent, NodeEnteredEvent, NodeCompletedEvent, RunSuspendedEvent, RunResumedEvent, WorkflowEventShapeViolation } from "./types/workflow-events.js";
-export { columnsWithFlag, columnHasFlag, resolveReboundTarget, resolveCompleteColumn, resolveMergeOrchestrationColumn, resolveLifecycleColumns, resolveTaskLifecycleColumns, declaresAnyLifecycleTrait, resolveArchiveTargetForTask, resolveReboundTargetForTask, resolveReviewColumns, resolveTerminalColumns, resolveWipTargetForTask, toTaskMoveLanes } from "./workflows/workflow-lifecycle-traits.js";
+export { columnsWithFlag, columnHasFlag, resolveReboundTarget, resolveContainedBackwardTarget, resolveCompleteColumn, resolveMergeOrchestrationColumn, resolveLifecycleColumns, resolveTaskLifecycleColumns, declaresAnyLifecycleTrait, resolveArchiveTargetForTask, resolveReboundTargetForTask, resolveContainedBackwardTargetForTask, resolveReviewColumns, resolveTerminalColumns, resolveWipTargetForTask, toTaskMoveLanes } from "./workflows/workflow-lifecycle-traits.js";
 export type { LifecycleColumns, TaskMoveLanes } from "./workflows/workflow-lifecycle-traits.js";
 export { TaskLaneCache, type TaskLaneCacheOptions } from "./task-lane-cache.js";
 export { resolveReviewLevelSteps, applyReviewLevelPreset } from "./tasks/review-level-preset.js";
@@ -710,6 +710,18 @@ export {
   type WorkflowSelection,
 } from "./workflows/workflow-ir-resolver.js";
 export {
+  classifyLifecycleRole,
+  classifyLifecycleDirection,
+  evaluateForbiddenLifecyclePath,
+  isSanctionedEngineBackwardMove,
+  ENGINE_BACKWARD_MOVE_REASONS,
+  LIFECYCLE_ROLE_RANK,
+  type LifecycleRole,
+  type LifecycleDirection,
+  type ForbiddenLifecyclePath,
+  type EngineBackwardMoveReason,
+} from "./workflows/workflow-lifecycle-direction.js";
+export {
   type TransitionColumnFacts,
   type CapacityFacts,
   type TransitionInvariantInput,
@@ -717,6 +729,7 @@ export {
   evaluateTransitionInvariants,
   evaluateMergeBlockerPostcondition,
   evaluateTerminalReentryPostcondition,
+  evaluateLifecycleDirectionPostcondition,
   evaluateCapacityRejection,
   isWipColumn,
   isTerminalColumn,
@@ -992,6 +1005,7 @@ export {
   HandoffInvariantViolationError,
   TransitionRejectionError,
   type LegacyAutoMergeStampReconcileResult,
+  type MoveTaskOptions,
 } from "./store.js";
 export {
   STOPWORDS,
@@ -1027,6 +1041,11 @@ export {
   type NoOpCompletionMarker,
   type NoOpCompletionMarkerKind,
 } from "./merge/no-op-completion-marker.js";
+export {
+  planRemediationPlacement,
+  resolveTrailingVerificationStepIndex,
+  type RemediationPlacementPlan,
+} from "./tasks/remediation-step-placement.js";
 export {
   formatRemediationStepName,
   isRemediationStep,

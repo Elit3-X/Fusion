@@ -125,7 +125,6 @@ import {
   resolveWorkflowIrForTask,
   resolvePreMergeGateForTask,
   resolveRequiredPreMergeStepIds,
-  resolveReboundTarget,
   resolveCompleteColumn,
   resolveMergeOrchestrationColumn,
   resolveTaskLifecycleColumns,
@@ -327,31 +326,40 @@ import { evaluateBranchGroupPromotion, resolveBranchGroupMergeRouting } from "./
 import { advanceIntegrationBranchRef, IntegrationBranchConcurrentAdvanceError } from "./merge/merger-ref-update-advance.js";
 import { syncWorktreeToHead, type SyncWorktreeResult } from "./worktree/worktree-ref-sync.js";
 import { appendAutoWidenedScopeToPrompt, evaluateScopeAutoWiden } from "./merge/merger-scope-auto-widen.js";
+import { moveTaskToContainedBackwardTarget } from "./execution/lifecycle-move.js";
 
 export { IntegrationBranchConcurrentAdvanceError } from "./merge/merger-ref-update-advance.js";
 
 /*
 FNXC:WorkflowMergeLifecycle 2026-07-19-07:40 (U7 / R2/R7/KTD-10):
-Merge lifecycle moves derive their target column from the task's workflow IR, not
-literal enum ids: a recoverable merge-failure rebound targets the KTD-10 backlog
-column (hold → intake → first), a merge-lane failure parks in the merge-
-orchestration column, and completion moves to the complete-trait column.
-builtin:coding resolves these to todo / in-review / done so the default pipeline
-is byte-identical; a custom workflow (the benchmark) lands in its own backlog /
-Merging / Done columns. One IR resolution per merge op (not an enumeration loop);
-any resolution failure falls back to the legacy literal so a merge is never stranded.
+Merge-lane and completion moves resolve the workflow's own merge and complete columns.
+
+FNXC:LifecycleContainment 2026-08-28-03:03:
+FN-207 routes every recoverable merge failure through the contained-backward seam instead of this
+resolver: review returns to WIP, WIP returns to hold, missing targets stay in place, and capacity
+refusal never substitutes another column.
+
+FNXC:LifecycleContainment 2026-08-28-03:19:
+All legacy merger blocker branches share one exported routing seam so their review-to-WIP behavior,
+no-target containment, and capacity deferral are exercised without duplicating a full Git merge.
 */
+export async function reboundLegacyMergeTask(store: TaskStore, taskId: string) {
+  return moveTaskToContainedBackwardTarget(store, taskId, "merge-failure-rebound", {
+    preserveProgress: true,
+    moveSource: "engine",
+  });
+}
+
 async function resolveMergerLifecycleColumn(
   store: TaskStore,
   taskId: string,
-  which: "rebound" | "complete" | "merge",
+  which: "complete" | "merge",
 ): Promise<string> {
-  const fallback = which === "complete" ? "done" : which === "merge" ? "in-review" : "todo";
+  const fallback = which === "complete" ? "done" : "in-review";
   try {
     const ir = await resolveWorkflowIrForTask(store, taskId);
     if (which === "complete") return resolveCompleteColumn(ir) ?? fallback;
-    if (which === "merge") return resolveMergeOrchestrationColumn(ir) ?? fallback;
-    return resolveReboundTarget(ir) ?? fallback;
+    return resolveMergeOrchestrationColumn(ir) ?? fallback;
   } catch {
     return fallback;
   }
@@ -6531,7 +6539,7 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
         lane: "early-empty-own-diff",
       },
     });
-    await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
+    await reboundLegacyMergeTask(store, taskId);
     return {
       task,
       branch,
@@ -7666,7 +7674,7 @@ export async function aiMergeTask(
             lane: "legacy-no-op-classifier",
           },
         }, { log: mergerLog });
-        await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
+        await reboundLegacyMergeTask(store, taskId);
         await releaseReuseHandoffEarly("no-commits-incomplete-blocked");
         return {
           task,
@@ -7700,7 +7708,7 @@ export async function aiMergeTask(
             classification: classification.kind,
           },
         }, { log: mergerLog });
-        await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
+        await reboundLegacyMergeTask(store, taskId);
         await releaseReuseHandoffEarly("lost-work-blocked");
         return {
           task,
@@ -7763,7 +7771,7 @@ export async function aiMergeTask(
       target: taskId,
       metadata: { reason: classification.reason, details: classification.details, autoRetry: true },
     }, { log: mergerLog });
-    await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
+    await reboundLegacyMergeTask(store, taskId);
     await releaseReuseHandoffEarly(unprovenError);
     return {
       task,
@@ -7898,7 +7906,7 @@ export async function aiMergeTask(
         target: taskId,
         metadata: { reason: classification.reason, details: classification.details, branchMissing: true, autoRetry: true },
       }, { log: mergerLog });
-      await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
+      await reboundLegacyMergeTask(store, taskId);
       return result;
     }
 
@@ -7975,7 +7983,7 @@ export async function aiMergeTask(
             lane: "legacy-branch-missing-no-op",
           },
         }, { log: mergerLog });
-        await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "rebound"), { preserveProgress: true, moveSource: "engine" } as any);
+        await reboundLegacyMergeTask(store, taskId);
         return result;
       }
       const noOpReason = `branch has zero commits ahead of ${classification.baseRef}`;

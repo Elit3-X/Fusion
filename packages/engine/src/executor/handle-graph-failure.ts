@@ -792,7 +792,12 @@ export async function handleGraphFailure(
             const duplicateResolution = resolveExplicitDuplicateMarker(promptContent, live.title);
             const marker = duplicateResolution.marker;
             const replanColumn = await resolveReplanTargetColumn(deps.store, live.id);
-            await moveTaskToReplanColumn(deps.store, { id: live.id, column: live.column }, replanColumn);
+            await moveTaskToReplanColumn(
+              deps.store,
+              { id: live.id, column: live.column },
+              "workflow-retry-rehome",
+              replanColumn,
+            );
             await deps.store.updateTask(live.id, {
               status: "needs-replan",
               error: null,

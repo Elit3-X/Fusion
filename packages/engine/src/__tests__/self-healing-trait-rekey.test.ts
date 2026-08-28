@@ -73,8 +73,11 @@ describe("self-healing recovery rebound — trait re-key (U6/KTD-10)", () => {
       edges: [],
     } as WorkflowIr;
     const store = fakeStore({ selection: { workflowId: "custom:wf", stepIds: [] }, ir: customIr });
-    await recover(store, recoveredTask());
-    expect(store.moveTask).toHaveBeenCalledWith("FN-R1", "backlog", expect.objectContaining({ recoveryRehome: true }));
+    await recover(store, recoveredTask({ column: "doing" }));
+    expect(store.moveTask).toHaveBeenCalledWith("FN-R1", "backlog", expect.objectContaining({
+      recoveryRehome: true,
+      lifecycleReason: "self-healing-worktree-reclaim",
+    }));
   });
 
   it("falls back to the intake column when the custom workflow has no hold column", async () => {
@@ -90,8 +93,12 @@ describe("self-healing recovery rebound — trait re-key (U6/KTD-10)", () => {
       edges: [],
     } as WorkflowIr;
     const store = fakeStore({ selection: { workflowId: "custom:nohold", stepIds: [] }, ir: noHoldIr });
-    await recover(store, recoveredTask());
-    expect(store.moveTask).toHaveBeenCalledWith("FN-R1", "inbox", expect.objectContaining({ recoveryRehome: true }));
+    await recover(store, recoveredTask({ column: "doing" }));
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-R1",
+      expect.stringContaining("no adjacent backward destination"),
+    );
   });
 
   it("keeps the legacy `todo` fallback when IR resolution fails", async () => {

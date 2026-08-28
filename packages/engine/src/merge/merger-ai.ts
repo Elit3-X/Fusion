@@ -56,7 +56,7 @@ import {
   resolveTaskMergeTarget,
   resolveValidatorSettingsModel,
   resolveMergerFallbackModel,
-  resolveReboundTarget,
+  resolveContainedBackwardTarget,
   resolveTerminalColumns,
   resolveWorkflowIrForTask,
   resolveRequiredPreMergeStepIds,
@@ -96,6 +96,7 @@ import { attachAgentUsageTelemetry, emitAgentSessionStart } from "../agents/agen
 import { withRateLimitRetry } from "../errors/rate-limit-retry.js";
 import { checkSessionError } from "../errors/usage-limit-detector.js";
 import { accumulateSessionTokenUsage } from "../execution/session-token-usage.js";
+import { moveTaskToContainedBackwardTarget } from "../execution/lifecycle-move.js";
 import { createRunAuditor, generateSyntheticRunId, type RunAuditor } from "../util/run-audit.js";
 import { emitBoundedRunAudit, type RunAuditSinkHost } from "../util/emit-bounded-run-audit.js";
 import { deriveExecutorSignalMemory, evaluateNoOpFinalizeExecutorVeto } from "../overseer/overseer-noop-finalize-veto.js";
@@ -1333,27 +1334,36 @@ const LEGACY_ARCHIVED_COLUMN = "archived";
 const LEGACY_TERMINAL_COLUMNS: readonly string[] = [LEGACY_COMPLETE_COLUMN, LEGACY_ARCHIVED_COLUMN];
 const LEGACY_REBOUND_COLUMN = "todo";
 
-/**
- * Where a finalize-blocked card is returned to for operator review.
- *
- * KTD-10 ordering via `resolveReboundTarget` (hold → intake → first column) —
- * the same helper self-healing.ts:714 and mesh-lease-manager use for "requeue a
- * recovered card", so the recovery paths cannot drift apart.
- *
- * Fail-soft to the legacy literal: these rebounds PARK WORK for a human after a
- * no-commits / no-landed-proof / vetoed-no-op guard fires. Abandoning the
- * rebound because a workflow lookup failed would strand the card in the merge
- * lane with no owner, which is strictly worse than rebounding to a stale id.
- *
- * Exported for direct testing: the four call sites sit deep inside `runAiMerge`
- * and `landWorkspaceTask`, behind a real git repo and a full merge run.
- */
+/*
+FNXC:LifecycleContainment 2026-08-28-03:03:
+FN-207 treats finalize blockers as review-owned repair: a review card returns only to the workflow's
+WIP lane, never Planning. A declared workflow with no adjacent WIP target remains in review; only an
+unreadable task row retains the legacy fallback because no live source column is available to classify.
+
+FNXC:LifecycleContainment 2026-08-28-03:19:
+Every AI-merger finalize blocker uses one routing seam so production-family acceptance can prove the
+same adjacent target, no-target containment, and capacity deferral used by all five branches.
+*/
+export async function reboundAiMergeTask(store: TaskStore, taskId: string) {
+  return moveTaskToContainedBackwardTarget(store, taskId, "merge-failure-rebound", {
+    preserveProgress: true,
+    moveSource: "engine",
+  });
+}
+
+/** Resolve the adjacent implementation destination for a finalize-blocked card. */
 export async function resolveFinalizeReboundColumn(store: TaskStore, taskId: string): Promise<string> {
+  let live: Task;
   try {
-    const ir = await resolveWorkflowIrForTask(store, taskId);
-    return resolveReboundTarget(ir) ?? LEGACY_REBOUND_COLUMN;
+    live = await store.getTask(taskId);
   } catch {
     return LEGACY_REBOUND_COLUMN;
+  }
+  try {
+    const ir = await resolveWorkflowIrForTask(store, taskId);
+    return resolveContainedBackwardTarget(ir, live.column) ?? live.column;
+  } catch {
+    return live.column;
   }
 }
 
@@ -1637,7 +1647,7 @@ export async function runAiMerge(
         const reboundColumn = await resolveFinalizeReboundColumn(store, taskId);
         await fence.write("log", () => store.logEntry(
           taskId,
-          `Finalize blocked (no-commits incomplete-work guard): ${reason} — moving back to ${reboundColumn} with progress preserved`,
+          `Finalize blocked (no-commits incomplete-work guard): ${reason} — contained recovery target ${reboundColumn} with progress preserved`,
           JSON.stringify({
             doneCount: noCommitsFinalize.doneCount,
             incompleteCount: noCommitsFinalize.incompleteCount,
@@ -1658,7 +1668,7 @@ export async function runAiMerge(
             lane: "no-commits-branch-missing",
           },
         });
-        await fence.write("lifecycle", () => store.moveTask(taskId, reboundColumn, { preserveProgress: true, moveSource: "engine" } as Parameters<TaskStore["moveTask"]>[2]));
+        await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));
         return {
           task,
           branch,
@@ -1772,7 +1782,7 @@ export async function runAiMerge(
       const reboundColumn = await resolveFinalizeReboundColumn(store, taskId);
       await fence.write("log", () => store.logEntry(
         taskId,
-        `Finalize blocked (no-commits incomplete-work guard): ${reason} — moving back to ${reboundColumn} with progress preserved`,
+        `Finalize blocked (no-commits incomplete-work guard): ${reason} — contained recovery target ${reboundColumn} with progress preserved`,
         JSON.stringify({
           doneCount: noCommitsFinalize.doneCount,
           incompleteCount: noCommitsFinalize.incompleteCount,
@@ -1793,7 +1803,7 @@ export async function runAiMerge(
           lane: "ai-empty-merge",
         },
       });
-      await fence.write("lifecycle", () => store.moveTask(taskId, reboundColumn, { preserveProgress: true, moveSource: "engine" } as Parameters<TaskStore["moveTask"]>[2]));
+      await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));
       return {
         task,
         branch,
@@ -1836,7 +1846,7 @@ export async function runAiMerge(
         const reboundColumn = await resolveFinalizeReboundColumn(store, taskId);
         await fence.write("log", () => store.logEntry(
           taskId,
-          `Finalize blocked (empty-merge no-landed-proof guard): ${reason} — moving back to ${reboundColumn} with progress preserved`,
+          `Finalize blocked (empty-merge no-landed-proof guard): ${reason} — contained recovery target ${reboundColumn} with progress preserved`,
           JSON.stringify({ branch, integrationBranch, lane: "ai-empty-merge", baseCommitSha: task.baseCommitSha }, null, 2),
         ));
         await audit.database({
@@ -1851,7 +1861,7 @@ export async function runAiMerge(
             hadPriorNoOpProof: false,
           },
         });
-        await fence.write("lifecycle", () => store.moveTask(taskId, reboundColumn, { preserveProgress: true, moveSource: "engine" } as Parameters<TaskStore["moveTask"]>[2]));
+        await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));
         return {
           task,
           branch,
@@ -1906,7 +1916,7 @@ export async function runAiMerge(
       const reboundColumn = await resolveFinalizeReboundColumn(store, taskId);
       await fence.write("log", () => store.logEntry(
         taskId,
-        `Finalize blocked (overseer failed-executor veto): ${vetoReason} — moving back to ${reboundColumn} with progress preserved`,
+        `Finalize blocked (overseer failed-executor veto): ${vetoReason} — contained recovery target ${reboundColumn} with progress preserved`,
         JSON.stringify({
           executorSignal: executorMemory?.signal,
           executorSignalObservedAt: executorMemory?.observedAt,
@@ -1927,7 +1937,7 @@ export async function runAiMerge(
           lane: "ai-empty-merge",
         },
       });
-      await fence.write("lifecycle", () => store.moveTask(taskId, reboundColumn, { preserveProgress: true, moveSource: "engine" } as Parameters<TaskStore["moveTask"]>[2]));
+      await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));
       return {
         task,
         branch,
@@ -2981,7 +2991,7 @@ export async function landWorkspaceTask(
       const reboundColumn = await resolveFinalizeReboundColumn(store, taskId);
       await fence.write("log", () => store.logEntry(
         taskId,
-        `Finalize blocked (empty-merge no-landed-proof guard, workspace): ${reason} — moving back to ${reboundColumn} with progress preserved`,
+        `Finalize blocked (empty-merge no-landed-proof guard, workspace): ${reason} — contained recovery target ${reboundColumn} with progress preserved`,
         JSON.stringify({ lane: "ai-empty-merge-workspace", repoCount: repos.length, landedCount, repos: repos.map((r) => r.repo) }, null, 2),
       ).catch(() => undefined));
       await audit.database({
@@ -2989,7 +2999,7 @@ export async function landWorkspaceTask(
         target: taskId,
         metadata: { reason, lane: "ai-empty-merge-workspace", repoCount: repos.length, landedCount, hadPriorNoOpProof: false },
       }).catch(() => undefined);
-      await fence.write("lifecycle", () => store.moveTask(taskId, reboundColumn, { preserveProgress: true, moveSource: "engine" } as Parameters<TaskStore["moveTask"]>[2]));
+      await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));
       return { taskId, repos, allLanded, finalized: false, finalizeBlockedReason: reason };
     }
     /*

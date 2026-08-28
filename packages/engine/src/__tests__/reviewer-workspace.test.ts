@@ -406,8 +406,12 @@ describe("U2 KTD3 — step-inversion review seam (executor.ts:5668) loops per su
   });
 
   it("discards a stale custom-node callback after a repository scope revision", async () => {
+    const repoA = makeFingerprintableCheckout();
+    capturedFilesByCwd = { [repoA.path]: ["changed.ts"] };
     const task = makeTask({
-      workspaceWorktrees: { "repo-a": TWO_REPO_WORKTREES["repo-a"] },
+      workspaceWorktrees: {
+        "repo-a": { worktreePath: repoA.path, branch: "fusion/fn-1", baseCommitSha: repoA.baseCommitSha },
+      },
       repositoryScope: { repositories: ["repo-a"], state: "confirmed", revision: 2 },
       modifiedFiles: ["repo-a/src/changed.ts"],
     });

@@ -200,7 +200,28 @@ export interface TaskStoreEvents {
   mid-teardown). A listener must therefore keep its existing fallback; absent `lanes` is "unknown",
   never "legacy".
   */
-  "task:moved": [data: { task: Task; from: ColumnId; to: ColumnId; source: "user" | "engine" | "scheduler"; lanes?: TaskMoveLanes }];
+  "task:moved": [data: {
+    task: Task;
+    from: ColumnId;
+    to: ColumnId;
+    source: "user" | "engine" | "scheduler";
+    lanes?: TaskMoveLanes;
+    /** Raw source option; absent remains an unattributed legacy move. */
+    requestedSource?: "user" | "engine" | "scheduler";
+    /** Registered cause for an explicit engine/scheduler backward move. */
+    lifecycleReason?: string;
+    /*
+    FNXC:LifecycleContainment 2026-08-28-04:47:
+    FN-207 requires EVERY automatic move to name its cause. `lifecycleReason` only exists for
+    explicit engine/scheduler BACKWARD moves, so routine forward graph transitions reached the
+    operator log with no cause at all and rendered as "unattributed automatic move" — the exact
+    illegible wander the task was filed against. The mover's own provenance is already on
+    `MoveTaskOptions.workflowMoveSource`; forwarding it here lets the log fall back to it instead
+    of claiming the move was unattributed. Optional: emit paths that cannot supply provenance keep
+    the unattributed rendering rather than inventing one.
+    */
+    workflowMoveSource?: string;
+  }];
   /*
   FNXC:WorkflowEvents 2026-08-01-06:11:
   `task:updated` listeners are synchronous and may receive cache-warmed resolved lanes as an optional
@@ -301,6 +322,8 @@ export interface MoveTaskOptions {
   preservePause?: boolean;
   allocateWorktree?: (reservedNames: Set<string>) => string | null;
   moveSource?: "user" | "engine" | "scheduler";
+  /** Registered reason from ENGINE_BACKWARD_MOVE_REASONS for a backward engine move. */
+  lifecycleReason?: string;
   workflowMoveActor?: WorkflowMovePolicyInput["actor"];
   workflowMoveSource?: string;
   workflowMoveMetadata?: Record<string, unknown>;

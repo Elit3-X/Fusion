@@ -8,7 +8,8 @@
  */
 import { resolve } from "node:path";
 import type { Task, TaskStore } from "@fusion/core";
-import { isWorkspaceTask, loadWorkspaceConfig, resolveReboundTarget, resolveWorkflowIrForTask } from "@fusion/core";
+import { isWorkspaceTask, loadWorkspaceConfig, resolveContainedBackwardTargetForTask } from "@fusion/core";
+import { moveTaskWithLifecycleReason } from "../execution/lifecycle-move.js";
 import { hasUsableWorktreeShape } from "../worktree/worktree-pool.js";
 import {
   classifyMissingWorktreeSessionStartFailure,
@@ -179,15 +180,17 @@ export async function autoRecoverWorktreeSessionStartFailure(
     ? `retry budget reset from ${task.worktreeSessionRetryCount ?? 0}/${MAX_WORKTREE_SESSION_RETRIES}`
     : `attempt ${nextCount}/${MAX_WORKTREE_SESSION_RETRIES}`;
   /*
-  FNXC:WorkflowLifecycleTraits 2026-07-19-06:30 (U6 / KTD-10):
-  Requeue the recovered card to the workflow's TRAIT-derived backlog column (hold →
-  intake → first), not the literal "todo".
+  FNXC:LifecycleContainment 2026-08-28-03:03:
+  FN-207 resolves recovery relative to the live source role: review returns to WIP and WIP returns
+  to hold. No hold/intake/first-column fallback is allowed when the adjacent target is absent.
   */
-  let reboundColumn = "todo";
-  try {
-    reboundColumn = resolveReboundTarget(await resolveWorkflowIrForTask(store, task.id)) ?? "todo";
-  } catch {
-    // Keep the legacy literal on any IR-resolution failure.
+  const reboundColumn = await resolveContainedBackwardTargetForTask(store, task.id, task.column);
+  if (!reboundColumn) {
+    await store.logEntry(
+      task.id,
+      `Lifecycle rebound contained in '${task.column}' — worktree-session recovery has no adjacent backward destination`,
+    );
+    return { outcome: "requeue-todo", retries: nextCount, classification };
   }
   await store.logEntry(
     task.id,
@@ -207,9 +210,16 @@ export async function autoRecoverWorktreeSessionStartFailure(
   );
   if (noProgress) {
     // #1411: backward recovery move — recoveryRehome skips order-derived adjacency.
-    await store.moveTask(task.id, reboundColumn, { moveSource: "engine", recoveryRehome: true });
+    await moveTaskWithLifecycleReason(store, task.id, reboundColumn, "self-healing-worktree-reclaim", {
+      moveSource: "engine",
+      recoveryRehome: true,
+    });
   } else {
-    await store.moveTask(task.id, reboundColumn, { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
+    await moveTaskWithLifecycleReason(store, task.id, reboundColumn, "self-healing-worktree-reclaim", {
+      preserveProgress: true,
+      moveSource: "engine",
+      recoveryRehome: true,
+    });
   }
   return { outcome: "requeue-todo", retries: nextCount, classification };
 }

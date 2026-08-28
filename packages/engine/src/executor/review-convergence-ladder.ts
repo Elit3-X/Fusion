@@ -209,10 +209,13 @@ export async function routeReviewConvergenceLadder(
       const replanColumn = await moveTaskToReplanColumn(
         deps.store,
         { id: taskId, column: claimedTask.column },
+        "code-review-revise-remediation",
         undefined,
         { workflowMoveSource: "workflow-remediation" },
       );
-      if (!replanColumn) throw new Error("review convergence replan target is unavailable");
+      if (!replanColumn || typeof replanColumn === "object") {
+        throw new Error("review convergence replan target is unavailable");
+      }
       await deps.store.updateTask(taskId, {
         status: "needs-replan",
         error: null,

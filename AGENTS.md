@@ -2,6 +2,8 @@
 
 ## Essential rules
 
+- **Lifecycle containment (FN-207):** Automatic work advances through intake, hold, WIP, review, and completion. Engine or scheduler moves may not target intake, jump backward more than one rank, leave review except to WIP, or move backward out of terminal lanes. A mover resolving a backward target must use the contained-backward resolver and register a reason; graph node-column moves use `workflow-graph-node-column`.
+
 ### Standing Rule: Prefer `main` For Direct Work; Use Worktrees For Branches
 
 Agents may implement and commit **directly on `main`** when the change belongs on main (docs/rules, small fixes the operator wants on main, operator explicitly said so, etc.).

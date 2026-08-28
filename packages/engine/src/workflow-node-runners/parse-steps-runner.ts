@@ -39,12 +39,10 @@ export class ParseStepsNodeRunner implements WorkflowNodeRunner {
      * writeSteps replaces the whole list. Preserve live appended remediation before every parser,
      * artifact, or empty-list path so re-entry cannot wipe pending correction work.
      */
-    if (cfg.preserveRemediationSteps === true) {
-      const liveTask = this.deps.getLiveTask ? await this.deps.getLiveTask(ctx.task.id) : ctx.task;
-      if (liveTask.steps.some(isRemediationStep)) {
-        this.audit("preserved-remediation-steps", `parse-steps node '${node.id}' preserved live remediation steps for task ${ctx.task.id}`);
-        return { outcome: "success", value: "preserved-remediation-steps" };
-      }
+    const liveTask = this.deps.getLiveTask ? await this.deps.getLiveTask(ctx.task.id) : ctx.task;
+    if (liveTask.steps.some(isRemediationStep)) {
+      this.audit("preserved-remediation-steps", `parse-steps node '${node.id}' preserved live remediation steps for task ${ctx.task.id}`);
+      return { outcome: "success", value: "preserved-remediation-steps" };
     }
     const parserId = typeof cfg.parser === "string" ? cfg.parser : "";
     const artifactKey =

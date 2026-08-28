@@ -15,13 +15,14 @@
  * FN-8910: completed work + policy-refused remediation stays parked in review.
  */
 import type { TaskDetail, TaskStore } from "@fusion/core";
-import { COMPLETION_SUMMARY_NODE_ID } from "@fusion/core";
+import { COMPLETION_SUMMARY_NODE_ID, resolveContainedBackwardTargetForTask } from "@fusion/core";
 import { isDurableBlockedTask } from "../execution-block-classifier.js";
 import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
-import { resolveReboundColumnFor, resolveTerminalColumnsFor } from "./lifecycle-columns.js";
+import { resolveTerminalColumnsFor } from "./lifecycle-columns.js";
 import { hasNonTerminalWorkflowSteps } from "./workflow-step-satisfaction.js";
 import { isMergeGraphFailure } from "./graph-failure-pure.js";
+import { moveTaskWithLifecycleReason } from "../execution/lifecycle-move.js";
 import type { ResumeLanes } from "./resolve-resume-lanes.js";
 
 export type RouteGraphFailureToExecutionResumeDeps = {
@@ -100,7 +101,7 @@ export async function routeGraphFailureToExecutionResume(
     const prematureMergeWithIncompleteSteps = implementationIncompleteMergeFailure && incompleteSteps;
     /*
     FNXC:WorkflowLifecycleColumns 2026-07-30-21:40 (fleet: executor.ts — the REVERSE half-conversion):
-    THE DESTINATION WAS ALREADY RESOLVED HERE AND THE GATE WAS NOT. `resolveReboundColumnFor` below picks
+    THE DESTINATION WAS ALREADY RESOLVED HERE AND THE GATE WAS NOT. The contained resolver below picks
     the board's rebound column (U7), but this gate compared against three default-lineage literals — so on
     a renamed board the router refused before ever reaching the resolved move. That is the mirror image of
     the dangerous half-conversion: instead of admitting a card and sending it nowhere, it refuses a card
@@ -125,18 +126,23 @@ export async function routeGraphFailureToExecutionResume(
       && !(incompleteSteps && live.column === resumeRouterLanes.hold)
       && !(prematureMergeWithIncompleteSteps && live.column === resumeRouterLanes.wip)) return false;
 
+    const reboundColumn = incompleteSteps
+      ? resumeRouterLanes.wip
+      : await resolveContainedBackwardTargetForTask(deps.store, live.id, live.column);
+    if (!reboundColumn) {
+      const message = `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} — no contained execution destination is declared; card remains in '${live.column}'`;
+      executorLog.warn(`${live.id}: ${message}`);
+      await deps.store.logEntry(live.id, message, undefined, deps.getRunContextFor(live.id));
+      return false;
+    }
     const message = incompleteSteps
-      ? `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} with incomplete steps — moved back to todo for execution resume`
-      : `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} before a clean review handoff — moved back to todo for workflow retry`;
+      ? `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} with incomplete steps — resuming execution in '${reboundColumn}'`
+      : `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} before a clean review handoff — returned to '${reboundColumn}' for workflow retry`;
     executorLog.warn(`${live.id}: ${message}`);
     await deps.store.logEntry(live.id, message, undefined, deps.getRunContextFor(live.id));
-    await deps.store.updateTask(live.id, {
-      status: null,
-      error: null,
-    }, deps.getRunContextFor(live.id));
-    const reboundColumn = await resolveReboundColumnFor(deps.store, live.id);
+    await deps.store.updateTask(live.id, { status: null, error: null }, deps.getRunContextFor(live.id));
     if (live.column !== reboundColumn) {
-      await deps.store.moveTask(live.id, reboundColumn, {
+      await moveTaskWithLifecycleReason(deps.store, live.id, reboundColumn, incompleteSteps ? "execution-resume" : "workflow-retry-rehome", {
         preserveProgress: true,
         moveSource: "engine",
         recoveryRehome: true,

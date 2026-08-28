@@ -10,6 +10,7 @@
 import type { TaskStore } from "@fusion/core";
 import { resolveWipTargetForTask } from "@fusion/core";
 import { executorLog } from "../logger.js";
+import { moveTaskWithLifecycleReason } from "../execution/lifecycle-move.js";
 import { resolveReboundColumnFor } from "./lifecycle-columns.js";
 
 export type WorkflowRerunBounceDeps = {
@@ -30,7 +31,7 @@ export async function performWorkflowRerunBounce(
   When false, do not persist the remediation path as task.worktree (external checkouts).
   */
   persistWorktreePath: boolean = true,
-): Promise<"bounced" | "skipped-pending" | "deferred-paused"> {
+): Promise<"bounced" | "skipped-pending" | "deferred-paused" | "deferred-capacity"> {
   const pauseLabel = await deps.getExecutionPauseLabel();
   if (pauseLabel) {
     executorLog.log(`${taskId}: workflow rerun deferred — ${pauseLabel} active`);
@@ -64,43 +65,36 @@ export async function performWorkflowRerunBounce(
     const bounceLanes = await deps.resolveResumeLanes(taskId);
     if (latestTask.column === bounceLanes.wip || latestTask.column === bounceLanes.review) {
       const originalExecutionStartedAt = latestTask.executionStartedAt;
-      // Preserve step progress across the in-progress/in-review → todo hop:
-      // moveTask's default reopen-to-todo path resets every step to
-      // pending and rewrites PROMPT.md checkboxes, which would discard
-      // the partial progress this bounce is supposed to retry on top of.
-      // `preserveWorktree` keeps the same checkout assigned across the
-      // hop so listeners never observe an interim `worktree=null` state
-      // — this bounce immediately re-promotes the task on the same
-      // directory, so releasing it would publish a misleading snapshot
-      // and could let self-healing reclaim the worktree as idle.
-      if (preserveResumeState) {
-        await deps.store.moveTask(taskId, await resolveReboundColumnFor(deps.store, taskId), {
-          preserveResumeState: true,
-          preserveWorktree: true,
-          workflowMoveSource: "workflow-remediation",
-        });
-      } else {
-        await deps.store.moveTask(taskId, await resolveReboundColumnFor(deps.store, taskId), { preserveWorktree: true, workflowMoveSource: "workflow-remediation" });
+      /*
+      FNXC:LifecycleContainment 2026-08-28-02:24:
+      FN-207 removes the old review → Planning → WIP rerun hop. Review remediation moves directly
+      to WIP, while remediation already in WIP stays there; both preserve the checkout and progress.
+      A full WIP lane defers the card in review for the watchdog retry instead of retargeting Planning.
+      */
+      if (latestTask.column === bounceLanes.review) {
+        const moveResult = await moveTaskWithLifecycleReason(
+          deps.store,
+          taskId,
+          bounceLanes.wip,
+          "workflow-graph-node-column",
+          {
+            ...(preserveResumeState ? { preserveResumeState: true } : {}),
+            preserveWorktree: true,
+            workflowMoveSource: "workflow-remediation",
+          },
+        );
+        if (!moveResult.moved) return "deferred-capacity";
       }
-      // Restore worktree + executionStartedAt unconditionally to match
-      // the original bounce contract: even with preserveWorktree the
-      // worktree pointer could have been cleared by an in-flight
-      // updateTask, and executionStartedAt is reset by moveTask when
-      // preserveResumeState is false. Keep the writes so callers and
-      // tests can observe the restoration deterministically.
       await deps.store.updateTask(taskId, {
         ...(persistWorktreePath ? { worktree: worktreePath } : {}),
         executionStartedAt: originalExecutionStartedAt ?? null,
       });
-      const pauseLabelAfterTodo = await deps.getExecutionPauseLabel();
-      if (pauseLabelAfterTodo) {
-        executorLog.log(`${taskId}: workflow rerun parked in todo — ${pauseLabelAfterTodo} became active during bounce`);
+      const pauseLabelAfterMove = await deps.getExecutionPauseLabel();
+      if (pauseLabelAfterMove) {
+        executorLog.log(`${taskId}: workflow rerun contained in ${bounceLanes.wip} — ${pauseLabelAfterMove} became active during bounce`);
         return "deferred-paused";
       }
-      // Now in `todo` (non-mergeable) — archive prior gate failures for the next reviewer.
       await deps.clearTerminalStepFailuresForRetry(taskId, "archive");
-      /* FNXC:WorkflowResolvedColumns 2026-07-30-21:40: census-invisible moveTask DESTINATION — a call argument, not a comparison. The SOURCE guard four lines up already resolves via resolveReboundColumnFor; leaving the destination literal is a split brain inside one function. */
-      await deps.store.moveTask(taskId, await resolveWipTargetForTask(deps.store, taskId));
       return "bounced";
     }
 

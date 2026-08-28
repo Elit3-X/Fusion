@@ -236,17 +236,32 @@ export function createTaskDoneTool(
               deps.getRunContextFor(taskId),
             );
             deps.workflowLifecycleMovesInFlight.add(taskId);
+            let replanResult: Awaited<ReturnType<typeof moveTaskToReplanColumn>>;
             try {
-              await moveTaskToReplanColumn(deps.store, { id: taskId, column: blockedTask.column }, replanColumn);
+              replanResult = await moveTaskToReplanColumn(
+                deps.store,
+                { id: taskId, column: blockedTask.column },
+                "blocked-exit-replan",
+                replanColumn,
+              );
             } finally {
               deps.workflowLifecycleMovesInFlight.delete(taskId);
             }
-            await store.updateTask(taskId, {
-              status: "needs-replan",
-              error: null,
-              paused: false,
-              pausedByAgentId: null,
-            }, deps.getRunContextFor(taskId));
+            if (typeof replanResult === "object" && replanResult.reason === "review-lane-source") {
+              await store.updateTask(taskId, {
+                status: "failed",
+                error: parkError,
+                paused: false,
+                pausedByAgentId: null,
+              }, deps.getRunContextFor(taskId));
+            } else {
+              await store.updateTask(taskId, {
+                status: "needs-replan",
+                error: null,
+                paused: false,
+                pausedByAgentId: null,
+              }, deps.getRunContextFor(taskId));
+            }
           } else {
             await store.updateTask(taskId, {
               status: "failed",

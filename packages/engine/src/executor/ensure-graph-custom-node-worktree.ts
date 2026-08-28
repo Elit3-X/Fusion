@@ -67,13 +67,6 @@ export async function ensureGraphCustomNodeWorktree(
   const commandAbortController = new AbortController();
   deps.registerConfiguredCommandController(task.id, commandAbortController);
   try {
-    await deps.store.logEntry(
-      task.id,
-      `Workflow node '${nodeId}' requires a task worktree — acquiring worktree before node execution`,
-      undefined,
-      deps.getRunContextFor(task.id),
-    );
-
     /*
     FNXC:WorkspaceWorktree 2026-08-22-22:42:
     FN-158 acquires only the planner-confirmed repository scope. Callers reach
@@ -81,6 +74,12 @@ export async function ensureGraphCustomNodeWorktree(
     branch, lease, or worktree before it can declare its scope.
     */
     if (workspaceConfig) {
+      await deps.store.logEntry(
+        task.id,
+        `Workflow node '${nodeId}' acquiring workspace checkouts for ${task.repositoryScope?.repositories.length ?? 0} repository(ies)`,
+        undefined,
+        deps.getRunContextFor(task.id),
+      );
       if (task.repositoryScope?.state !== "confirmed") {
         throw new Error("Workspace acquisition requires a confirmed ## Repository Scope");
       }
@@ -117,6 +116,12 @@ export async function ensureGraphCustomNodeWorktree(
       return { ...task, ...workspace.task } as TaskDetail;
     }
 
+    await deps.store.logEntry(
+      task.id,
+      `Workflow node '${nodeId}' requires a task worktree — acquiring worktree before node execution`,
+      undefined,
+      deps.getRunContextFor(task.id),
+    );
     const acquisition = await acquireTaskWorktree({
       task,
       rootDir: deps.rootDir,

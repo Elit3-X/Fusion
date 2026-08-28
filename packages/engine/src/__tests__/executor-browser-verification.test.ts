@@ -403,12 +403,12 @@ describe("browser-verification workflow-step browser capability", () => {
       log: [
         {
           timestamp: "2026-08-03T00:00:01.000Z",
-          action: "Plan Review failed — moved to todo for automatic replan (attempt 1/unbounded)",
+          action: "Plan Review requested a plan revision — moved to 'todo' (attempt 1/unbounded)",
           outcome: "PRIOR-BLOCKER-ONE\nWorkflow revision key: spec-gate",
         },
         {
           timestamp: "2026-08-03T00:00:03.000Z",
-          action: "Plan Review failed — moved to todo for automatic replan (attempt 2/unbounded)",
+          action: "Plan Review requested a plan revision — moved to 'todo' (attempt 2/unbounded)",
           outcome: "PRIOR-BLOCKER-TWO\nWorkflow revision key: spec-gate",
         },
         {
@@ -464,7 +464,7 @@ describe("browser-verification workflow-step browser capability", () => {
       log: [
         {
           timestamp: "2026-08-03T00:00:01.000Z",
-          action: "Plan Review failed — moved to todo for automatic replan (attempt 7/unbounded)",
+          action: "Plan Review requested a plan revision — moved to 'todo' (attempt 7/unbounded)",
           outcome: "OLD-LOG-MUST-NOT-COUNT\nWorkflow revision key: plan-review",
         },
       ],

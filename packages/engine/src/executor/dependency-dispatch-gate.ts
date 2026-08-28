@@ -53,6 +53,7 @@ export async function blockOuterDispatchWhenDependenciesUnmet(
       preserveWorktree: true,
       preserveResumeState: true,
       moveSource: "engine",
+      lifecycleReason: "self-healing-dependency-rebound",
       recoveryRehome: true,
     });
   }

@@ -174,6 +174,61 @@ describe("fix steps appear on the card when a gate fails", () => {
     expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    "parked-wave-exhausted",
+    "parked-upstream-out-of-scope",
+    "parked-no-pending-work",
+    "parked-workspace-worktree-missing",
+    "superseded-scope",
+  ] as const)("does not reopen trailing work after the terminal remediation outcome %s", async (outcome) => {
+    const { deps, task, sendTaskBackForFix } = harness("builtin:coding");
+    deps.appendReviewRemediationSteps = vi.fn(async () => outcome) as never;
+
+    const scheduled = await requestPreMergeOptionalStepFix(deps as never, task.id, task, {
+      stepName: "Code Review",
+      feedback: "Review requested a bounded remediation outcome.",
+      phase: "pre-merge",
+      status: "failed",
+      verdict: "REVISE",
+      nodeId: "code-review",
+    });
+
+    expect(scheduled).toBe(false);
+    expect(sendTaskBackForFix).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "Code Review REVISE",
+      info: {
+        stepName: "Code Review",
+        feedback: "Review supplied no file-specific actionable finding.",
+        phase: "pre-merge" as const,
+        status: "failed" as const,
+        verdict: "REVISE" as const,
+        nodeId: "code-review",
+      },
+    },
+    {
+      label: "deterministic Verification without a reviewer verdict",
+      info: {
+        stepName: "Verification (test)",
+        feedback: "Verification failed without a parseable file-specific finding.",
+        phase: "pre-merge" as const,
+        status: "failed" as const,
+        nodeId: "verification",
+      },
+    },
+  ])("falls back to reopening trailing work only for no actionable findings from $label", async ({ info }) => {
+    const { deps, task, sendTaskBackForFix } = harness("builtin:coding");
+    deps.appendReviewRemediationSteps = vi.fn(async () => "parked-no-actionable-findings") as never;
+
+    const scheduled = await requestPreMergeOptionalStepFix(deps as never, task.id, task, info);
+
+    expect(scheduled).toBe(true);
+    expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
+  });
+
   /*
   A gate that failed for transport/provider reasons produced no verdict and therefore no findings.
   Manufacturing work from it would hand the executor an invented task.
@@ -207,7 +262,7 @@ describe("fix steps appear on the card when a gate fails", () => {
         task,
         { stepName: "Step 1", feedback: FAILING_OUTPUT, phase: "pre-merge", status: "failed", nodeId } as never,
       );
-      expect(appended, `nodeId ${String(nodeId)} must not be able to append work`).toBe(false);
+      expect(appended, `nodeId ${String(nodeId)} must not be able to append work`).toBe("not-applicable");
     }
 
     expect(pending()).toHaveLength(0);
@@ -266,11 +321,7 @@ describe("fix steps appear on the card when a gate fails", () => {
     expect(sendTaskBackForFix).not.toHaveBeenCalled();
   });
 
-  /*
-  The appended shape is selected by the WORKFLOW, not by this seam: Coding (Ideas) reopens its
-  trailing step instead, and must keep doing so.
-  */
-  it("leaves the inherited Coding (Ideas) workflow on its reopen-trailing bounce", async () => {
+  it("derives named remediation for the inherited Coding (Ideas) workflow", async () => {
     const { deps, task, pending } = harness("builtin:coding-ideas");
 
     await requestPreMergeOptionalStepFix(deps as never, task.id, task, {
@@ -283,6 +334,7 @@ describe("fix steps appear on the card when a gate fails", () => {
       findings: [{ id: "f1", title: "t", body: "b", filePath: "packages/engine/src/retry.ts", severity: "critical" }],
     });
 
-    expect(pending(), "named remediation belongs to V2, not to the inherited board").toHaveLength(0);
+    expect(pending()).toHaveLength(1);
+    expect(pending()[0]?.name).toBe("Fix: b");
   });
 });

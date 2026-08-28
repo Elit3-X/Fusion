@@ -550,7 +550,7 @@ export async function runImplementation(
         executorLog.warn(`Task ${task.id} specification is stale — ${staleness.reason}`);
         // Move to the workflow-aware replan column first, then set status so the task
         // enters it with needs-replan (workflows without "triage" replan in place in todo).
-        await moveTaskToReplanColumn(deps.store, task);
+        await moveTaskToReplanColumn(deps.store, task, "stale-spec-replan");
         await deps.store.updateTask(task.id, { status: "needs-replan" });
         await deps.store.logEntry(task.id, staleness.reason, undefined, deps.getRunContextFor(task.id));
         // FNXC:GlobalConcurrencyControls 2026-07-15-02:55: replan handoff never starts agent work — free any re-registered pre-held slot before leaving execute().
@@ -1599,7 +1599,7 @@ export async function runImplementation(
             await deps.store.updateTask(task.id, { status: null, error: null });
             await deps.store.logEntry(task.id, `Step-session failed — requeued for execution resume: ${errorSummary}`, undefined, deps.getRunContextFor(task.id));
             deps.markGraphExecuteSelfRequeued(task.id);
-            await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
+            await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true, moveSource: "engine", lifecycleReason: "self-healing-session-recovery", recoveryRehome: true });
             executorLog.log(`✗ ${task.id} step-session failed → todo resume: ${errorSummary}`);
             deps.options.onError?.(task, new Error(errorSummary));
           }
@@ -1734,7 +1734,7 @@ export async function runImplementation(
             await deps.store.logEntry(task.id, `Step-session execution failed: ${errorMessage}`, errorStack ?? errorDetail, deps.getRunContextFor(task.id));
             await deps.store.updateTask(task.id, { status: null, error: null });
             deps.markGraphExecuteSelfRequeued(task.id);
-            await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
+            await deps.store.moveTask(task.id, await resolveReboundColumnFor(deps.store, task.id), { preserveProgress: true, moveSource: "engine", lifecycleReason: "self-healing-session-recovery", recoveryRehome: true });
             executorLog.log(`✗ ${task.id} step-session execution failed → todo resume`);
             deps.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           }

@@ -22,7 +22,10 @@ import {
   resolveStepReopenPolicy,
 } from "@fusion/core";
 
-import { appendReviewRemediationSteps } from "../executor/append-review-remediation-steps.js";
+import {
+  appendReviewRemediationSteps,
+  type AppendReviewRemediationOutcome,
+} from "../executor/append-review-remediation-steps.js";
 import { bounceVerificationFailure } from "../executor/bounce-verification-failure.js";
 
 const FAILING_TEST_OUTPUT =
@@ -41,11 +44,11 @@ function task(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
-function seam(overrides: { appended?: boolean } = {}) {
+function seam(overrides: { outcome?: AppendReviewRemediationOutcome } = {}) {
   const live = task();
   const deps = {
     store: { getTask: vi.fn(async () => live) },
-    appendReviewRemediationSteps: vi.fn(async () => overrides.appended ?? true),
+    appendReviewRemediationSteps: vi.fn(async () => overrides.outcome ?? "appended" as const),
     sendTaskBackForFix: vi.fn(async () => undefined),
     clearCompletedTaskWatchdog: vi.fn(),
   };
@@ -95,7 +98,7 @@ describe("deterministic verification failure → named remediation", () => {
   });
 
   it("treats a remediation park as terminal rather than re-dispatching the executor", async () => {
-    const { deps } = seam({ appended: false });
+    const { deps } = seam({ outcome: "parked-wave-exhausted" });
 
     const outcome = await bounceVerificationFailure(deps, {
       task: task(),
@@ -112,14 +115,13 @@ describe("deterministic verification failure → named remediation", () => {
     expect(deps.clearCompletedTaskWatchdog).toHaveBeenCalledWith("FN-VR-1");
   });
 
-  it("leaves the reopen-trailing workflows on their exact prior bounce", async () => {
+  it("uses named remediation on reopen-trailing workflows when findings are actionable", async () => {
     for (const ir of [BUILTIN_CODING_WORKFLOW_IR, BUILTIN_CODING_IDEAS_WORKFLOW_IR]) {
       const { deps } = seam();
       expect(resolveStepReopenPolicy(ir)).toBe("reopen-trailing");
 
-      const subject = task();
       const outcome = await bounceVerificationFailure(deps, {
-        task: subject,
+        task: task(),
         worktreePath: "/tmp/fn-vr-1",
         failedType: "test",
         feedback: FAILING_TEST_OUTPUT,
@@ -127,22 +129,28 @@ describe("deterministic verification failure → named remediation", () => {
         stepReopenPolicy: resolveStepReopenPolicy(ir),
       });
 
-      expect(outcome).toBe("reopened-trailing");
-      expect(deps.appendReviewRemediationSteps).not.toHaveBeenCalled();
-      expect(deps.sendTaskBackForFix).toHaveBeenCalledWith(
-        subject,
-        "/tmp/fn-vr-1",
-        FAILING_TEST_OUTPUT,
-        "Verification (test)",
-        "Deterministic verification failed after 3 fix attempts",
-        true,
-        true,
-        undefined,
-        undefined,
-        undefined,
-        "reopen-trailing",
-      );
+      expect(outcome).toBe("named-remediation");
+      expect(deps.appendReviewRemediationSteps).toHaveBeenCalledTimes(1);
+      expect(deps.sendTaskBackForFix).not.toHaveBeenCalled();
     }
+  });
+
+  it("falls back to reopening only when no actionable finding can be derived", async () => {
+    const { deps } = seam({ outcome: "parked-no-actionable-findings" });
+    const subject = task();
+
+    const outcome = await bounceVerificationFailure(deps, {
+      task: subject,
+      worktreePath: "/tmp/fn-vr-1",
+      failedType: "test",
+      feedback: "Verification failed without a file-specific finding",
+      reason: "Deterministic verification failed",
+      stepReopenPolicy: "reopen-trailing",
+    });
+
+    expect(outcome).toBe("reopened-trailing");
+    expect(deps.sendTaskBackForFix).toHaveBeenCalledTimes(1);
+    expect(deps.clearCompletedTaskWatchdog).not.toHaveBeenCalled();
   });
 
   /*
@@ -187,7 +195,7 @@ describe("deterministic verification failure → named remediation", () => {
       },
     );
 
-    expect(appended).toBe(true);
+    expect(appended).toBe("appended");
     const pending = (live.steps ?? []).filter((step) => step.status === "pending");
     expect(pending).toHaveLength(1);
     expect(pending[0]!.name).toContain("packages/engine/src/retry.ts");

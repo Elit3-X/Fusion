@@ -730,11 +730,21 @@ export async function moveTaskInternalImpl(store: TaskStore, id: string, toColum
               requiredPreMergeStepIds: resolveRequiredPreMergeStepIds(workflowIr, task.enabledWorkflowSteps),
             }) ?? null)
             : null;
+        /*
+        FNXC:LifecycleContainment 2026-08-28-01:09:
+        FN-207 applies the direction policy even to bypassed and recovery-rehome
+        moves, so this in-lock validator receives the raw option rather than the
+        resolved `moveSource`. An absent option remains an operator-compatible,
+        fail-open legacy route; explicit engine/scheduler movers are covered by
+        the move-reason census and forbidden-path tests.
+        */
         const decision = evaluateTransitionInvariants({
           taskId: id,
           from: fromFacts,
           to: toFacts,
           mergeBlockerReason,
+          moveSource: options?.moveSource,
+          lifecycleReason: options?.lifecycleReason,
         });
         if (!decision.allow) {
           throw new TransitionRejectionError(
@@ -1502,7 +1512,23 @@ export async function moveTaskInternalImpl(store: TaskStore, id: string, toColum
       const lanes = toTaskMoveLanes(await resolveWorkflowIrForTask(store, task.id).catch(() => undefined));
       /* FNXC:WorkflowEvents 2026-08-22-00:13: an unresolved payload is unknown; retain a warm real cache answer until its TTL expires. */
       if (lanes) store.laneCache.set(task.id, lanes);
-      store.emit("task:moved", { task, from: fromColumn, to: toColumn, source: moveSource, lanes });
+      store.emit("task:moved", {
+        task,
+        from: fromColumn,
+        to: toColumn,
+        source: moveSource,
+        lanes,
+        requestedSource: options?.moveSource,
+        lifecycleReason: options?.lifecycleReason,
+        /*
+        FNXC:LifecycleContainment 2026-08-28-04:47:
+        FN-207 — the canonical emitter is the only place that holds the mover's graph provenance at
+        emit time. Withholding it made every forward graph transition unattributable downstream, so
+        the lifecycle log could only say "unattributed automatic move" for moves that were in fact
+        fully provenanced. Forward the raw option; the listener decides how to render it.
+        */
+        workflowMoveSource: options?.workflowMoveSource,
+      });
       /*
       FNXC:WorkflowEvents 2026-07-27-11:45 (U3 / R5, R6):
       THE post-commit emit point for lifecycle transitions. Its position is the

@@ -108,7 +108,12 @@ export async function recoverMissingRequiredArtifacts(
   try {
     const liveTask = await deps.store.getTask(task.id).catch(() => null);
     if (!liveTask || await deps.isRequiredArtifactRecoveryProtected(liveTask)) return;
-    await moveTaskToReplanColumn(deps.store, { id: task.id, column: liveTask.column }, replanColumn);
+    await moveTaskToReplanColumn(
+      deps.store,
+      { id: task.id, column: liveTask.column },
+      "missing-required-artifact-recovery",
+      replanColumn,
+    );
   } finally {
     deps.workflowLifecycleMovesInFlight.delete(task.id);
   }

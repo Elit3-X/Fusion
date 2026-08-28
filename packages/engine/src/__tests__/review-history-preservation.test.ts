@@ -68,7 +68,14 @@ describe("FN-149 automatic remediation history preservation", () => {
 
     expect(outcome).toBe("bounced");
     expect(clearTerminalStepFailuresForRetry).toHaveBeenCalledWith(row.id, "archive");
-    expect(moveTask.mock.calls[0][2]).toMatchObject({ workflowMoveSource: "workflow-remediation" });
+    if (column === "in-review") {
+      expect(moveTask).toHaveBeenCalledWith(row.id, "in-progress", expect.objectContaining({
+        workflowMoveSource: "workflow-remediation",
+        lifecycleReason: "workflow-graph-node-column",
+      }));
+    } else {
+      expect(moveTask).not.toHaveBeenCalled();
+    }
     expectRoundTwoHistory(row.workflowStepResults);
   });
 
@@ -94,7 +101,7 @@ describe("FN-149 automatic remediation history preservation", () => {
     expectRoundTwoHistory(row.workflowStepResults);
   });
 
-  it("archives after a remediation-provenanced review-lane replan", async () => {
+  it("contains a remediation-provenanced review-lane replan before archiving", async () => {
     const row = { id: "FN-149-replan", column: "in-review", workflowStepResults: [revise("2026-08-22T01:00:00.000Z")] } as any;
     const store = {
       getTask: vi.fn(async () => row),
@@ -103,14 +110,20 @@ describe("FN-149 automatic remediation history preservation", () => {
       getTaskWorkflowSelection: vi.fn(async () => undefined),
       getWorkflowDefinition: vi.fn(async () => undefined),
     };
-    const target = await moveTaskToReplanColumn(store as any, row, "todo", { workflowMoveSource: "workflow-remediation" });
-    expect(target).toBe("todo");
-    expect(row.moveOptions).toMatchObject({ workflowMoveSource: "workflow-remediation" });
+    const target = await moveTaskToReplanColumn(
+      store as any,
+      row,
+      "plan-review-revise-replan",
+      "todo",
+      { workflowMoveSource: "workflow-remediation" },
+    );
+    expect(target).toEqual({ moved: false, reason: "review-lane-source", column: "in-review" });
+    expect(store.moveTask).not.toHaveBeenCalled();
     await clearTerminalStepFailuresForRetryStore({ store, getRunContextFor: () => undefined } as any, row.id, "archive");
     expectRoundTwoHistory(row.workflowStepResults);
   });
 
-  it("keeps a review-lane replan destructive without remediation provenance", async () => {
+  it("contains an unprovenanced review-lane replan without erasing review evidence", async () => {
     const row = { id: "FN-149-unprovenanced", column: "in-review", workflowStepResults: [revise("2026-08-22T01:00:00.000Z")] } as any;
     const store = {
       getTask: vi.fn(async () => row),
@@ -121,9 +134,10 @@ describe("FN-149 automatic remediation history preservation", () => {
       }),
       getTaskWorkflowSelection: vi.fn(async () => undefined), getWorkflowDefinition: vi.fn(async () => undefined),
     };
-    await moveTaskToReplanColumn(store as any, row, "todo");
-    expect(store.moveTask).toHaveBeenCalledWith(row.id, "todo", expect.not.objectContaining({ workflowMoveSource: "workflow-remediation" }));
-    expect(row.workflowStepResults).toBeUndefined();
+    const result = await moveTaskToReplanColumn(store as any, row, "plan-review-revise-replan", "todo");
+    expect(result).toEqual({ moved: false, reason: "review-lane-source", column: "in-review" });
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expectRoundTwoHistory(row.workflowStepResults);
   });
 
   it("fails closed when a pause arrives after the bounce move", async () => {

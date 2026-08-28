@@ -143,7 +143,7 @@ vi.mock("../merger.js", () => ({
 
 import { SelfHealingManager, isBranchAheadOfBase, MAX_AUTO_MERGE_RETRIES, MAX_TASK_DONE_RETRIES } from "../self-healing.js";
 import { HEARTBEAT_ERROR_RECOVERY_METADATA_KEY, HEARTBEAT_ERROR_RETRY_EXHAUSTED_PAUSE_REASON, HEARTBEAT_ERROR_UNRECOVERABLE_PAUSE_REASON, readHeartbeatErrorRetryCount } from "../agent-heartbeat.js";
-import { PlanningLifecycleLockTransportError, TaskDeletedError, TaskNotFoundError, type TaskStore, type Settings, type Task, type AgentStore, type Agent, type NotificationProvider } from "@fusion/core";
+import { PlanningLifecycleLockTransportError, TaskDeletedError, TaskNotFoundError, TransitionRejectionError, type TaskStore, type Settings, type Task, type AgentStore, type Agent, type NotificationProvider } from "@fusion/core";
 import { EventEmitter } from "node:events";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -258,6 +258,80 @@ describe("SelfHealingManager", () => {
     mockedGetRegisteredWorktreePaths.mockResolvedValue(new Set<string>());
     mockedGetRegisteredWorktreeBranchMap.mockResolvedValue(new Map<string, string>());
     mockedClassifyOwnedLandedEvidence.mockResolvedValue({ kind: "proven-no-op", baseRef: "main", ownDiffEmpty: true });
+  });
+
+  it("contains a review rebound when the WIP lane is at capacity", async () => {
+    const task = { id: "FN-207-CAP", column: "in-review" } as Task;
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(task);
+    (store.moveTask as ReturnType<typeof vi.fn>).mockRejectedValue(new TransitionRejectionError({
+      code: "capacity-exhausted",
+      messageKey: "transition.rejected.capacityExhausted",
+      retryable: true,
+      detail: "WIP is full",
+    }, "WIP is full"));
+
+    const result = await (manager as any).reboundTask(
+      task.id,
+      "self-healing-stranded-recovery",
+      task.column,
+      { preserveProgress: true },
+    );
+
+    expect(result).toEqual({ moved: false, deferred: "capacity", detail: "WIP is full" });
+    expect(store.moveTask).toHaveBeenCalledTimes(1);
+    expect(store.moveTask).toHaveBeenCalledWith(task.id, "in-progress", expect.objectContaining({
+      moveSource: "engine",
+      lifecycleReason: "self-healing-stranded-recovery",
+    }));
+    expect(store.logEntry).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining("Lifecycle move deferred: in-review → in-progress"),
+    );
+  });
+
+  /*
+  FNXC:LifecycleContainment 2026-08-28-04:47:
+  Race ordering: every rebound call site hands in the `task.column` it read when the sweep SELECTED
+  the card. Containment is role-relative, so acting on that snapshot after an operator drag or another
+  engine path moved the card sends it to the destination for a role it no longer occupies. The repair
+  must resolve its target from the row as it stands at repair time, in both directions.
+  */
+  it("resolves the rebound target from the live column when the caller's snapshot is stale", async () => {
+    // Sweep selected the card in review; by repair time it already sits in WIP.
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "FN-207-RACE", column: "in-progress" } as Task);
+    (store.moveTask as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    await (manager as any).reboundTask("FN-207-RACE", "self-healing-stranded-recovery", "in-review", {});
+
+    // WIP contains backward to hold. The stale review snapshot would have produced a lateral in-progress move.
+    expect(store.moveTask).toHaveBeenCalledWith("FN-207-RACE", "todo", expect.objectContaining({
+      moveSource: "engine",
+      lifecycleReason: "self-healing-stranded-recovery",
+    }));
+    expect(store.moveTask).not.toHaveBeenCalledWith("FN-207-RACE", "in-progress", expect.anything());
+  });
+
+  it("resolves review containment from the live row when the caller believed the card was in WIP", async () => {
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "FN-207-RACE-2", column: "in-review" } as Task);
+    (store.moveTask as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    await (manager as any).reboundTask("FN-207-RACE-2", "self-healing-session-recovery", "in-progress", {});
+
+    expect(store.moveTask).toHaveBeenCalledWith("FN-207-RACE-2", "in-progress", expect.objectContaining({
+      moveSource: "engine",
+    }));
+    expect(store.moveTask).not.toHaveBeenCalledWith("FN-207-RACE-2", "todo", expect.anything());
+  });
+
+  it("falls back to the caller's column only when the live row cannot be read", async () => {
+    (store.getTask as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("row unreadable"));
+    (store.moveTask as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    await (manager as any).reboundTask("FN-207-RACE-3", "self-healing-stranded-recovery", "in-review", {});
+
+    expect(store.moveTask).toHaveBeenCalledWith("FN-207-RACE-3", "in-progress", expect.objectContaining({
+      moveSource: "engine",
+    }));
   });
 
   afterEach(() => {
@@ -529,6 +603,7 @@ describe("SelfHealingManager", () => {
         preserveWorktree: true,
         preserveStatus: true,
         moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
         recoveryRehome: true,
       });
       expect(store.handoffToReview).not.toHaveBeenCalled();
@@ -598,6 +673,7 @@ describe("SelfHealingManager", () => {
         preserveWorktree: true,
         preserveStatus: true,
         moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
         recoveryRehome: true,
       });
       expect(store.updateTask).not.toHaveBeenCalledWith("FN-001", expect.objectContaining({
@@ -700,6 +776,7 @@ describe("SelfHealingManager", () => {
         preserveWorktree: true,
         preserveStatus: true,
         moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
         recoveryRehome: true,
       });
       expect(store.logEntry).toHaveBeenCalledWith(
@@ -2299,7 +2376,11 @@ describe("SelfHealingManager", () => {
         "FN-1473",
         expect.stringContaining("no-progress no-task_done failure"),
       );
-      expect(store.moveTask).toHaveBeenCalledWith("FN-1473", "todo", { moveSource: "engine", recoveryRehome: true });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-1473", "todo", {
+        moveSource: "engine",
+        lifecycleReason: "self-healing-session-recovery",
+        recoveryRehome: true,
+      });
 
       managerWithRecovery.stop();
     });
@@ -4724,7 +4805,13 @@ describe("SelfHealingManager", () => {
         "FN-2164",
         expect.stringContaining("Auto-retry 1/3"),
       );
-      expect(store.moveTask).toHaveBeenCalledWith("FN-2164", "todo", { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-2164", "in-progress", {
+        preserveProgress: true,
+        preserveWorktree: true,
+        moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
+        recoveryRehome: true,
+      });
 
       managerWithRecovery.stop();
     });
@@ -6400,7 +6487,12 @@ describe("SelfHealingManager", () => {
       expect(result).toBe(1);
       // "Verify"/"Testing" are skipped verification steps → precise reason naming them.
       expect(store.updateTask).toHaveBeenCalledWith("FN-6461", expect.objectContaining({ error: expect.stringContaining("skipped verification step") }));
-      expect(store.moveTask).toHaveBeenCalledWith("FN-6461", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine", recoveryRehome: true }));
+      expect(store.moveTask).toHaveBeenCalledWith("FN-6461", "in-progress", expect.objectContaining({
+        preserveProgress: true,
+        moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
+        recoveryRehome: true,
+      }));
       expect(store.moveTask).not.toHaveBeenCalledWith("FN-6461", "done");
       expect(store.logEntry).toHaveBeenCalledWith(
         "FN-6461",
@@ -6561,7 +6653,9 @@ describe("SelfHealingManager", () => {
 
       expect(result).toBe(0);
       expect(store.moveTask).not.toHaveBeenCalledWith("FN-501", "done");
-      expect(store.moveTask).toHaveBeenCalledWith("FN-501", "todo", expect.anything());
+      expect(store.moveTask).toHaveBeenCalledWith("FN-501", "in-progress", expect.objectContaining({
+        lifecycleReason: "self-healing-stranded-recovery",
+      }));
       expect((store as any).recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
         mutationType: "task:finalize-unproven-blocked",
         target: "FN-501",
@@ -6760,7 +6854,13 @@ describe("SelfHealingManager", () => {
         "FN-1572",
         expect.stringContaining("in-review task still had incomplete steps"),
       );
-      expect(store.moveTask).toHaveBeenCalledWith("FN-1572", "todo", { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-1572", "in-progress", {
+        preserveProgress: true,
+        preserveWorktree: true,
+        moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
+        recoveryRehome: true,
+      });
 
       managerWithRecovery.stop();
     });
@@ -6819,7 +6919,13 @@ describe("SelfHealingManager", () => {
       const result = await managerWithRecovery.recoverStaleIncompleteReviewTasks();
 
       expect(result).toBe(1);
-      expect(store.moveTask).toHaveBeenCalledWith("FN-407-test-1", "todo", { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-407-test-1", "in-progress", {
+        preserveProgress: true,
+        preserveWorktree: true,
+        moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
+        recoveryRehome: true,
+      });
 
       managerWithRecovery.stop();
     });
@@ -6847,7 +6953,13 @@ describe("SelfHealingManager", () => {
       const result = await managerWithRecovery.recoverStaleIncompleteReviewTasks();
 
       expect(result).toBe(1);
-      expect(store.moveTask).toHaveBeenCalledWith("FN-407-test-2", "todo", { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-407-test-2", "in-progress", {
+        preserveProgress: true,
+        preserveWorktree: true,
+        moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
+        recoveryRehome: true,
+      });
 
       managerWithRecovery.stop();
     });
@@ -7096,10 +7208,11 @@ describe("SelfHealingManager", () => {
       const result = await managerWithRecovery.recoverStaleIncompleteReviewTasks();
 
       expect(result).toBe(1);
-      expect(store.moveTask).toHaveBeenCalledWith("FN-7229", "todo", {
+      expect(store.moveTask).toHaveBeenCalledWith("FN-7229", "in-progress", {
         preserveProgress: true,
         preserveWorktree: true,
         moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
         recoveryRehome: true,
       });
 
@@ -9219,7 +9332,13 @@ describe("SelfHealingManager", () => {
 
       expect(result).toBe(1);
       expect(store.updateTask).not.toHaveBeenCalled();
-      expect(store.moveTask).toHaveBeenCalledWith("FN-9003", "todo", { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-9003", "in-progress", {
+        preserveProgress: true,
+        preserveWorktree: true,
+        moveSource: "engine",
+        lifecycleReason: "self-healing-stranded-recovery",
+        recoveryRehome: true,
+      });
 
       managerWithRecovery.stop();
     });
@@ -13271,10 +13390,25 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
           ],
         },
       }]);
+      store.getTaskWorkflowSelection = vi.fn(async () => ({ workflowId: "custom:renamed", stepIds: [] }));
+      store.getWorkflowDefinition = vi.fn(async () => ({
+        id: "custom:renamed",
+        ir: {
+          version: "v2", id: "custom:renamed", nodes: [], edges: [],
+          columns: [
+            { id: "drafting", name: "drafting", traits: [{ trait: "hold", config: { release: "capacity" } }] },
+            { id: "building", name: "building", traits: [{ trait: "wip", config: { limitSetting: "maxConcurrent" } }] },
+          ],
+        },
+      } as any));
       vi.spyOn(manager as any, "evaluateBackwardMoveTripleProof").mockResolvedValue({ ok: true, stalenessMs: 10_000, reason: "test" });
 
       await expect(manager.reconcileDependencyBlockingLeases()).resolves.toBe(1);
-      expect(store.moveTask).toHaveBeenCalledWith("FN-H2", expect.anything(), expect.objectContaining({ recoveryRehome: true }));
+      expect(store.moveTask).toHaveBeenCalledWith("FN-H2", "drafting", expect.objectContaining({
+        moveSource: "engine",
+        lifecycleReason: "self-healing-dependency-rebound",
+        recoveryRehome: true,
+      }));
       manager.stop();
     });
 
@@ -13450,17 +13584,18 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
 
       await expect(manager.reconcileInReviewUnmetDependencies()).resolves.toBe(2);
 
-      expect(store.moveTask).toHaveBeenCalledWith("FN-6778", "todo", expect.objectContaining({
+      expect(store.moveTask).toHaveBeenCalledWith("FN-6778", "in-progress", expect.objectContaining({
         preserveProgress: true,
         preserveWorktree: true,
         preserveResumeState: true,
         moveSource: "engine",
+        lifecycleReason: "self-healing-dependency-rebound",
         recoveryRehome: true,
         bypassGuards: true,
       }));
       expect(store.updateTask).toHaveBeenCalledWith("FN-6778", { status: "queued", blockedBy: "FN-6777" });
       expect(store.updateTask).toHaveBeenCalledWith("FN-6779", { status: "queued", blockedBy: "FN-6770" });
-      expect(tasks.get("FN-6778")?.column).toBe("todo");
+      expect(tasks.get("FN-6778")?.column).toBe("in-progress");
       expect(tasks.get("FN-6778")?.blockedBy).toBe("FN-6777");
       expect(tasks.get("FN-6779")?.blockedBy).toBe("FN-6770");
       expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
@@ -13546,7 +13681,7 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
       ], { autoMerge: false });
 
       await expect(manager.reconcileInReviewUnmetDependencies()).resolves.toBe(1);
-      expect(tasks.get("FN-OVERRIDE")).toMatchObject({ column: "todo", status: "queued", blockedBy: "FN-D" });
+      expect(tasks.get("FN-OVERRIDE")).toMatchObject({ column: "in-progress", status: "queued", blockedBy: "FN-D" });
       expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
         mutationType: "task:reconcile-in-review-unmet-dependencies",
         target: "FN-OVERRIDE",

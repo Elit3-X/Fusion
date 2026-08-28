@@ -60,6 +60,7 @@ import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import { deriveWorkspaceReviewRemediation } from "./workspace-review-remediation.js";
 import { routeReviewConvergenceLadder } from "./review-convergence-ladder.js";
+import type { AppendReviewRemediationOutcome } from "./append-review-remediation-steps.js";
 
 function normalizeConvergenceText(value: string | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -147,7 +148,10 @@ export type RequestPreMergeOptionalStepFixDeps = {
   ) => Promise<void>;
   clearPausedAborted: (taskId: string) => void;
   readTaskArtifact: (taskId: string, key: string) => Promise<string | undefined>;
-  appendReviewRemediationSteps: (task: Task, info: RequestPreMergeOptionalStepFixInfo) => Promise<boolean>;
+  appendReviewRemediationSteps: (
+    task: Task,
+    info: RequestPreMergeOptionalStepFixInfo,
+  ) => Promise<AppendReviewRemediationOutcome>;
   workflowLifecycleMovesInFlight: Set<string>;
   sendTaskBackForFix: (
     task: Task,
@@ -350,18 +354,24 @@ export async function requestPreMergeOptionalStepFix(
     const replanColumn = await resolveReplanTargetColumn(deps.store, taskId);
     await deps.store.logEntry(
       taskId,
-      `Plan Review failed — moved to ${replanColumn} for automatic replan (attempt ${nextCount}/${budgetLabel})`,
+      liveTask.column === replanColumn
+        ? `Plan Review requested a plan revision — task stays in '${replanColumn}' (attempt ${nextCount}/${budgetLabel})`
+        : `Plan Review requested a plan revision — moved to '${replanColumn}' (attempt ${nextCount}/${budgetLabel})`,
       optionalStepRevisionLogOutcome(feedback, revisionKey),
       deps.getRunContextFor(taskId),
     );
     deps.workflowLifecycleMovesInFlight.add(taskId);
     try {
-      await moveTaskToReplanColumn(
+      const replanResult = await moveTaskToReplanColumn(
         deps.store,
         { id: taskId, column: liveTask.column },
+        "plan-review-revise-replan",
         replanColumn,
         { workflowMoveSource: "workflow-remediation" },
       );
+      if (typeof replanResult === "object" && replanResult.reason === "review-lane-source") {
+        return true;
+      }
     } finally {
       deps.workflowLifecycleMovesInFlight.delete(taskId);
     }
@@ -382,11 +392,27 @@ export async function requestPreMergeOptionalStepFix(
    * guards above. A deterministic Verification failure has no reviewer verdict; Code Review still
    * requires a genuine REVISE so transport failures cannot manufacture remediation work.
    */
+  let allowNoActionableVerificationFallback = false;
   if (
-    resolveStepReopenPolicy(workflowIr) === "none"
-    && (info.nodeId === "verification" || (info.nodeId === "code-review" && info.verdict === "REVISE"))
+    info.nodeId === "verification"
+    || (info.nodeId === "code-review" && info.verdict === "REVISE")
   ) {
-    return deps.appendReviewRemediationSteps(liveTask, info);
+    const remediationOutcome = await deps.appendReviewRemediationSteps(liveTask, info);
+    if (remediationOutcome === "appended") return true;
+    if (
+      remediationOutcome !== "parked-no-actionable-findings"
+      || resolveStepReopenPolicy(workflowIr) === "none"
+    ) {
+      return false;
+    }
+    /*
+    FNXC:ReviewGatedRemediation 2026-08-28-02:24:
+    FN-207 preserves the legacy trailing-step fallback only when named remediation found no
+    actionable work. Deterministic Verification has no reviewer verdict, so remember this exact
+    outcome and let it pass the later REVISE guard; provider failures and every bounded park remain
+    contained without manufacturing remediation.
+    */
+    allowNoActionableVerificationFallback = info.nodeId === "verification";
   }
 
   /*
@@ -435,7 +461,7 @@ export async function requestPreMergeOptionalStepFix(
     return false;
   }
 
-  if (info.verdict !== "REVISE") {
+  if (info.verdict !== "REVISE" && !allowNoActionableVerificationFallback) {
     // FNXC:RemediationVisibility 2026-07-26-19:20: a hard-failed gate with no parsed REVISE
     // verdict schedules nothing, so the remediation node fails and the card parks. Say so.
     executorLog.warn(

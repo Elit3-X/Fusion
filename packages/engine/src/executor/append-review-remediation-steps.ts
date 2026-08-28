@@ -3,6 +3,7 @@ import {
   hasOpenEquivalentRemediationStep,
   remediationDeclaredFiles,
   remediationWaveCount,
+  planRemediationPlacement,
   type Task,
   type TaskStep,
   type TaskStore,
@@ -16,6 +17,16 @@ export type AppendReviewRemediationStepsDeps = {
   readTaskArtifact: (taskId: string, key: string) => Promise<string | undefined>;
   sendTaskBackForFix: (...args: any[]) => Promise<void>;
 };
+
+export type AppendReviewRemediationOutcome =
+  | "appended"
+  | "parked-wave-exhausted"
+  | "parked-upstream-out-of-scope"
+  | "parked-no-actionable-findings"
+  | "parked-no-pending-work"
+  | "parked-workspace-worktree-missing"
+  | "superseded-scope"
+  | "not-applicable";
 
 /**
  * FNXC:ReviewGatedRemediation 2026-08-23-05:14:
@@ -37,11 +48,13 @@ export async function appendReviewRemediationSteps(
   task: Task,
   info: RequestPreMergeOptionalStepFixInfo,
   options: { worktreePath?: string } = {},
-): Promise<boolean> {
+): Promise<AppendReviewRemediationOutcome> {
   const gate = info.nodeId === "verification" ? "Verification" : info.nodeId === "code-review" ? "Code Review" : undefined;
-  if (!gate) return false;
+  if (!gate) return "not-applicable";
   const wave = remediationWaveCount(task.steps ?? []) + 1;
-  if (wave > 3) return park(deps.store, task.id, "review-remediation-wave-exhausted");
+  if (wave > 3) {
+    return park(deps.store, task.id, "review-remediation-wave-exhausted", "parked-wave-exhausted");
+  }
   const prompt = await deps.readTaskArtifact(task.id, "PROMPT.md");
   const derived = deriveRemediationSteps({
     gate,
@@ -55,9 +68,21 @@ export async function appendReviewRemediationSteps(
   });
   if (derived.reason === "upstream-out-of-scope") {
     await deps.store.logEntry(task.id, "Review remediation is out of scope — awaiting human action", derived.outOfScope.map((item) => item.filePath).filter(Boolean).join(", "));
-    return park(deps.store, task.id, "review-remediation-upstream-out-of-scope");
+    return park(
+      deps.store,
+      task.id,
+      "review-remediation-upstream-out-of-scope",
+      "parked-upstream-out-of-scope",
+    );
   }
-  if (derived.steps.length === 0) return park(deps.store, task.id, "review-remediation-no-actionable-findings");
+  if (derived.steps.length === 0) {
+    return park(
+      deps.store,
+      task.id,
+      "review-remediation-no-actionable-findings",
+      "parked-no-actionable-findings",
+    );
+  }
   /*
   FNXC:WorkspaceReviewRemediation 2026-08-27-12:26:
   A named-remediation workflow reaches this appender only under the `none` reopen policy, which
@@ -79,7 +104,7 @@ export async function appendReviewRemediationSteps(
       const persisted = await updateWorkspaceReviewState.call(deps.store, task.id, remediation.scopeRevision, remediation);
       if (!persisted.updated) {
         await deps.store.logEntry(task.id, "Workspace review remediation superseded by repository scope change");
-        return false;
+        return "superseded-scope";
       }
     }
   }
@@ -111,15 +136,17 @@ export async function appendReviewRemediationSteps(
           ...(candidate.dependsOn ? { dependsOn: [...candidate.dependsOn] } : {}),
         }));
       if (appended.length === 0) return null;
+      const placement = planRemediationPlacement(existing, appended);
       const nextPrompt = widenPromptFileScopeContent(current.prompt ?? prompt, remediationDeclaredFiles(appended));
       return {
-        steps: [...existing, ...appended],
+        steps: placement.steps,
+        currentStep: placement.insertionIndex,
         ...(nextPrompt !== current.prompt ? { prompt: nextPrompt } : {}),
       };
     });
     if (scopeSuperseded) {
       await deps.store.logEntry(task.id, "Workspace review remediation superseded by repository scope change");
-      return false;
+      return "superseded-scope";
     }
   } else {
     const appendResult = await deps.store.appendRemediationSteps(task.id, derived.steps, { wave });
@@ -128,11 +155,23 @@ export async function appendReviewRemediationSteps(
     await widenPromptFileScope(deps.store, task.id, prompt, remediationDeclaredFiles(appended));
   }
   if (appended.length === 0 || !live.steps.some((step) => step.status === "pending")) {
-    return park(deps.store, task.id, "review-remediation-no-pending-work");
+    return park(
+      deps.store,
+      task.id,
+      "review-remediation-no-pending-work",
+      "parked-no-pending-work",
+    );
   }
   if (remediation) {
     const workspaceWorktreePath = live.workspaceWorktrees?.[remediation.repository]?.worktreePath;
-    if (!workspaceWorktreePath) return park(deps.store, task.id, "review-remediation-workspace-worktree-missing");
+    if (!workspaceWorktreePath) {
+      return park(
+        deps.store,
+        task.id,
+        "review-remediation-workspace-worktree-missing",
+        "parked-workspace-worktree-missing",
+      );
+    }
     await deps.sendTaskBackForFix(
       live,
       workspaceWorktreePath,
@@ -146,7 +185,7 @@ export async function appendReviewRemediationSteps(
       false,
       "none",
     );
-    return true;
+    return "appended";
   }
   await deps.sendTaskBackForFix(
     live,
@@ -161,10 +200,15 @@ export async function appendReviewRemediationSteps(
     undefined,
     "none",
   );
-  return true;
+  return "appended";
 }
 
-async function park(store: TaskStore, taskId: string, reason: string): Promise<false> {
+async function park<T extends AppendReviewRemediationOutcome>(
+  store: TaskStore,
+  taskId: string,
+  reason: string,
+  outcome: T,
+): Promise<T> {
   await store.updateTask(taskId, {
     status: "awaiting-approval",
     paused: true,
@@ -172,7 +216,7 @@ async function park(store: TaskStore, taskId: string, reason: string): Promise<f
     awaitingApprovalReason: "code-review-non-convergence",
   });
   await store.logEntry(taskId, "Review remediation requires human action", reason);
-  return false;
+  return outcome;
 }
 
 /**

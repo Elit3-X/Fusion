@@ -118,7 +118,11 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
     Kept as the expected column id rather than calling the resolver here: asserting the product's own
     resolver against itself would pass no matter which column it returned.
     */
-    expect(store.moveTask).toHaveBeenCalledWith(liveTask.id, "todo", { preserveWorktree: true });
+    expect(store.moveTask).toHaveBeenCalledWith(liveTask.id, "todo", expect.objectContaining({
+      preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "missing-required-artifact-recovery",
+    }));
     expect(store.updateTask).toHaveBeenCalledWith(liveTask.id, expect.objectContaining({
       status: "needs-replan",
       recoveryRetryCount: 1,
@@ -379,12 +383,17 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
       replan with the right attempt/budget — while the destination column stays pinned by the
       `moveTask` assertion in this same test.
       */
-      expect.stringMatching(/^Plan Review failed — moved to \S+ for automatic replan \(attempt 1\/unbounded\)$/),
+      expect.stringMatching(/^Plan Review requested a plan revision — moved to '\S+' \(attempt 1\/unbounded\)$/),
       expect.stringContaining("PROMPT.md is missing the new workflow-order requirement"),
       undefined,
     );
     // Resolved rebound column for the default lineage — see the note above.
-    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", { preserveWorktree: true, workflowMoveSource: "workflow-remediation" });
+    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", expect.objectContaining({
+      preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "plan-review-revise-replan",
+      workflowMoveSource: "workflow-remediation",
+    }));
     expect(store.updateTask).toHaveBeenCalledWith("FN-7066", { postReviewFixCount: 1 }, undefined);
     expect(store.updateTask).toHaveBeenCalledWith("FN-7066", {
       status: "needs-replan",
@@ -411,7 +420,12 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
       nodeId: "plan-review",
     })).resolves.toBe(true);
 
-    expect(store.moveTask).toHaveBeenCalledWith(liveTask.id, "todo", { preserveWorktree: true, workflowMoveSource: "workflow-remediation" });
+    expect(store.moveTask).toHaveBeenCalledWith(liveTask.id, "todo", expect.objectContaining({
+      preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "plan-review-revise-replan",
+      workflowMoveSource: "workflow-remediation",
+    }));
     expect(store.updateTask).toHaveBeenCalledWith(liveTask.id, expect.objectContaining({ status: "needs-replan" }), undefined);
   });
 
@@ -491,7 +505,12 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
         nodeId: "plan-review",
       });
 
-      expect(store.moveTask).toHaveBeenCalledWith(liveTask.id, "todo", { preserveWorktree: true, workflowMoveSource: "workflow-remediation" });
+      expect(store.moveTask).toHaveBeenCalledWith(liveTask.id, "todo", expect.objectContaining({
+        preserveWorktree: true,
+        moveSource: "engine",
+        lifecycleReason: "plan-review-revise-replan",
+        workflowMoveSource: "workflow-remediation",
+      }));
       expect(abortSpy).not.toHaveBeenCalled();
       expect((executor as any).pausedAborted.has(liveTask.id)).toBe(false);
     } finally {
@@ -552,10 +571,12 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
     FN-149 converts a cap into the first bounded AI rung. With no alternate model configured,
     that rung is a remediation-provenanced replan rather than the former immediate human park.
     */
-    expect(cappedStore.moveTask).toHaveBeenCalledWith("FN-7066", "todo", {
+    expect(cappedStore.moveTask).toHaveBeenCalledWith("FN-7066", "todo", expect.objectContaining({
       preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "code-review-revise-remediation",
       workflowMoveSource: "workflow-remediation",
-    });
+    }));
     expect(cappedStore.updateTask).toHaveBeenCalledWith(
       "FN-7066",
       expect.objectContaining({ status: "needs-replan" }),
@@ -593,11 +614,16 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
     })).resolves.toBe(true);
 
     // Resolved rebound column for the default lineage — see the note above.
-    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", { preserveWorktree: true, workflowMoveSource: "workflow-remediation" });
+    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", expect.objectContaining({
+      preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "plan-review-revise-replan",
+      workflowMoveSource: "workflow-remediation",
+    }));
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-7066",
       // Same interpolated-column reason as above; the attempt counter is what matters here.
-      expect.stringMatching(/^Plan Review failed — moved to \S+ for automatic replan \(attempt 15\/unbounded\)$/),
+      expect.stringMatching(/^Plan Review requested a plan revision — moved to '\S+' \(attempt 15\/unbounded\)$/),
       expect.anything(),
       undefined,
     );
@@ -634,10 +660,12 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
     })).resolves.toBe(true);
 
     // FN-149 spends the first rung on a real replan before a human can be asked.
-    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", {
+    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", expect.objectContaining({
       preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "code-review-revise-remediation",
       workflowMoveSource: "workflow-remediation",
-    });
+    }));
     expect(store.updateTask).toHaveBeenCalledWith(
       "FN-7066",
       expect.objectContaining({ status: "needs-replan" }),
@@ -676,10 +704,12 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
       maxRevisions: "unbounded",
     })).resolves.toBe(true);
 
-    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", {
+    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", expect.objectContaining({
       preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "code-review-revise-remediation",
       workflowMoveSource: "workflow-remediation",
-    });
+    }));
     expect(store.updateTask).toHaveBeenCalledWith(
       "FN-7066",
       expect.objectContaining({ status: "needs-replan" }),
@@ -704,10 +734,12 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
       maxRevisions: "unbounded",
     })).resolves.toBe(true);
 
-    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", {
+    expect(store.moveTask).toHaveBeenCalledWith("FN-7066", "todo", expect.objectContaining({
       preserveWorktree: true,
+      moveSource: "engine",
+      lifecycleReason: "code-review-revise-remediation",
       workflowMoveSource: "workflow-remediation",
-    });
+    }));
     expect(store.updateTask).toHaveBeenCalledWith(
       "FN-7066",
       expect.objectContaining({ status: "needs-replan" }),

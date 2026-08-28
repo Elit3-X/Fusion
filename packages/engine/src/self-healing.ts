@@ -30,7 +30,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSy
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, resolveReboundTargetForTask, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
+import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, resolveContainedBackwardTargetForTask, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
 
   resolveNearDuplicateCanonicalFlags,
   LEGACY_COLUMN_IDS_BY_ROLE,
@@ -48,6 +48,8 @@ import { finalizePlanningSegment } from "@fusion/core";
 import type { WorkspaceLandIntent } from "@fusion/core";
 import type { MeshLeaseManager } from "./project/mesh-lease-manager.js";
 import { createLogger, schedulerLog } from "./logger.js";
+import { registerLifecycleMoveLog } from "./execution/lifecycle-move-log.js";
+import { moveTaskToContainedBackwardTarget, type ContainedLifecycleMoveResult } from "./execution/lifecycle-move.js";
 import { emitBoundedRunAudit } from "./util/emit-bounded-run-audit.js";
 import {
   TRIAGE_MARKER_CLEARED_REPLAN_LOG_ACTION,
@@ -772,6 +774,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
   /* FNXC:WorkflowResolvedColumns 2026-07-31-23:40: `lanes` is the emitter-resolved payload #3109
      added; optional, because an emit path that cannot resolve sends none. */
   private taskMovedFanoutListener: ((data: { task: Task; from: string; to: string; source: string; lanes?: TaskMoveLanes }) => void) | null = null;
+  private lifecycleMoveLogDisposer: (() => void) | null = null;
 
   // ── Per-task deadlock recovery cooldown ─────────────────────────────
   private deadlockRecoveryCooldown: Map<string, number> = new Map();
@@ -1359,6 +1362,39 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     };
   }
 
+  /*
+  FNXC:LifecycleContainment 2026-08-28-01:53:
+  FN-207 routes every self-healing rebound relative to the live lifecycle role: review returns only
+  to WIP, WIP returns only to hold, and a missing legal target leaves the card in place. Capacity
+  refusal is likewise an in-place deferral; no recovery may substitute Planning as a fallback.
+  */
+  /*
+  FNXC:LifecycleContainment 2026-08-28-04:47:
+  The source column is re-read LIVE here, immediately before target resolution, and the caller's
+  column is demoted to a degraded fallback. Every one of the 19 call sites passes the `task.column`
+  it read when the sweep SELECTED the card, which can be many seconds stale by the time the repair
+  runs: an operator drag or another engine path in that window makes a WIP card resolve as review
+  (or the reverse), and the contained resolver is role-relative, so a stale role yields the WRONG
+  contained target — a lateral/reset move, or a rejection under the direction guard — instead of the
+  live-role recovery. Containment is only as honest as the role it is computed from. The fallback
+  survives solely for an unreadable row, where the caller's snapshot is the best evidence available.
+  */
+  private async reboundTask(
+    taskId: string,
+    reason: string,
+    fallbackColumn: string,
+    options?: MoveTaskOptions,
+  ): Promise<ContainedLifecycleMoveResult> {
+    const liveColumn = (await this.store.getTask(taskId).catch(() => undefined))?.column ?? fallbackColumn;
+    return moveTaskToContainedBackwardTarget(
+      this.store,
+      taskId,
+      reason,
+      { ...options, moveSource: "engine" },
+      liveColumn,
+    );
+  }
+
   private async emitBackwardMoveNoAction(task: Task, stage: string, mutationType: string, proof: { stalenessMs: number; reason: string; metadata: Record<string, unknown> }): Promise<void> {
     try {
       await createRunAuditor(this.store, {
@@ -1655,6 +1691,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       this.onSettingsUpdated(settings, previous);
     };
     this.store.on("settings:updated", this.settingsListener);
+    this.lifecycleMoveLogDisposer = registerLifecycleMoveLog(this.store);
 
     /*
     FNXC:WorkflowResolvedColumns 2026-07-31-23:40 (the last fan-out guard, converted — #3109):
@@ -1964,6 +2001,16 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       this.settingsListener = null;
     }
 
+    if (this.lifecycleMoveLogDisposer) {
+      try {
+        this.lifecycleMoveLogDisposer();
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log.warn(`Failed to remove lifecycle move log listener during stop(): ${errorMessage}`);
+      }
+      this.lifecycleMoveLogDisposer = null;
+    }
+
     if (this.taskMovedFanoutListener) {
       try {
         this.store.off("task:moved", this.taskMovedFanoutListener);
@@ -2216,12 +2263,10 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
 
           await this.store.updateTask(taskId, parkUpdate);
           try {
-            await this.store.moveTask(taskId, await resolveReboundTargetForTask(this.store, taskId), {
+            await this.reboundTask(taskId, "self-healing-stranded-recovery", task.column, {
               preserveProgress: true,
               preserveWorktree: true,
               preserveStatus: true,
-              // #1411: backward recovery — skip order-derived adjacency.
-              moveSource: "engine",
               recoveryRehome: true,
             });
           } catch (moveErr: unknown) {
@@ -4275,9 +4320,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
             status: null,
             error: null,
           });
-          await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
-            moveSource: "engine",
-            // #1411: backward recovery — skip order-derived adjacency.
+          await this.reboundTask(task.id, "self-healing-worktree-reclaim", task.column, {
             recoveryRehome: true,
             preserveWorktree: true,
             preserveProgress: true,
@@ -4563,8 +4606,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
                   signalReason: liveExecutionSignal.reason,
                 },
               });
-              await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
-                moveSource: "engine",
+              await this.reboundTask(task.id, "self-healing-session-recovery", task.column, {
                 recoveryRehome: true,
                 preserveProgress: true,
                 preserveWorktree: true,
@@ -4754,9 +4796,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
                 if (!reviewProof?.ok) {
                   await this.emitBackwardMoveNoAction(task, "reclaim-self-owned-branch-conflict", "task:reclaim-self-owned-branch-conflict-no-action", reviewProof!);
                 } else {
-                  await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
-                    moveSource: "engine",
-                    // #1411: backward recovery — skip order-derived adjacency.
+                  await this.reboundTask(task.id, "self-healing-worktree-reclaim", task.column, {
                     recoveryRehome: true,
                     // worktree-discard-intended: reclaim proved the branch already merged / has zero unique commits; the checkout holds nothing worth keeping and worktree was explicitly nulled above.
                     preserveProgress: true,
@@ -4877,9 +4917,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
                   if (!reviewProof?.ok) {
                     await this.emitBackwardMoveNoAction(task, "reclaim-self-owned-branch-conflict", "task:reclaim-self-owned-branch-conflict-no-action", reviewProof!);
                   } else {
-                    await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
-                      moveSource: "engine",
-                      // #1411: backward recovery — skip order-derived adjacency.
+                    await this.reboundTask(task.id, "self-healing-worktree-reclaim", task.column, {
                       recoveryRehome: true,
                       // worktree-discard-intended: reclaim proved the branch already merged / has zero unique commits; the checkout holds nothing worth keeping and worktree was explicitly nulled above.
                       preserveProgress: true,
@@ -4973,9 +5011,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
             const idleAnchor = task.executionStartedAt ?? task.columnMovedAt ?? task.updatedAt;
             const idleAnchorMs = Date.parse(idleAnchor ?? "");
             const idleMs = Number.isFinite(idleAnchorMs) ? Math.max(0, Date.now() - idleAnchorMs) : null;
-            await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
-              moveSource: "engine",
-              // #1411: backward recovery — skip order-derived adjacency.
+            await this.reboundTask(task.id, "self-healing-session-recovery", task.column, {
               recoveryRehome: true,
               preserveWorktree: true,
               preserveProgress: true,
@@ -5042,9 +5078,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
             if (!reviewProof?.ok) {
               await this.emitBackwardMoveNoAction(task, "reclaim-self-owned-branch-conflict", "task:reclaim-self-owned-branch-conflict-no-action", reviewProof!);
             } else {
-              await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
-                moveSource: "engine",
-                // #1411: backward recovery — skip order-derived adjacency.
+              await this.reboundTask(task.id, "self-healing-worktree-reclaim", task.column, {
                 recoveryRehome: true,
                 preserveWorktree: true,
                 preserveProgress: true,
@@ -6186,12 +6220,10 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         continue;
       }
 
-      await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
+      await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, {
         preserveProgress: true,
         preserveWorktree: true,
         preserveResumeState: true,
-        moveSource: "engine",
-        // #1411: backward recovery — skip order-derived adjacency.
         recoveryRehome: true,
       });
       await this.store.logEntry(
@@ -6943,11 +6975,10 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         continue;
       }
 
-      await this.store.moveTask(holder.id, await resolveReboundTargetForTask(this.store, holder.id), {
+      await this.reboundTask(holder.id, "self-healing-dependency-rebound", holder.column, {
         preserveProgress: true,
         preserveWorktree: true,
         preserveResumeState: true,
-        moveSource: "engine",
         recoveryRehome: true,
       });
       if (deadlockingDependency.overlapBlockedBy === holder.id) {
@@ -7206,11 +7237,10 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       }
 
       try {
-        await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), {
+        await this.reboundTask(task.id, "self-healing-dependency-rebound", task.column, {
           preserveProgress: true,
           preserveWorktree: true,
           preserveResumeState: true,
-          moveSource: "engine",
           recoveryRehome: true,
           bypassGuards: true,
         });
@@ -8702,7 +8732,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
             continue;
           }
           // #1411: backward recovery — skip order-derived adjacency.
-          await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+          await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
           continue;
         }
 
@@ -8767,7 +8797,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
               lane: "self-healing-finalize-no-op-review",
             });
             // #1411: backward recovery — skip order-derived adjacency.
-            await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+            await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
             recovered++;
             continue;
           }
@@ -8787,7 +8817,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
               baseRef: classification.baseRef,
             });
             // #1411: backward recovery — skip order-derived adjacency.
-            await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+            await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
             recovered++;
             continue;
           }
@@ -9603,7 +9633,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             "Auto-recovered: in-review task still had incomplete steps — moved back to todo for retry",
           );
           // #1411: backward recovery — skip order-derived adjacency.
-          await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+          await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
           log.log(`Recovered stale incomplete review task ${task.id}: moved back to todo`);
           recovered++;
         } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
@@ -10091,7 +10121,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             "Auto-recovered: in-review task idle past stuck-task timeout — kicked back to todo",
           );
           // #1411: backward recovery — skip order-derived adjacency.
-          await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+          await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
           log.log(`Kicked ghost review task ${task.id} back to todo`);
           recovered++;
         } catch (err: unknown) {
@@ -13627,6 +13657,14 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             continue;
           }
         }
+        const containedTarget = await resolveContainedBackwardTargetForTask(this.store, task.id, task.column);
+        if (!containedTarget) {
+          await this.store.logEntry(
+            task.id,
+            `Lifecycle rebound contained in '${task.column}' — generic failure recovery has no adjacent backward destination`,
+          ).catch(() => undefined);
+          continue;
+        }
         const rawAttempts = task.wedgeNotification?.autoRecovery?.attempts;
         const attempts = typeof rawAttempts === "number" && Number.isFinite(rawAttempts) && rawAttempts >= 0
           ? Math.trunc(rawAttempts)
@@ -13656,8 +13694,13 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             recoveryRetryCount: claim.attempt,
             nextRecoveryAt: new Date(Date.now() + delayMs).toISOString(),
           },
-          targetColumn: await resolveReboundTargetForTask(this.store, task.id),
-          moveOptions: { preserveProgress: true, preserveWorktree: true, moveSource: "engine" },
+          targetColumn: containedTarget,
+          moveOptions: {
+            preserveProgress: true,
+            preserveWorktree: true,
+            moveSource: "engine",
+            lifecycleReason: "self-healing-stranded-recovery",
+          },
         });
         if (applied.outcome === "applied") {
           await this.store.logEntry(task.id, `Auto-recovered generic terminal failure (attempt ${claim.attempt}/${MAX_TERMINAL_FAILURE_AUTO_RETRIES})`);
@@ -13888,6 +13931,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
               preserveProgress: true,
               preserveWorktree: true,
               moveSource: "engine",
+              lifecycleReason: "self-healing-session-recovery",
               recoveryRehome: true,
             });
             await this.store.updateTask(task.id, { workflowTransitionNotification });
@@ -14309,7 +14353,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           });
           // #1411: backward recovery — skip order-derived adjacency.
           // worktree-discard-intended: limbo recovery — the worktree is already missing or its metadata cleared; there is no live checkout to hold.
-          await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
+          await this.reboundTask(task.id, "self-healing-session-recovery", task.column, { preserveProgress: true, recoveryRehome: true });
           recovered++;
         } catch (err: unknown) {
           const errorMessage = err instanceof Error ? err.message : String(err);
@@ -15516,7 +15560,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
 
           await this.store.logEntry(task.id, `Auto-recovered no-progress no-task_done failure — retry ${transition.prior + 1}/${MAX_TASK_DONE_RETRIES} in ${formatDelay(transition.delayMs)}, moved back to todo`);
           // #1411: the locked status claim fences duplicate backward moves before this public move acquires its own lock.
-          await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { moveSource: "engine", recoveryRehome: true });
+          await this.reboundTask(task.id, "self-healing-session-recovery", task.column, { recoveryRehome: true });
           await auditor.database({
             type: "task:no-progress-no-task-done-requeue",
             target: task.id,
@@ -15820,7 +15864,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             `Auto-retry ${nextCount}/${MAX_TASK_DONE_RETRIES}: agent finished without fn_task_done — requeuing to todo to resume partial work`,
           );
           // #1411: backward recovery — skip order-derived adjacency.
-          await this.store.moveTask(task.id, await resolveReboundTargetForTask(this.store, task.id), { preserveProgress: true, preserveWorktree: true, moveSource: "engine", recoveryRehome: true });
+          await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
           recovered++;
         } catch (err: unknown) {
           const errorMessage = err instanceof Error ? err.message : String(err);

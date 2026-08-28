@@ -2653,7 +2653,7 @@ export class Scheduler {
             then park failed so a broken task dir cannot spin forever. The status write is
             still what makes triage rediscover a card whose replan column equals its current column.
             */
-            const replanColumn = await moveTaskToReplanColumn(this.store, task);
+            const replanColumn = await moveTaskToReplanColumn(this.store, task, "missing-required-artifact-recovery");
             const decision = computeRecoveryDecision({
               recoveryRetryCount: task.recoveryRetryCount,
               nextRecoveryAt: task.nextRecoveryAt,
@@ -2694,7 +2694,7 @@ export class Scheduler {
             });
             if (staleness.isStale) {
               schedulerLog.warn(`Task ${task.id} specification is stale — ${staleness.reason}`);
-              await moveTaskToReplanColumn(this.store, task);
+              await moveTaskToReplanColumn(this.store, task, "stale-spec-replan");
               await this.store.updateTask(task.id, { status: "needs-replan" });
               await this.store.logEntry(task.id, staleness.reason);
               return null;

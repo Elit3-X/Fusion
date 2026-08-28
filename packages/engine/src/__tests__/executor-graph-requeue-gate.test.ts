@@ -98,8 +98,8 @@ describe("executor graph execute self-requeue gate", () => {
      * FNXC:WorkflowLifecycle 2026-06-29-11:12:
      * FN-7228/FN-7229 proved that restart-time graph failures can surface after a
      * stale handoff put the card in `in-review` with unfinished steps. Review is
-     * not an error bucket; bounce that shape back to `todo` preserving step
-     * progress so the engine can resume the correct unfinished step.
+     * not an error bucket; return that shape to the declared WIP lane preserving
+     * step progress so the engine can resume the correct unfinished step.
      */
     await (executor as any).handleGraphFailure(live, {
       disposition: "failed",
@@ -115,13 +115,13 @@ describe("executor graph execute self-requeue gate", () => {
     );
     expect(store.moveTask).toHaveBeenCalledWith(
       live.id,
-      "todo",
+      "in-progress",
       expect.objectContaining({ preserveProgress: true, moveSource: "engine", recoveryRehome: true }),
     );
     expect(store.handoffToReview).not.toHaveBeenCalled();
   });
 
-  it("moves premature merge failures with incomplete in-progress steps back to todo", async () => {
+  it("keeps premature merge failures in the implementation lane", async () => {
     resetExecutorMocks();
     const store = createMockStore();
     const live = task({
@@ -153,11 +153,7 @@ describe("executor graph execute self-requeue gate", () => {
       expect.objectContaining({ status: null, error: null }),
       undefined,
     );
-    expect(store.moveTask).toHaveBeenCalledWith(
-      live.id,
-      "todo",
-      expect.objectContaining({ preserveProgress: true, moveSource: "engine", recoveryRehome: true }),
-    );
+    expect(store.moveTask).not.toHaveBeenCalled();
     expect(store.updateTask).not.toHaveBeenCalledWith(
       live.id,
       expect.objectContaining({ status: "failed" }),
@@ -388,7 +384,7 @@ describe("executor graph execute self-requeue gate", () => {
 
     expect(store.moveTask).toHaveBeenCalledWith(
       live.id,
-      "todo",
+      "in-progress",
       expect.objectContaining({ preserveProgress: true, recoveryRehome: true }),
     );
   });

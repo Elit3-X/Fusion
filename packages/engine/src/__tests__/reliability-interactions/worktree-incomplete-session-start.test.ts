@@ -87,7 +87,11 @@ describe("reliability interactions: FN-4917 worktree incomplete session-start", 
       }),
     }));
 
-    expect(store.moveTask.mock.calls).toContainEqual(["FN-4917-T", "todo", { moveSource: "engine", recoveryRehome: true }]);
+    expect(store.moveTask.mock.calls).toContainEqual(["FN-4917-T", "todo", {
+      moveSource: "engine",
+      lifecycleReason: "self-healing-worktree-reclaim",
+      recoveryRehome: true,
+    }]);
     for (const call of store.logEntry.mock.calls) {
       const leaked = call.some((arg: unknown) => typeof arg === "string" && /Refusing to start coding agent/.test(arg));
       expect(leaked).toBe(false);
@@ -112,7 +116,12 @@ describe("reliability interactions: FN-4917 worktree incomplete session-start", 
 
     await runRecovery(store, task, "Refusing to start coding agent in incomplete worktree: /tmp/wt", events);
 
-    expect(store.moveTask).toHaveBeenCalledWith("FN-4917-T", "todo", { preserveProgress: true, moveSource: "engine", recoveryRehome: true });
+    expect(store.moveTask).toHaveBeenCalledWith("FN-4917-T", "todo", {
+      preserveProgress: true,
+      moveSource: "engine",
+      lifecycleReason: "self-healing-worktree-reclaim",
+      recoveryRehome: true,
+    });
     expect(store.moveTask.mock.calls).not.toContainEqual(["FN-4917-T", "todo"]);
     for (const call of store.logEntry.mock.calls) {
       const leaked = call.some((arg: unknown) => typeof arg === "string" && /Refusing to start coding agent/.test(arg));

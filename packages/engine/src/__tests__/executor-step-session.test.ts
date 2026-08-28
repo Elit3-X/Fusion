@@ -944,13 +944,12 @@ describe("Workflow Steps Execution", () => {
       .map((call: any[]) => call[1]);
     expect(reopenedStepIndexes).toEqual([1]);
 
-    // FNXC:ExecutorMoveTask 2026-07-07-08:38: Await the captured rerun-bounce promise instead of flushing a fixed number of microtasks. 3167dbc83 inserted clearTerminalStepFailuresForRetry (an extra awaited hop) between the todo and in-progress moves inside performWorkflowRerunBounce, so a fixed microtask count no longer deterministically drains the bounce to the final in-progress moveTask. Awaiting the promise is exact and survives future awaited hops; the bounce still performs the todo→in-progress hop (executor.ts:3650 then 3674).
+    // Await the exact production bounce rather than relying on timer/microtask flushing.
     await bouncePromise;
 
-    // (2) bounce uses preserveResumeState so step progress + worktree survive
-    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "todo", expect.objectContaining({ preserveResumeState: true, preserveWorktree: true }));
-    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-progress");
-    expect(store.moveTask).not.toHaveBeenCalledWith("FN-001", "in-review");
+    // (2) remediation already in WIP stays in WIP; no sideways reset move can discard progress.
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(mutableTask.column).toBe("in-progress");
     expect(onError).not.toHaveBeenCalled();
 
     // (3) PROMPT.md injection was invoked with the failure context. The
@@ -1127,17 +1126,14 @@ describe("Workflow Steps Execution", () => {
 
     // The bounce succeeds instead of throwing "cannot bounce to in-progress".
     expect(outcome).toBe("bounced");
-    // in-review → todo (preserving step progress + worktree) → in-progress, so
-    // the reopened step is re-executed rather than left stranded.
-    /* FNXC:WorkflowMoveProvenance 2026-08-23-23:35: the bounce now stamps its move source so a
-       remediation hop is distinguishable from an operator or engine move. */
-    expect(store.moveTask).toHaveBeenCalledWith("FN-7122", "todo", {
+    // Review remediation returns directly to WIP; Planning is never an intermediate stop.
+    expect(store.moveTask).toHaveBeenCalledTimes(1);
+    expect(store.moveTask).toHaveBeenCalledWith("FN-7122", "in-progress", {
       preserveResumeState: true,
       preserveWorktree: true,
       workflowMoveSource: "workflow-remediation",
+      lifecycleReason: "workflow-graph-node-column",
     });
-
-    expect(store.moveTask).toHaveBeenCalledWith("FN-7122", "in-progress");
     expect(onError).not.toHaveBeenCalled();
   });
 

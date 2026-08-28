@@ -598,6 +598,8 @@ When `defaultOn: true`, the gate is effectively enabled for execution and in-pro
 
 ## Workflow Step Revision Loop
 
+Code Review and Verification revisions derive visible `Fix:` steps on every workflow. They are inserted immediately before a trailing Testing & Verification step, remap later `dependsOn` indices, reset that verification step to `pending`, and set `currentStep` to the first fix. The parse node preserves live remediation steps across the post-bounce run; the existing dedupe, scope, and wave bounds still apply. A legacy reopen-trailing workflow only falls back to its trailing-step retry when no actionable finding produced a fix step.
+
 A gate can request implementation revisions instead of just blocking completion. The revision/remediation flow runs through the **graph executor**, which calls the same executor revision primitives described below (the legacy `runWorkflowSteps` loop that previously owned this flow was deleted).
 
 ### How It Works

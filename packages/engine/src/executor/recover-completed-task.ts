@@ -68,8 +68,8 @@ export async function recoverCompletedTask(
     FNXC:WorkflowOptionalStepFix 2026-06-28-12:00:
     A pre-merge optional/advisory step REVISE (Code Review / Browser Verification) reopens
     plan steps to `pending` and schedules a remediation bounce (sendTaskBackForFix →
-    scheduleWorkflowRerun) that moves the task in-review → todo → in-progress so the executor
-    can finish the reopened steps. Re-entering the workflow graph here while that bounce is
+    scheduleWorkflowRerun) that moves the task directly from review to WIP so the executor
+    can finish the reopened steps without an intermediate Planning stop. Re-entering the workflow graph here while that bounce is
     still scheduled — or while the live task already carries incomplete plan steps — preempts
     the executor's single fix cycle: the re-run re-passes the advisory step (its fix budget is
     now exhausted), advances to the `merge` node, and the merge gate refuses with

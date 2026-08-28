@@ -706,9 +706,9 @@ describe("runAiMerge", () => {
     // A skipped verification/QA step (here "Verify"/"Testing") blocks with a
     // precise reason naming the skipped step(s).
     expect(result.error).toContain("skipped verification step");
-    expect(task.column).toBe("todo");
+    expect(task.column).toBe("in-progress");
     expect(task.error).toContain("skipped verification step");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine" }));
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "in-progress", expect.objectContaining({ preserveProgress: true, moveSource: "engine", lifecycleReason: "merge-failure-rebound" }));
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-1", "done");
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-1",
@@ -747,8 +747,8 @@ describe("runAiMerge", () => {
     expect(result.merged).toBe(false);
     expect(result.noOp).toBe(false);
     expect(result.error).toContain("Testing & Verification");
-    expect(task.column).toBe("todo");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine" }));
+    expect(task.column).toBe("in-progress");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "in-progress", expect.objectContaining({ preserveProgress: true, moveSource: "engine", lifecycleReason: "merge-failure-rebound" }));
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-1", "done");
     expect(git(dir, "rev-parse main")).toBe(mainBefore);
   });
@@ -841,9 +841,9 @@ describe("runAiMerge", () => {
     expect(result.merged).toBe(false);
     expect(result.noOp).toBe(false);
     expect(result.error).toContain("operator review required");
-    expect(task.column).toBe("todo");
+    expect(task.column).toBe("in-progress");
     expect(task.error).toContain("operator review required");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine" }));
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "in-progress", expect.objectContaining({ preserveProgress: true, moveSource: "engine", lifecycleReason: "merge-failure-rebound" }));
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-1", "done");
     expect(store.recordRunAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ mutationType: "task:empty-merge-finalize-blocked-no-landed-proof" }),
@@ -960,8 +960,8 @@ describe("runAiMerge", () => {
     // Vetoed to todo — NOT laundered to done.
     expect(result.merged).toBe(false);
     expect(result.noOp).toBe(false);
-    expect(task.column).toBe("todo");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine" }));
+    expect(task.column).toBe("in-progress");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "in-progress", expect.objectContaining({ preserveProgress: true, moveSource: "engine", lifecycleReason: "merge-failure-rebound" }));
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-1", "done", expect.anything());
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-1",
@@ -1006,7 +1006,7 @@ describe("runAiMerge", () => {
     // Vetoed to todo — NOT laundered to done.
     expect(result.merged).toBe(false);
     expect(result.noOp).toBe(false);
-    expect(task.column).toBe("todo");
+    expect(task.column).toBe("in-progress");
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-1", "done", expect.anything());
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-1",
@@ -1111,8 +1111,8 @@ describe("runAiMerge", () => {
     expect(result.merged).toBe(false);
     expect(result.noOp).toBe(false);
     expect(result.error).toContain("skipped verification step");
-    expect(task.column).toBe("todo");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine" }));
+    expect(task.column).toBe("in-progress");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-1", "in-progress", expect.objectContaining({ preserveProgress: true, moveSource: "engine", lifecycleReason: "merge-failure-rebound" }));
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-1", "done");
   });
 

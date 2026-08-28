@@ -32,6 +32,7 @@
  * that was explicitly refused.
  */
 import type { StepReopenPolicy, Task, TaskStore, WorkflowReviewFinding } from "@fusion/core";
+import type { AppendReviewRemediationOutcome } from "./append-review-remediation-steps.js";
 
 /** What actually happened to the card, so callers and tests observe an outcome rather than a spy. */
 export type VerificationBounceOutcome =
@@ -54,7 +55,7 @@ export type BounceVerificationFailureDeps = {
       nodeId: string;
     },
     options?: { worktreePath?: string },
-  ) => Promise<boolean>;
+  ) => Promise<AppendReviewRemediationOutcome>;
   sendTaskBackForFix: (
     task: Task,
     worktreePath: string,
@@ -90,31 +91,31 @@ export async function bounceVerificationFailure(
   const { task, worktreePath, failedType, feedback, reason, stepReopenPolicy } = params;
   const stepName = `Verification (${failedType})`;
 
-  if (stepReopenPolicy === "none") {
-    /*
-     * Re-read first: `task` is the pre-session snapshot, while remediation scope-checks the failing
-     * files against `modifiedFiles` and counts existing waves off `steps`. A stale snapshot would
-     * classify the executor's own just-written files as upstream work and park instead of fixing.
-     */
-    const liveTask = await deps.store.getTask(task.id).catch(() => task);
-    /*
-     * Hand over the checkout this gate just verified. Falling back to `task.worktree` would let an
-     * empty pointer reach `performWorkflowRerunBounce`, which persists it — wiping the worktree the
-     * remediation is about to run in. The legacy branch below has always passed this same path.
-     */
-    const appended = await deps.appendReviewRemediationSteps(
-      liveTask ?? task,
-      {
-        stepName,
-        feedback,
-        phase: "pre-merge",
-        status: "failed",
-        nodeId: "verification",
-      },
-      { worktreePath },
-    );
-    if (appended) return "named-remediation";
-    /* Parked: drop the completed-task watchdog the bounce would otherwise have cleared. */
+  /*
+   * Re-read first: `task` is the pre-session snapshot, while remediation scope-checks the failing
+   * files against `modifiedFiles` and counts existing waves off `steps`. A stale snapshot would
+   * classify the executor's own just-written files as upstream work and park instead of fixing.
+   */
+  const liveTask = await deps.store.getTask(task.id).catch(() => task);
+  /*
+   * Hand over the checkout this gate just verified. Falling back to `task.worktree` would let an
+   * empty pointer reach `performWorkflowRerunBounce`, which persists it — wiping the worktree the
+   * remediation is about to run in.
+   */
+  const remediationOutcome = await deps.appendReviewRemediationSteps(
+    liveTask ?? task,
+    {
+      stepName,
+      feedback,
+      phase: "pre-merge",
+      status: "failed",
+      nodeId: "verification",
+    },
+    { worktreePath },
+  );
+  if (remediationOutcome === "appended") return "named-remediation";
+  if (remediationOutcome !== "parked-no-actionable-findings" || stepReopenPolicy === "none") {
+    /* A bounded/scope/worktree park is terminal and must not be cleared by a legacy bounce. */
     deps.clearCompletedTaskWatchdog(task.id);
     return "parked-for-human";
   }

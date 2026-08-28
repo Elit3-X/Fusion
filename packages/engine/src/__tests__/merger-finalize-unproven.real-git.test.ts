@@ -162,8 +162,8 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
   // was "auto-finalize proven no-op and clear stale modifiedFiles", which
   // turned out to be the bug — claimed modifiedFiles + no commit = lost work
   // (uncommitted in the worktree or squashed against the wrong branch), not
-  // a legitimate no-op. The merger now refuses to finalize and moves the
-  // task back to todo with progress preserved instead.
+  // a legitimate no-op. The merger now refuses to finalize and returns the
+  // review-owned repair to WIP with progress preserved instead.
   it("FN-5490: refuses no-op finalize when modifiedFiles are claimed without a commit", async () => {
     const repo = mkdtempSync(join(tmpdir(), "fusion-merger-noop-finalize-"));
     repos.push(repo);
@@ -197,7 +197,7 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
     const result = await aiMergeTask(store, repo, "FN-C");
 
     // Lost-work guard fires — task does NOT advance to done, does NOT have
-    // modifiedFiles cleared, and gets moved back to todo with progress.
+    // modifiedFiles cleared, and returns to WIP with progress.
     expect(result.merged).toBe(false);
     expect(result.error).toMatch(/lost-work/);
     expect(
@@ -206,7 +206,9 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
       ),
     ).toBe(false);
     expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column]) => column === "done")).toBe(false);
-    expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column]) => column === "todo")).toBe(true);
+    expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column, options]) =>
+      column === "in-progress" && options?.lifecycleReason === "merge-failure-rebound"
+    )).toBe(true);
   }, 20_000);
 
   it("FN-6461: demotes no-commits proven no-op tasks when skipped work outweighs done work", async () => {
@@ -253,7 +255,11 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
     // "Verify"/"Testing" are skipped verification steps → precise reason naming them.
     expect(result.error).toContain("skipped verification step");
     expect(store.updateTask).toHaveBeenCalledWith("FN-NO-COMMITS", expect.objectContaining({ error: expect.stringContaining("skipped verification step") }));
-    expect(store.moveTask).toHaveBeenCalledWith("FN-NO-COMMITS", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine" }));
+    expect(store.moveTask).toHaveBeenCalledWith("FN-NO-COMMITS", "in-progress", expect.objectContaining({
+      preserveProgress: true,
+      moveSource: "engine",
+      lifecycleReason: "merge-failure-rebound",
+    }));
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-NO-COMMITS", "done");
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-NO-COMMITS",
@@ -338,7 +344,11 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
 
     expect(result.merged).toBe(false);
     expect(result.error).toContain("done=1, incomplete=1");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-EMPTY-BLOCK", "todo", expect.objectContaining({ preserveProgress: true, moveSource: "engine" }));
+    expect(store.moveTask).toHaveBeenCalledWith("FN-EMPTY-BLOCK", "in-progress", expect.objectContaining({
+      preserveProgress: true,
+      moveSource: "engine",
+      lifecycleReason: "merge-failure-rebound",
+    }));
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-EMPTY-BLOCK", "done");
     expect(git(repo, "git show-ref --verify --quiet refs/heads/fusion/fn-empty-block; echo $?")).toBe("0");
     expect(store.logEntry).toHaveBeenCalledWith(
@@ -433,7 +443,9 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
     expect(result.merged).toBe(false);
     expect(result.error).toContain("finalize-unproven");
     expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column]) => column === "done")).toBe(false);
-    expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column]) => column === "todo")).toBe(true);
+    expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column, options]) =>
+      column === "in-progress" && options?.lifecycleReason === "merge-failure-rebound"
+    )).toBe(true);
   }, 20_000);
 
   // FN-5345/FN-5377 + branch-group completion regression: a shared-group member

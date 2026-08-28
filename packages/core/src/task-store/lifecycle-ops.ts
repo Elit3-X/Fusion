@@ -38,6 +38,7 @@ import {resolveWorkflowIrForTask} from "../workflows/workflow-ir-resolver.js";
 import {recordRunAuditEventWithinTransaction} from "../postgres/data-layer.js";
 import * as schema from "../postgres/schema/index.js";
 import {diffSettingsForActivity, formatSettingsActivity} from "./settings-activity.js";
+import {LIFECYCLE_ROLE_RANK} from "../workflows/workflow-lifecycle-direction.js";
 
 export async function initImpl(store: TaskStore): Promise<void> {
     store.closing = false;
@@ -294,13 +295,29 @@ export function setupActivityLogListenersImpl(store: TaskStore): void {
     // Task moved
     store.on("task:moved", (data) => {
       if (data.from === data.to) return;
+      const roles = Object.keys(LIFECYCLE_ROLE_RANK) as Array<keyof typeof LIFECYCLE_ROLE_RANK>;
+      const fromRole = roles.find((role) => data.lanes?.[role] === data.from);
+      const toRole = roles.find((role) => data.lanes?.[role] === data.to);
+      const direction = !fromRole || !toRole
+        ? "unclassified"
+        : LIFECYCLE_ROLE_RANK[toRole] > LIFECYCLE_ROLE_RANK[fromRole]
+          ? "forward"
+          : LIFECYCLE_ROLE_RANK[toRole] < LIFECYCLE_ROLE_RANK[fromRole]
+            ? "backward"
+            : "lateral";
       store.recordActivityFromListener(
         {
           type: "task:moved",
           taskId: data.task.id,
           taskTitle: data.task.title,
-          details: `Task ${data.task.id} moved: ${data.from} → ${data.to}`,
-          metadata: { from: data.from, to: data.to },
+          details: `Task ${data.task.id} moved: ${data.from} → ${data.to} (${direction})`,
+          metadata: {
+            from: data.from,
+            to: data.to,
+            direction,
+            source: data.source,
+            ...(data.lifecycleReason ? { lifecycleReason: data.lifecycleReason } : {}),
+          },
         },
         "task:moved",
       );

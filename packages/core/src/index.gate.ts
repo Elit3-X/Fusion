@@ -821,6 +821,7 @@ export {
   HandoffInvariantViolationError,
   TransitionRejectionError,
   type LegacyAutoMergeStampReconcileResult,
+  type MoveTaskOptions,
 } from "./store.js";
 export {
   STOPWORDS,
@@ -856,6 +857,11 @@ export {
   type NoOpCompletionMarker,
   type NoOpCompletionMarkerKind,
 } from "./merge/no-op-completion-marker.js";
+export {
+  planRemediationPlacement,
+  resolveTrailingVerificationStepIndex,
+  type RemediationPlacementPlan,
+} from "./tasks/remediation-step-placement.js";
 export {
   formatRemediationStepName,
   isRemediationStep,
@@ -2523,12 +2529,13 @@ export type { WorkflowEventBus, WorkflowEventSubscriber, WorkflowEventSubscripti
 export { findWorkflowEventShapeViolations, isIdsOnlyWorkflowEvent, MAX_ID_VALUE_LENGTH, IMPLEMENTATION_EXITS } from "./types/workflow-events.js";
 export type { ImplementationExit } from "./types/workflow-events.js";
 export type { WorkflowLifecycleEvent, WorkflowLifecycleEventType, WorkflowLifecycleEventBase, TaskTransitionedEvent, NodeEnteredEvent, NodeCompletedEvent, RunSuspendedEvent, RunResumedEvent, WorkflowEventShapeViolation } from "./types/workflow-events.js";
-export { columnsWithFlag, columnHasFlag, resolveReboundTarget, resolveCompleteColumn, resolveMergeOrchestrationColumn, resolveLifecycleColumns, resolveTaskLifecycleColumns, resolveReviewColumns, resolveTerminalColumns} from "./workflows/workflow-lifecycle-traits.js";
+export { columnsWithFlag, columnHasFlag, resolveReboundTarget, resolveContainedBackwardTarget, resolveCompleteColumn, resolveMergeOrchestrationColumn, resolveLifecycleColumns, resolveTaskLifecycleColumns, resolveReviewColumns, resolveTerminalColumns} from "./workflows/workflow-lifecycle-traits.js";
 export type { LifecycleColumns } from "./workflows/workflow-lifecycle-traits.js";
 export { resolveReviewLevelSteps, applyReviewLevelPreset } from "./tasks/review-level-preset.js";
 export { LEGACY_STATUS_ADOPTION, resolveLegacyStatusAdoption, resolveReviewLevelBackfill, planLegacyAdoption, resolveOrphanedPendingStepResults, type LegacyAdoptionPlan, type LegacyAdoptionCandidate, type LegacyAdoptionAction, type LegacyAdoptionKind } from "./db/legacy-adoption.js";
 export { hashWorkflowIr, computeWorkflowIrPin, detectWorkflowDrift, type WorkflowIrPin } from "./workflows/workflow-ir-resolver.js";
-export { evaluateTransitionInvariants, evaluateMergeBlockerPostcondition, evaluateTerminalReentryPostcondition, evaluateCapacityRejection, isWipColumn, isTerminalColumn, isCompleteColumn, isHoldColumn, isHoldToWipBoundary, type CapacityFacts } from "./workflows/workflow-transition-policy.js";
+export { classifyLifecycleRole, classifyLifecycleDirection, evaluateForbiddenLifecyclePath, isSanctionedEngineBackwardMove, ENGINE_BACKWARD_MOVE_REASONS, LIFECYCLE_ROLE_RANK, type LifecycleRole, type LifecycleDirection, type ForbiddenLifecyclePath, type EngineBackwardMoveReason } from "./workflows/workflow-lifecycle-direction.js";
+export { evaluateTransitionInvariants, evaluateMergeBlockerPostcondition, evaluateTerminalReentryPostcondition, evaluateLifecycleDirectionPostcondition, evaluateCapacityRejection, isWipColumn, isTerminalColumn, isCompleteColumn, isHoldColumn, isHoldToWipBoundary, type CapacityFacts } from "./workflows/workflow-transition-policy.js";
 export { resolveProjectColumnsForRoles, resolveArchivedLanes, REVIEW_ROLES, TERMINAL_ROLES, LEGACY_COLUMN_IDS_BY_ROLE, type ProjectLaneVocabularyStore } from "./project-lane-vocabulary.js";
 // FNXC:GateBarrelSync 2026-07-19-12:20: stale-binary guard exports mirrored per the sync rule above (PR #2341 review).
 export { StaleBinarySchemaError, assertBinaryNotOlderThanDatabase } from "./postgres/schema-applier.js";

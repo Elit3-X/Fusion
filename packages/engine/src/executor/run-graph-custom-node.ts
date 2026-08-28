@@ -301,7 +301,35 @@ export async function runGraphCustomNode(
       if (executionTarget.repositoryScope?.state !== "confirmed") {
         return { outcome: "failure", value: "workspace-acquisition-requires-confirmed-repository-scope" };
       }
-      executionTarget = await deps.ensureGraphCustomNodeWorktree(executionTarget, settings, node.id);
+      const scopedRepositories = executionTarget.repositoryScope.repositories;
+      const recordedMissing = scopedRepositories.find((repoRelPath) => {
+        const path = executionTarget.workspaceWorktrees?.[repoRelPath]?.worktreePath;
+        return typeof path === "string" && path.length > 0 && !existsSync(path);
+      });
+      const unrecorded = scopedRepositories.some((repoRelPath) => {
+        const path = executionTarget.workspaceWorktrees?.[repoRelPath]?.worktreePath;
+        return typeof path !== "string" || path.length === 0;
+      });
+      if (recordedMissing && !isPlanReviewNode) {
+        await deps.store.logEntry(
+          live.id,
+          `Workflow node '${node.id}' cannot review a missing workspace checkout for '${recordedMissing}'`,
+          undefined,
+          deps.getRunContextFor(live.id),
+        );
+        return { outcome: "failure", value: "workspace-worktree-missing" };
+      }
+      if (recordedMissing || unrecorded) {
+        if (recordedMissing) {
+          await deps.store.logEntry(
+            live.id,
+            `Plan Review workspace checkout for '${recordedMissing}' is missing on disk — re-acquiring declared scoped checkouts`,
+            undefined,
+            deps.getRunContextFor(live.id),
+          );
+        }
+        executionTarget = await deps.ensureGraphCustomNodeWorktree(executionTarget, settings, node.id);
+      }
     } else if (!workspaceConfig) {
       const recordedWorktreeMissing = Boolean(executionTarget.worktree) && !existsSync(executionTarget.worktree!);
       /*
