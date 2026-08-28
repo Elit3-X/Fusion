@@ -74,6 +74,10 @@ import {
   columnHasFlag,
   columnsWithFlag,
   resolveReboundTarget,
+  resolveDependencyReplanTarget,
+  buildBootstrapPrompt,
+  resolveResetDescription,
+  writePromptFileAtomic,
   resolveColumnFlags,
   PLAN_REVIEW_GROUP_ID,
   buildPreservedPlanRespecifyPatch,
@@ -219,6 +223,19 @@ async function resolveIntakeColumnForTask(store: TaskStore, taskId: string): Pro
   try {
     const ir = await resolveWorkflowIrForTask(store, taskId);
     return columnsWithFlag(ir, "intake")[0] ?? "triage";
+  } catch {
+    return "triage";
+  }
+}
+
+/*
+FNXC:TaskReset 2026-08-28-20:50:
+Reset is an operator restart and must land where a Quick-Add Start create lands. A manual intake (`autoTriage: false`) is a capture lane that triage deliberately never auto-admits, so publishing there strands the card; `resolveDependencyReplanTarget` already encodes that manual-intake carve-out while leaving auto-triage workflows on their intake column.
+*/
+async function resolveResetTargetColumnForTask(store: TaskStore, taskId: string): Promise<string> {
+  try {
+    const ir = await resolveWorkflowIrForTask(store, taskId);
+    return resolveDependencyReplanTarget(ir) ?? columnsWithFlag(ir, "intake")[0] ?? "triage";
   } catch {
     return "triage";
   }
@@ -3811,7 +3828,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       const updated = await scopedStore.withPlanningLifecycleLock(req.params.id, async () => {
         const task = await scopedStore.getTask(req.params.id);
         if (!task) throw notFound(`Task ${req.params.id} not found`);
-        const intakeColumn = await resolveIntakeColumnForTask(scopedStore, task.id);
+        const intakeColumn = await resolveResetTargetColumnForTask(scopedStore, task.id);
         const settings = await scopedStore.getSettings();
         const rootDir = scopedStore.getRootDir();
         const resetPlan = buildTaskResetWorktreePlan(task, { rootDir, settings });
@@ -4079,9 +4096,22 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           }
 
           const promptPath = join(rootDir, ".fusion", "tasks", req.params.id, "PROMPT.md");
+          const resetSeedPrompt = buildBootstrapPrompt(
+            req.params.id,
+            fencedTask.title,
+            resolveResetDescription(fencedTask.description, descriptionOverride) ?? fencedTask.description,
+          );
           try {
             await rm(promptPath, { force: true });
             if (existsSync(promptPath)) throw new Error("PROMPT.md still exists after removal");
+            /*
+            FNXC:TaskReset 2026-08-28-20:50:
+            `evaluateUnplannedForExecution` treats an unreadable PROMPT.md as planned because its ENOENT catch returns `unplanned: false`. Once Reset no longer publishes `needs-replan`, this bootstrap seed is the load-bearing guard that keeps an unplanned card out of execution, so it must be written and verified before the durable row is published rather than repaired afterward.
+            */
+            await writePromptFileAtomic(promptPath, resetSeedPrompt);
+            if (await readFile(promptPath, "utf8") !== resetSeedPrompt) {
+              throw new Error("PROMPT.md seed verification mismatch");
+            }
           } catch (error) {
             throw conflict(`partial cleanup; retry Reset (PROMPT.md could not be removed: ${error instanceof Error ? error.message : String(error)})`);
           }
@@ -4124,6 +4154,18 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               req.params.id,
               `Reset replaced the original description (${descriptionOverride.length} characters)`,
             );
+          }
+          const committedSeedPrompt = buildBootstrapPrompt(published.id, published.title, published.description);
+          if (committedSeedPrompt !== resetSeedPrompt) {
+            try {
+              await writePromptFileAtomic(promptPath, committedSeedPrompt);
+            } catch (error) {
+              // FNXC:TaskReset 2026-08-28-20:50: PostgreSQL already committed; prompt mirror reconciliation is best-effort and must not turn a successful reset into a false failure.
+              severityAuditLog.warn("task-reset committed seed prompt reconciliation failed", {
+                taskId: req.params.id,
+                error: String(error),
+              });
+            }
           }
           return published;
         } finally {

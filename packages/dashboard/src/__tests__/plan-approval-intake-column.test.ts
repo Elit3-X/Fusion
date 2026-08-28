@@ -108,7 +108,7 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
     }),
     withPlanningLifecycleLock: vi.fn(async (_id, fn) => await fn()),
     moveTask: vi.fn().mockResolvedValue(PLANNING_TASK),
-    resetTaskPublication: vi.fn(async (id: string, intake: string) => ({ ...PLANNING_TASK, id, column: intake, status: "needs-replan" })),
+    resetTaskPublication: vi.fn(async (id: string, intake: string) => ({ ...PLANNING_TASK, id, column: intake, status: undefined })),
     logEntry: vi.fn().mockResolvedValue(undefined),
     // Resolve the merged workflow so the routes see its real intake column.
     getTaskWorkflowSelectionAsync: vi.fn().mockResolvedValue({ workflowId: "builtin:stepwise-coding" }),
@@ -191,10 +191,10 @@ describe("plan approval on the merged planning column (post-#2515)", () => {
 });
 
 /*
-FNXC:TaskReset 2026-08-19-06:45:
-Reset resolves the workflow's intake column, not its rebound/hold column. Route-level drift correction is gone; the atomic publisher owns the complete durable reset.
+FNXC:TaskReset 2026-08-28-20:50:
+Reset applies the manual-intake carve-out used by automatic replanning: manual capture lanes restart in the workflow hold lane, while auto-triage intake workflows retain their intake destination. The atomic publisher still owns the complete durable reset after the route resolves that target.
 */
-describe("reset publishes the resolved workflow intake", () => {
+describe("reset publishes the resolved workflow planning target", () => {
   const REBOUND_IR = {
     version: "v2",
     name: "custom",
@@ -208,7 +208,7 @@ describe("reset publishes the resolved workflow intake", () => {
     edges: [{ from: "start", to: "end" }],
   };
 
-  it("returns a custom workflow to intake rather than its distinct hold column", async () => {
+  it("keeps an auto-triage custom workflow on intake rather than its distinct hold column", async () => {
     const resetTask = {
       ...PLANNING_TASK,
       id: "FN-300",

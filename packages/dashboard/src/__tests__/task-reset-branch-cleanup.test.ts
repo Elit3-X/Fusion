@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Task, TaskStore } from "@fusion/core";
+import { buildBootstrapPrompt } from "@fusion/core";
 import { describe, expect, it, vi } from "vitest";
 
 import { inspectBareBranchCollision } from "../../../engine/src/execution/branch-conflicts.js";
@@ -92,10 +93,11 @@ function createStore(root: string, task: Task) {
   const publication = vi.fn(async (_id: string, intake: string) => ({
     ...task,
     column: intake,
-    status: "needs-replan",
+    status: undefined,
     worktree: undefined,
     branch: undefined,
-    steps: task.steps.map((step) => ({ ...step, status: "pending" as const })),
+    steps: [],
+    currentStep: 0,
   }));
   const store = {
     getRootDir: vi.fn().mockReturnValue(root),
@@ -151,7 +153,7 @@ describe("POST /api/tasks/:id/reset branch cleanup with real git", () => {
     expect(await branchExists(root, taskBranch)).toBe(false);
     expect(await collision(root, worktree)).toEqual({ kind: "missing" });
     expect(existsSync(worktree)).toBe(false);
-    expect(existsSync(prompt)).toBe(false);
+    await expect(readFile(prompt, "utf8")).resolves.toBe(buildBootstrapPrompt(task.id, task.title, task.description));
     expect(publication).toHaveBeenCalledOnce();
     expect(store.logEntry).toHaveBeenCalledWith(taskId, expect.stringContaining(`Reset deleted task branches: ${taskBranch}`));
   });
@@ -235,7 +237,7 @@ describe("POST /api/tasks/:id/reset branch cleanup with real git", () => {
     expect((await reset(store)).status).toBe(200);
     expect(await branchExists(root, taskBranch)).toBe(false);
     expect(await collision(root, holder)).toEqual({ kind: "missing" });
-    expect(existsSync(prompt)).toBe(false);
+    await expect(readFile(prompt, "utf8")).resolves.toBe(buildBootstrapPrompt(task.id, task.title, task.description));
     expect(publication).toHaveBeenCalledOnce();
   });
 
@@ -251,7 +253,7 @@ describe("POST /api/tasks/:id/reset branch cleanup with real git", () => {
     expect((await reset(stale.store)).status).toBe(200);
     expect(await branchExists(root, taskBranch)).toBe(false);
     expect(await collision(root, worktree)).toEqual({ kind: "missing" });
-    expect(existsSync(prompt)).toBe(false);
+    await expect(readFile(prompt, "utf8")).resolves.toBe(buildBootstrapPrompt(staleTask.id, staleTask.title, staleTask.description));
     expect(stale.publication).toHaveBeenCalledOnce();
 
     const guardedRoot = await createRepo();

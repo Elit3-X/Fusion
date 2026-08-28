@@ -1,5 +1,5 @@
 export { AgentLogger, type AgentLoggerOptions, summarizeToolArgs } from "./agents/agent-logger.js";
-export { PlanningResetFence, PLANNING_RESET_HOLD_MS } from "./planning-reset-fence.js";
+export { isPlanningResetHoldClearingUpdate, PlanningResetFence, PLANNING_RESET_HOLD_MS } from "./planning-reset-fence.js";
 export { reconcileTaskResetSessionRoot, removeTaskResetWorktree, ResetWorktreeForeignSessionError } from "./worktree/remove-reset-worktree.js";
 export {
   deleteTaskResetBranches,

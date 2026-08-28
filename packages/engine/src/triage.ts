@@ -188,7 +188,7 @@ import { AgentLogger } from "./agents/agent-logger.js";
 import { attachAgentUsageTelemetry, emitAgentSessionStart } from "./agents/agent-usage-telemetry.js";
 import { emitApprovalMail } from "./agents/approval-mail.js";
 import { acquireActiveSessionPath, activeSessionRegistry } from "./agents/active-session-registry.js";
-import { PlanningResetFence } from "./planning-reset-fence.js";
+import { isPlanningResetHoldClearingUpdate, PlanningResetFence } from "./planning-reset-fence.js";
 import { registerPlanningLivenessProbe } from "./agents/planning-liveness.js";
 import {
   resolveAgentInstructions,
@@ -815,8 +815,8 @@ export class TriageProcessor {
     */
     this.taskColumnWakeHandler = (task: Task, meta?: { lanes?: TaskMoveLanes }) => {
       if (!task?.id) return;
-      // Reset publication emits this durable state after its held lock commits, so a fresh planner is not delayed by the conservative reset TTL.
-      if (task.status === "needs-replan") this.resetFence.clearHold(task.id);
+      // Reset or graph-replan publication emits a durable clearing shape after its held lock commits, so a fresh planner is not delayed by the conservative reset TTL.
+      if (isPlanningResetHoldClearingUpdate(task)) this.resetFence.clearHold(task.id);
       const isPlannerWakeColumn = meta?.lanes
         ? task.column === meta.lanes.hold || task.column === meta.lanes.intake
         : LEGACY_PLANNER_WAKE_COLUMNS.has(task.column);

@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Task, TaskStore } from "@fusion/core";
-import { registerTaskMoveDisposer, registerTaskResetDisposer } from "@fusion/core";
+import { buildBootstrapPrompt, registerTaskMoveDisposer, registerTaskResetDisposer } from "@fusion/core";
 import {
   ActiveSessionWorktreeRemovalError,
   activeSessionRegistry,
@@ -83,11 +83,12 @@ function createStore(root: string, initialTask: Task, otherTasks: Task[] = []) {
   const publication = vi.fn(async (_id: string, intake: string) => ({
     ...currentTask,
     column: intake,
-    status: "needs-replan",
+    status: undefined,
     worktree: undefined,
     workspaceWorktrees: undefined,
     branch: undefined,
-    steps: currentTask.steps.map((step) => ({ ...step, status: "pending" as const })),
+    steps: [],
+    currentStep: 0,
   }));
   const store = {
     getRootDir: vi.fn().mockReturnValue(root),
@@ -176,7 +177,7 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     expect(planTaskResetBranchCleanup).toHaveBeenCalledWith(expect.objectContaining({ targets: cleanupTargets }));
     expect(deleteTaskResetBranches).toHaveBeenCalledWith(expect.objectContaining({ targets: cleanupTargets }));
     for (const entry of Object.values(task.workspaceWorktrees ?? {})) await expect(stat(entry.worktreePath)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(readFile(promptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(promptPath, "utf8")).resolves.toBe(buildBootstrapPrompt(task.id, task.title, task.description));
   });
 
   it("refuses a live coordinator session at admission without deleting workspace state", async () => {

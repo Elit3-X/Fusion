@@ -2,11 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Task, TaskStore } from "@fusion/core";
-import { registerTaskMoveDisposer, registerTaskResetDisposer } from "@fusion/core";
+import { buildBootstrapPrompt, isUnplannedSeedPrompt, registerTaskMoveDisposer, registerTaskResetDisposer } from "@fusion/core";
 import {
   activeSessionRegistry,
   deleteTaskResetBranches,
@@ -130,7 +130,7 @@ describe("POST /tasks/:id/reset", () => {
     const events: string[] = [];
     const task = taskFixture(worktree);
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath: worktree }]);
-    const reset = { ...task, column: "triage", status: "needs-replan", worktree: undefined, branch: undefined, steps: task.steps.map((step) => ({ ...step, status: "pending" as const })) };
+    const reset = { ...task, column: "triage", status: undefined, worktree: undefined, branch: undefined, steps: [], currentStep: 0 };
     let store!: TaskStore;
     store = createStore(root, task, events, async function (this: TaskStore, id, intake) {
       void (this as unknown as { asyncLayer: unknown }).asyncLayer;
@@ -158,10 +158,13 @@ describe("POST /tasks/:id/reset", () => {
       expect(vi.mocked(store.resetTaskPublication)).toHaveBeenCalledWith("FN-400", "triage");
       expect(vi.mocked(store.resetTaskPublication).mock.contexts).toEqual([store]);
       expect(events).toEqual(["cancelled", "published"]);
-      await expect(readFile(join(taskDir, "PROMPT.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      const seed = await readFile(join(taskDir, "PROMPT.md"), "utf8");
+      expect(seed).toBe(buildBootstrapPrompt(task.id, task.title, task.description));
+      expect(isUnplannedSeedPrompt(seed, task.id, task.title, task.description)).toBe(true);
       await expect(readFile(worktree, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-      expect(res.body).toMatchObject({ id: "FN-400", column: "triage", status: "needs-replan" });
-      expect(res.body.steps.every((step: { status: string }) => step.status === "pending")).toBe(true);
+      expect(res.body).toMatchObject({ id: "FN-400", column: "triage" });
+      expect(res.body.status).toBeUndefined();
+      expect(res.body.steps).toEqual([]);
     } finally {
       unregister();
     }
@@ -182,7 +185,7 @@ describe("POST /tasks/:id/reset", () => {
       intake: string,
       options?: { description?: string },
     ) {
-      return { ...task, ...options, column: intake, status: "needs-replan" } as Task;
+      return { ...task, ...options, column: intake, status: undefined, steps: [], currentStep: 0 } as Task;
     });
     const store = createStore(root, task, [], publication);
 
@@ -205,6 +208,9 @@ describe("POST /tasks/:id/reset", () => {
       "Reset replaced the original description (17 characters)",
     );
     expect(res.body.description).toBe("Corrected request");
+    const seed = await readFile(join(taskDir, "PROMPT.md"), "utf8");
+    expect(seed).toBe(buildBootstrapPrompt(task.id, task.title, "Corrected request"));
+    expect(isUnplannedSeedPrompt(seed, task.id, task.title, "Corrected request")).toBe(true);
   });
 
   it.each([
@@ -247,7 +253,7 @@ describe("POST /tasks/:id/reset", () => {
     const task = taskFixture(worktree);
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath: worktree }]);
     activeSessionRegistry.registerPath(worktree, { taskId: task.id, kind: "planning", ownerKey: `planning:${task.id}` });
-    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: "needs-replan", worktree: undefined, branch: undefined });
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: undefined, worktree: undefined, branch: undefined });
     const store = createStore(root, task, [], publication);
     const unregister = registerTaskResetDisposer(store, async () => activeSessionRegistry.unregisterPath(worktree));
     try {
@@ -255,7 +261,7 @@ describe("POST /tasks/:id/reset", () => {
       expect(res.status).toBe(200);
       expect(publication).toHaveBeenCalledOnce();
       expect(activeSessionRegistry.lookupByPath(worktree)).toBeNull();
-      await expect(readFile(join(taskDir, "PROMPT.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(join(taskDir, "PROMPT.md"), "utf8")).resolves.toBe(buildBootstrapPrompt(task.id, task.title, task.description));
       await expect(stat(worktree)).rejects.toMatchObject({ code: "ENOENT" });
       expect(JSON.stringify(res.body)).not.toContain("cannot remove active-session worktree");
     } finally {
@@ -274,7 +280,7 @@ describe("POST /tasks/:id/reset", () => {
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath: worktree }]);
     activeSessionRegistry.registerPath(worktree, { taskId: task.id, kind: "planning", ownerKey: `planning:${task.id}` });
     (activeSessionRegistry.lookupByPath(worktree) as { registeredAt: number }).registeredAt = 0;
-    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: "needs-replan", worktree: undefined, branch: undefined });
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: undefined, worktree: undefined, branch: undefined });
     const store = createStore(root, task, [], publication);
     try {
       const res = await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" });
@@ -345,7 +351,7 @@ describe("POST /tasks/:id/reset", () => {
     await mkdir(join(taskDir, "PROMPT.md"));
     const task = taskFixture(worktree);
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath: worktree }]);
-    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: "needs-replan" });
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: undefined });
     const store = createStore(root, task, [], publication);
     const res = await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" });
     expect(res.status).toBe(409);
@@ -353,6 +359,25 @@ describe("POST /tasks/:id/reset", () => {
     expect(publication).not.toHaveBeenCalled();
     await expect(readFile(join(taskDir, "PROMPT.md"), "utf8")).rejects.toMatchObject({ code: "EISDIR" });
     expect(store.updateTask).toBeUndefined();
+  });
+
+  it("fails closed when the bootstrap seed cannot be written", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-reset-route-seed-write-fence-"));
+    const taskDir = join(root, ".fusion", "tasks", "FN-400");
+    await mkdir(taskDir, { recursive: true });
+    await chmod(taskDir, 0o500);
+    const task = { ...taskFixture(""), worktree: undefined, branch: undefined };
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: undefined });
+    const store = createStore(root, task, [], publication);
+
+    try {
+      const res = await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" });
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/partial cleanup; retry Reset/i);
+      expect(publication).not.toHaveBeenCalled();
+    } finally {
+      await chmod(taskDir, 0o700);
+    }
   });
 
   it("admission blocks a foreign-held task branch without destroying anything", async () => {
@@ -428,7 +453,7 @@ describe("POST /tasks/:id/reset", () => {
     vi.mocked(deleteTaskResetBranches)
       .mockResolvedValueOnce({ deleted: [], retained: [], blocked: [{ repoRootDir: root, branch: task.branch!, reason: "still-present" }] })
       .mockResolvedValueOnce({ deleted: [{ repoRootDir: root, branch: task.branch! }], retained: [], blocked: [] });
-    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: "needs-replan", worktree: undefined, branch: undefined });
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: undefined, worktree: undefined, branch: undefined });
     const store = createStore(root, task, [], publication);
 
     const first = await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" });
@@ -441,10 +466,10 @@ describe("POST /tasks/:id/reset", () => {
     expect(retry.status).toBe(200);
     expect(publication).toHaveBeenCalledOnce();
     expect(store.updateTask).toBeUndefined();
-    await expect(stat(promptPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(promptPath, "utf8")).resolves.toBe(buildBootstrapPrompt(task.id, task.title, task.description));
   });
 
-  it("publishes Reset into the workflow intake column used by fresh task creation", async () => {
+  it("publishes Reset into the Planning hold lane for a manual-intake workflow", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-reset-route-ideas-intake-"));
     const worktree = join(root, ".worktrees", "fn-400");
     await mkdir(worktree, { recursive: true });
@@ -452,7 +477,7 @@ describe("POST /tasks/:id/reset", () => {
     await writeFile(join(root, ".fusion", "tasks", "FN-400", "PROMPT.md"), "# Plan\n");
     const task = taskFixture(worktree);
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath: worktree }]);
-    const publication = vi.fn().mockResolvedValue({ ...task, column: "ideas", status: "needs-replan", worktree: undefined, branch: undefined });
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "todo", status: undefined, worktree: undefined, branch: undefined });
     const store = createStore(root, task, [], publication);
     vi.mocked(store.getWorkflowDefinition).mockResolvedValue({
       id: "wf-reset",
@@ -469,7 +494,46 @@ describe("POST /tasks/:id/reset", () => {
       },
     } as never);
     expect((await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" })).status).toBe(200);
-    expect(publication).toHaveBeenCalledWith("FN-400", "ideas");
+    expect(publication).toHaveBeenCalledWith("FN-400", "todo");
+  });
+
+  it("keeps an auto-triage workflow on its intake lane", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-reset-route-auto-intake-"));
+    const task = { ...taskFixture(""), worktree: undefined, branch: undefined };
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "planning", status: undefined });
+    const store = createStore(root, task, [], publication);
+    vi.mocked(store.getWorkflowDefinition).mockResolvedValue({
+      id: "wf-reset",
+      name: "Automatic planning",
+      ir: {
+        version: "v2",
+        name: "Automatic planning",
+        columns: [
+          { id: "planning", name: "Planning", traits: [{ trait: "intake", config: { autoTriage: true } }] },
+          { id: "backlog", name: "Backlog", traits: [{ trait: "hold" }] },
+        ],
+        nodes: [{ id: "start", kind: "start", column: "planning" }],
+        edges: [],
+      },
+    } as never);
+
+    expect((await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" })).status).toBe(200);
+    expect(publication).toHaveBeenCalledWith("FN-400", "planning");
+  });
+
+  it("falls back to triage when the workflow IR cannot resolve a column", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-reset-route-unresolved-ir-"));
+    const task = { ...taskFixture(""), worktree: undefined, branch: undefined };
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: undefined });
+    const store = createStore(root, task, [], publication);
+    vi.mocked(store.getWorkflowDefinition).mockResolvedValue({
+      id: "wf-reset",
+      name: "Legacy workflow",
+      ir: { version: "v1", name: "Legacy workflow", nodes: [], edges: [] },
+    } as never);
+
+    expect((await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" })).status).toBe(200);
+    expect(publication).toHaveBeenCalledWith("FN-400", "triage");
   });
 
   it("rejects a registered foreign checkout before cancellation or deletion", async () => {
@@ -482,7 +546,7 @@ describe("POST /tasks/:id/reset", () => {
     const task = taskFixture(worktree);
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: "operator/checkout", worktreePath: worktree }]);
     const events: string[] = [];
-    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: "needs-replan" });
+    const publication = vi.fn().mockResolvedValue({ ...task, column: "triage", status: undefined });
     const store = createStore(root, task, events, publication);
     const unregister = registerTaskMoveDisposer(store, async () => {
       events.push("cancelled");
