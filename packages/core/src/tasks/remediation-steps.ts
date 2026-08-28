@@ -22,6 +22,11 @@ export function isRemediationStep(step: TaskStep): step is TaskStep & { remediat
   return step.remediation !== undefined;
 }
 
+/** True only when a review handoff gives the executor concrete named work to run. */
+export function hasPendingRemediationWork(task: { steps?: readonly TaskStep[] }): boolean {
+  return (task.steps ?? []).some((step) => step.status === "pending" && isRemediationStep(step));
+}
+
 export function remediationWaveCount(steps: readonly TaskStep[]): number {
   return steps.reduce((highest, step) => Math.max(highest, step.remediation?.wave ?? 0), 0);
 }

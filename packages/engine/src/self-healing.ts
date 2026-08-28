@@ -5,10 +5,8 @@
  * Four subsystems:
  * 1. **Auto-unpause**: Clears rate-limit-triggered `globalPause` with
  *    escalating backoff (5 min → 60 min cap). Resets on sustained unpause.
- * 2. **Stuck kill budget**: Caps how many times a task can be killed by the
- *    stuck-task detector before marking it as permanently failed.
- * 3. **Periodic maintenance**: Worktree pruning, orphan cleanup, SQLite
- *    WAL checkpoint — all on a configurable interval (default 15 min).
+ * 2. **Stuck-session wakeup**: Runtime detection disposes silent sessions and resumes them in place.
+ * 3. **Periodic maintenance**: Worktree pruning and orphan cleanup on a configurable interval.
  * 4. **Worktree cap enforcement**: Prevents unbounded worktree accumulation
  *    by cleaning oldest idle worktrees when count exceeds 2× maxWorktrees.
  * 5. **Completion handoff limbo recovery**: Re-enqueues merge-eligible in-review
@@ -30,7 +28,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSy
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, resolveContainedBackwardTargetForTask, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
+import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
 
   resolveNearDuplicateCanonicalFlags,
   LEGACY_COLUMN_IDS_BY_ROLE,
@@ -135,14 +133,8 @@ import { runSurfacingSweep, hours, type SurfacingCycle } from "./surfacing-sweep
    self-healing-git-evidence.ts. Imported back here because call sites remain. */
 import { SelfHealingGitEvidence, execAsync, shellQuote } from "./self-healing-git-evidence.js";
 import { evaluateParkedAgentTaskLink, PARKED_AGENT_LINK_FRESH_RUN_MS } from "./agents/task-agent-sync.js";
-import { classifyTerminalFailureAutoRecoveryForTask, describeSelfHealingNoActionWedge, describeTaskWedge } from "./notification/task-wedge-notification.js";
-import {
-  MAX_TERMINAL_FAILURE_AUTO_RESUMES,
-  MAX_TERMINAL_FAILURE_AUTO_RETRIES,
-  TERMINAL_FAILURE_CLAIM_APPLY_GRACE_MS,
-} from "@fusion/core";
-import { BASE_DELAY_MS, computeRecoveryDecision, formatDelay, MAX_DELAY_MS, MAX_RECOVERY_RETRIES } from "./healing/recovery-policy.js";
-import { NO_PROGRESS_REQUEUE_BUDGET_EXHAUSTED_PREFIX } from "./healing/no-progress-requeue-budget.js";
+import { describeSelfHealingNoActionWedge } from "./notification/task-wedge-notification.js";
+import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "./healing/recovery-policy.js";
 
 export {
   COMPLETED_BLOCKED_PAUSE_REASON,
@@ -560,7 +552,6 @@ hand while this sweep cleared it automatically minutes later.
 */
 import { ACTIVE_MERGE_STATUSES, DEFAULT_STALE_MERGING_STATUS_MIN_AGE_MS, isStaleMergeActiveStatus, shouldClearOrphanedMergeStamp } from "./merge/merge-active-status.js";
 export { ACTIVE_MERGE_STATUSES, DEFAULT_STALE_MERGING_STATUS_MIN_AGE_MS, isMergeActiveStatus, isStaleMergeActiveStatus } from "./merge/merge-active-status.js";
-const NON_TERMINAL_STEP_STATUSES = new Set(["pending", "in-progress"]);
 const STRANDED_COMPLETED_TODO_ACTIVE_STATUSES = new Set([
   "in-progress",
   "planning",
@@ -570,16 +561,6 @@ const STRANDED_COMPLETED_TODO_ACTIVE_STATUSES = new Set([
   "merging-pr",
   "merging-fix",
   "mission-validation",
-]);
-/** Statuses that represent an explicit human-handoff or active merge —
- *  the ghost-review fallback must not disturb tasks parked in these states. */
-const GHOST_REVIEW_PRESERVED_STATUSES = new Set([
-  "failed",
-  "awaiting-user-review",
-  "awaiting-approval",
-  "merging",
-  "merging-pr",
-  "merging-fix",
 ]);
 /**
  * Longer grace period for tasks that still have a worktree on disk.
@@ -769,8 +750,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
   private maintenanceRunning = false;
   /** Last wall-clock a batch-1 git-churn pass ran on this manager (coarse-cadence gate). */
   private lastGitWorktreeChurnAt = 0;
-  /** In-process belt only; the durable apply token remains the cross-process fence. */
-  private autoRecoverTerminalFailuresInFlight = false;
 
   // ── Event listener cleanup ──────────────────────────────────────────
   private settingsListener: ((data: { settings: Settings; previous: Settings }) => void) | null = null;
@@ -1858,11 +1837,9 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       every subsequent restart untouched.
       */
       { name: "reconcile-stranded-workflow-continuations", fn: () => this.reconcileStrandedWorkflowContinuations().then(() => undefined) },
-      { name: "no-progress-no-task-done", fn: () => this.recoverNoProgressNoTaskDoneFailures().then(() => undefined) },
       { name: "completed-tasks", fn: () => this.recoverCompletedTasks().then(() => undefined) },
       { name: "recover-stranded-completed-todo", fn: () => this.recoverStrandedCompletedTodoTasks().then(() => undefined) },
       { name: "recover-advanced-triage", fn: () => this.recoverAdvancedTriageTasks().then(() => undefined) },
-      { name: "stale-incomplete-review", fn: () => this.recoverStaleIncompleteReviewTasks().then(() => undefined) },
       { name: "failed-pre-merge-steps", fn: () => this.recoverReviewTasksWithFailedPreMergeSteps().then(() => undefined) },
       { name: "missing-worktree-review-failures", fn: () => this.recoverMissingWorktreeReviewFailures().then(() => undefined) },
       /*
@@ -1908,7 +1885,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       { name: "recover-orphan-only-scope-violations", fn: () => this.recoverOrphanOnlyScopeViolations().then(() => undefined) },
       { name: "recover-stuck-merge-deadlocks", fn: () => this.recoverStuckMergeDeadlocks().then(() => undefined) },
       { name: "misclassified-failures", fn: () => this.recoverMisclassifiedFailures().then(() => undefined) },
-      { name: "auto-recover-terminal-failures", fn: () => this.autoRecoverTerminalFailures().then(() => undefined) },
       { name: "partial-progress-no-task-done", fn: () => this.recoverPartialProgressNoTaskDoneFailures().then(() => undefined) },
       { name: "orphaned-executions", fn: () => this.recoverOrphanedExecutions().then(() => undefined) },
       { name: "approved-triage", fn: () => this.recoverApprovedTriageTasks().then(() => undefined) },
@@ -1945,7 +1921,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts().then(() => undefined) },
       // FN-4962 ordering invariant: metadata reconcile must run before stale-active reclaim.
       { name: "reconcile-task-worktree-metadata", fn: () => this.reconcileTaskWorktreeMetadata().then(() => undefined) },
-      { name: "recover-in-progress-limbo", fn: () => this.recoverInProgressLimbo().then(() => undefined) },
       { name: "reconcile-in-review-branch-rebind", fn: () => this.reconcileInReviewBranchRebind().then(() => undefined) },
       { name: "reclaim-stale-active-branches", fn: () => this.reclaimStaleActiveBranches().then(() => undefined) },
       { name: "surface-in-review-stalls", fn: () => this.surfaceInReviewStalls().then(() => undefined) },
@@ -2127,232 +2102,12 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     }
   }
 
-  // ── Stuck kill budget ─────────────────────────────────────────────
 
-  /**
-   * Check whether a stuck-killed task should be re-queued, parked for manual
-   * intervention, or marked as failed. Called by StuckTaskDetector's
-   * `beforeRequeue` callback.
-   *
-   * Terminal contract for stuck-loop exhaustion and no-progress churn:
-   * - `STUCK_LOOP_EXHAUSTED`: increments the kill budget until exhausted. Once
-   *   exhausted, tasks with incomplete steps are moved back to `todo` with
-   *   progress preserved, marked failed, and paused for manual resume or
-   *   decomposition; tasks with only terminal steps keep the legacy failed
-   *   `in-review` handoff path.
-   *
-   * FNXC:SelfHealing 2026-06-14-10:51:
-   * Incomplete stuck-loop exhaustion must park work in a failed/paused state before moving columns, because a post-move patch failure must not leave the task scheduler-runnable.
-   * Engine-owned recovery must not mutate `userPaused`; user intent stays authoritative across races.
-   * - `STUCK_NO_PROGRESS_CHURN`: skips the budget entirely and terminalizes on
-   *   the first trigger with operator guidance to decompose or rescope.
-   *
-   * @returns `true` if the task should be re-queued, `false` if terminalized.
-   */
-  async checkStuckBudget(
-    taskId: string,
-    reason: "loop" | "inactivity" | "no-progress-churn" = "inactivity",
-    event?: { ignoredStepUpdateCount?: number },
-  ): Promise<boolean> {
-    try {
-      const settings = await this.store.getSettings();
-      const maxKills = settings.maxStuckKills ?? 6;
-
-      const task = await this.store.getTask(taskId);
-
-      if (task.userPaused) {
-        log.warn(`${taskId} STUCK_KILL: skipped — task is user-paused; leaving paused`);
-        await this.store.logEntry(
-          taskId,
-          `STUCK_KILL: skipped stuck-budget recovery for ${reason} because the task is user-paused; leaving paused.`,
-        );
-        return false;
-      }
-
-      if (reason === "no-progress-churn") {
-        const ignoredStepUpdateCount = event?.ignoredStepUpdateCount ?? 0;
-        const stuckKillStreak = task.stuckKillCount ?? 0;
-        log.warn(
-          `${taskId} no-progress churn detected ` +
-          `(ignoredStepUpdates=${ignoredStepUpdateCount}, stuckKillStreak=${stuckKillStreak}) — marking failed`,
-        );
-        const churnError =
-          `STUCK_NO_PROGRESS_CHURN: detected ${ignoredStepUpdateCount} ignored step-update rebuffs after compact-and-resume failed to recover progress. ` +
-          `Task is likely too large; decompose via fn_task_create child tasks or rescope. No further automatic retries will run.`;
-        await this.store.updateTask(taskId, {
-          status: "failed",
-          error: churnError,
-        });
-        try {
-          await this.handoffTaskToReview(taskId, "stuck-no-progress-churn");
-        } catch (moveErr: unknown) {
-          const moveErrMessage = moveErr instanceof Error ? moveErr.message : String(moveErr);
-          log.warn(`${taskId} handoffTaskToReview failed (${moveErrMessage}) after STUCK_NO_PROGRESS_CHURN terminalization — task already marked failed, not re-queuing`);
-        }
-        await this.store.logEntry(
-          taskId,
-          `STUCK_NO_PROGRESS_CHURN: detected ${ignoredStepUpdateCount} ignored step-update rebuffs after compact-and-resume failed to recover progress. ` +
-          `No further automatic retries will run. Pause the task, manually decompose the work via fn_task_create child tasks, or move it to triage to rescope.`,
-        );
-        const churnAudit = createRunAuditor(this.store, {
-          runId: generateSyntheticRunId("fn5168-stuck-churn", taskId),
-          agentId: "self-healing",
-          taskId,
-          taskLineageId: task.lineageId,
-          phase: "stuck-no-progress-churn-terminalized",
-        });
-        await churnAudit.database({
-          type: "task:stuck-no-progress-churn-terminalized",
-          target: taskId,
-          metadata: {
-            taskId,
-            ignoredStepUpdateCount,
-            stuckKillStreak,
-            lastReason: reason,
-          },
-        });
-        return false;
-      }
-
-      const newCount = (task.stuckKillCount ?? 0) + 1;
-      const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
-      const activeHeartbeatTaskIds = await this.listActiveHeartbeatTaskIds();
-
-      if (newCount > maxKills) {
-        const hasIncompleteSteps = !!task.steps?.some((step) => NON_TERMINAL_STEP_STATUSES.has(step.status));
-
-        if (hasIncompleteSteps) {
-          const liveExecutionSignal = this.getFalsePositiveRequeueSignal(task, {
-            executingIds,
-            activeHeartbeatTaskIds,
-            graceMs: settings.taskStuckTimeoutMs ?? ORPHANED_EXECUTION_RECOVERY_GRACE_MS,
-            includeCheckedOutLease: true,
-          });
-          if (liveExecutionSignal) {
-            await this.emitFalsePositiveRequeueNoAction(
-              task,
-              "stuck-loop-exhausted",
-              "task:stuck-loop-exhausted-no-action",
-              liveExecutionSignal.reason,
-              {
-                ...liveExecutionSignal.metadata,
-                lastReason: reason,
-                stuckKillCount: task.stuckKillCount ?? 0,
-                attemptedStuckKillCount: newCount,
-                maxStuckKills: maxKills,
-              },
-            );
-            return false;
-          }
-
-          log.warn(`${taskId} exceeded stuck kill budget (${newCount}/${maxKills}, reason=${reason}) with incomplete steps — parking in todo with progress preserved`);
-          const exhaustedError = `STUCK_LOOP_EXHAUSTED: incomplete task exhausted stuck kill budget (${newCount}/${maxKills}) after last reason=${reason}. Progress was preserved; manually retry, decompose, or rescope before execution resumes.`;
-          const parkUpdate = {
-            stuckKillCount: newCount,
-            status: "failed",
-            error: exhaustedError,
-            paused: true,
-            pausedReason: "stuck-loop-exhausted-manual-intervention-required",
-            pausedByAgentId: "self-healing",
-            assignedAgentId: null,
-            checkedOutBy: null,
-            checkedOutAt: null,
-            checkoutNodeId: null,
-            checkoutRunId: null,
-            checkoutLeaseRenewedAt: null,
-            checkoutLeaseEpoch: 0,
-            nextRecoveryAt: null,
-          } satisfies Parameters<typeof this.store.updateTask>[1];
-
-          await this.store.updateTask(taskId, parkUpdate);
-          try {
-            await this.reboundTask(taskId, "self-healing-stranded-recovery", task.column, {
-              preserveProgress: true,
-              preserveWorktree: true,
-              preserveStatus: true,
-              recoveryRehome: true,
-            });
-          } catch (moveErr: unknown) {
-            const moveErrMessage = moveErr instanceof Error ? moveErr.message : String(moveErr);
-            log.warn(`${taskId} moveTask(todo) failed (${moveErrMessage}) after incomplete STUCK_LOOP_EXHAUSTED terminalization — marking failed/paused in place`);
-            try {
-              await this.store.updateTask(taskId, parkUpdate);
-            } catch (patchErr: unknown) {
-              const patchErrMessage = patchErr instanceof Error ? patchErr.message : String(patchErr);
-              log.warn(`${taskId} in-place park patch failed after moveTask(todo) failure during incomplete STUCK_LOOP_EXHAUSTED terminalization: ${patchErrMessage}`);
-              await this.store.logEntry(
-                taskId,
-                `STUCK_LOOP_EXHAUSTED: incomplete task failed to move to todo (${moveErrMessage}), and the in-place park patch also failed (${patchErrMessage}); pre-move park metadata was already applied, but operator verification is required before retry.`,
-              );
-              return false;
-            }
-            try {
-              await this.store.logEntry(
-                taskId,
-                `STUCK_LOOP_EXHAUSTED: incomplete task exhausted stuck kill budget (${newCount}/${maxKills}), last reason=${reason}. Failed to move task to todo (${moveErrMessage}); task was marked failed/paused in place and will not be automatically retried.`,
-              );
-            } catch (logErr: unknown) {
-              const logErrMessage = logErr instanceof Error ? logErr.message : String(logErr);
-              log.warn(`${taskId} failed to log in-place stuck-loop park success after moveTask(todo) failure: ${logErrMessage}`);
-            }
-            return false;
-          }
-
-          try {
-            await this.store.updateTask(taskId, parkUpdate);
-            await this.store.logEntry(
-              taskId,
-              `STUCK_LOOP_EXHAUSTED: incomplete task exhausted stuck kill budget (${newCount}/${maxKills}), last reason=${reason}. Parked in todo with progress preserved; no further automatic retries will run until an operator manually retries, decomposes, or rescopes the task.`,
-            );
-          } catch (patchErr: unknown) {
-            const patchErrMessage = patchErr instanceof Error ? patchErr.message : String(patchErr);
-            log.warn(`${taskId} post-move park patch failed after incomplete STUCK_LOOP_EXHAUSTED terminalization: ${patchErrMessage}`);
-            await this.store.logEntry(
-              taskId,
-              `STUCK_LOOP_EXHAUSTED: incomplete task moved to todo with progress preserved, but post-move park patch failed (${patchErrMessage}); operator repair is required before retry.`,
-            );
-          }
-          return false;
-        }
-
-        // Budget exhausted — mark as permanently failed
-        log.warn(`${taskId} exceeded stuck kill budget (${newCount}/${maxKills}, reason=${reason}) — marking failed`);
-        const exhaustedError =
-          `STUCK_LOOP_EXHAUSTED: stuck kill budget exhausted (${newCount}/${maxKills}) after last reason=${reason}.`;
-        await this.store.updateTask(taskId, {
-          stuckKillCount: newCount,
-          status: "failed",
-          error: exhaustedError,
-        });
-        try {
-          await this.handoffTaskToReview(taskId, "stuck-loop-exhausted");
-        } catch (moveErr: unknown) {
-          // moveTask may fail if task was concurrently moved (e.g., dep-abort).
-          // The task is already marked failed — don't allow requeue.
-          const moveErrMessage = moveErr instanceof Error ? moveErr.message : String(moveErr);
-          log.warn(`${taskId} handoffTaskToReview failed (${moveErrMessage}) after STUCK_LOOP_EXHAUSTED terminalization — task already marked failed, not re-queuing`);
-        }
-        await this.store.logEntry(
-          taskId,
-          `STUCK_LOOP_EXHAUSTED: stuck kill budget exhausted (${newCount}/${maxKills}), last reason=${reason}. No further automatic retries will run. Manually retry, pause, or move the task to triage to resume work.`,
-        );
-        return false;
-      }
-
-      // Budget remaining — allow re-queue
-      log.log(`${taskId} stuck kill ${newCount}/${maxKills} — will re-queue`);
-      await this.store.updateTask(taskId, { stuckKillCount: newCount });
-      await this.store.logEntry(
-        taskId,
-        `Stuck kill ${newCount}/${maxKills} — re-queuing for retry`,
-      );
-      return true;
-    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-      log.error(`checkStuckBudget failed for ${taskId}: ${errorMessage}`);
-      // On error, allow re-queue — safer than permanently failing
-      return true;
-    }
-  }
+  /*
+  FNXC:LifecycleContainment 2026-08-28-07:48:
+  Stuck-session recovery has no kill budget or terminal branch. The detector disposes a dead session
+  and re-dispatches the same task in place; repeated silence remains automatically recoverable.
+  */
 
   // ── Periodic maintenance ──────────────────────────────────────────
 
@@ -3074,7 +2829,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           { name: "recover-completed-tasks", fn: () => this.recoverCompletedTasks() },
           { name: "recover-stranded-completed-todo", fn: () => this.recoverStrandedCompletedTodoTasks() },
           { name: "recover-advanced-triage", fn: () => this.recoverAdvancedTriageTasks() },
-          { name: "recover-stale-incomplete-review", fn: () => this.recoverStaleIncompleteReviewTasks() },
           /*
           FNXC:OrphanedPendingSteps 2026-07-26-19:20:
           Ordering is load-bearing: this sweep PRODUCES the `failed` results that
@@ -3133,9 +2887,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           { name: "recover-orphan-only-scope-violations", fn: () => this.recoverOrphanOnlyScopeViolations() },
           { name: "recover-stuck-merge-deadlocks", fn: () => this.recoverStuckMergeDeadlocks() },
           { name: "recover-misclassified-failures", fn: () => this.recoverMisclassifiedFailures() },
-          { name: "recover-no-progress-no-task-done", fn: () => this.recoverNoProgressNoTaskDoneFailures() },
           { name: "recover-paused-abort-failures", fn: () => this.recoverPausedAbortFailures() },
-          { name: "auto-recover-terminal-failures", fn: () => this.autoRecoverTerminalFailures() },
           { name: "recover-partial-progress-no-task-done", fn: () => this.recoverPartialProgressNoTaskDoneFailures() },
           { name: "recover-orphaned-executions", fn: () => this.recoverOrphanedExecutions() },
           { name: "recover-approved-triage", fn: () => this.recoverApprovedTriageTasks() },
@@ -3143,7 +2895,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           { name: "recover-starved-refinement", fn: () => this.recoverStarvedRefinementTriageTasks() },
           { name: "recover-orphaned-planning", fn: () => this.recoverOrphanedPlanningTasks() },
            { name: "finalize-orphaned-planning-segments", fn: () => this.finalizeOrphanedPlanningSegments() },
-          { name: "recover-ghost-review", fn: () => this.recoverGhostReviewTasks() },
           { name: "recover-orphaned-agents", fn: () => this.recoverOrphanedAgents() },
           { name: "recover-stale-heartbeat-runs", fn: () => this.recoverStaleHeartbeatRuns() },
           { name: "reattach-orphaned-assigned-executions", fn: () => this.reattachOrphanedAssignedExecutions() },
@@ -3182,7 +2933,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts() },
           // FN-4962 ordering invariant: metadata reconcile must run before stale-active reclaim.
           { name: "reconcile-task-worktree-metadata", fn: () => this.reconcileTaskWorktreeMetadata() },
-          { name: "recover-in-progress-limbo", fn: () => this.recoverInProgressLimbo() },
           { name: "reconcile-in-review-branch-rebind", fn: () => this.reconcileInReviewBranchRebind().then(() => undefined) },
           { name: "reclaim-stale-active-branches", fn: () => this.reclaimStaleActiveBranches() },
           { name: "surface-in-review-stalls", fn: () => this.surfaceInReviewStalls() },
@@ -9601,115 +9351,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
     }
   }
 
-  /**
-   * Recover tasks that reached `in-review` while a task step was still marked
-   * pending/in-progress. These tasks are not tracked by StuckTaskDetector
-   * anymore because the executor session is gone, and they are not mergeable
-   * because `getTaskMergeBlocker()` correctly blocks incomplete steps.
-   *
-   * Moving them back to `todo` lets the normal scheduler/executor resume the
-   * incomplete step instead of leaving the task stranded in review.
-   * Backward lifecycle move gated on triple proof (FN-5335).
-   * When the predicate fails, emits `task:stale-incomplete-review-no-action` and skips lifecycle mutation.
-   * Skips tasks not eligible for auto-merge processing (global `autoMerge`
-   * off without an explicit per-task `autoMerge: true` override) — PR-based
-   * review flow owns lifecycle until human merge.
-   */
-  async recoverStaleIncompleteReviewTasks(): Promise<number> {
-    try {
-      const settings = await this.store.getSettings();
-      if (settings.globalPause || settings.enginePaused) return 0;
-      const timeoutMs = settings.taskStuckTimeoutMs;
-      if (!timeoutMs || timeoutMs <= 0) return 0;
-
-      const now = Date.now();
-      /*
-      FNXC:WorkflowResolvedColumns 2026-07-30-21:40 (the query-filter class, twenty-fourth sweep):
-      A review card whose STEPS are not finished — it reached review on a graph failure, not on completed
-      work. The literal read meant that on a renamed board it was never requeued, so the card sat in
-      review claiming to be done while its own steps said otherwise.
-
-      The per-card verdict below converts with it. The triple-proof is NOT lane-gated in this sweep, so
-      there is no second pair to convert — checked deliberately, because that is the defect #2916 found
-      one sweep over and the self-audit found five of in another.
-      */
-      const staleIncompleteColumns = await resolveProjectColumnsForRoles(this.store, REVIEW_ROLES);
-      const staleIncompleteById = new Map<string, Task>();
-      for (const column of staleIncompleteColumns) {
-        for (const entry of await this.store.listTasks({ column, slim: true })) staleIncompleteById.set(entry.id, entry);
-      }
-      const tasks = [...staleIncompleteById.values()];
-      /* NARROW WHEN THE CARD CAN ANSWER, BROAD WHEN IT CANNOT (#2891). */
-      const staleIncompleteLanes = new Map<string, Set<string>>();
-      for (const entry of tasks) {
-        try {
-          const { ir, source } = await resolveWorkflowIrForTaskWithProvenance(this.store, entry.id);
-          staleIncompleteLanes.set(
-            entry.id,
-            source === "default"
-              ? new Set(staleIncompleteColumns)
-              : new Set(REVIEW_ROLES.flatMap((role) => [...columnsWithFlag(ir, role)])),
-          );
-        } catch {
-          staleIncompleteLanes.set(entry.id, new Set(staleIncompleteColumns));
-        }
-      }
-      /*
-       * FNXC:WorkflowLifecycle 2026-06-29-11:27:
-       * Restart recovery must not leave errored review-column cards with unfinished
-       * steps. FN-7228/FN-7229 persisted `column:"in-review"` plus incomplete steps
-       * after graph failures; failed rows should re-enter `todo` immediately with
-       * progress preserved instead of waiting for the stale timeout.
-       */
-      const staleIncomplete = tasks.filter((task) =>
-        (staleIncompleteLanes.get(task.id) ?? staleIncompleteColumns).has(task.column) &&
-        allowsAutoMergeProcessing(task, settings) &&
-        !task.paused &&
-        (!task.status || task.status === "failed") &&
-        task.steps.length > 0 &&
-        task.steps.some((step) => NON_TERMINAL_STEP_STATUSES.has(step.status)) &&
-        (task.status === "failed" || now - new Date(task.columnMovedAt ?? task.updatedAt).getTime() >= timeoutMs)
-      );
-
-      if (staleIncomplete.length === 0) return 0;
-
-      log.warn(`Found ${staleIncomplete.length} stale in-review task(s) with incomplete steps`);
-
-      let recovered = 0;
-      for (const task of staleIncomplete) {
-        try {
-          const failedReviewRow = task.status === "failed";
-          const proof = await this.evaluateBackwardMoveTripleProof(task, {
-            stage: "stale-incomplete-review",
-            graceMs: failedReviewRow ? 0 : timeoutMs,
-            stalenessAnchor: task.columnMovedAt ?? task.updatedAt,
-            reason: failedReviewRow ? "failed-incomplete-review-candidate" : "stale-incomplete-review-candidate",
-            extra: { failedReviewRow },
-          });
-          if (!proof.ok) {
-            await this.emitBackwardMoveNoAction(task, "stale-incomplete-review", "task:stale-incomplete-review-no-action", proof);
-            continue;
-          }
-
-          await this.store.logEntry(
-            task.id,
-            "Auto-recovered: in-review task still had incomplete steps — moved back to todo for retry",
-          );
-          // #1411: backward recovery — skip order-derived adjacency.
-          await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
-          log.log(`Recovered stale incomplete review task ${task.id}: moved back to todo`);
-          recovered++;
-        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-          log.error(`Failed to recover stale incomplete review task ${task.id}: ${errorMessage}`);
-        }
-      }
-
-      return recovered;
-    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-      log.error(`Stale incomplete review recovery failed: ${errorMessage}`);
-      return 0;
-    }
-  }
+  /* FNXC:LifecycleContainment 2026-08-28-07:48: recoverStaleIncompleteReviewTasks was removed; only the in-place stuck-session detector may heal WIP liveness. */
 
   /**
    * Final-fallback recovery for `in-review` tasks that fell through every other
@@ -10092,114 +9734,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
   }
 
 
-  /**
-   * Backward lifecycle move gated on triple proof (FN-5335).
-   * When the predicate fails, emits `task:ghost-review-no-action` and skips lifecycle mutation.
-   *
-   * Skips tasks not eligible for auto-merge processing (global `autoMerge`
-   * off without an explicit per-task `autoMerge: true` override) — PR-based
-   * review flow owns lifecycle until human merge.
-   */
-  async recoverGhostReviewTasks(): Promise<number> {
-    try {
-      const settings = await this.store.getSettings();
-      if (settings.globalPause || settings.enginePaused) return 0;
-      const timeoutMs = settings.taskStuckTimeoutMs;
-      if (!timeoutMs || timeoutMs <= 0) return 0;
-
-      const now = Date.now();
-      const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
-      /*
-      FNXC:WorkflowResolvedColumns 2026-07-30-21:40 (the query-filter class, twenty-second sweep):
-      A GHOST review card — parked in review past the stuck timeout with nobody owning its merge lane.
-      The literal read meant that on a renamed board it was never found, so the card sat in review
-      indefinitely with no merger, no session and no timeout ever firing against it.
-
-      The `task.column === "in-review"` check was redundant while the query pinned the column; under a
-      resolved read it becomes the per-card verdict, so it converts rather than being deleted.
-
-      The kick-back below keeps its literal `todo` DELIBERATELY: it passes `recoveryRehome: true`, one of
-      the 22 documented escapes `moves.ts` exempts so a card stranded in an undeclared column stays
-      rescuable. Converting it removes the rescue path.
-      */
-      const ghostReviewColumns = await resolveProjectColumnsForRoles(this.store, REVIEW_ROLES);
-      const ghostById = new Map<string, Task>();
-      for (const column of ghostReviewColumns) {
-        for (const entry of await this.store.listTasks({ column, slim: true })) ghostById.set(entry.id, entry);
-      }
-      const tasks = [...ghostById.values()];
-      /* NARROW WHEN THE CARD CAN ANSWER, BROAD WHEN IT CANNOT (#2891). */
-      const ghostLanes = new Map<string, Set<string>>();
-      for (const entry of tasks) {
-        try {
-          const { ir, source } = await resolveWorkflowIrForTaskWithProvenance(this.store, entry.id);
-          ghostLanes.set(
-            entry.id,
-            source === "default"
-              ? new Set(ghostReviewColumns)
-              : new Set(REVIEW_ROLES.flatMap((role) => [...columnsWithFlag(ir, role)])),
-          );
-        } catch {
-          ghostLanes.set(entry.id, new Set(ghostReviewColumns));
-        }
-      }
-      // Pre-filter sync conditions, then resolve async merge-lane ownership.
-      const candidates = tasks.filter((task) =>
-        (ghostLanes.get(task.id) ?? ghostReviewColumns).has(task.column) &&
-        allowsAutoMergeProcessing(task, settings) &&
-        !task.paused &&
-        !executingIds.has(task.id) &&
-        !(task.status && GHOST_REVIEW_PRESERVED_STATUSES.has(task.status)) &&
-        // Confirmed merges belong in `done` (handled by `recoverMergedReviewTasks`).
-        task.mergeDetails?.mergeConfirmed !== true &&
-        now - new Date(task.columnMovedAt ?? task.updatedAt).getTime() >= timeoutMs
-      );
-      const ownershipFlags = await Promise.all(
-        candidates.map((task) => this.isMergeLaneOwned(task.id)),
-      );
-      const ghosts = candidates.filter((_, i) => !ownershipFlags[i]);
-
-      if (ghosts.length === 0) return 0;
-
-      log.warn(`Found ${ghosts.length} ghost in-review task(s) — kicking back to todo`);
-
-      let recovered = 0;
-      for (const task of ghosts) {
-        try {
-          const proof = await this.evaluateBackwardMoveTripleProof(task, {
-            stage: "ghost-review",
-            graceMs: timeoutMs,
-            stalenessAnchor: task.columnMovedAt ?? task.updatedAt,
-            reason: "ghost-review-candidate",
-          });
-          if (!proof.ok) {
-            await this.emitBackwardMoveNoAction(task, "ghost-review", "task:ghost-review-no-action", proof);
-            continue;
-          }
-          if (task.status) {
-            await this.store.updateTask(task.id, { status: null, error: null });
-          }
-          await this.store.logEntry(
-            task.id,
-            "Auto-recovered: in-review task idle past stuck-task timeout — kicked back to todo",
-          );
-          // #1411: backward recovery — skip order-derived adjacency.
-          await this.reboundTask(task.id, "self-healing-stranded-recovery", task.column, { preserveProgress: true, preserveWorktree: true, recoveryRehome: true });
-          log.log(`Kicked ghost review task ${task.id} back to todo`);
-          recovered++;
-        } catch (err: unknown) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          log.error(`Failed to kick ghost review task ${task.id}: ${errorMessage}`);
-        }
-      }
-
-      return recovered;
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      log.error(`Ghost review recovery failed: ${errorMessage}`);
-      return 0;
-    }
-  }
+  /* FNXC:LifecycleContainment 2026-08-28-07:48: recoverGhostReviewTasks was removed; only the in-place stuck-session detector may heal WIP liveness. */
 
   /**
    * Recover stale `in-review` tasks left in a transient merge status.
@@ -13519,267 +13054,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
     }
   }
 
-  /**
-   * Recover tasks in `in-review` marked as `failed` where all steps are
-   * actually done. This catches the case where an agent completed all work
-   * but the session ended without calling `fn_task_done` (e.g., context
-   * overflow, compaction losing tool awareness). The executor marks these
-   * as failed, but the work is complete — clear the error so the normal
-   * review flow can proceed.
-   *
-   * @returns Number of tasks recovered
-   */
-  /*
-  FNXC:TaskWedgeNotifications 2026-08-10-20:15:
-  Generic terminal parks are retried from their durable wedge budget, not from the
-  transient display mirror. The claim token is consumed by TaskStore's fenced apply
-  transition; this sweep intentionally never moves a card itself.
-  */
-  async autoRecoverTerminalFailures(): Promise<number> {
-    if (this.autoRecoverTerminalFailuresInFlight) return 0;
-    const settings = await this.store.getSettings();
-    if (settings.globalPause || settings.enginePaused) return 0;
-    this.autoRecoverTerminalFailuresInFlight = true;
-    try {
-      // A disabled maintenance interval drains already-withheld escalations but must not claim retries.
-      const enabled = settings.autoRecovery?.mode !== "off"
-        && (settings.maintenanceIntervalMs === undefined || settings.maintenanceIntervalMs > 0);
-      const tasks = await this.store.listTasks({ slim: true });
-      const completeColumns = await resolveProjectColumnsForRoles(this.store, ["complete"]);
-      const archivedColumns = await resolveProjectColumnsForRoles(this.store, ["archived"]);
-      const reviewColumnsByWorkflow = new Map<string, Awaited<ReturnType<typeof resolveWorkflowIrForTask>>>();
-      let changed = 0;
-      type TerminalFailureAuditOutcome = "retried" | "resumed-claim" | "already-claimed" | "apply-superseded" | "apply-aborted-not-failed" | "budget-reset-on-success" | "budget-reset-stale" | "cleared-stale-recovery-mirror" | "notified" | "notify-suppressed" | "notify-suppressed-stale" | "notify-unavailable" | "escalation-already-delivered";
-      /*
-      FNXC:TaskWedgeNotifications 2026-08-10-20:32:
-      A terminal-failure recovery is otherwise invisible after it clears status.
-      Emit a bounded audit record for every material recovery or escalation result;
-      retain only ids, counters, columns, and fixed outcomes so opaque task errors
-      and the rotating apply token never enter durable telemetry.
-      */
-      const auditTerminalFailure = async (
-        task: Task,
-        outcome: TerminalFailureAuditOutcome,
-        input: { attempt?: number; escalationReason?: "budget-exhausted" | "auto-recovery-disabled"; markedExhausted?: boolean } = {},
-      ): Promise<void> => {
-        try {
-          await createRunAuditor(this.store, {
-            runId: generateSyntheticRunId("auto-recover-terminal-failure", task.id),
-            agentId: "self-healing",
-            taskId: task.id,
-            taskLineageId: task.lineageId,
-            phase: "auto-recover-terminal-failure",
-          }).database({
-            type: input.escalationReason ? "task:auto-recover-terminal-failure-exhausted" : "task:auto-recover-terminal-failure",
-            target: task.id,
-            metadata: {
-              taskId: task.id,
-              attempt: input.attempt,
-              maxAttempts: MAX_TERMINAL_FAILURE_AUTO_RETRIES,
-              column: task.column,
-              escalationOwed: input.escalationReason !== undefined,
-              escalationReason: input.escalationReason,
-              markedExhausted: input.markedExhausted === true,
-              outcome,
-            },
-          });
-        } catch (error) {
-          log.debug(`autoRecoverTerminalFailures: audit write failed for ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      };
-      const escalateTerminalFailure = async (
-        task: Task,
-        reason: "budget-exhausted" | "auto-recovery-disabled",
-      ): Promise<{ outcome: Extract<TerminalFailureAuditOutcome, "notified" | "notify-suppressed" | "notify-suppressed-stale" | "notify-unavailable">; markedExhausted: boolean }> => {
-        let markedExhausted = false;
-        if (reason === "budget-exhausted") {
-          // FNXC:TaskWedgeNotifications 2026-08-10-20:01: A claim CAS can discover that a
-          // concurrent writer spent the final attempt after the classifier selected retry. That
-          // race still owes the same marker-first escalation as the ordinary notify branch; never
-          // drop it merely because the CAS, rather than the classifier, found exhaustion.
-          try {
-            markedExhausted = await this.store.markTerminalFailureAutoRecoveryBudgetExhausted(task.id, { maxAttempts: MAX_TERMINAL_FAILURE_AUTO_RETRIES }) === "stamped";
-          } catch (error) {
-            log.debug(`autoRecoverTerminalFailures: could not mark exhaustion for ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-        const descriptor = describeTaskWedge(task);
-        const service = getActiveNotificationService();
-        let outcome: "delivered" | "suppressed" | "unavailable" = "unavailable";
-        if (descriptor && service) {
-          try {
-            outcome = await service.notifyTaskWedge(task, descriptor, { source: "auto-recovery-escalation" });
-          } catch (error) {
-            log.debug(`autoRecoverTerminalFailures: terminal recovery notification failed for ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-        if ((outcome === "delivered" || outcome === "suppressed") && service) {
-          try {
-            const stamped = await this.store.markTerminalFailureAutoRecoveryEscalationDelivered(task.id, {
-              dispatchOutcome: outcome,
-              escalationReason: reason,
-            });
-            const auditOutcome = outcome === "delivered"
-              ? "notified"
-              : stamped === "not-stamped-stale-suppression"
-                ? "notify-suppressed-stale"
-                : "notify-suppressed";
-            await auditTerminalFailure(task, auditOutcome, { escalationReason: reason, markedExhausted });
-            return { outcome: auditOutcome, markedExhausted };
-          } catch (error) {
-            // FNXC:TaskWedgeNotifications 2026-08-10-21:05: A failed durable
-            // confirmation leaves the escalation owed for the next sweep.
-            log.debug(`autoRecoverTerminalFailures: could not stamp terminal recovery delivery for ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-        await auditTerminalFailure(task, "notify-unavailable", { escalationReason: reason, markedExhausted });
-        return { outcome: "notify-unavailable", markedExhausted };
-      };
-      for (const snapshot of tasks) {
-        if (snapshot.status !== "failed" && !snapshot.wedgeNotification?.autoRecovery) continue;
-        let task = await this.store.getTask(snapshot.id);
-        if (!task) continue;
-        /*
-        FNXC:TaskWedgeNotifications 2026-08-10-19:22:
-        The retry display mirror is not recovery ownership after its window expires. The wedge
-        descriptor intentionally recognizes any parseable mirror, including a past one, so clear
-        stale mirrors before classification or a re-failed card is silently classified non-generic.
-        This write preserves the durable budget and its apply fence; only a budget-owned watermark
-        and revision may advance with the mirror clear.
-        */
-        const hasRecoveryMirror = typeof task.recoveryRetryCount === "number";
-        const mirrorIsLive = typeof task.nextRecoveryAt === "string" && Date.parse(task.nextRecoveryAt) > Date.now();
-        // FNXC:TaskWedgeNotifications 2026-08-10-21:05: Disabled recovery drains
-        // owed alerts and resets budgets only; it must not mutate a display mirror.
-        if (enabled && task.status === "failed" && hasRecoveryMirror && !mirrorIsLive) {
-          await this.store.updateTaskAtomic(task.id, (current) => {
-            const currentHasMirror = typeof current.recoveryRetryCount === "number";
-            const currentMirrorIsLive = typeof current.nextRecoveryAt === "string" && Date.parse(current.nextRecoveryAt) > Date.now();
-            if (current.status !== "failed" || !currentHasMirror || currentMirrorIsLive) return null;
-            const budget = current.wedgeNotification?.autoRecovery;
-            if (!budget) return { recoveryRetryCount: null, nextRecoveryAt: null };
-            const now = new Date().toISOString();
-            return {
-              recoveryRetryCount: null,
-              nextRecoveryAt: null,
-              wedgeNotification: {
-                ...current.wedgeNotification!,
-                budgetRevision: (current.wedgeNotification!.budgetRevision ?? 0) + 1,
-                autoRecovery: { ...budget, lastBudgetWriteAt: now },
-              },
-            };
-          });
-          await auditTerminalFailure(task, "cleared-stale-recovery-mirror");
-          task = await this.store.getTask(snapshot.id);
-          if (!task) continue;
-        }
-        const decision = classifyTerminalFailureAutoRecoveryForTask(task, {
-          autoRecoveryEnabled: enabled,
-          inTerminalSuccessColumn: completeColumns.has(task.column),
-          isArchivedOrDeleted: archivedColumns.has(task.column) || task.deletedAt != null,
-        });
-        if (decision.action === "reset-budget") {
-          await this.store.resetTerminalFailureAutoRecoveryBudget(task.id);
-          await auditTerminalFailure(task, decision.reason === "budget-stale" ? "budget-reset-stale" : "budget-reset-on-success");
-          changed += 1;
-          continue;
-        }
-        if (decision.action === "notify") {
-          await escalateTerminalFailure(task, decision.reason);
-          continue;
-        }
-        if (decision.action === "skip") {
-          if (decision.reason === "escalation-already-delivered") {
-            await auditTerminalFailure(task, "escalation-already-delivered");
-          }
-          continue;
-        }
-        if (!enabled) continue;
-        if (this.options.hasLiveSessionSurface?.(task.id) || executingTaskLock.has(task.id) || this.options.getExecutingTaskIds?.().has(task.id)) continue;
-        /*
-        FNXC:TaskWedgeNotifications 2026-08-10-19:53:
-        Requeuing a failed review-lane card is a backward lifecycle move, so it needs the
-        same triple proof as every other review recovery before spending an auto-recovery
-        attempt. The fenced apply prevents duplicate moves; this proof independently proves
-        that no live session, usable worktree, or recent activity still owns the card.
-        */
-        if ((await this.resolveReviewColumnsFor(task.id, reviewColumnsByWorkflow)).has(task.column)) {
-          const proof = await this.evaluateBackwardMoveTripleProof(task, {
-            stage: "auto-recover-terminal-failure",
-            graceMs: settings.taskStuckTimeoutMs ?? STALE_ACTIVE_BRANCH_EXECUTION_GRACE_MS,
-            stalenessAnchor: task.columnMovedAt ?? task.updatedAt,
-            reason: "auto-recover-terminal-failure-review-candidate",
-          });
-          if (!proof.ok) {
-            await this.emitBackwardMoveNoAction(
-              task,
-              "auto-recover-terminal-failure",
-              "task:auto-recover-terminal-failure",
-              proof,
-            );
-            continue;
-          }
-        }
-        const containedTarget = await resolveContainedBackwardTargetForTask(this.store, task.id, task.column);
-        if (!containedTarget) {
-          await this.store.logEntry(
-            task.id,
-            `Lifecycle rebound contained in '${task.column}' — generic failure recovery has no adjacent backward destination`,
-          ).catch(() => undefined);
-          continue;
-        }
-        const rawAttempts = task.wedgeNotification?.autoRecovery?.attempts;
-        const attempts = typeof rawAttempts === "number" && Number.isFinite(rawAttempts) && rawAttempts >= 0
-          ? Math.trunc(rawAttempts)
-          : 0;
-        const spacing = attempts <= 0 ? 0 : 0.9 * Math.min(BASE_DELAY_MS * 2 ** (attempts - 1), MAX_DELAY_MS);
-        const claim = await this.store.claimTerminalFailureAutoRecoveryAttempt(task.id, {
-          maxAttempts: MAX_TERMINAL_FAILURE_AUTO_RETRIES,
-          maxResumes: MAX_TERMINAL_FAILURE_AUTO_RESUMES,
-          minAttemptSpacingMs: spacing,
-          claimApplyGraceMs: TERMINAL_FAILURE_CLAIM_APPLY_GRACE_MS,
-        });
-        if (claim.outcome === "exhausted") {
-          await escalateTerminalFailure(task, "budget-exhausted");
-          continue;
-        }
-        if (claim.outcome === "already-claimed") {
-          await auditTerminalFailure(task, "already-claimed", { attempt: claim.attempt });
-          continue;
-        }
-        const delayMs = computeRecoveryDecision({ recoveryRetryCount: claim.attempt - 1 }).delayMs;
-        const applied = await this.store.applyTerminalFailureAutoRecoveryRetry(task.id, {
-          applyToken: claim.applyToken,
-          patch: {
-            status: null,
-            error: null,
-            paused: false,
-            recoveryRetryCount: claim.attempt,
-            nextRecoveryAt: new Date(Date.now() + delayMs).toISOString(),
-          },
-          targetColumn: containedTarget,
-          moveOptions: {
-            preserveProgress: true,
-            preserveWorktree: true,
-            moveSource: "engine",
-            lifecycleReason: "self-healing-stranded-recovery",
-          },
-        });
-        if (applied.outcome === "applied") {
-          await this.store.logEntry(task.id, `Auto-recovered generic terminal failure (attempt ${claim.attempt}/${MAX_TERMINAL_FAILURE_AUTO_RETRIES})`);
-          await auditTerminalFailure(task, claim.outcome === "resume" ? "resumed-claim" : "retried", { attempt: claim.attempt });
-          changed += 1;
-        } else if (applied.outcome === "superseded" || applied.outcome === "no-budget") {
-          await auditTerminalFailure(task, "apply-superseded", { attempt: claim.attempt });
-        } else {
-          await auditTerminalFailure(task, "apply-aborted-not-failed", { attempt: claim.attempt });
-        }
-      }
-      return changed;
-    } finally {
-      this.autoRecoverTerminalFailuresInFlight = false;
-    }
-  }
+  /* FNXC:LifecycleContainment 2026-08-28-07:48: autoRecoverTerminalFailures was removed; only the in-place stuck-session detector may heal WIP liveness. */
 
   async recoverMisclassifiedFailures(): Promise<number> {
     try {
@@ -14245,203 +13520,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
     return reaped;
   }
 
-  /**
-   * Recover executor tasks stranded in `in-progress` before a real session was
-   * established, typically when the scheduler reserved a worktree path but the
-   * executor never materialized it or crashed before tracking the run.
-   */
-  async recoverInProgressLimbo(): Promise<number> {
-    const settings = await this.store.getSettings();
-    if (settings.globalPause || settings.enginePaused) {
-      return 0;
-    }
-
-    try {
-      /*
-      FNXC:WorkflowResolvedColumns 2026-07-30-21:40 (the query-filter class, eighteenth sweep):
-      A card holding a wip slot with NO worktree, NO branch and no step started — nothing is running and
-      nothing will. The literal read meant that on a renamed board it was never found, so the card kept
-      its slot indefinitely and the capacity it holds is denied to work that could actually run.
-
-      The `task.column !== "in-progress"` check was redundant while the query pinned the column; under a
-      resolved read it becomes the per-card verdict, so it converts rather than being deleted.
-      */
-      const limboWipColumns = await resolveProjectColumnsForRoles(this.store, ["countsTowardWip"]);
-      const limboById = new Map<string, Task>();
-      for (const column of limboWipColumns) {
-        for (const entry of await this.store.listTasks({ column, slim: true })) limboById.set(entry.id, entry);
-      }
-      const tasks = [...limboById.values()];
-      /*
-      NARROW WHEN THE CARD CAN ANSWER, BROAD WHEN IT CANNOT (#2891): `resolveWorkflowIrForTask`
-      SUBSTITUTES the built-in IR rather than failing, so an unreadable selection would otherwise reject
-      the very card the project-scoped query just admitted from a renamed lane.
-      */
-      const limboLanes = new Map<string, Set<string>>();
-      for (const entry of tasks) {
-        try {
-          const { ir, source } = await resolveWorkflowIrForTaskWithProvenance(this.store, entry.id);
-          limboLanes.set(entry.id, source === "default" ? new Set(limboWipColumns) : new Set(columnsWithFlag(ir, "countsTowardWip")));
-        } catch {
-          limboLanes.set(entry.id, new Set(limboWipColumns));
-        }
-      }
-      const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
-      const activeHeartbeatTaskIds = await this.listActiveHeartbeatTaskIds();
-      const now = Date.now();
-
-      const stranded = tasks.filter((task) => {
-        if (!(limboLanes.get(task.id) ?? limboWipColumns).has(task.column) || task.paused) {
-          return false;
-        }
-        const hasMissingWorktreePath = typeof task.worktree === "string" && task.worktree.length > 0 && !existsSync(task.worktree);
-        const hasNoWorktreePath = !task.worktree;
-        if (!hasMissingWorktreePath && !hasNoWorktreePath) {
-          return false;
-        }
-        if (typeof task.branch === "string" && task.branch.trim().length > 0) {
-          return false;
-        }
-        if (task.steps.some((step) => step.status !== "pending")) {
-          return false;
-        }
-        const staleness = now - new Date(task.updatedAt).getTime();
-        return staleness >= ORPHANED_EXECUTION_RECOVERY_GRACE_MS;
-      });
-
-      const describeWorktreeState = (task: Task): string => task.worktree ? "missing worktree path" : "cleared worktree metadata";
-
-      if (stranded.length === 0) return 0;
-
-      log.warn(`Found ${stranded.length} in-progress limbo task(s) with missing/cleared worktree + null branch`);
-
-      let recovered = 0;
-      for (const task of stranded) {
-        try {
-          const liveExecutionSignal = this.getFalsePositiveRequeueSignal(task, {
-            executingIds,
-            activeHeartbeatTaskIds,
-            graceMs: ORPHANED_EXECUTION_RECOVERY_GRACE_MS,
-          });
-          if (liveExecutionSignal) {
-            await this.emitFalsePositiveRequeueNoAction(
-              task,
-              "auto-recover-in-progress-limbo",
-              "task:auto-recover-in-progress-limbo-no-action",
-              liveExecutionSignal.reason,
-              liveExecutionSignal.metadata,
-            );
-            continue;
-          }
-
-          if (task.checkedOutBy) {
-            if (this.options.leaseManager) {
-              const leaseRecovered = await this.options.leaseManager.recoverAbandonedLease(
-                task.id,
-                `in-progress limbo: ${describeWorktreeState(task)} + null branch`,
-                // worktree-discard-intended: limbo recovery — the worktree is already missing or its metadata cleared; there is no live checkout to hold.
-                { preserveProgress: true },
-              );
-              if (!leaseRecovered) {
-                await this.emitFalsePositiveRequeueNoAction(
-                  task,
-                  "auto-recover-in-progress-limbo",
-                  "task:auto-recover-in-progress-limbo-no-action",
-                  "checked-out-lease-active",
-                  {
-                    taskId: task.id,
-                    branch: task.branch ?? null,
-                    worktree: task.worktree ?? null,
-                    checkedOutBy: task.checkedOutBy,
-                    executionStartedAt: task.executionStartedAt ?? null,
-                    executionAgeMs: task.executionStartedAt ? Math.max(0, Date.now() - Date.parse(task.executionStartedAt)) : null,
-                    graceMs: ORPHANED_EXECUTION_RECOVERY_GRACE_MS,
-                    liveWorktreeBoundBranch: false,
-                  },
-                );
-                continue;
-              }
-              await this.options.leaseManager.reconcileLeaseRow(task.id);
-            } else {
-              await this.emitFalsePositiveRequeueNoAction(
-                task,
-                "auto-recover-in-progress-limbo",
-                "task:auto-recover-in-progress-limbo-no-action",
-                "checked-out-lease-active",
-                {
-                  taskId: task.id,
-                  branch: task.branch ?? null,
-                  worktree: task.worktree ?? null,
-                  checkedOutBy: task.checkedOutBy,
-                  executionStartedAt: task.executionStartedAt ?? null,
-                  executionAgeMs: task.executionStartedAt ? Math.max(0, Date.now() - Date.parse(task.executionStartedAt)) : null,
-                  graceMs: ORPHANED_EXECUTION_RECOVERY_GRACE_MS,
-                  liveWorktreeBoundBranch: false,
-                },
-              );
-              continue;
-            }
-          }
-
-          const stepStatuses = task.steps.map((step) => step.status);
-          const ageMs = Math.max(0, now - new Date(task.updatedAt).getTime());
-          await this.store.updateTask(task.id, {
-            status: null,
-            error: null,
-            worktree: null,
-            branch: null, branchWriteOrigin: "engine" as const,
-            checkedOutBy: null,
-            executionStartedAt: null,
-            worktreeSessionRetryCount: null,
-            taskDoneRetryCount: null,
-            sessionFile: null,
-          });
-          await this.store.logEntry(
-            task.id,
-            `Auto-recovered in-progress limbo — ${describeWorktreeState(task)}/null branch with no step progress, moved back to todo`,
-            JSON.stringify({
-              priorWorktree: task.worktree ?? null,
-              priorBranch: task.branch ?? null,
-              ageMs,
-              stepStatuses,
-            }),
-          );
-          await createRunAuditor(this.store, {
-            runId: generateSyntheticRunId("self-healing-in-progress-limbo", task.id),
-            agentId: "self-healing",
-            taskId: task.id,
-            taskLineageId: task.lineageId,
-            phase: "recover-in-progress-limbo",
-          }).database({
-            type: "task:auto-recover-in-progress-limbo",
-            target: task.id,
-            metadata: {
-              priorWorktree: task.worktree ?? null,
-              priorBranch: task.branch ?? null,
-              ageMs,
-              stepStatuses,
-            },
-          });
-          // #1411: backward recovery — skip order-derived adjacency.
-          // worktree-discard-intended: limbo recovery — the worktree is already missing or its metadata cleared; there is no live checkout to hold.
-          await this.reboundTask(task.id, "self-healing-session-recovery", task.column, { preserveProgress: true, recoveryRehome: true });
-          recovered++;
-        } catch (err: unknown) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          log.error(`Failed to recover in-progress limbo task ${task.id}: ${errorMessage}`);
-        }
-      }
-
-      if (recovered > 0) {
-        log.log(`Recovered ${recovered} in-progress limbo task(s) → todo`);
-      }
-      return recovered;
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      log.error(`In-progress limbo recovery failed: ${errorMessage}`);
-      return 0;
-    }
-  }
+  /* FNXC:LifecycleContainment 2026-08-28-07:48: recoverInProgressLimbo was removed; only the in-place stuck-session detector may heal WIP liveness. */
 
   /**
    * FN-5337 contract: observation-only. Emits `task:orphan-detected-no-action`
@@ -15488,170 +14567,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
     return recovered;
   }
 
-  /**
-   * Recover `in-progress` tasks that failed only because the agent exited
-   * without calling fn_task_done, and where there is no sign of work to preserve.
-   *
-   * Backward lifecycle move gated on triple proof (FN-5335).
-   * When the predicate fails, emits `task:no-progress-no-task-done-no-action` and skips lifecycle mutation.
-   *
-   * These are safe to requeue automatically when no steps progressed and git
-   * has neither worktree changes nor branch commits. Cases with any evidence
-   * of work are left alone for manual inspection or the normal orphan recovery
-   * path.
-   */
-  async recoverNoProgressNoTaskDoneFailures(): Promise<number> {
-    try {
-      /*
-      FNXC:WorkflowResolvedColumns 2026-07-30-21:40 (the query-filter class, twenty-ninth sweep):
-      A wip card the executor failed for "no fn_task_done" that made NO step progress and left no git
-      work — nothing to salvage, so it is safe to requeue. The literal read meant that on a renamed board
-      it was never requeued, so a card that produced nothing sat failed while still holding its wip slot.
-
-      The per-card verdict below converts with it. No second pair; verified with the derived ratchet
-      from #2879.
-      */
-      const noProgressColumns = await resolveProjectColumnsForRoles(this.store, ["countsTowardWip"]);
-      const noProgressById = new Map<string, Task>();
-      for (const column of noProgressColumns) {
-        for (const entry of await this.store.listTasks({ column, slim: true })) noProgressById.set(entry.id, entry);
-      }
-      const tasks = [...noProgressById.values()];
-      /* NARROW WHEN THE CARD CAN ANSWER, BROAD WHEN IT CANNOT (#2891). */
-      const noProgressLanes = new Map<string, Set<string>>();
-      for (const entry of tasks) {
-        try {
-          const { ir, source } = await resolveWorkflowIrForTaskWithProvenance(this.store, entry.id);
-          noProgressLanes.set(entry.id, source === "default" ? new Set(noProgressColumns) : new Set(columnsWithFlag(ir, "countsTowardWip")));
-        } catch {
-          noProgressLanes.set(entry.id, new Set(noProgressColumns));
-        }
-      }
-      const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
-
-      const candidates = tasks.filter((task) =>
-        (noProgressLanes.get(task.id) ?? noProgressColumns).has(task.column) &&
-        task.status === "failed" &&
-        isNoTaskDoneFailure(task) &&
-        !task.paused &&
-        !executingIds.has(task.id) &&
-        !isTaskWorkComplete(task) &&
-        !hasStepProgress(task) &&
-        isRecoveryRetryDue(task, Date.now()),
-      );
-
-      if (candidates.length === 0) return 0;
-
-      log.warn(`Found ${candidates.length} no-progress no-task_done failure(s) in in-progress`);
-
-      let recovered = 0;
-      for (const task of candidates) {
-        try {
-          if (await this.hasRecoverableGitWork(task)) {
-            log.debug(`${task.id} has recoverable git work — leaving in-progress for inspection`);
-            continue;
-          }
-
-          const proof = await this.evaluateBackwardMoveTripleProof(task, {
-            stage: "no-progress-no-task-done",
-            graceMs: ORPHANED_EXECUTION_RECOVERY_GRACE_MS,
-            stalenessAnchor: task.executionStartedAt ?? task.updatedAt,
-            reason: "no-progress-no-task-done-candidate",
-          });
-          if (!proof.ok) {
-            await this.emitBackwardMoveNoAction(task, "no-progress-no-task-done", "task:no-progress-no-task-done-no-action", proof);
-            continue;
-          }
-
-          const auditor = createRunAuditor(this.store, {
-            runId: generateSyntheticRunId("no-progress-no-task-done", task.id),
-            agentId: "self-healing",
-            taskId: task.id,
-            taskLineageId: task.lineageId,
-            phase: "no-progress-no-task-done",
-          });
-          const now = Date.now();
-          let transition:
-            | { kind: "retry"; prior: number; delayMs: number }
-            | { kind: "exhausted"; prior: number }
-            | undefined;
-          /*
-          FNXC:SelfHealing 2026-08-21-15:44:
-          taskDoneRetryCount survives the terminal-failure mirror clear, unlike
-          recoveryRetryCount. Claim the failed row under its store lock before the
-          backward move: concurrent startup/maintenance sweeps otherwise read the
-          same count and spend #3496's three-attempt cap more than once.
-          */
-          await this.store.updateTaskAtomic(task.id, (live) => {
-            if (
-              live.status !== "failed" ||
-              !isNoTaskDoneFailure(live) ||
-              live.paused ||
-              isTaskWorkComplete(live) ||
-              hasStepProgress(live) ||
-              !isRecoveryRetryDue(live, now)
-            ) return null;
-            const prior = live.taskDoneRetryCount ?? 0;
-            /*
-            FNXC:SelfHealing 2026-08-21-15:44:
-            The sentinel is an idempotence fence. It prevents later sweeps from
-            duplicating the terminal log/audit escalation after #3496 is exhausted.
-            */
-            if (prior >= MAX_TASK_DONE_RETRIES) {
-              if (live.error?.startsWith(NO_PROGRESS_REQUEUE_BUDGET_EXHAUSTED_PREFIX)) return null;
-              transition = { kind: "exhausted", prior };
-              return {
-                error: `${NO_PROGRESS_REQUEUE_BUDGET_EXHAUSTED_PREFIX} ${prior}/${MAX_TASK_DONE_RETRIES} attempts spent. ${live.error ?? ""}`,
-                recoveryRetryCount: null,
-                nextRecoveryAt: null,
-              };
-            }
-            const delayMs = computeRecoveryDecision({ recoveryRetryCount: prior }).delayMs;
-            transition = { kind: "retry", prior, delayMs };
-            return {
-              status: "stuck-killed",
-              worktree: null,
-              branch: null,
-              branchWriteOrigin: "engine" as const,
-              taskDoneRetryCount: prior + 1,
-              recoveryRetryCount: prior + 1,
-              nextRecoveryAt: new Date(now + delayMs).toISOString(),
-            };
-          });
-          if (!transition) continue;
-          if (transition.kind === "exhausted") {
-            await this.store.logEntry(task.id, `No-progress no-task_done recovery exhausted after ${transition.prior}/${MAX_TASK_DONE_RETRIES} attempts; task remains failed for operator action`);
-            await auditor.database({
-              type: "task:no-progress-no-task-done-requeue-exhausted",
-              target: task.id,
-              metadata: { taskId: task.id, column: task.column, attempt: transition.prior, maxAttempts: MAX_TASK_DONE_RETRIES, outcome: "exhausted" },
-            });
-            continue;
-          }
-
-          await this.store.logEntry(task.id, `Auto-recovered no-progress no-task_done failure — retry ${transition.prior + 1}/${MAX_TASK_DONE_RETRIES} in ${formatDelay(transition.delayMs)}, moved back to todo`);
-          // #1411: the locked status claim fences duplicate backward moves before this public move acquires its own lock.
-          await this.reboundTask(task.id, "self-healing-session-recovery", task.column, { recoveryRehome: true });
-          await auditor.database({
-            type: "task:no-progress-no-task-done-requeue",
-            target: task.id,
-            metadata: { taskId: task.id, column: task.column, attempt: transition.prior + 1, maxAttempts: MAX_TASK_DONE_RETRIES, delayMs: transition.delayMs, outcome: "requeued" },
-          });
-          recovered++;
-        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-          log.error(`Failed to recover no-progress no-task_done failure ${task.id}: ${errorMessage}`);
-        }
-      }
-
-      if (recovered > 0) {
-        log.log(`Recovered ${recovered} no-progress no-task_done failure(s) → todo`);
-      }
-      return recovered;
-    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
-      log.error(`No-progress no-task_done recovery failed: ${errorMessage}`);
-      return 0;
-    }
-  }
+  /* FNXC:LifecycleContainment 2026-08-28-07:48: recoverNoProgressNoTaskDoneFailures was removed; only the in-place stuck-session detector may heal WIP liveness. */
 
   /**
    * Recover failed `in-review` retries that point at an unusable worktree path.

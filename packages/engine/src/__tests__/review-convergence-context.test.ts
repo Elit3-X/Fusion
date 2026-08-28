@@ -3,6 +3,7 @@ import "./executor-test-helpers.js";
 import { TaskExecutor } from "../executor.js";
 import { createMockStore, mockedCreateFnAgent, resetExecutorMocks } from "./executor-test-helpers.js";
 import { buildReviewConvergenceContext } from "../executor/optional-step-revision.js";
+import { reviewInputSignature } from "../executor/request-pre-merge-optional-step-fix.js";
 
 const failedRound = {
   workflowStepId: "code-review", workflowStepName: "Code Review", phase: "pre-merge" as const,
@@ -91,5 +92,23 @@ describe("FN-149 review convergence context", () => {
     expect(buildReviewConvergenceContext({ workflowStepResults: [failedRound] } as any, {
       revisionKey: graphGateId, reviewKind: "code",
     })).toContain("Code Review attempt 2");
+  });
+
+  it("signs unchanged workspace review input even when the scope revision is absent", () => {
+    const makeResult = (fingerprint: string) => ({
+      workflowStepId: "code-review",
+      verdict: "REVISE",
+      repositoryReviewOutcomes: [{
+        repository: "Merge",
+        status: "REVIEWED",
+        verdict: "REVISE",
+        fingerprint,
+        findings: [{ id: "volatile", title: "Guard", body: "Repair the guard", filePath: "Merge/src/a.ts" }],
+      }],
+    });
+
+    expect(reviewInputSignature(makeResult("tree-1") as never)).toBeTruthy();
+    expect(reviewInputSignature(makeResult("tree-1") as never)).toBe(reviewInputSignature(makeResult("tree-1") as never));
+    expect(reviewInputSignature(makeResult("tree-1") as never)).not.toBe(reviewInputSignature(makeResult("tree-2") as never));
   });
 });

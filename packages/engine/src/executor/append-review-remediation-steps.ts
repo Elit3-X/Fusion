@@ -1,5 +1,4 @@
 import {
-  AWAITING_APPROVAL_PAUSE_REASON,
   hasOpenEquivalentRemediationStep,
   remediationDeclaredFiles,
   remediationWaveCount,
@@ -20,11 +19,11 @@ export type AppendReviewRemediationStepsDeps = {
 
 export type AppendReviewRemediationOutcome =
   | "appended"
-  | "parked-wave-exhausted"
-  | "parked-upstream-out-of-scope"
-  | "parked-no-actionable-findings"
-  | "parked-no-pending-work"
-  | "parked-workspace-worktree-missing"
+  | "released-wave-exhausted"
+  | "released-upstream-out-of-scope"
+  | "released-no-actionable-findings"
+  | "released-no-pending-work"
+  | "released-workspace-worktree-missing"
   | "superseded-scope"
   | "not-applicable";
 
@@ -32,7 +31,12 @@ export type AppendReviewRemediationOutcome =
  * FNXC:ReviewGatedRemediation 2026-08-23-05:14:
  * A review-gated rejection appends named provenance work before it can bounce. This deliberately
  * refuses a blind return to implementation: no candidate, out-of-scope evidence, duplicate-only
- * work, or the fourth wave is a human hold rather than an empty executor dispatch.
+ * work, or the fourth wave is recorded and released as non-blocking rather than producing either
+ * an empty executor dispatch or an engine-authored human hold.
+ *
+ * FNXC:ReviewGatedRemediation 2026-08-28-07:48:
+ * Review remediation may ask for human action only when an operator authored that gate. Automatic
+ * convergence failures leave task lifecycle state untouched and release the review as advice.
  */
 /*
 FNXC:VerificationRemediation 2026-08-26-06:31:
@@ -53,7 +57,7 @@ export async function appendReviewRemediationSteps(
   if (!gate) return "not-applicable";
   const wave = remediationWaveCount(task.steps ?? []) + 1;
   if (wave > 3) {
-    return park(deps.store, task.id, "review-remediation-wave-exhausted", "parked-wave-exhausted");
+    return release(deps.store, task.id, "review-remediation-wave-exhausted", "released-wave-exhausted");
   }
   const prompt = await deps.readTaskArtifact(task.id, "PROMPT.md");
   const derived = deriveRemediationSteps({
@@ -67,20 +71,19 @@ export async function appendReviewRemediationSteps(
     changedFiles: task.modifiedFiles,
   });
   if (derived.reason === "upstream-out-of-scope") {
-    await deps.store.logEntry(task.id, "Review remediation is out of scope — awaiting human action", derived.outOfScope.map((item) => item.filePath).filter(Boolean).join(", "));
-    return park(
+    return release(
       deps.store,
       task.id,
-      "review-remediation-upstream-out-of-scope",
-      "parked-upstream-out-of-scope",
+      `review-remediation-upstream-out-of-scope:${derived.outOfScope.map((item) => item.filePath).filter(Boolean).join(",")}`,
+      "released-upstream-out-of-scope",
     );
   }
   if (derived.steps.length === 0) {
-    return park(
+    return release(
       deps.store,
       task.id,
       "review-remediation-no-actionable-findings",
-      "parked-no-actionable-findings",
+      "released-no-actionable-findings",
     );
   }
   /*
@@ -155,21 +158,21 @@ export async function appendReviewRemediationSteps(
     await widenPromptFileScope(deps.store, task.id, prompt, remediationDeclaredFiles(appended));
   }
   if (appended.length === 0 || !live.steps.some((step) => step.status === "pending")) {
-    return park(
+    return release(
       deps.store,
       task.id,
       "review-remediation-no-pending-work",
-      "parked-no-pending-work",
+      "released-no-pending-work",
     );
   }
   if (remediation) {
     const workspaceWorktreePath = live.workspaceWorktrees?.[remediation.repository]?.worktreePath;
     if (!workspaceWorktreePath) {
-      return park(
+      return release(
         deps.store,
         task.id,
         "review-remediation-workspace-worktree-missing",
-        "parked-workspace-worktree-missing",
+        "released-workspace-worktree-missing",
       );
     }
     await deps.sendTaskBackForFix(
@@ -203,19 +206,13 @@ export async function appendReviewRemediationSteps(
   return "appended";
 }
 
-async function park<T extends AppendReviewRemediationOutcome>(
+async function release<T extends AppendReviewRemediationOutcome>(
   store: TaskStore,
   taskId: string,
   reason: string,
   outcome: T,
 ): Promise<T> {
-  await store.updateTask(taskId, {
-    status: "awaiting-approval",
-    paused: true,
-    pausedReason: AWAITING_APPROVAL_PAUSE_REASON,
-    awaitingApprovalReason: "code-review-non-convergence",
-  });
-  await store.logEntry(taskId, "Review remediation requires human action", reason);
+  await store.logEntry(taskId, "Review remediation released as non-blocking", reason);
   return outcome;
 }
 

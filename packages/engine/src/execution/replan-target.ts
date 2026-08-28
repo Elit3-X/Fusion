@@ -494,7 +494,7 @@ export type ReplanMoveContainedResult = {
 export async function moveTaskToReplanColumn(
   store: TaskStore,
   task: Pick<Task, "id" | "column">,
-  reason: string,
+  reason: "plan-review-revise-replan",
   target?: string,
   options?: { workflowMoveSource?: string },
 ): Promise<string | undefined | ReplanMoveContainedResult> {

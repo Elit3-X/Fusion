@@ -77,7 +77,7 @@ describe("executor graph execute self-requeue gate", () => {
     );
   });
 
-  it("moves in-review graph failures with incomplete steps back to todo for resume", async () => {
+  it("keeps in-review graph failures in review without a REVISE handoff", async () => {
     resetExecutorMocks();
     const store = createMockStore();
     const live = task({
@@ -108,16 +108,8 @@ describe("executor graph execute self-requeue gate", () => {
       context: { "node:parse:value": "parse-error" },
     });
 
-    expect(store.updateTask).toHaveBeenCalledWith(
-      live.id,
-      expect.objectContaining({ status: null, error: null }),
-      undefined,
-    );
-    expect(store.moveTask).toHaveBeenCalledWith(
-      live.id,
-      "in-progress",
-      expect.objectContaining({ preserveProgress: true, moveSource: "engine", recoveryRehome: true }),
-    );
+    expect(live.column).toBe("in-review");
+    expect(store.moveTask).not.toHaveBeenCalled();
     expect(store.handoffToReview).not.toHaveBeenCalled();
   });
 
@@ -365,7 +357,7 @@ describe("executor graph execute self-requeue gate", () => {
     expect(store.moveTask).not.toHaveBeenCalled();
   });
 
-  it("still resumes an incomplete review card after a refused remediation", async () => {
+  it("does not resume an incomplete review card without named REVISE remediation", async () => {
     resetExecutorMocks();
     const store = createMockStore();
     const live = task({
@@ -380,13 +372,9 @@ describe("executor graph execute self-requeue gate", () => {
       live,
       "code-review-remediation",
       "remediation-not-scheduled",
-    )).resolves.toBe(true);
+    )).resolves.toBe(false);
 
-    expect(store.moveTask).toHaveBeenCalledWith(
-      live.id,
-      "in-progress",
-      expect.objectContaining({ preserveProgress: true, recoveryRehome: true }),
-    );
+    expect(store.moveTask).not.toHaveBeenCalled();
   });
 
   it("still parks a remediation-node graph failure as failed when no durable failed gate result exists", async () => {

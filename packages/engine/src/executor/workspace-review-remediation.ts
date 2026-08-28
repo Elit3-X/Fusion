@@ -1,4 +1,4 @@
-import type { Task, WorkflowStepResult } from "@fusion/core";
+import { isActionableReviewFinding, type Task, type WorkflowStepResult } from "@fusion/core";
 
 function normalize(value: string | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -31,15 +31,18 @@ export function resolveWorkspaceReviewRemediationRepository(
 /**
  * FNXC:WorkspaceFinalization 2026-08-21-09:09:
  * A workspace remediation target is derived from structured per-repository review evidence, never
- * rendered feedback or a singular task worktree. This makes an empty-finding REVISE convergent and
- * keeps the next executor in the repository that actually failed review.
+ * rendered feedback or a singular task worktree. A repository rejection is blocking only when it
+ * carries actionable findings, so an empty-finding REVISE remains advisory and cannot select a
+ * remediation target. The next executor stays in the repository that actually failed review.
  */
 export function deriveWorkspaceReviewRemediation(
   result: Pick<WorkflowStepResult, "workflowStepId" | "repositoryScopeRevision" | "repositoryReviewOutcomes">,
 ): WorkspaceReviewRemediation | undefined {
   if (typeof result.repositoryScopeRevision !== "number") return undefined;
   const blocking = (result.repositoryReviewOutcomes ?? [])
-    .filter((outcome) => outcome.status === "REVIEWED" && (outcome.verdict === "REVISE" || outcome.verdict === "RETHINK"))
+    .filter((outcome) => outcome.status === "REVIEWED"
+      && (outcome.verdict === "REVISE" || outcome.verdict === "RETHINK")
+      && (outcome.findings ?? []).some(isActionableReviewFinding))
     .sort((left, right) => left.repository.localeCompare(right.repository))[0];
   if (!blocking) return undefined;
   /*

@@ -545,11 +545,6 @@ export type DatabaseMutationType =
   Generic terminal recovery records only durable identifiers and bounded outcomes.
   The apply token is a fencing capability, so audit rows must never persist it or task error prose.
   */
-  | "task:auto-recover-terminal-failure"
-  | "task:auto-recover-terminal-failure-exhausted"
-  /** Metadata: { taskId, column, attempt, maxAttempts, delayMs?, outcome } — ids/counts/outcomes only. */
-  | "task:no-progress-no-task-done-requeue"
-  | "task:no-progress-no-task-done-requeue-exhausted"
   | "task:auto-recover-finalize-already-on-main"
   /** Metadata: { taskId, previousColumn, targetColumn, commitSha, status, blockedBy, overlapBlockedBy, reason } */
   | "task:auto-merge-finalize-column-mismatch-reconciled"
@@ -637,9 +632,6 @@ export type DatabaseMutationType =
    * Metadata: { source, classification, recordedWorktreeStillUsable, clearedWorktreeMetadata, clearedBranch, retainedNonCanonicalBranch }
    */
   | "task:auto-recover-worktree-session-metadata"
-  | "task:auto-recover-in-progress-limbo"
-  /** Metadata: { taskId, branch, worktree, checkedOutBy, executionStartedAt, executionAgeMs, graceMs, liveWorktreeBoundBranch, reason } */
-  | "task:auto-recover-in-progress-limbo-no-action"
   | "task:resume-limbo-escalated"
   /** Metadata: { taskId, executionAgeMs, graceMs, staleBindingAgeFloorMs, checkedOutBy, agentPresent, lastActivityMs, hasRecentRunAudit, worktree, branch, worktreeExists, signalReason } */
   | "task:reclaim-phantom-executor-binding"
@@ -707,10 +699,6 @@ export type DatabaseMutationType =
   | "task:reclaim-self-owned-branch-conflict-no-action"
   | "task:orphan-detected-no-action"
   | "task:reattach-orphaned-execution"
-  /** Metadata: { taskId, lastReason, stuckKillCount, attemptedStuckKillCount, maxStuckKills, checkedOutBy, executionStartedAt, executionAgeMs, graceMs, liveWorktreeBoundBranch } */
-  | "task:stuck-loop-exhausted-no-action"
-  /** Metadata: { taskId: string; ignoredStepUpdateCount: number; stuckKillStreak: number; lastReason: "no-progress-churn" } */
-  | "task:stuck-no-progress-churn-terminalized"
   /** Metadata: { taskId, cycleCount, windowMs, lastMoveSource } */
   | "task:dispatch-oscillation-terminalized"
   /** Metadata: { taskId, cycleCount, maxCycles, progressSignature, failureValue } */

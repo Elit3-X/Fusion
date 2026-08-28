@@ -178,12 +178,9 @@ describe("external-block self-healing immunity", () => {
     });
     const swept = [
       vi.spyOn(manager, "recoverStrandedCompletedTodoTasks"),
-      vi.spyOn(manager, "recoverStaleIncompleteReviewTasks"),
       vi.spyOn(manager, "recoverPausedAbortFailures"),
-      vi.spyOn(manager, "autoRecoverTerminalFailures"),
       vi.spyOn(manager, "recoverOrphanedExecutions"),
       vi.spyOn(manager, "reapLeakedConcurrencySlots"),
-      vi.spyOn(manager, "recoverInProgressLimbo"),
     ];
 
     try {

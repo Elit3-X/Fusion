@@ -168,7 +168,7 @@ export function evaluateLifecycleDirectionPostcondition(
   const toRole = classifyLifecycleRole(input.to.flags);
   if (fromRole === undefined || toRole === undefined) return null;
 
-  const forbidden = evaluateForbiddenLifecyclePath(fromRole, toRole);
+  const forbidden = evaluateForbiddenLifecyclePath(fromRole, toRole, input.lifecycleReason);
   if (forbidden) {
     return makeTransitionRejection(
       "guard-rejected",

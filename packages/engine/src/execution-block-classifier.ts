@@ -6,8 +6,7 @@ import {
 } from "./errors/transient-error-detector.js";
 
 /**
- * Classify honest-blocked exits so the engine does not auto-replan (or thrash
- * re-execute) work that is blocked behind other Fusion board tasks.
+ * Classify honest blocked exits for durable task-dependency metadata and thrash detection.
  *
  * FNXC:HonestBlockedExit 2026-08-02-23:59 (operator decision — FN-8728 vs PR #2398):
  * FN-8700 previously treated "file claim / open PR" language as a durable external
@@ -18,7 +17,11 @@ import {
  * open PR is never a claim on a task's file scope. All PR/file-claim classification,
  * pr:N blockedBy refs, and the gh-backed PR-clear sweep are removed. Blocked exits now
  * classify on task dependencies alone: task deps → durable external park (requeues
- * when the deps complete); no deps → plan defect → auto-replan (FN-8634).
+ * when the deps complete); no deps → repairable plan defect that remains in execution.
+ *
+ * FNXC:HonestBlockedExit 2026-08-28-07:48:
+ * A plan defect is repaired inside execution. Blocked exits no longer carry auto-replan authority,
+ * so this classifier records metadata only and cannot move a task back into planning.
  */
 
 export type ExternalObstacleClassification = {
@@ -56,8 +59,6 @@ export function classifyExternalObstacle(message: string): ExternalObstacleClass
 export type BlockedExitClass = "plan-defect" | "external";
 
 export type BlockedExitClassification = {
-  /** Only plan defects may use the empty-blockedBy → needs-replan path. */
-  allowAutoReplan: boolean;
   class: BlockedExitClass;
   /** Compact signature for thrash detection (ids/outcomes only — no free prose). */
   thrashSignature: string;
@@ -104,15 +105,13 @@ export function classifyBlockedExit(
   const { taskIds } = partitionBlockedByRefs(blockedBy);
   if (taskIds.length > 0) {
     return {
-      allowAutoReplan: false,
       class: "external",
       thrashSignature: `tasks:${taskIds.slice().sort().join(",")}`,
     };
   }
 
-  // Empty blockedBy → plan defect, auto-replan is OK
+  // Empty blockedBy remains a repairable plan defect in the executor.
   return {
-    allowAutoReplan: true,
     class: "plan-defect",
     thrashSignature: "plan-defect",
   };

@@ -28,7 +28,6 @@ import {
 import type { WorkflowGraphTaskRunResult } from "../workflows/workflow-graph-task-runner.js";
 import { isRequiredArtifactReadFailedValue } from "../execution/required-workflow-artifacts.js";
 import { getPromptPath } from "../execution/spec-staleness.js";
-import { moveTaskToReplanColumn, resolveReplanTargetColumn } from "../execution/replan-target.js";
 import { executorLog } from "../logger.js";
 import { generateSyntheticRunId, type EngineRunContext } from "../util/run-audit.js";
 import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
@@ -791,15 +790,8 @@ export async function handleGraphFailure(
           if (redirectReason) {
             const duplicateResolution = resolveExplicitDuplicateMarker(promptContent, live.title);
             const marker = duplicateResolution.marker;
-            const replanColumn = await resolveReplanTargetColumn(deps.store, live.id);
-            await moveTaskToReplanColumn(
-              deps.store,
-              { id: live.id, column: live.column },
-              "workflow-retry-rehome",
-              replanColumn,
-            );
             await deps.store.updateTask(live.id, {
-              status: "needs-replan",
+              status: null,
               error: null,
             }, deps.getRunContextFor(live.id));
             const feedback = marker
@@ -813,11 +805,11 @@ export async function handleGraphFailure(
             );
             await deps.store.logEntry(
               live.id,
-              `Parse node failed on duplicate redirect — rebounded to ${replanColumn} for re-specification`,
+              "Parse node failed on duplicate redirect — retained in the current execution lane for repair",
               redirectReason,
               deps.getRunContextFor(live.id),
             );
-            executorLog.warn(`${live.id}: ${redirectReason} — replan instead of failed park`);
+            executorLog.warn(`${live.id}: ${redirectReason} — retained for in-place execution repair`);
             deps.activeWorktrees.delete(live.id);
             await deps.persistTokenUsage(live.id);
             return;

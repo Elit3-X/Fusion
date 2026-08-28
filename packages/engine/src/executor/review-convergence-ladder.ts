@@ -1,10 +1,14 @@
 /*
 FNXC:ReviewConvergence 2026-08-22-05:54:
-FN-149 requires an exhausted or unchanged review cycle to take one bounded AI remediation action before it can park for a human. The atomic stage claim prevents concurrent graph and recovery paths from scheduling duplicate bounces.
+FN-149 requires an exhausted or unchanged review cycle to take one bounded AI remediation action before reaching its terminal rung. The atomic stage claim prevents concurrent graph and recovery paths from scheduling duplicate bounces.
+
+FNXC:ReviewConvergence 2026-08-28-07:48:
+An exhausted Code Review convergence cycle is advisory, not a human gate. Its terminal rung records and releases the feedback without mutating lifecycle state. The operator-authored Plan Review replan-cap hold remains the explicit exception.
 */
 import type { Task, TaskStore, WorkflowReviewFinding } from "@fusion/core";
 import {
   collectDisputedFindings,
+  hasPendingRemediationWork,
   hasPreMergeRemediationAutoMergeHold,
   isOpenWorkflowReviewFinding,
   resolveReviewConvergenceEscalationTarget,
@@ -40,15 +44,15 @@ export type ReviewConvergenceLadderDeps = {
   ) => Promise<void>;
 };
 
-export type ReviewConvergenceLadderOutcome = "escalated" | "arbitrated" | "human-escalated" | "declined";
+export type ReviewConvergenceLadderOutcome = "escalated" | "arbitrated" | "released" | "human-escalated" | "declined";
 
 /*
-FNXC:ReviewConvergence 2026-08-22-06:51:
-FN-149 makes human escalation loud only after automatic routes are exhausted. The task log, unlike
-run-audit metadata, may retain the compact Level-4 dossier needed for an operator to decide without
-reconstructing the reviewer and implementer positions from separate sessions.
+FNXC:ReviewConvergence 2026-08-28-07:48:
+The task log may retain the compact convergence dossier after automatic routes are exhausted. It
+preserves advisory context for a non-blocking release and supports the separately operator-authored
+Plan Review cap without exposing reviewer prose in run-audit metadata.
 */
-function buildHumanEscalationDossier(task: Task, stop: ReviewConvergenceStop): string {
+function buildConvergenceDossier(task: Task, stop: ReviewConvergenceStop): string {
   const gate = task.workflowStepResults?.find((result) => result.workflowStepId === stop.workflowStepId);
   const openFindings = [
     ...(gate?.findings ?? []),
@@ -133,21 +137,30 @@ export async function routeReviewConvergenceLadder(
 
   if (claimedStage === 3) {
     const context = deps.getRunContextFor(taskId);
+    if (stop.kind !== "plan-review-cap") {
+      await deps.store.logEntry(
+        taskId,
+        "Review convergence exhausted — released as non-blocking",
+        buildConvergenceDossier(claimedTask, stop),
+        context,
+      );
+      return "released";
+    }
     await deps.store.updateTask(taskId, {
       status: "awaiting-approval",
-      awaitingApprovalReason: stop.kind === "plan-review-cap" ? "plan-review-replan-cap" : "code-review-non-convergence",
+      awaitingApprovalReason: "plan-review-replan-cap",
       error: null,
       nextRecoveryAt: null,
     }, context);
     await deps.store.logEntry(
       taskId,
-      "Review convergence exhausted — awaiting operator arbitration",
-      buildHumanEscalationDossier(claimedTask, stop),
+      "Plan Review replan cap exhausted — awaiting operator arbitration",
+      buildConvergenceDossier(claimedTask, stop),
       context,
     );
     /*
     FNXC:ReviewConvergence 2026-08-22-06:51:
-    FN-149 requires the final human-last park to be observable without exposing reviewer prose in
+    The operator-authored Plan Review cap remains observable without exposing reviewer prose in
     telemetry. Emit only identifiers, counts, and fixed outcomes; the dossier remains task-log-only.
     */
     if (context) await emitBoundedRunAudit(deps.store, {
@@ -158,7 +171,7 @@ export async function routeReviewConvergenceLadder(
         stop: stop.kind,
         stage: 3,
         cycle: claimedTask.reviewConvergenceEscalationCount ?? 0,
-        awaitingApprovalReason: stop.kind === "plan-review-cap" ? "plan-review-replan-cap" : "code-review-non-convergence",
+        awaitingApprovalReason: "plan-review-replan-cap",
         outcome: "awaiting-approval",
       },
     });
@@ -180,7 +193,17 @@ export async function routeReviewConvergenceLadder(
     return routeReviewConvergenceLadder(deps, taskId, stop);
   }
 
-  let mode: "alternate-model" | "replan";
+  if (stop.kind !== "plan-review-cap" && !hasPendingRemediationWork(claimedTask)) {
+    await deps.store.logEntry(
+      taskId,
+      "Review convergence released — no pending remediation work",
+      "A review-to-WIP transition requires a named pending remediation step.",
+      deps.getRunContextFor(taskId),
+    );
+    return "released";
+  }
+
+  let mode: "alternate-model" | "executor-remediation" | "replan";
   try {
     if (escalationTarget?.enabled) {
       const workflowIr = await resolveWorkflowIrForTask(deps.store, taskId).catch(() => undefined);
@@ -198,24 +221,16 @@ export async function routeReviewConvergenceLadder(
         undefined,
         resolveStepReopenPolicy(workflowIr),
       );
-    } else {
-      /*
-      FNXC:ReviewConvergence 2026-08-22-05:44:
-      FN-149 makes the no-model stage-one action a remediation-provenanced replan, not an
-      execution bounce. Plan Review can have no worktree, and a reported escalation is valid
-      only after the replan move actually occurred; an undeclared replan lane must fall through.
-      */
+    } else if (stop.kind === "plan-review-cap") {
       mode = "replan";
       const replanColumn = await moveTaskToReplanColumn(
         deps.store,
         { id: taskId, column: claimedTask.column },
-        "code-review-revise-remediation",
+        "plan-review-revise-replan",
         undefined,
         { workflowMoveSource: "workflow-remediation" },
       );
-      if (!replanColumn || typeof replanColumn === "object") {
-        throw new Error("review convergence replan target is unavailable");
-      }
+      if (!replanColumn || typeof replanColumn === "object") throw new Error("Plan Review replan target is unavailable");
       await deps.store.updateTask(taskId, {
         status: "needs-replan",
         error: null,
@@ -223,6 +238,22 @@ export async function routeReviewConvergenceLadder(
         nextRecoveryAt: null,
         graphResumeRetryCount: 0,
       }, deps.getRunContextFor(taskId));
+    } else {
+      mode = "executor-remediation";
+      const workflowIr = await resolveWorkflowIrForTask(deps.store, taskId).catch(() => undefined);
+      await deps.sendTaskBackForFix(
+        claimedTask,
+        claimedTask.worktree ?? "",
+        stop.feedback,
+        stop.stepName,
+        `Review convergence ${stop.kind}: resume named remediation in execution`,
+        true,
+        false,
+        { attempt: stop.attempt + 1, max: stop.max },
+        stop.findings,
+        undefined,
+        resolveStepReopenPolicy(workflowIr),
+      );
     }
   } catch (_error) {
     if (atomic) {

@@ -14,7 +14,6 @@ import { performWorkflowRerunBounce } from "../executor/workflow-rerun-bounce.js
 import { RestartRecoveryCoordinator } from "../healing/restart-recovery-coordinator.js";
 import { reboundAiMergeTask } from "../merge/merger-ai.js";
 import { reboundLegacyMergeTask } from "../merger.js";
-import { SelfHealingManager } from "../self-healing.js";
 
 function storeFor(workflowId: string, customIr?: WorkflowIr) {
   return {
@@ -140,6 +139,7 @@ describe("forbidden lifecycle rebound paths", () => {
       column: "in-review",
       paused: false,
       executionStartedAt: "2026-08-28T00:00:00.000Z",
+      steps: [{ name: "Fix review finding", status: "pending", remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Fix the review finding" } }],
     };
     const store = {
       getTask: vi.fn(async () => row),
@@ -161,7 +161,7 @@ describe("forbidden lifecycle rebound paths", () => {
     expect(row.column).toBe("in-progress");
     expect(store.moveTask).toHaveBeenCalledTimes(1);
     expect(store.moveTask).toHaveBeenCalledWith(row.id, "in-progress", expect.objectContaining({
-      lifecycleReason: "workflow-graph-node-column",
+      lifecycleReason: "code-review-revise-remediation",
       preserveResumeState: true,
       preserveWorktree: true,
       workflowMoveSource: "workflow-remediation",
@@ -190,58 +190,28 @@ describe("forbidden lifecycle rebound paths", () => {
     expect(row.column).toBe("in-progress");
   });
 
-  it("routes the production stale-incomplete self-healing sweep from review to WIP", async () => {
-    const { store, task } = productionStore({
-      task: { columnMovedAt: "2026-08-27T00:00:00.000Z" },
-    });
-    const manager = new SelfHealingManager(store, { rootDir: "/tmp/fn-207-family" });
-    vi.spyOn(manager as never, "evaluateBackwardMoveTripleProof" as never).mockResolvedValue({ ok: true } as never);
-
-    try {
-      await expect(manager.recoverStaleIncompleteReviewTasks()).resolves.toBe(1);
-      expect(task.column).toBe("in-progress");
-      expect(store.moveTask).toHaveBeenCalledWith(task.id, "in-progress", expect.objectContaining({
-        lifecycleReason: "self-healing-stranded-recovery",
-        moveSource: "engine",
-      }));
-    } finally {
-      manager.stop();
-    }
-  });
-
   it.each([
     ["legacy merger", reboundLegacyMergeTask],
     ["AI merger", reboundAiMergeTask],
-  ] as const)("routes the %s production rebound seam from review to WIP", async (_family, rebound) => {
+  ] as const)("keeps the %s production failure seam in review", async (_family, rebound) => {
     const { store, task } = productionStore();
 
-    await expect(rebound(store, task.id)).resolves.toEqual({ moved: true });
-
-    expect(task.column).toBe("in-progress");
-    expect(store.moveTask).toHaveBeenCalledWith(task.id, "in-progress", expect.objectContaining({
-      lifecycleReason: "merge-failure-rebound",
-      moveSource: "engine",
-      preserveProgress: true,
-    }));
-  });
-
-  it("keeps an AI-merger rebound in review when WIP capacity is exhausted", async () => {
-    const { store, task } = productionStore({ capacityBlocked: true });
-
-    await expect(reboundAiMergeTask(store, task.id)).resolves.toEqual({
-      moved: false,
-      deferred: "capacity",
-      detail: "WIP is full",
-    });
+    await expect(rebound(store, task.id)).resolves.toEqual({ moved: false, reason: "in-place-recovery", column: "in-review" });
 
     expect(task.column).toBe("in-review");
-    expect(store.logEntry).toHaveBeenCalledWith(
-      task.id,
-      expect.stringContaining("Lifecycle move deferred: in-review → in-progress"),
-    );
+    expect(store.moveTask).not.toHaveBeenCalled();
   });
 
-  it("routes the production contamination retry from review to WIP", async () => {
+  it("does not consult WIP capacity for an in-place AI-merger failure", async () => {
+    const { store, task } = productionStore({ capacityBlocked: true });
+
+    await expect(reboundAiMergeTask(store, task.id)).resolves.toEqual({ moved: false, reason: "in-place-recovery", column: "in-review" });
+
+    expect(task.column).toBe("in-review");
+    expect(store.moveTask).not.toHaveBeenCalled();
+  });
+
+  it("keeps the production contamination retry in review", async () => {
     const { store, task } = productionStore();
     const runAudit = { database: vi.fn(async () => undefined) };
     const handler = new ContaminationAutoRecoveryHandler({
@@ -256,11 +226,8 @@ describe("forbidden lifecycle rebound paths", () => {
       { task, retryCount: 0, settings: { maxRetries: 3 } } as never,
     );
 
-    expect(task.column).toBe("in-progress");
-    expect(store.moveTask).toHaveBeenCalledWith(task.id, "in-progress", expect.objectContaining({
-      lifecycleReason: "contamination-recovery",
-      moveSource: "engine",
-    }));
+    expect(task.column).toBe("in-review");
+    expect(store.moveTask).not.toHaveBeenCalled();
   });
 
   it("keeps restart recovery in review when the workflow declares no WIP lane", async () => {
@@ -293,7 +260,7 @@ describe("forbidden lifecycle rebound paths", () => {
     expect(store.moveTask).not.toHaveBeenCalled();
     expect(store.logEntry).toHaveBeenCalledWith(
       task.id,
-      expect.stringContaining("workflow declares no adjacent backward destination"),
+      expect.stringContaining("has no backward-move authority"),
     );
   });
 
@@ -305,7 +272,7 @@ describe("forbidden lifecycle rebound paths", () => {
       mergeBlockerReason: null,
       moveSource: "engine",
       lifecycleReason: "merge-failure-rebound",
-    })).toBeNull();
+    })?.messageKey).toBe("transition.rejected.unsanctionedLifecycleMove");
 
     expect(evaluateLifecycleDirectionPostcondition({
       taskId: "FN-207",
@@ -314,6 +281,6 @@ describe("forbidden lifecycle rebound paths", () => {
       mergeBlockerReason: null,
       moveSource: "scheduler",
       lifecycleReason: "workflow-retry-rehome",
-    })).toBeNull();
+    })?.messageKey).toBe("transition.rejected.forbiddenLifecyclePath");
   });
 });

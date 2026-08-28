@@ -16,12 +16,13 @@ export const LIFECYCLE_ROLE_RANK: Readonly<Record<LifecycleRole, number>> = Obje
 export type LifecycleDirection = "forward" | "backward" | "lateral" | "unknown";
 
 /*
-FNXC:LifecycleContainment 2026-08-28-01:09:
-FN-207 requires cards to advance from Ideas through Planning, In Progress, In-Review, and Done.
-A defect is repaired in its owning stage: automatic moves may step back at most one rank, may never
-enter intake, and may leave review only for WIP. Every remaining engine backward move is declared in
-the registry below. Roles are derived from each column's own trait flags because the first-column-per-
-role helper cannot classify a second WIP or review lane.
+FNXC:LifecycleContainment 2026-08-28-07:48:
+Only a revision may move a card backward. Plan Review REVISE is the sole WIP-to-hold path; Code
+Review, verification, or merge-fix REVISE may return review to WIP only with pending remediation.
+Cleanup, timeout, dependency, contamination, branch, capacity, merge failure, and graph retry paths
+repair in their current lifecycle role. Graph node-column routing therefore has no blanket backward
+authority. Roles come from each column's own trait flags so renamed and duplicate WIP/review lanes
+obey the same rule.
 */
 /**
  * Classify one column from its own effective flags. Higher lifecycle roles win
@@ -52,7 +53,7 @@ export function classifyLifecycleDirection(
 }
 
 export interface ForbiddenLifecyclePath {
-  rule: "F1" | "F2" | "F3" | "F4";
+  rule: "F1" | "F2" | "F3" | "F4" | "F5";
   detail: string;
 }
 
@@ -64,6 +65,7 @@ export interface ForbiddenLifecyclePath {
 export function evaluateForbiddenLifecyclePath(
   from: LifecycleRole | undefined,
   to: LifecycleRole | undefined,
+  reason?: string,
 ): ForbiddenLifecyclePath | null {
   if (from === undefined || to === undefined) return null;
   const direction = classifyLifecycleDirection(from, to);
@@ -72,6 +74,9 @@ export function evaluateForbiddenLifecyclePath(
   }
   if (LIFECYCLE_ROLE_RANK[from] - LIFECYCLE_ROLE_RANK[to] > 1) {
     return { rule: "F2", detail: "Automatic moves may not step backward more than one lifecycle rank" };
+  }
+  if (from === "wip" && to === "hold" && reason !== "plan-review-revise-replan") {
+    return { rule: "F5", detail: "A WIP card may return to planning only for Plan Review REVISE" };
   }
   if (from === "review" && to !== "review" && to !== "wip") {
     return { rule: "F3", detail: "A review-lane card may leave review only for a WIP lane" };
@@ -88,66 +93,48 @@ export type LifecycleRoleSet = readonly LifecycleRole[] | "any";
 export interface EngineBackwardMoveReason {
   from: LifecycleRoleSet;
   to: LifecycleRoleSet;
+  /** Recovery-only reasons may operate in several roles but never cross between them. */
+  sameRoleOnly?: boolean;
   summary: string;
 }
 
-/** Every legal engine/scheduler backward move must use one of these reason ids. */
+/** Every legal engine/scheduler backward move must use one of these revision reason ids. */
 export const ENGINE_BACKWARD_MOVE_REASONS: Readonly<Record<string, EngineBackwardMoveReason>> = Object.freeze({
-  "workflow-graph-node-column": {
-    from: "any",
-    to: "any",
-    summary: "Workflow graph moved the card to its declared next column",
-  },
   "code-review-revise-remediation": {
-    from: ["review"], to: ["wip"], summary: "Code review requested implementation fixes",
+    from: ["review"], to: ["wip"], summary: "Code Review REVISE requested implementation fixes",
   },
   "verification-failure-remediation": {
-    from: ["review", "wip"], to: ["wip"], summary: "Verification requested implementation fixes",
-  },
-  "execution-resume": {
-    from: ["review"], to: ["wip"], summary: "Incomplete implementation work is resuming",
-  },
-  "merge-failure-rebound": {
-    from: ["review"], to: ["review", "wip"], summary: "Merge recovery requires review or implementation work",
+    from: ["review", "wip"], to: ["wip"], summary: "Verification REVISE requested implementation fixes",
   },
   "merge-fix-remediation": {
-    from: ["review"], to: ["wip"], summary: "Merge feedback requested implementation fixes",
+    from: ["review"], to: ["wip"], summary: "Merge review REVISE requested implementation fixes",
   },
   "plan-review-revise-replan": {
-    from: ["wip"], to: ["hold"], summary: "Plan review requested a planning revision",
+    from: ["wip"], to: ["hold"], summary: "Plan Review REVISE requested a planning revision",
   },
-  "stale-spec-replan": {
-    from: ["wip"], to: ["hold"], summary: "A stale specification requires replanning",
-  },
-  "blocked-exit-replan": {
-    from: ["wip"], to: ["hold"], summary: "A blocked completion requires replanning",
-  },
-  "missing-required-artifact-recovery": {
-    from: ["wip"], to: ["hold"], summary: "A required artifact is missing and requires replanning",
-  },
-  "workflow-retry-rehome": {
-    from: ["wip"], to: ["hold"], summary: "Workflow recovery requires a planning-lane retry",
+  "merge-failure-rebound": {
+    from: ["review"], to: ["review"], summary: "Merge failure bookkeeping remains in review",
   },
   "self-healing-worktree-reclaim": {
-    from: ["review", "wip"], to: ["wip", "hold"], summary: "Self-healing reclaimed stale worktree state",
+    from: ["review", "wip"], to: ["review", "wip"], sameRoleOnly: true, summary: "Worktree recovery remains in its lifecycle role",
   },
   "self-healing-stranded-recovery": {
-    from: ["review", "wip"], to: ["wip", "hold"], summary: "Self-healing recovered stranded task state",
+    from: ["review", "wip"], to: ["review", "wip"], sameRoleOnly: true, summary: "Stranded-state recovery remains in its lifecycle role",
   },
   "self-healing-dependency-rebound": {
-    from: ["review", "wip"], to: ["wip", "hold"], summary: "Self-healing recovered dependency-blocked work",
+    from: ["review", "wip"], to: ["review", "wip"], sameRoleOnly: true, summary: "Dependency recovery remains in its lifecycle role",
   },
   "self-healing-session-recovery": {
-    from: ["review", "wip"], to: ["wip", "hold"], summary: "Self-healing recovered an interrupted session",
+    from: ["review", "wip"], to: ["review", "wip"], sameRoleOnly: true, summary: "Session recovery remains in its lifecycle role",
   },
   "contamination-recovery": {
-    from: ["review", "wip"], to: ["wip", "hold"], summary: "Recovery isolated contaminated work",
+    from: ["review", "wip"], to: ["review", "wip"], sameRoleOnly: true, summary: "Contamination recovery remains in its lifecycle role",
   },
   "branch-worktree-recovery": {
-    from: ["review", "wip"], to: ["wip", "hold"], summary: "Recovery repaired branch or worktree state",
+    from: ["review", "wip"], to: ["review", "wip"], sameRoleOnly: true, summary: "Branch and worktree recovery remains in its lifecycle role",
   },
   "capacity-hold-return": {
-    from: ["review", "wip"], to: ["wip", "hold"], summary: "Capacity recovery returned the card to its legal waiting lane",
+    from: ["review", "wip"], to: ["review", "wip"], sameRoleOnly: true, summary: "Capacity recovery remains in its lifecycle role",
   },
 });
 
@@ -163,5 +150,8 @@ export function isSanctionedEngineBackwardMove(
 ): boolean {
   if (!reason || from === undefined || to === undefined) return false;
   const definition = ENGINE_BACKWARD_MOVE_REASONS[reason];
-  return definition !== undefined && includesRole(definition.from, from) && includesRole(definition.to, to);
+  return definition !== undefined
+    && (!definition.sameRoleOnly || from === to)
+    && includesRole(definition.from, from)
+    && includesRole(definition.to, to);
 }

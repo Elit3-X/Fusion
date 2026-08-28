@@ -15,14 +15,13 @@
  * FN-8910: completed work + policy-refused remediation stays parked in review.
  */
 import type { TaskDetail, TaskStore } from "@fusion/core";
-import { COMPLETION_SUMMARY_NODE_ID, isTaskExternallyBlocked, resolveContainedBackwardTargetForTask } from "@fusion/core";
+import { COMPLETION_SUMMARY_NODE_ID, isTaskExternallyBlocked } from "@fusion/core";
 import { isDurableBlockedTask } from "../execution-block-classifier.js";
 import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import { resolveTerminalColumnsFor } from "./lifecycle-columns.js";
 import { hasNonTerminalWorkflowSteps } from "./workflow-step-satisfaction.js";
 import { isMergeGraphFailure } from "./graph-failure-pure.js";
-import { moveTaskWithLifecycleReason } from "../execution/lifecycle-move.js";
 import type { ResumeLanes } from "./resolve-resume-lanes.js";
 
 export type RouteGraphFailureToExecutionResumeDeps = {
@@ -102,7 +101,6 @@ export async function routeGraphFailureToExecutionResume(
       && await deps.isRemediationGraphNode(live.id, failedNode)) return false;
     const implementationIncompleteMergeFailure = isMergeGraphFailure(failedNode) && failureValue === "implementation-incomplete";
     if (implementationIncompleteMergeFailure && !incompleteSteps) return false;
-    const prematureMergeWithIncompleteSteps = implementationIncompleteMergeFailure && incompleteSteps;
     /*
     FNXC:WorkflowLifecycleColumns 2026-07-30-21:40 (fleet: executor.ts — the REVERSE half-conversion):
     THE DESTINATION WAS ALREADY RESOLVED HERE AND THE GATE WAS NOT. The contained resolver below picks
@@ -126,33 +124,17 @@ export async function routeGraphFailureToExecutionResume(
     fail-closed rule on the opposite path, which was failing OPEN.
     */
     if (!resumeRouterLanes.wipDeclared) return false;
-    if (live.column !== resumeRouterLanes.review
-      && !(incompleteSteps && live.column === resumeRouterLanes.hold)
-      && !(prematureMergeWithIncompleteSteps && live.column === resumeRouterLanes.wip)) return false;
-
-    const reboundColumn = incompleteSteps
-      ? resumeRouterLanes.wip
-      : await resolveContainedBackwardTargetForTask(deps.store, live.id, live.column);
-    if (!reboundColumn) {
-      const message = `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} — no contained execution destination is declared; card remains in '${live.column}'`;
+    if (live.column !== resumeRouterLanes.wip || !implementationIncompleteMergeFailure) {
+      const message = `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} — automatic recovery cannot move '${live.column}' backward; card remains in place`;
       executorLog.warn(`${live.id}: ${message}`);
       await deps.store.logEntry(live.id, message, undefined, deps.getRunContextFor(live.id));
       return false;
     }
-    const message = incompleteSteps
-      ? `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} with incomplete steps — resuming execution in '${reboundColumn}'`
-      : `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} before a clean review handoff — returned to '${reboundColumn}' for workflow retry`;
+
+    const message = `Workflow graph failed at node '${failedNode}'${failureValue ? ` (${failureValue})` : ""} with incomplete work — resuming in place in '${live.column}'`;
     executorLog.warn(`${live.id}: ${message}`);
     await deps.store.logEntry(live.id, message, undefined, deps.getRunContextFor(live.id));
     await deps.store.updateTask(live.id, { status: null, error: null }, deps.getRunContextFor(live.id));
-    if (live.column !== reboundColumn) {
-      await moveTaskWithLifecycleReason(deps.store, live.id, reboundColumn, incompleteSteps ? "execution-resume" : "workflow-retry-rehome", {
-        preserveProgress: true,
-        moveSource: "engine",
-        recoveryRehome: true,
-        workflowMoveSource: "workflow-remediation",
-      });
-    }
     /*
     FNXC:ReviewConvergence 2026-08-22-05:00:
     Graph-failure recovery is automatic remediation, not an explicit operator retry. Archive its

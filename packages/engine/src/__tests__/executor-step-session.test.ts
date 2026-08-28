@@ -1100,9 +1100,12 @@ describe("Workflow Steps Execution", () => {
       dependencies: [] as string[],
       steps: [
         { name: "Step 0", status: "done" as const },
-        // Last step reopened by reopenLastStepForRevision — this is the step
-        // the merge gate blocks on until the executor re-runs.
-        { name: "Documentation & Delivery", status: "pending" as const },
+        // A review-to-WIP handoff carries named pending remediation.
+        {
+          name: "Fix: Documentation & Delivery",
+          status: "pending" as const,
+          remediation: { wave: 1, gate: "Code Review" as const, gateStepId: "code-review", detail: "Apply requested documentation fix" },
+        },
       ],
       currentStep: 1,
       log: [] as any[],
@@ -1132,7 +1135,7 @@ describe("Workflow Steps Execution", () => {
       preserveResumeState: true,
       preserveWorktree: true,
       workflowMoveSource: "workflow-remediation",
-      lifecycleReason: "workflow-graph-node-column",
+      lifecycleReason: "code-review-revise-remediation",
     });
     expect(onError).not.toHaveBeenCalled();
   });
@@ -1615,7 +1618,6 @@ describe("TaskExecutor loop recovery", () => {
       inactivityMs: 0,
       activitySinceProgress: 100,
       ignoredStepUpdateCount: 0,
-      shouldRequeue: true,
     });
 
     expect(result).toBe(true);
@@ -1639,7 +1641,6 @@ describe("TaskExecutor loop recovery", () => {
       inactivityMs: 0,
       activitySinceProgress: 100,
       ignoredStepUpdateCount: 0,
-      shouldRequeue: true,
     });
 
     expect(result).toBe(false);
@@ -1657,7 +1658,6 @@ describe("TaskExecutor loop recovery", () => {
       inactivityMs: 0,
       activitySinceProgress: 100,
       ignoredStepUpdateCount: 0,
-      shouldRequeue: true,
     });
     expect(result1).toBe(true);
 
@@ -1669,7 +1669,6 @@ describe("TaskExecutor loop recovery", () => {
       inactivityMs: 0,
       activitySinceProgress: 200,
       ignoredStepUpdateCount: 0,
-      shouldRequeue: true,
     });
     expect(result2).toBe(false);
   });
@@ -1685,7 +1684,6 @@ describe("TaskExecutor loop recovery", () => {
       inactivityMs: 0,
       activitySinceProgress: 100,
       ignoredStepUpdateCount: 0,
-      shouldRequeue: true,
     });
 
     expect(result).toBe(false);
@@ -1703,7 +1701,6 @@ describe("TaskExecutor loop recovery", () => {
       inactivityMs: 0,
       activitySinceProgress: 100,
       ignoredStepUpdateCount: 0,
-      shouldRequeue: true,
     });
 
     await vi.advanceTimersByTimeAsync(60000);

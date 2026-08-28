@@ -5,8 +5,10 @@
  * FNXC:Lifecycle 2026-07-16-10:20:
  * FN-8141: outcome=blocked is the sanctioned honest exit (no completion claim).
  *
- * FNXC:HonestBlockedExit 2026-08-02-23:59:
- * Blocked exits classify on Fusion task dependencies only (no open-PR blockers).
+ * FNXC:HonestBlockedExit 2026-08-28-07:48:
+ * Blocked exits declare their conditioned obstacle. External obstacles freeze in place, Fusion task
+ * dependencies park behind dependency edges, and repairable inside-worktree failures stay in the
+ * executor. No blocked exit can move implementation back into planning.
  *
  * FNXC:WorkflowResolvedColumns 2026-07-31-09:20:
  * Completed-task watchdog arms on resolved WIP column, not literal in-progress.
@@ -29,7 +31,6 @@ import {
   countBlockedThrashHits,
   partitionBlockedByRefs,
 } from "../execution-block-classifier.js";
-import { moveTaskToReplanColumn, resolveReplanTargetColumn } from "../execution/replan-target.js";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
 import { generateSyntheticRunId, type EngineRunContext, type RunAuditor } from "../util/run-audit.js";
 import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
@@ -102,10 +103,9 @@ export function createTaskDoneTool(
         "the project cap of genuine, task-ready out-of-scope recommendations with stable unique ids, or explicitly send " +
         "recommendations: [] when none qualify; when required by project policy, an explicit array is mandatory, but a shorter list or [] is valid when relevance does not support more; at cap 0, omit recommendations. " +
         "Do not use recommendations for required fixes, blockers, secrets, commands, or reasoning. " +
-        "With outcome=\"blocked\": honestly park the task when the work genuinely cannot proceed. Declare obstacle=\"outside-worktree\" only for host, network, provider, credential, or third-party failures; use obstacle=\"inside-worktree\" for code, test, plan, lint, type, merge, or review failures. Blocked is NOT a completion claim — it does not " +
-        "trip the review/completion gates, does not auto-complete or auto-skip steps, and preserves your worktree/" +
-        "branch/step progress so the task can be requeued once the blocker clears. Prefer blocked over marking steps " +
-        "skipped when the task cannot be finished.",
+        "With outcome=\"blocked\": declare obstacle=\"outside-worktree\" only for host, network, provider, credential, or third-party failures; Fusion freezes those at the current execution point. Use obstacle=\"inside-worktree\" for code, test, plan, lint, type, merge, or review failures; Fusion refuses that exit so the agent continues repairing in place. Blocked is NOT a completion claim — it does not " +
+        "trip the review/completion gates, auto-complete steps, or move implementation back into planning. Task-dependency blocks preserve worktree/" +
+        "branch/step progress and park behind real dependency edges.",
       parameters: Type.Object({
         summary: Type.Optional(Type.String({
           description: "Optional summary of what was changed/fixed and what was verified (2-4 sentences). Used when outcome=\"completed\".",
@@ -137,7 +137,7 @@ export function createTaskDoneTool(
         })),
         obstacle: Type.Optional(Type.Union(
           [Type.Literal("outside-worktree"), Type.Literal("inside-worktree")],
-          { description: "When outcome=\"blocked\": declare whether the obstacle originates outside the worktree (host/network/provider/credentials/service) or inside it (code/tests/plan/review)." },
+          { description: "Required when outcome=\"blocked\": declare whether the obstacle originates outside the worktree (host/network/provider/credentials/service) or inside it (code/tests/plan/review)." },
         )),
 
         reason: Type.Optional(Type.String({
@@ -161,6 +161,13 @@ export function createTaskDoneTool(
               details: { error: message },
             };
           }
+          if (params.obstacle === undefined) {
+            const message = "fn_task_done(outcome=\"blocked\") requires `obstacle` to be either \"outside-worktree\" or \"inside-worktree\". Re-issue the call with the origin declared explicitly.";
+            return {
+              content: [{ type: "text" as const, text: message }],
+              details: { error: message },
+            };
+          }
 
           const blockedTask = await store.getTask(taskId);
           const rawBlockedBy = Array.from(
@@ -170,8 +177,8 @@ export function createTaskDoneTool(
           FNXC:HonestBlockedExit 2026-08-02-23:59 (operator decision — FN-8728 vs PR #2398):
           Blocked exits classify on Fusion task dependencies ONLY. The FN-8700 file-claim/open-PR
           classification is removed: open PRs are never blockers, legacy pr:N refs are discarded,
-          and reason prose never makes a block durable. Task deps → durable failed park (requeues
-          when deps complete); no deps → plan defect → needs-replan (FN-8634).
+          and reason prose never makes a block durable. Task deps become a durable failed park that
+          requeues when dependencies complete; no deps remain repairable in the current executor.
           */
           const { taskIds: requestedBlockedByIds } = partitionBlockedByRefs(rawBlockedBy);
           /*
@@ -211,18 +218,16 @@ export function createTaskDoneTool(
             await store.logEntry(taskId, `Ignored self-spawned blockedBy task(s): ${selfSpawnedBlockedByIds.join(", ")}.`);
           }
           /*
-          FNXC:ExternalBlock 2026-08-28-04:08:
-          Dependency waits keep their established durable dependency park. With no dependency, an
-          explicit origin wins over prose; conservative text classification is only the fallback.
-          External causes freeze the exact execution location, while inside-worktree causes retain
-          FN-207's contained auto-repair/replan route.
+          FNXC:ExternalBlock 2026-08-28-07:48:
+          Dependency waits keep their established durable dependency park. With no dependency, the
+          required obstacle enum owns routing: declared external causes freeze the exact execution
+          location, while declared inside-worktree causes are refused back to the executor for repair.
+          Prose refines an external diagnostic code but never chooses the lifecycle route.
           */
-          const classifiedObstacle = params.obstacle === "inside-worktree"
-            ? undefined
-            : classifyExternalObstacle(reason)
-              ?? (params.obstacle === "outside-worktree"
-                ? { origin: "third-party-service" as const, code: "UNCLASSIFIED" }
-                : undefined);
+          const classifiedObstacle = params.obstacle === "outside-worktree"
+            ? classifyExternalObstacle(reason)
+              ?? { origin: "third-party-service" as const, code: "UNCLASSIFIED" }
+            : undefined;
           if (blockedByIds.length === 0 && classifiedObstacle) {
             const externalBlock = {
               ...classifiedObstacle,
@@ -267,12 +272,20 @@ export function createTaskDoneTool(
             };
           }
 
+          if (blockedByIds.length === 0) {
+            const message = "Inside-worktree obstacles are repairable by the executor. Continue repairing in place; fn_task_done(outcome=\"blocked\") did not change the task.";
+            return {
+              content: [{ type: "text" as const, text: message }],
+              details: { error: message },
+            };
+          }
+
           const classification = classifyBlockedExit(reason, blockedByIds);
           const thrashCount = countBlockedThrashHits(
             blockedTask.log,
             classification.thrashSignature,
           ) + 1;
-          const thrashExhausted = !classification.allowAutoReplan && thrashCount >= BLOCKED_THRASH_LIMIT;
+          const thrashExhausted = thrashCount >= BLOCKED_THRASH_LIMIT;
 
           const parkError = thrashExhausted
             ? `BLOCKED: ${reason} [thrash-exhausted after ${thrashCount} identical durable blocks]`
@@ -281,69 +294,24 @@ export function createTaskDoneTool(
           const mergedDependencies = blockedByIds.length > 0
             ? Array.from(new Set([...(blockedTask.dependencies ?? []), ...blockedByIds]))
             : undefined;
-          /*
-          FNXC:HonestBlockedExit 2026-08-01-01:40 (operator: FN-8634 "shouldn't show a failed badge"):
-          When `blockedBy` is EMPTY, park needs-replan (auto-replan) — nothing external to wait for.
-          Task-dependency blocks park failed so the scheduler leaves the card alone until deps complete.
-          */
-          const autoReplanPark = classification.allowAutoReplan && blockedByIds.length === 0 && !thrashExhausted;
-          const metaPatch = !autoReplanPark
-            ? buildExternalBlockMetadataPatch(classification, thrashCount)
-            : undefined;
-          if (autoReplanPark) {
-            const replanColumn = await resolveReplanTargetColumn(deps.store, taskId);
-            await store.logEntry(
-              taskId,
-              `${parkError} — no blocking dependencies recorded; parking for automatic replan in ${replanColumn} (steps preserved)`,
-              undefined,
-              deps.getRunContextFor(taskId),
-            );
-            deps.workflowLifecycleMovesInFlight.add(taskId);
-            let replanResult: Awaited<ReturnType<typeof moveTaskToReplanColumn>>;
-            try {
-              replanResult = await moveTaskToReplanColumn(
-                deps.store,
-                { id: taskId, column: blockedTask.column },
-                "blocked-exit-replan",
-                replanColumn,
-              );
-            } finally {
-              deps.workflowLifecycleMovesInFlight.delete(taskId);
-            }
-            if (typeof replanResult === "object" && replanResult.reason === "review-lane-source") {
-              await store.updateTask(taskId, {
-                status: "failed",
-                error: parkError,
-                paused: false,
-                pausedByAgentId: null,
-              }, deps.getRunContextFor(taskId));
-            } else {
-              await store.updateTask(taskId, {
-                status: "needs-replan",
-                error: null,
-                paused: false,
-                pausedByAgentId: null,
-              }, deps.getRunContextFor(taskId));
-            }
-          } else {
-            await store.updateTask(taskId, {
-              status: "failed",
-              error: parkError,
-              paused: false,
-              pausedByAgentId: null,
-              ...(mergedDependencies ? { dependencies: mergedDependencies } : {}),
-              ...(metaPatch ? { sourceMetadataPatch: metaPatch } : {}),
-            }, deps.getRunContextFor(taskId));
+          const metaPatch = buildExternalBlockMetadataPatch(classification, thrashCount);
+          await store.updateTask(taskId, {
+            status: "failed",
+            error: parkError,
+            paused: false,
+            pausedByAgentId: null,
+            ...(mergedDependencies ? { dependencies: mergedDependencies } : {}),
+            sourceMetadataPatch: metaPatch,
+          }, deps.getRunContextFor(taskId));
 
-            await store.logEntry(
-              taskId,
-              thrashExhausted
-                ? `${parkError} — durable external block thrash-exhausted (signature=${classification.thrashSignature}); parked failed, no auto-requeue`
-                : `${parkError} — recorded dependencies: ${blockedByIds.join(", ")} — parked failed (honest blocked exit; steps preserved)`,
-              undefined,
-              deps.getRunContextFor(taskId),
-            );
-          }
+          await store.logEntry(
+            taskId,
+            thrashExhausted
+              ? `${parkError} — durable external block thrash-exhausted (signature=${classification.thrashSignature}); parked failed, no auto-requeue`
+              : `${parkError} — recorded dependencies: ${blockedByIds.join(", ")} — parked failed (honest blocked exit; steps preserved)`,
+            undefined,
+            deps.getRunContextFor(taskId),
+          );
           await emitBoundedRunAudit(deps.store, {
             taskId,
             agentId: "executor",
@@ -355,7 +323,7 @@ export function createTaskDoneTool(
               taskId,
               blockedBy: blockedByIds,
               hasReason: true,
-              parkedAs: autoReplanPark ? "auto-replan" : "failed",
+              parkedAs: "failed",
               blockedClass: classification.class,
               thrashCount,
               thrashExhausted,
@@ -363,23 +331,17 @@ export function createTaskDoneTool(
           });
           await deps.persistTokenUsage(taskId);
           executorLog.log(
-            `⛔ ${taskId} ${
-              autoReplanPark
-                ? "parked for automatic replan via blocked exit (plan defect, no dependencies)"
-                : thrashExhausted
-                  ? `parked failed via blocked thrash-exhaustion (class=${classification.class})`
-                  : `parked failed via durable blocked exit (class=${classification.class}; blockedBy tasks: ${blockedByIds.join(", ") || "none"})`
-            }`,
+            `⛔ ${taskId} ${thrashExhausted
+              ? `parked failed via blocked thrash-exhaustion (class=${classification.class})`
+              : `parked failed via durable blocked exit (class=${classification.class}; blockedBy tasks: ${blockedByIds.join(", ")})`}`,
           );
 
           return {
             content: [{
               type: "text" as const,
-              text: autoReplanPark
-                ? "Task parked as blocked with no blocking task dependencies — queued for automatic replan so the plan can resolve the conflict. Steps left in their true statuses; no completion recorded."
-                : thrashExhausted
-                  ? "Task parked as blocked (failed) after repeated identical durable blocks — no further automatic retries. Resolve the blocking tasks or replan manually."
-                  : `Task parked as blocked (failed). Recorded ${blockedByIds.length} blocking task dependency(ies); it will requeue once they complete. Steps left in their true statuses; no completion recorded.`,
+              text: thrashExhausted
+                ? "Task parked as blocked (failed) after repeated identical durable blocks — no further automatic retries. Resolve the blocking tasks before retrying."
+                : `Task parked as blocked (failed). Recorded ${blockedByIds.length} blocking task dependency(ies); it will requeue once they complete. Steps left in their true statuses; no completion recorded.`,
             }],
             details: {},
           };

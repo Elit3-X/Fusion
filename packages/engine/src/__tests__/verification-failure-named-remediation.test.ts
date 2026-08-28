@@ -97,8 +97,8 @@ describe("deterministic verification failure → named remediation", () => {
     expect(deps.clearCompletedTaskWatchdog).not.toHaveBeenCalled();
   });
 
-  it("treats a remediation park as terminal rather than re-dispatching the executor", async () => {
-    const { deps } = seam({ outcome: "parked-wave-exhausted" });
+  it("treats a non-blocking remediation release as terminal rather than re-dispatching the executor", async () => {
+    const { deps } = seam({ outcome: "released-wave-exhausted" });
 
     const outcome = await bounceVerificationFailure(deps, {
       task: task(),
@@ -109,8 +109,8 @@ describe("deterministic verification failure → named remediation", () => {
       stepReopenPolicy: "none",
     });
 
-    expect(outcome).toBe("parked-for-human");
-    // A follow-up bounce would clear the pause remediation just set (wave 4 / out-of-scope / no findings).
+    expect(outcome).toBe("released-non-blocking");
+    // A follow-up bounce would re-dispatch an executor with no named work.
     expect(deps.sendTaskBackForFix).not.toHaveBeenCalled();
     expect(deps.clearCompletedTaskWatchdog).toHaveBeenCalledWith("FN-VR-1");
   });
@@ -135,8 +135,8 @@ describe("deterministic verification failure → named remediation", () => {
     }
   });
 
-  it("falls back to reopening only when no actionable finding can be derived", async () => {
-    const { deps } = seam({ outcome: "parked-no-actionable-findings" });
+  it("does not reopen when no actionable finding can be derived", async () => {
+    const { deps } = seam({ outcome: "released-no-actionable-findings" });
     const subject = task();
 
     const outcome = await bounceVerificationFailure(deps, {
@@ -148,9 +148,9 @@ describe("deterministic verification failure → named remediation", () => {
       stepReopenPolicy: "reopen-trailing",
     });
 
-    expect(outcome).toBe("reopened-trailing");
-    expect(deps.sendTaskBackForFix).toHaveBeenCalledTimes(1);
-    expect(deps.clearCompletedTaskWatchdog).not.toHaveBeenCalled();
+    expect(outcome).toBe("released-non-blocking");
+    expect(deps.sendTaskBackForFix).not.toHaveBeenCalled();
+    expect(deps.clearCompletedTaskWatchdog).toHaveBeenCalledWith("FN-VR-1");
   });
 
   /*

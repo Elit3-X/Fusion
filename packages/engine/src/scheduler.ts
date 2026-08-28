@@ -49,7 +49,6 @@ import type { WorkflowIr, WorkflowIrV2, WorkflowSelectionCache } from "@fusion/c
 import type { ColumnRoleTraitFlags } from "@fusion/core";
 
 import { checkAndRecordUnplannedExecutionBlock, runHoldReleaseSweep, isUnplannedForExecution, type SlotReservation } from "./execution/hold-release.js";
-import { moveTaskToReplanColumn } from "./execution/replan-target.js";
 import { evaluateParkedAgentTaskLink } from "./agents/task-agent-sync.js";
 import { decideMissionSymbolAdmission, resolveMissionFeatureForTask } from "./missions/mission-symbol-admission.js";
 import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "./healing/recovery-policy.js";
@@ -2659,7 +2658,6 @@ export class Scheduler {
             then park failed so a broken task dir cannot spin forever. The status write is
             still what makes triage rediscover a card whose replan column equals its current column.
             */
-            const replanColumn = await moveTaskToReplanColumn(this.store, task, "missing-required-artifact-recovery");
             const decision = computeRecoveryDecision({
               recoveryRetryCount: task.recoveryRetryCount,
               nextRecoveryAt: task.nextRecoveryAt,
@@ -2684,7 +2682,7 @@ export class Scheduler {
             });
             await this.store.logEntry(
               task.id,
-              `Task rebounded to ${replanColumn} for re-specification — filesystem validation failed (attempt ${attempt}/${MAX_RECOVERY_RETRIES} in ${formatDelay(decision.delayMs)})`,
+              `Task retained in ${task.column} for in-place specification repair — filesystem validation failed (attempt ${attempt}/${MAX_RECOVERY_RETRIES} in ${formatDelay(decision.delayMs)})`,
               validation.reason,
             );
             return null;
@@ -2700,7 +2698,6 @@ export class Scheduler {
             });
             if (staleness.isStale) {
               schedulerLog.warn(`Task ${task.id} specification is stale — ${staleness.reason}`);
-              await moveTaskToReplanColumn(this.store, task, "stale-spec-replan");
               await this.store.updateTask(task.id, { status: "needs-replan" });
               await this.store.logEntry(task.id, staleness.reason);
               return null;

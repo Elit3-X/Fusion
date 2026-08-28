@@ -26,10 +26,9 @@
  * the PROMPT.md File Scope to those files, and performs the bounce ITSELF — so this path must not
  * bounce again.
  *
- * It returns false when it deliberately parks for a human (a fourth wave, out-of-scope-only
- * evidence, or no actionable findings). That park is the terminal answer: a follow-up
- * `sendTaskBackForFix` would clear the pause it just set and re-dispatch the executor against work
- * that was explicitly refused.
+ * It returns a non-blocking release when it cannot derive work (a fourth wave, out-of-scope-only
+ * evidence, or no actionable findings). A follow-up `sendTaskBackForFix` would create the empty
+ * executor bounce this contract forbids, so released outcomes stop here without lifecycle mutation.
  */
 import type { StepReopenPolicy, Task, TaskStore, WorkflowReviewFinding } from "@fusion/core";
 import type { AppendReviewRemediationOutcome } from "./append-review-remediation-steps.js";
@@ -38,9 +37,9 @@ import type { AppendReviewRemediationOutcome } from "./append-review-remediation
 export type VerificationBounceOutcome =
   /** Named remediation steps were appended and the executor was re-dispatched to run them. */
   | "named-remediation"
-  /** Remediation refused to invent work; the task is parked awaiting human action. */
-  | "parked-for-human"
-  /** Legacy shape: the trailing completed step was reopened for an in-place redo. */
+  /** Remediation refused to invent work and released the gate without lifecycle mutation. */
+  | "released-non-blocking"
+  /** Legacy shape retained for callers that schedule explicit trailing remediation. */
   | "reopened-trailing";
 
 export type BounceVerificationFailureDeps = {
@@ -88,7 +87,7 @@ export async function bounceVerificationFailure(
   deps: BounceVerificationFailureDeps,
   params: BounceVerificationFailureParams,
 ): Promise<VerificationBounceOutcome> {
-  const { task, worktreePath, failedType, feedback, reason, stepReopenPolicy } = params;
+  const { task, worktreePath, failedType, feedback } = params;
   const stepName = `Verification (${failedType})`;
 
   /*
@@ -114,24 +113,6 @@ export async function bounceVerificationFailure(
     { worktreePath },
   );
   if (remediationOutcome === "appended") return "named-remediation";
-  if (remediationOutcome !== "parked-no-actionable-findings" || stepReopenPolicy === "none") {
-    /* A bounded/scope/worktree park is terminal and must not be cleared by a legacy bounce. */
-    deps.clearCompletedTaskWatchdog(task.id);
-    return "parked-for-human";
-  }
-
-  await deps.sendTaskBackForFix(
-    task,
-    worktreePath,
-    feedback,
-    stepName,
-    reason,
-    true,
-    true,
-    undefined,
-    undefined,
-    undefined,
-    stepReopenPolicy,
-  );
-  return "reopened-trailing";
+  deps.clearCompletedTaskWatchdog(task.id);
+  return "released-non-blocking";
 }

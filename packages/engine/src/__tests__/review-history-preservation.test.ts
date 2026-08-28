@@ -48,7 +48,7 @@ describe("FN-149 automatic remediation history preservation", () => {
 
   it.each(["in-progress", "in-review"] as const)("drives the %s rerun bounce through its production archival call", async (column) => {
     const row = {
-      id: "FN-149", column, dependencies: [], steps: [], currentStep: 0, log: [],
+      id: "FN-149", column, dependencies: [], steps: [{ name: "Fix review finding", status: "pending", remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Fix review finding" } }], currentStep: 0, log: [],
       createdAt: "2026-08-22T00:00:00.000Z", updatedAt: "2026-08-22T00:00:00.000Z",
       workflowStepResults: [revise("2026-08-22T01:00:00.000Z")],
     } as any;
@@ -71,7 +71,7 @@ describe("FN-149 automatic remediation history preservation", () => {
     if (column === "in-review") {
       expect(moveTask).toHaveBeenCalledWith(row.id, "in-progress", expect.objectContaining({
         workflowMoveSource: "workflow-remediation",
-        lifecycleReason: "workflow-graph-node-column",
+        lifecycleReason: "code-review-revise-remediation",
       }));
     } else {
       expect(moveTask).not.toHaveBeenCalled();
@@ -96,9 +96,9 @@ describe("FN-149 automatic remediation history preservation", () => {
       clearTerminalStepFailuresForRetry: (id, mode) => clearTerminalStepFailuresForRetryStore({ store, getRunContextFor: () => undefined } as any, id, mode),
       persistTokenUsage: vi.fn(async () => {}), isRemediationGraphNode: vi.fn(async () => false),
     } as any, row, "code-review-remediation", "retry");
-    expect(routed).toBe(true);
-    expect(store.moveTask).toHaveBeenCalledWith(row.id, expect.any(String), expect.objectContaining({ workflowMoveSource: "workflow-remediation" }));
-    expectRoundTwoHistory(row.workflowStepResults);
+    expect(routed).toBe(false);
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(row.workflowStepResults?.[0]).toMatchObject({ status: "failed", verdict: "REVISE" });
   });
 
   it("contains a remediation-provenanced review-lane replan before archiving", async () => {
@@ -142,7 +142,7 @@ describe("FN-149 automatic remediation history preservation", () => {
 
   it("fails closed when a pause arrives after the bounce move", async () => {
     const row = {
-      id: "FN-149-deferred", column: "in-review", dependencies: [], steps: [], currentStep: 0, log: [],
+      id: "FN-149-deferred", column: "in-review", dependencies: [], steps: [{ name: "Fix review finding", status: "pending", remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Fix review finding" } }], currentStep: 0, log: [],
       createdAt: "2026-08-22T00:00:00.000Z", updatedAt: "2026-08-22T00:00:00.000Z",
       workflowStepResults: [revise("2026-08-22T01:00:00.000Z")],
     } as any;
@@ -152,7 +152,7 @@ describe("FN-149 automatic remediation history preservation", () => {
     } as any, row.id, "archive"));
     const pause = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce("global pause");
     const outcome = await performWorkflowRerunBounce({
-      store: { getTask: async () => row, moveTask: async (_id: string, column: string) => { row.column = column; }, updateTask: async (_id: string, patch: object) => Object.assign(row, patch) },
+      store: { getTask: async () => row, moveTask: async (_id: string, column: string) => { row.column = column; }, updateTask: async (_id: string, patch: object) => Object.assign(row, patch), logEntry: async () => undefined },
       workflowRerunPending: new Set(), getExecutionPauseLabel: pause,
       resolveResumeLanes: async () => ({ wip: "in-progress", review: "in-review" }), clearTerminalStepFailuresForRetry,
     } as any, row.id, "/worktree");

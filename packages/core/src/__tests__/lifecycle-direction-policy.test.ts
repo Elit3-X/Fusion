@@ -44,13 +44,14 @@ describe("workflow lifecycle direction", () => {
     expect(classifyLifecycleDirection(undefined, "wip")).toBe("unknown");
   });
 
-  it("forbids every structural path while retaining legal adjacent repairs", () => {
+  it("forbids every structural path while retaining revision-derived repairs", () => {
     expect(evaluateForbiddenLifecyclePath("wip", "intake")?.rule).toBe("F1");
     expect(evaluateForbiddenLifecyclePath("review", "hold")?.rule).toBe("F2");
     expect(evaluateForbiddenLifecyclePath("review", "complete")?.rule).toBe("F3");
     expect(evaluateForbiddenLifecyclePath("archived", "complete")?.rule).toBe("F4");
     expect(evaluateForbiddenLifecyclePath("review", "wip")).toBeNull();
-    expect(evaluateForbiddenLifecyclePath("wip", "hold")).toBeNull();
+    expect(evaluateForbiddenLifecyclePath("wip", "hold")?.rule).toBe("F5");
+    expect(evaluateForbiddenLifecyclePath("wip", "hold", "plan-review-revise-replan")).toBeNull();
     expect(evaluateForbiddenLifecyclePath(undefined, "hold")).toBeNull();
   });
 
@@ -77,12 +78,54 @@ describe("workflow lifecycle direction", () => {
     expect(evaluateLifecycleDirectionPostcondition(policyInput({}, { hold: true }, { moveSource: "engine" }))).toBeNull();
   });
 
-  it("keeps broad recovery envelopes subordinate to the deny-list", () => {
-    expect(ENGINE_BACKWARD_MOVE_REASONS["self-healing-session-recovery"]).toMatchObject({
-      from: ["review", "wip"],
-      to: ["wip", "hold"],
-    });
-    expect(isSanctionedEngineBackwardMove("self-healing-session-recovery", "review", "hold")).toBe(true);
-    expect(evaluateForbiddenLifecyclePath("review", "hold")?.rule).toBe("F2");
+  it("admits every retained reason only for its declared role pairs", () => {
+    expect(isSanctionedEngineBackwardMove("plan-review-revise-replan", "wip", "hold")).toBe(true);
+    for (const reason of ["code-review-revise-remediation", "verification-failure-remediation", "merge-fix-remediation"]) {
+      expect(isSanctionedEngineBackwardMove(reason, "review", "wip")).toBe(true);
+      expect(isSanctionedEngineBackwardMove(reason, "wip", "hold")).toBe(false);
+    }
+    for (const reason of [
+      "self-healing-worktree-reclaim",
+      "self-healing-stranded-recovery",
+      "self-healing-dependency-rebound",
+      "self-healing-session-recovery",
+      "contamination-recovery",
+      "branch-worktree-recovery",
+      "capacity-hold-return",
+    ]) {
+      expect(isSanctionedEngineBackwardMove(reason, "review", "review")).toBe(true);
+      expect(isSanctionedEngineBackwardMove(reason, "wip", "wip")).toBe(true);
+      expect(isSanctionedEngineBackwardMove(reason, "review", "wip")).toBe(false);
+      expect(isSanctionedEngineBackwardMove(reason, "wip", "hold")).toBe(false);
+    }
+    expect(isSanctionedEngineBackwardMove("merge-failure-rebound", "review", "review")).toBe(true);
+    expect(isSanctionedEngineBackwardMove("merge-failure-rebound", "review", "wip")).toBe(false);
+  });
+
+  it("rejects every removed reason and graph wildcard as backward authority", () => {
+    for (const reason of [
+      "workflow-graph-node-column",
+      "execution-resume",
+      "stale-spec-replan",
+      "blocked-exit-replan",
+      "missing-required-artifact-recovery",
+      "workflow-retry-rehome",
+    ]) {
+      expect(ENGINE_BACKWARD_MOVE_REASONS).not.toHaveProperty(reason);
+      expect(isSanctionedEngineBackwardMove(reason, "review", "wip")).toBe(false);
+      expect(isSanctionedEngineBackwardMove(reason, "wip", "hold")).toBe(false);
+    }
+  });
+
+  it("classifies duplicate WIP lanes and a renamed review lane by traits", () => {
+    const firstWip = classifyLifecycleRole({ countsTowardWip: true });
+    const secondWip = classifyLifecycleRole({ countsTowardWip: true, hold: true });
+    const renamedReview = classifyLifecycleRole({ mergeBlocker: true });
+    expect([firstWip, secondWip, renamedReview]).toEqual(["wip", "wip", "review"]);
+    expect(evaluateLifecycleDirectionPostcondition(policyInput(
+      { mergeBlocker: true },
+      { countsTowardWip: true },
+      { moveSource: "engine", lifecycleReason: "code-review-revise-remediation" },
+    ))).toBeNull();
   });
 });

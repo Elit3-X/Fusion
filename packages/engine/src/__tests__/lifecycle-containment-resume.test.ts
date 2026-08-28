@@ -53,7 +53,7 @@ function harness(row: TaskDetail, workflowId: string) {
 
 describe("graph failure execution-resume containment", () => {
   it.each(["builtin:coding", "builtin:coding-ideas"])(
-    "returns incomplete review work to WIP on %s, never Planning or intake",
+    "keeps incomplete review work in review on %s without a REVISE handoff",
     async (workflowId) => {
       const row = task("in-review", true);
       const { store, deps } = harness(row, workflowId);
@@ -63,18 +63,13 @@ describe("graph failure execution-resume containment", () => {
         row,
         "steps#0:step-execute",
         "step-failed",
-      )).resolves.toBe(true);
+      )).resolves.toBe(false);
 
-      expect(row.column).toBe("in-progress");
-      expect(store.moveTask).toHaveBeenCalledWith("FN-207", "in-progress", expect.objectContaining({
-        lifecycleReason: "execution-resume",
-        moveSource: "engine",
-        recoveryRehome: true,
-        preserveProgress: true,
-      }));
+      expect(row.column).toBe("in-review");
+      expect(store.moveTask).not.toHaveBeenCalled();
       expect(store.logEntry).toHaveBeenCalledWith(
         "FN-207",
-        expect.stringContaining("resuming execution in 'in-progress'"),
+        expect.stringContaining("cannot move 'in-review' backward"),
         undefined,
         undefined,
       );
@@ -117,7 +112,7 @@ describe("graph failure execution-resume containment", () => {
     expect(row.column).toBe("review");
   });
 
-  it("routes a clean-handoff retry through the contained review-to-WIP target", async () => {
+  it("keeps a clean-handoff retry in review without a REVISE", async () => {
     const row = task("in-review", false);
     const { store, deps } = harness(row, "builtin:coding-ideas");
 
@@ -126,17 +121,9 @@ describe("graph failure execution-resume containment", () => {
       row,
       "custom-review",
       "retry",
-    )).resolves.toBe(true);
+    )).resolves.toBe(false);
 
-    expect(row.column).toBe("in-progress");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-207", "in-progress", expect.objectContaining({
-      lifecycleReason: "workflow-retry-rehome",
-    }));
-    expect(store.logEntry).toHaveBeenCalledWith(
-      "FN-207",
-      expect.stringContaining("returned to 'in-progress' for workflow retry"),
-      undefined,
-      undefined,
-    );
+    expect(row.column).toBe("in-review");
+    expect(store.moveTask).not.toHaveBeenCalled();
   });
 });

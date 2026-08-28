@@ -301,6 +301,10 @@ export function buildRunImplementationDeps(
       "resolveInstructionsForRole", "finalizeAlreadyReviewedTask",
       "handleBranchConflict", "handleNonContinuableSessionRetry", "resumeApprovalAfterUnwindIfNeeded",
     ]),
+    reexecuteTaskInPlace: async (taskId: string) => {
+      const live = await host.store.getTask(taskId);
+      setTimeout(() => { void host.execute(live); }, 0);
+    },
     sharedWorkerTools: buildSharedWorkerToolsDeps(host),
   };
   return defineLiveWorkspaceConfig(bag, host);
@@ -412,6 +416,10 @@ export function buildMarkStuckAbortedDeps(host: any): any {
       "hasActiveWorktreeBinding",
     ]),
     ensureWorkspaceConfig: withWorkspaceResolver(host),
+    reexecuteTaskInPlace: async (taskId: string) => {
+      const live = await host.store.getTask(taskId);
+      setTimeout(() => { void host.execute(live); }, 0);
+    },
   };
   return defineLiveWorkspaceConfig(bag, host);
 }

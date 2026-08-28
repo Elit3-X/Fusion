@@ -64,7 +64,7 @@ describe("engine lifecycle move reason census", () => {
       .flatMap(directMoveWindows)
       .length;
 
-    expect(count).toBe(65);
+    expect(count).toBe(61);
   });
 
   it("requires direct backward-target moves to carry a registered reason", () => {

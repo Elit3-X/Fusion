@@ -175,10 +175,10 @@ describe("fix steps appear on the card when a gate fails", () => {
   });
 
   it.each([
-    "parked-wave-exhausted",
-    "parked-upstream-out-of-scope",
-    "parked-no-pending-work",
-    "parked-workspace-worktree-missing",
+    "released-wave-exhausted",
+    "released-upstream-out-of-scope",
+    "released-no-pending-work",
+    "released-workspace-worktree-missing",
     "superseded-scope",
   ] as const)("does not reopen trailing work after the terminal remediation outcome %s", async (outcome) => {
     const { deps, task, sendTaskBackForFix } = harness("builtin:coding");
@@ -219,14 +219,14 @@ describe("fix steps appear on the card when a gate fails", () => {
         nodeId: "verification",
       },
     },
-  ])("falls back to reopening trailing work only for no actionable findings from $label", async ({ info }) => {
+  ])("releases no-actionable feedback without reopening trailing work from $label", async ({ info }) => {
     const { deps, task, sendTaskBackForFix } = harness("builtin:coding");
-    deps.appendReviewRemediationSteps = vi.fn(async () => "parked-no-actionable-findings") as never;
+    deps.appendReviewRemediationSteps = vi.fn(async () => "released-no-actionable-findings") as never;
 
     const scheduled = await requestPreMergeOptionalStepFix(deps as never, task.id, task, info);
 
-    expect(scheduled).toBe(true);
-    expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
+    expect(scheduled).toBe(false);
+    expect(sendTaskBackForFix).not.toHaveBeenCalled();
   });
 
   /*

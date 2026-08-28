@@ -3,7 +3,7 @@ import { routeReviewConvergenceLadder } from "../executor/review-convergence-lad
 
 function task() {
   return {
-    id: "FN-149", column: "in-review", dependencies: [], steps: [], currentStep: 0, log: [],
+    id: "FN-149", column: "in-review", dependencies: [], steps: [{ name: "Fix review finding", status: "pending", remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Fix review finding" } }], currentStep: 0, log: [],
     createdAt: "2026-08-22T00:00:00.000Z", updatedAt: "2026-08-22T00:00:00.000Z",
     workflowStepResults: [{
       workflowStepId: "code-review", workflowStepName: "Code Review", phase: "pre-merge",
@@ -64,7 +64,7 @@ describe("FN-149 unchanged review escalation", () => {
     expect(row).not.toHaveProperty("reviewConvergenceStage");
   });
 
-  it("releases its stage claim instead of reporting escalation when no replan target exists", async () => {
+  it("dispatches named executor remediation without requiring a replan target", async () => {
     const row = task();
     const store = {
       getTask: vi.fn(async () => row), getSettings: vi.fn(async () => ({})),
@@ -79,11 +79,11 @@ describe("FN-149 unchanged review escalation", () => {
     const outcome = await routeReviewConvergenceLadder({ store, sendTaskBackForFix: vi.fn(async () => {}), getRunContextFor: () => undefined } as any, row.id, {
       kind: "repeat-unchanged", workflowStepId: "code-review", stepName: "Code Review", feedback: "same result", attempt: 2,
     });
-    expect(outcome).toBe("declined");
-    expect(row).toMatchObject({ reviewConvergenceStage: 0, reviewConvergenceEscalationCount: 0 });
+    expect(outcome).toBe("escalated");
+    expect(row).toMatchObject({ reviewConvergenceStage: 1, reviewConvergenceEscalationCount: 1 });
   });
 
-  it("writes the Level-4 dossier and bounded human-escalation audit only after automatic stages", async () => {
+  it("records the convergence dossier and releases Code Review without a human park", async () => {
     const row = {
       ...task(),
       reviewConvergenceStage: 2,
@@ -116,20 +116,58 @@ describe("FN-149 unchanged review escalation", () => {
       kind: "repeat-unchanged", workflowStepId: "code-review", stepName: "Code Review", feedback: "same result", attempt: 4,
     });
 
-    expect(outcome).toBe("human-escalated");
+    expect(outcome).toBe("released");
     expect(logEntry).toHaveBeenCalledWith(
       row.id,
-      "Review convergence exhausted — awaiting operator arbitration",
+      "Review convergence exhausted — released as non-blocking",
       expect.stringContaining("Reviewer position\n- Reviewer: rollback — Rollback proof"),
       expect.anything(),
     );
     expect(logEntry.mock.calls[0][2]).toContain("Implementer on rollback: The transaction already guarantees it.");
     expect(logEntry.mock.calls[0][2]).toContain("No arbitration ruling was available.");
-    expect(recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
-      mutationType: "task:review-convergence-human-escalation",
-      metadata: expect.objectContaining({ workflowStepId: "code-review", stage: 3, outcome: "awaiting-approval" }),
-    }));
-    expect(JSON.stringify(recordRunAuditEvent.mock.calls[0][0])).not.toContain("transaction already guarantees");
+    expect(row).not.toHaveProperty("awaitingApprovalReason");
+    expect(row).not.toHaveProperty("status");
+    expect(recordRunAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("preserves the operator-authored Plan Review replan-cap hold", async () => {
+    const row = {
+      ...task(),
+      reviewConvergenceStage: 2,
+      reviewConvergenceEscalationCount: 2,
+      workflowStepResults: [{
+        ...task().workflowStepResults[0],
+        workflowStepId: "plan-review",
+        workflowStepName: "Plan Review",
+      }],
+    };
+    const store = {
+      getTask: vi.fn(async () => row),
+      getSettings: vi.fn(async () => ({})),
+      updateTask: vi.fn(async (_id, patch) => Object.assign(row, patch)),
+      updateTaskAtomic: vi.fn(async (_id, callback) => {
+        const patch = await callback(row);
+        if (patch) Object.assign(row, patch);
+        return row;
+      }),
+      logEntry: vi.fn(async () => {}),
+      recordRunAuditEvent: vi.fn(async () => {}),
+    };
+
+    const outcome = await routeReviewConvergenceLadder({
+      store,
+      sendTaskBackForFix: vi.fn(async () => {}),
+      getRunContextFor: () => ({ agentId: "agent-review", runId: "run-review" }),
+    } as any, row.id, {
+      kind: "plan-review-cap",
+      workflowStepId: "plan-review",
+      stepName: "Plan Review",
+      feedback: "Plan revision cap reached",
+      attempt: 4,
+    });
+
+    expect(outcome).toBe("human-escalated");
+    expect(row).toMatchObject({ status: "awaiting-approval", awaitingApprovalReason: "plan-review-replan-cap" });
   });
 
 });

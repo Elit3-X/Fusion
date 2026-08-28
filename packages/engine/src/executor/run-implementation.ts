@@ -147,7 +147,6 @@ import {
   BranchCrossContaminationError,
 } from "../execution/branch-conflicts.js";
 import { buildPromptLayers, collapsePromptLayers } from "../execution/prompt-layers.js";
-import { moveTaskToReplanColumn } from "../execution/replan-target.js";
 import {
   createRunVerificationTool,
   runVerificationCommand as runTaskVerificationCommand,
@@ -309,6 +308,7 @@ export type RunImplementationDeps = {
   resolveSeamColumnAgent: AnyFn;
   resolveTaskCustomFieldDefs: AnyFn;
   resumeApprovalAfterUnwindIfNeeded: AnyFn;
+  reexecuteTaskInPlace: (taskId: string) => Promise<void>;
   runExecutorDeterministicVerification: AnyFn;
   runWithExecutorSemaphore: AnyFn;
   scheduleCompletedTaskWatchdog: AnyFn;
@@ -546,8 +546,8 @@ export async function runImplementation(
     const audit = createRunAuditor(deps.store, engineRunContext);
 
     // Stale spec enforcement: check if PROMPT.md has aged beyond the configured threshold.
-    // When enabled, stale tasks are moved back to triage with status "needs-replan"
-    // so they receive fresh specification before execution. This guard runs early in
+    // When enabled, stale tasks request repair in their current lane with status "needs-replan"
+    // so no implementation card is moved backward into planning. This guard runs early in
     // execute() to prevent stale tasks from entering worktree creation or agent sessions.
     // If timestamp evaluation is skipped (missing/unreadable file), continue with execution
     // so existing filesystem validation paths remain authoritative.
@@ -607,9 +607,6 @@ export async function runImplementation(
       });
       if (staleness.isStale) {
         executorLog.warn(`Task ${task.id} specification is stale — ${staleness.reason}`);
-        // Move to the workflow-aware replan column first, then set status so the task
-        // enters it with needs-replan (workflows without "triage" replan in place in todo).
-        await moveTaskToReplanColumn(deps.store, task, "stale-spec-replan");
         await deps.store.updateTask(task.id, { status: "needs-replan" });
         await deps.store.logEntry(task.id, staleness.reason, undefined, deps.getRunContextFor(task.id));
         // FNXC:GlobalConcurrencyControls 2026-07-15-02:55: replan handoff never starts agent work — free any re-registered pre-held slot before leaving execute().
@@ -1813,70 +1810,19 @@ export async function runImplementation(
           }
           deps.deleteActiveStepExecutor(task.id);
 
-          // Stuck-requeue: clean up worktree and move to todo
+          /*
+          FNXC:StuckSessionRecovery 2026-08-28-07:48:
+          A dead step session is disposed, then the same task is re-dispatched without changing its
+          column, workflow node, current step, worktree, branch, or completed-step progress.
+          */
           if (stuckRequeue === true) {
-            try {
-              // Re-read latest task state. Self-healing may have already moved
-              // the task out of in-progress while this step-session execution
-              // was unwinding; continuing the cleanup would clobber a valid
-              // recovery (see the analogous block in the outer finally for the
-              // full reasoning).
-              /* FNXC:WorkflowLifecycleColumns 2026-07-30-21:40 (fleet: stuck-requeue family): "has a
-                 concurrent recovery already moved this card on?" — the pre-completion lanes are the board's
-                 wip and hold. With literals a renamed board always answered "moved on", the cleanup never
-                 ran, and the log line blamed a concurrent recovery that had not happened. */
-              const latestTask = await deps.store.getTask(task.id);
-              const requeueLanes = await deps.resolveResumeLanes(task.id);
-              if (latestTask.column !== requeueLanes.wip && latestTask.column !== requeueLanes.hold) {
-                executorLog.log(
-                  `${task.id} stuck-requeue skipped — task is now in '${latestTask.column}' (recovered concurrently)`,
-                );
-              } else {
-                const settings = await deps.store.getSettings();
-                const preserveProgress = settings.preserveProgressOnStuckRequeue !== false;
-
-                /*
-                FNXC:StuckRequeue 2026-06-27-23:15:
-                Stuck requeue may destroy a checkout that contains only uncommitted step output. Always reconcile lost-work step state before worktree removal, even when preserve-progress is enabled, so a retry cannot skip code that no longer exists.
-                */
-                if (!externalExecutionRoute.configured) {
-                  await deps.resetStepsIfWorkLost(latestTask);
-                }
-
-                if (!externalExecutionRoute.configured && worktreePath && existsSync(worktreePath)) {
-                  try {
-                    await removeWorktree({
-                      worktreePath,
-                      rootDir: deps.rootDir,
-                      settings,
-                      taskId: task.id,
-                      reason: RemovalReason.ExecutorStuckKilled,
-                      expectedOwnerTaskId: task.id,
-                      liveOwnerProbe: (path, ownerTaskId) => deps.hasActiveWorktreeBinding(ownerTaskId, path),
-                    });
-                  } catch (wtErr: unknown) {
-                    const msg = wtErr instanceof Error ? wtErr.message : String(wtErr);
-                    executorLog.warn(`${task.id}: worktree removal failed during stuck-requeue cleanup (${worktreePath}): ${msg}`);
-                  }
-                }
-                await deps.store.updateTask(task.id, {
-                  status: "queued",
-                  error: null,
-                  worktree: null,
-                  branch: null, branchWriteOrigin: "engine" as const,
-                });
-                const reboundColumn = await resolveReboundColumnFor(deps.store, task.id);
-                if (latestTask.column !== reboundColumn) {
-                  deps.markGraphExecuteSelfRequeued(task.id);
-                  await deps.store.moveTask(task.id, reboundColumn, preserveProgress ? { preserveProgress: true } : undefined);
-                  executorLog.log(`${task.id} moved to ${reboundColumn} for retry after stuck kill${preserveProgress ? " (progress preserved)" : ""}`);
-                }
-              }
-            } catch (err: unknown) {
-              const errorMessage = err instanceof Error ? err.message : String(err);
-              executorLog.error(`Failed to requeue stuck task ${task.id}: ${errorMessage}`);
+            const latestTask = await deps.store.getTask(task.id);
+            if (!latestTask.paused && !latestTask.userPaused) {
+              await deps.store.updateTask(task.id, { status: null, error: null });
+              await deps.store.logEntry(task.id, "Stuck step session disposed — resuming the same node and step in place");
+              await deps.reexecuteTaskInPlace(task.id);
             }
-            stuckRequeue = null; // Prevent outer finally from re-processing
+            stuckRequeue = null;
           }
         }
         // Step-session path handled completely — return before outer catch/finally
@@ -4110,94 +4056,23 @@ export async function runImplementation(
         }
       }
 
-      // Requeue stuck-killed task AFTER deps.executing is cleared.
-      // This prevents the race where the scheduler re-dispatches the task
-      // (via task:moved → execute()) while the old execution guard is still set,
-      // which caused the new execute() call to silently no-op, stranding the
-      // task in "in-progress" with no active session or worktree.
+      /*
+      FNXC:StuckSessionRecovery 2026-08-28-07:48:
+      Re-dispatch only after the old execution lock is gone. Recovery retains the current column,
+      workflow node, current step, checkout, branch, and progress; no retry budget can terminalize it.
+      */
       if (stuckRequeue === true) {
         if (deps.userCanceledTaskIds.has(task.id)) {
           deps.clearPausedAborted(task.id);
           deps.stuckAborted.delete(task.id);
           deps.userCanceledTaskIds.delete(task.id);
-          await deps.store.logEntry(task.id, "Execution canceled by user — leaving task in todo");
+          await deps.store.logEntry(task.id, "Execution canceled by user — leaving task under manual control");
         } else {
-          try {
-          // Re-read latest task state. While this execute() invocation was
-          // unwinding, self-healing (e.g. recoverCompletedTasks) may have
-          // already transitioned the task to in-review or done. Continuing
-          // the stuck-requeue cleanup in that case would destroy the worktree
-          // the recovery now relies on and clobber the task back to todo with
-          // all step progress reset, undoing valid completion. Skip the
-          // entire cleanup if the column has moved on past in-progress/todo.
           const latestTask = await deps.store.getTask(task.id);
-          const outerRequeueLanes = await deps.resolveResumeLanes(task.id);
-          if (latestTask.column !== outerRequeueLanes.wip && latestTask.column !== outerRequeueLanes.hold) {
-            executorLog.log(
-              `${task.id} stuck-requeue skipped — task is now in '${latestTask.column}' (recovered concurrently)`,
-            );
-          } else {
-            const settings = await deps.store.getSettings();
-            const preserveProgress = settings.preserveProgressOnStuckRequeue !== false;
-
-            /*
-            FNXC:StuckRequeue 2026-06-27-23:15:
-            Preserve-progress stuck requeues still remove the old checkout. Reconcile steps first so uncommitted-only output is reset to pending while committed progress can remain complete.
-            */
-            if (!externalExecutionRoute.configured) {
-              await deps.resetStepsIfWorkLost(latestTask);
-            }
-
-            // Clean up the old worktree so the retry gets a fresh one
-            if (!externalExecutionRoute.configured && worktreePath && existsSync(worktreePath)) {
-              try {
-                await removeWorktree({
-                  worktreePath,
-                  rootDir: deps.rootDir,
-                  settings,
-                  taskId: task.id,
-                  audit,
-                  reason: RemovalReason.ExecutorStuckKilled,
-                  expectedOwnerTaskId: task.id,
-                  liveOwnerProbe: (path, ownerTaskId) => deps.hasActiveWorktreeBinding(ownerTaskId, path),
-                });
-                executorLog.log(`Removed old worktree for stuck-killed retry: ${worktreePath}`);
-              } catch (cleanupErr: unknown) {
-                const cleanupErrMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-                executorLog.warn(`Failed to remove old worktree ${worktreePath}: ${cleanupErrMessage}`);
-              }
-            }
-            await deps.store.updateTask(task.id, {
-              status: "queued",
-              error: null,
-              worktree: null,
-              branch: null, branchWriteOrigin: "engine" as const,
-            });
-            // Only move to todo if not already there. Use the freshly-read
-            // latestTask.column rather than the stale captured task.column —
-            // the captured snapshot can be hours old and would race against
-            // any concurrent recovery (see comment above).
-            const stuckReboundColumn = await resolveReboundColumnFor(deps.store, task.id);
-            if (latestTask.column !== stuckReboundColumn) {
-              deps.markGraphExecuteSelfRequeued(task.id);
-              await deps.store.moveTask(task.id, stuckReboundColumn, preserveProgress ? { preserveProgress: true } : undefined);
-              /*
-              Audit trail: record task move (FN-1404).
-              FNXC:WorkflowLifecycleColumns 2026-07-30-15:15: `to` records the column the card was
-              ACTUALLY moved to. It was hardcoded `"todo"` while the move target was already
-              resolved from the workflow, so on a renamed board the audit row named a column the
-              move never touched — a run-audit trail that disagrees with the move it describes is
-              worse than none, because it is the record an operator reaches for afterwards.
-              */
-              await audit.database({ type: "task:move", target: task.id, metadata: { to: stuckReboundColumn } });
-              executorLog.log(`${task.id} moved to ${stuckReboundColumn} for retry after stuck kill${preserveProgress ? " (progress preserved)" : ""}`);
-            } else {
-              executorLog.debug(`${task.id} already in ${stuckReboundColumn} — skipping redundant move`);
-            }
-          }
-          } catch (err: unknown) {
-            const errorMessage = err instanceof Error ? err.message : String(err);
-            executorLog.error(`Failed to requeue stuck task ${task.id}: ${errorMessage}`);
+          if (!latestTask.paused && !latestTask.userPaused) {
+            await deps.store.updateTask(task.id, { status: null, error: null });
+            await deps.store.logEntry(task.id, "Stuck agent session disposed — resuming the same node and step in place");
+            await deps.reexecuteTaskInPlace(task.id);
           }
         }
       }

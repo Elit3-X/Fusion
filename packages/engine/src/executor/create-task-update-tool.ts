@@ -308,7 +308,7 @@ export function createTaskUpdateTool(
             executorLog.warn(
               `${taskId}: no-progress churn detected ` +
               `(ignoredStepUpdates=${ignoredStepUpdates}, stuckKillStreak=${task.stuckKillCount ?? 0}) — ` +
-              `escalating to STUCK_NO_PROGRESS_CHURN`,
+              "triggering in-place stuck-session recovery",
             );
           }
 

@@ -35,6 +35,7 @@ import type { Task, TaskStore, WorkflowReviewFinding, WorkflowStepResult as Core
 import {
   DEFAULT_MAX_POST_REVIEW_FIXES,
   DEFAULT_PLAN_REVIEW_REPLAN_CAP,
+  hasPendingRemediationWork,
   hasPreMergeRemediationAutoMergeHold,
   PLAN_REVIEW_GROUP_ID,
   resolveOptionalReviewRevisionBudget,
@@ -93,8 +94,11 @@ export function reviewInputSignature(result: CoreWorkflowStepResult): string | u
       return `${outcome.repository}\u0000${outcome.fingerprint ?? ""}\u0000${outcome.verdict}\u0000${findings}`;
     })
     .sort();
-  if (blocking.length === 0 || result.repositoryScopeRevision === undefined) return undefined;
-  return `${result.workflowStepId}\u0000${result.repositoryScopeRevision}\u0000${blocking.join("\u0001")}`;
+  if (blocking.length === 0) return undefined;
+  const scopeRevision = result.repositoryScopeRevision === undefined
+    ? ""
+    : `\u0000${result.repositoryScopeRevision}`;
+  return `${result.workflowStepId}${scopeRevision}\u0000${blocking.join("\u0001")}`;
 }
 
 export function hasRepeatedUnchangedReview(task: Task, info: RequestPreMergeOptionalStepFixInfo): boolean {
@@ -392,27 +396,13 @@ export async function requestPreMergeOptionalStepFix(
    * guards above. A deterministic Verification failure has no reviewer verdict; Code Review still
    * requires a genuine REVISE so transport failures cannot manufacture remediation work.
    */
-  let allowNoActionableVerificationFallback = false;
   if (
     info.nodeId === "verification"
     || (info.nodeId === "code-review" && info.verdict === "REVISE")
   ) {
     const remediationOutcome = await deps.appendReviewRemediationSteps(liveTask, info);
     if (remediationOutcome === "appended") return true;
-    if (
-      remediationOutcome !== "parked-no-actionable-findings"
-      || resolveStepReopenPolicy(workflowIr) === "none"
-    ) {
-      return false;
-    }
-    /*
-    FNXC:ReviewGatedRemediation 2026-08-28-02:24:
-    FN-207 preserves the legacy trailing-step fallback only when named remediation found no
-    actionable work. Deterministic Verification has no reviewer verdict, so remember this exact
-    outcome and let it pass the later REVISE guard; provider failures and every bounded park remain
-    contained without manufacturing remediation.
-    */
-    allowNoActionableVerificationFallback = info.nodeId === "verification";
+    return false;
   }
 
   /*
@@ -461,7 +451,7 @@ export async function requestPreMergeOptionalStepFix(
     return false;
   }
 
-  if (info.verdict !== "REVISE" && !allowNoActionableVerificationFallback) {
+  if (info.verdict !== "REVISE") {
     // FNXC:RemediationVisibility 2026-07-26-19:20: a hard-failed gate with no parsed REVISE
     // verdict schedules nothing, so the remediation node fails and the card parks. Say so.
     executorLog.warn(
@@ -521,9 +511,12 @@ export async function requestPreMergeOptionalStepFix(
       max: budget.unbounded ? undefined : budget.max,
     });
     if (outcome === "escalated" || outcome === "arbitrated") return true;
-    const runContext = deps.getRunContextFor(taskId);
-    await deps.store.logEntry(taskId, "Code Review did not converge — awaiting operator action", `The same Code Review revision was returned twice without a new review result. Latest feedback:\n${info.feedback}`, runContext);
-    await deps.store.updateTask(taskId, { status: "awaiting-approval", awaitingApprovalReason: "code-review-non-convergence", error: null, nextRecoveryAt: null }, runContext);
+    await deps.store.logEntry(
+      taskId,
+      "Code Review did not converge — released as non-blocking",
+      `The same Code Review revision was returned twice without a changed review input. Latest feedback:\n${info.feedback}`,
+      deps.getRunContextFor(taskId),
+    );
     return false;
   }
   const currentCount = countOptionalStepRevisionAttempts(liveTask, revisionKey, info.stepName);
@@ -551,11 +544,21 @@ export async function requestPreMergeOptionalStepFix(
     ? liveTask.workspaceWorktrees?.[remediation.repository]?.worktreePath
     : liveTask.worktree;
   if (remediation && !remediationWorktreePath) {
-    await deps.store.updateTask(taskId, {
-      status: "awaiting-approval",
-      awaitingApprovalReason: "code-review-non-convergence",
-      error: `Workspace Code Review remediation target ${remediation.repository} has no acquired worktree.`,
-    });
+    await deps.store.logEntry(
+      taskId,
+      "Workspace Code Review remediation released as non-blocking",
+      `Remediation target ${remediation.repository} has no acquired worktree.`,
+      deps.getRunContextFor(taskId),
+    );
+    return false;
+  }
+  if (!hasPendingRemediationWork(liveTask)) {
+    await deps.store.logEntry(
+      taskId,
+      "Review revision released — no pending remediation work",
+      "A review-to-WIP transition requires a named pending remediation step.",
+      deps.getRunContextFor(taskId),
+    );
     return false;
   }
   const sendArgs = [

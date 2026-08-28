@@ -619,6 +619,7 @@ export {
   applyReviewSeverityGate,
   formatFindingsByPriority,
   formatResolvedFindings,
+  isActionableReviewFinding,
   isBlockingFinding,
   isReviewBlockingSeverity,
   resolveReviewBlockingSeverity,
@@ -865,6 +866,7 @@ export {
 export {
   formatRemediationStepName,
   isRemediationStep,
+  hasPendingRemediationWork,
   remediationWaveCount,
   hasOpenEquivalentRemediationStep,
   remediationDeclaredFiles,

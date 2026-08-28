@@ -16,6 +16,7 @@ import type {
   TaskStore,
   WorkflowReviewKind,
   WorkflowStep,
+  WorkflowStepResult,
 } from "@fusion/core";
 import {
   applyReviewSeverityGate,
@@ -93,6 +94,25 @@ import { buildGraphPlanReviewConvergenceContext, buildReviewConvergenceContext, 
 import { attachAgentUsageTelemetry, emitAgentSessionStart } from "../agents/agent-usage-telemetry.js";
 
 const execAsync = promisify(exec);
+
+/** Find the current reusable review result for one node, scope generation, and exact input fingerprint. */
+export function findReusableReviewResult(
+  task: Pick<Task, "workflowStepResults">,
+  workflowStepId: string,
+  reviewInputFingerprint: string | undefined,
+  repositoryScopeRevision: number | undefined,
+): WorkflowStepResult | undefined {
+  if (!reviewInputFingerprint) return undefined;
+  return (task.workflowStepResults ?? []).find((result) =>
+    result.workflowStepId === workflowStepId
+      && result.reviewInputFingerprint === reviewInputFingerprint
+      && result.repositoryScopeRevision === repositoryScopeRevision
+      && result.status !== "pending"
+      && result.supersededAt === undefined
+      && result.bypassedAt === undefined
+      && result.verdict !== undefined,
+  );
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mirror TaskExecutor method/map surface
 type AnyFn = (...args: any[]) => any;
@@ -394,6 +414,64 @@ CRITICAL SCOPING RULES — read before doing anything else:
         nodeBlockingSeverity: (workflowStep as WorkflowStep & { blockingSeverity?: unknown }).blockingSeverity,
       })
       : undefined;
+    /*
+    FNXC:ReviewInputReuse 2026-08-28-07:48:
+    Review-kind nodes are content-addressed by the authoritative plan or Git diff fingerprint. Reuse
+    the current non-superseded terminal result when that input is unchanged; another model dispatch
+    cannot observe new work and only creates a review loop. Reapply the live severity gate so legacy
+    finding-less REVISE results inherit the current non-blocking contract.
+
+    FNXC:ReviewInputReuse 2026-08-28-09:29:
+    A workspace Code Review's confirmed repository-scope revision is part of its input identity.
+    Identical bytes under a changed scope require a fresh review because the prior result did not
+    inspect the current repository set.
+
+    FNXC:ReviewInputReuse 2026-08-28-09:40:
+    Fresh model results must return the captured scope revision with their diff fingerprint. The
+    graph writer persists only returned review identity, so omitting the revision made two later
+    undefined revisions compare equal and allowed stale evidence reuse after a scope change.
+    */
+    const repositoryScopeRevision = workflowStepMetadata.reviewKind === "code"
+      ? latestTaskForUserComments.repositoryScope?.revision
+      : undefined;
+    const reusableReviewResult = reviewFindingsContract
+      ? findReusableReviewResult(
+          latestTaskForUserComments,
+          sameGateStepId,
+          reviewInputFingerprint,
+          repositoryScopeRevision,
+        )
+      : undefined;
+    if (reusableReviewResult?.verdict) {
+      const gated = reviewBlockingSeverity
+        ? applyReviewSeverityGate({
+          verdict: reusableReviewResult.verdict,
+          findings: reusableReviewResult.findings,
+          threshold: reviewBlockingSeverity,
+        })
+        : undefined;
+      const effectiveVerdict = (gated?.verdict ?? reusableReviewResult.verdict) as NonNullable<WorkflowStepOutcome["verdict"]>;
+      await deps.store.logEntry(
+        task.id,
+        `[pre-merge] ${workflowStep.name} reused the recorded result for unchanged review input ${reviewInputFingerprint}`,
+      );
+      return {
+        success: effectiveVerdict !== "REVISE",
+        revisionRequested: effectiveVerdict === "REVISE",
+        output: reusableReviewResult.output,
+        verdict: effectiveVerdict,
+        notes: reusableReviewResult.notes,
+        ...(reusableReviewResult.findings ? { findings: reusableReviewResult.findings } : {}),
+        reviewInputFingerprint,
+        ...(repositoryScopeRevision !== undefined ? { repositoryScopeRevision } : {}),
+        ...(reusableReviewResult.supersededFindingSourceWorkflowStepId && reusableReviewResult.supersededFindingIds
+          ? {
+            supersededFindingSourceWorkflowStepId: reusableReviewResult.supersededFindingSourceWorkflowStepId,
+            supersededFindingIds: reusableReviewResult.supersededFindingIds,
+          }
+          : {}),
+      };
+    }
     /*
      * FNXC:WorkflowReviewFindings 2026-08-11-19:39:
      * Prior open findings make cross-lane supersession an explicit reviewer claim rather than a
@@ -936,8 +1014,8 @@ CRITICAL SCOPING RULES — read before doing anything else:
            * Apply the severity gate HERE, at the single parse boundary, so the rewritten verdict is what
            * every downstream consumer sees (step-result status mapping, remediation routing, Review tab,
            * merge blocking). Downgrading later would leave the persisted verdict disagreeing with the
-           * routing decision. Only a REVISE with no finding at or above the threshold is relaxed; a
-           * prose-only or unclassified REVISE still blocks (fail-closed contract in review-severity-gate.ts).
+           * routing decision. A finding-less REVISE is non-blocking because it cannot produce
+           * remediation; an unclassified open finding remains fail-closed and blocks.
            */
           const gated = reviewBlockingSeverity
             ? applyReviewSeverityGate({
@@ -970,6 +1048,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
             notes: parsed.notes,
             ...(parsed.findings ? { findings: parsed.findings } : {}),
             ...(reviewInputFingerprint ? { reviewInputFingerprint } : {}),
+            ...(repositoryScopeRevision !== undefined ? { repositoryScopeRevision } : {}),
             ...(parsed.supersededFindingSourceWorkflowStepId && parsed.supersededFindingIds ? { supersededFindingSourceWorkflowStepId: parsed.supersededFindingSourceWorkflowStepId, supersededFindingIds: parsed.supersededFindingIds } : {}),
           };
         }

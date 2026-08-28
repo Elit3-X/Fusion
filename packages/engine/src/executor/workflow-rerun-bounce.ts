@@ -8,7 +8,7 @@
  * the last plan step to pending. in-review must bounce like in-progress to avoid deadlock.
  */
 import type { TaskStore } from "@fusion/core";
-import { resolveWipTargetForTask } from "@fusion/core";
+import { hasPendingRemediationWork, resolveWipTargetForTask } from "@fusion/core";
 import { executorLog } from "../logger.js";
 import { moveTaskWithLifecycleReason } from "../execution/lifecycle-move.js";
 import { resolveReboundColumnFor } from "./lifecycle-columns.js";
@@ -31,7 +31,7 @@ export async function performWorkflowRerunBounce(
   When false, do not persist the remediation path as task.worktree (external checkouts).
   */
   persistWorktreePath: boolean = true,
-): Promise<"bounced" | "skipped-pending" | "deferred-paused" | "deferred-capacity"> {
+): Promise<"bounced" | "skipped-pending" | "deferred-paused" | "deferred-capacity" | "refused-no-remediation"> {
   const pauseLabel = await deps.getExecutionPauseLabel();
   if (pauseLabel) {
     executorLog.log(`${taskId}: workflow rerun deferred — ${pauseLabel} active`);
@@ -58,11 +58,24 @@ export async function performWorkflowRerunBounce(
       executorLog.log(`${taskId}: workflow rerun deferred — task is paused`);
       return "deferred-paused";
     }
-
     /* FNXC:WorkflowLifecycleColumns 2026-07-30-21:40 (fleet): both lanes from ONE snapshot — the comment
        above says in-review must bounce EXACTLY like in-progress, so resolving them separately is how the
        bounce ends up handling one lane and throwing on the other, which is the bug that comment is about. */
     const bounceLanes = await deps.resolveResumeLanes(taskId);
+    /*
+    FNXC:LifecycleContainment 2026-08-28-07:48:
+    A review-to-WIP bounce is a REVISE handoff and therefore must carry concrete pending remediation
+    work. Without a remediation marker the executor has nothing to do, so bouncing would replay the
+    same review over an unchanged tree. Refuse that empty bounce in place.
+    */
+    if (latestTask.column === bounceLanes.review && !hasPendingRemediationWork(latestTask)) {
+      await deps.store.logEntry(
+        taskId,
+        "Workflow rerun refused — no pending remediation work",
+        "A review revision may return to implementation only with a named pending remediation step.",
+      );
+      return "refused-no-remediation";
+    }
     if (latestTask.column === bounceLanes.wip || latestTask.column === bounceLanes.review) {
       const originalExecutionStartedAt = latestTask.executionStartedAt;
       /*
@@ -76,7 +89,7 @@ export async function performWorkflowRerunBounce(
           deps.store,
           taskId,
           bounceLanes.wip,
-          "workflow-graph-node-column",
+          "code-review-revise-remediation",
           {
             ...(preserveResumeState ? { preserveResumeState: true } : {}),
             preserveWorktree: true,

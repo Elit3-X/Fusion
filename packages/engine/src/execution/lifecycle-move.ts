@@ -11,7 +11,7 @@ export type LifecycleMoveResult =
   | { moved: false; deferred: "capacity"; detail: string };
 
 export type ContainedLifecycleMoveResult = LifecycleMoveResult
-  | { moved: false; reason: "no-contained-target"; column: string };
+  | { moved: false; reason: "no-contained-target" | "in-place-recovery"; column: string };
 
 /*
 FNXC:LifecycleContainment 2026-08-28-03:03:
@@ -27,6 +27,19 @@ export async function moveTaskToContainedBackwardTarget(
   liveColumn?: string,
 ): Promise<ContainedLifecycleMoveResult> {
   const column = liveColumn ?? (await store.getTask(taskId)).column;
+  const revisionReasons = new Set([
+    "plan-review-revise-replan",
+    "code-review-revise-remediation",
+    "verification-failure-remediation",
+    "merge-fix-remediation",
+  ]);
+  if (!revisionReasons.has(reason)) {
+    await store.logEntry(
+      taskId,
+      `Lifecycle recovery retained in '${column}' — ${reason} has no backward-move authority`,
+    ).catch(() => undefined);
+    return { moved: false, reason: "in-place-recovery", column };
+  }
   const target = await resolveContainedBackwardTargetForTask(store, taskId, column);
   if (!target) {
     await store.logEntry(

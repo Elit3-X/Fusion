@@ -200,6 +200,13 @@ export class BranchWorktreeAutoRecoveryHandler {
     Everything is still CAUGHT (an exception thrown out of the recovery handler is invisible), but the
     row now says which failure it was.
     */
+    /*
+    FNXC:LifecycleContainment 2026-08-28-07:48:
+    Branch/worktree cleanup may repair metadata but cannot rehome the card. Keep the live column as
+    the only target so the existing transactional move/clear ordering remains intact without a
+    backward lifecycle transition.
+    */
+    reboundTarget = task.column;
     if (!reboundTarget) {
       await this.deps.taskStore.logEntry(
         task.id,

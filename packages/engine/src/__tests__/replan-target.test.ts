@@ -343,18 +343,18 @@ Updated to the post-merge truth, not loosened: each still pins one exact column.
 describe("moveTaskToReplanColumn", () => {
   it("moves a Coding (Ideas) card to todo, not triage", async () => {
     const store = storeWithSelection("builtin:coding-ideas");
-    const target = await moveTaskToReplanColumn(store, { id: "FN-1", column: "in-progress" }, "stale-spec-replan");
+    const target = await moveTaskToReplanColumn(store, { id: "FN-1", column: "in-progress" }, "plan-review-revise-replan");
     expect(target).toBe("todo");
     expect(store.moveTask).toHaveBeenCalledWith("FN-1", "todo", expect.objectContaining({
       preserveWorktree: true,
       moveSource: "engine",
-      lifecycleReason: "stale-spec-replan",
+      lifecycleReason: "plan-review-revise-replan",
     }));
   });
 
   it("skips the move when the card is already in the replan column (plan-in-place)", async () => {
     const store = storeWithSelection("builtin:coding-ideas");
-    const target = await moveTaskToReplanColumn(store, { id: "FN-1", column: "todo" }, "stale-spec-replan");
+    const target = await moveTaskToReplanColumn(store, { id: "FN-1", column: "todo" }, "plan-review-revise-replan");
     expect(target).toBe("todo");
     expect(store.moveTask).not.toHaveBeenCalled();
   });
@@ -389,7 +389,7 @@ describe("replan bounces preserve the task worktree (FN-8603)", () => {
     for (const from of REPLAN_BOUNCE_ORIGINS) {
       it(`preserves the worktree bouncing ${from} -> ${shape.expected} — ${shape.label}`, async () => {
         const store = storeWithSelection(shape.workflowId);
-        const target = await moveTaskToReplanColumn(store, { id: "FN-8603", column: from }, "stale-spec-replan");
+        const target = await moveTaskToReplanColumn(store, { id: "FN-8603", column: from }, "plan-review-revise-replan");
         expect(target).toBe(shape.expected);
         expect(store.moveTask).toHaveBeenCalledWith(
           "FN-8603",
@@ -407,7 +407,7 @@ describe("replan bounces preserve the task worktree (FN-8603)", () => {
     const target = await moveTaskToReplanColumn(
       store,
       { id: "FN-8603", column: "in-progress" },
-      "stale-spec-replan",
+      "plan-review-revise-replan",
       "triage",
     );
     expect(target).toBe("triage");
@@ -423,7 +423,7 @@ describe("replan bounces preserve the task worktree (FN-8603)", () => {
     const result = await moveTaskToReplanColumn(
       store,
       { id: "FN-207", column: "in-review" },
-      "blocked-exit-replan",
+      "plan-review-revise-replan",
     );
 
     expect(result).toEqual({ moved: false, reason: "review-lane-source", column: "in-review" });
@@ -466,7 +466,7 @@ describe("the no-declared-lane contract", () => {
     // The return value is what callers use as "where the card now is", so a silent
     // no-op would be a lie they cannot detect.
     const store = storeFor(WIP_ONLY);
-    const moved = await moveTaskToReplanColumn(store, { id: "FN-1", column: "building" }, "stale-spec-replan");
+    const moved = await moveTaskToReplanColumn(store, { id: "FN-1", column: "building" }, "plan-review-revise-replan");
 
     expect(moved).toBeUndefined();
     expect(store.moveTask).not.toHaveBeenCalled();
@@ -478,13 +478,13 @@ describe("the no-declared-lane contract", () => {
       { id: "drafting", name: "Hold", traits: [{ trait: "hold", config: { release: "capacity" } }] },
       ...WIP_ONLY,
     ]);
-    const moved = await moveTaskToReplanColumn(store, { id: "FN-1", column: "building" }, "stale-spec-replan");
+    const moved = await moveTaskToReplanColumn(store, { id: "FN-1", column: "building" }, "plan-review-revise-replan");
 
     expect(moved).toBe("drafting");
     expect(store.moveTask).toHaveBeenCalledWith("FN-1", "drafting", expect.objectContaining({
       preserveWorktree: true,
       moveSource: "engine",
-      lifecycleReason: "stale-spec-replan",
+      lifecycleReason: "plan-review-revise-replan",
     }));
   });
 });

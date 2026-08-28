@@ -1433,15 +1433,11 @@ export class InProcessRuntime
       // 5b. Initialize TaskExecutor
       this.stuckTaskDetector = new StuckTaskDetector(this.taskStore, {
         isCliSessionWaitingOnInput: this.cliAgentRuntime?.isCliSessionWaitingOnInput,
-        beforeRequeue: (taskId, reason, event) => this.selfHealingManager?.checkStuckBudget(taskId, reason, event) ?? Promise.resolve(true),
         onLoopDetected: (event) => this.executor?.handleLoopDetected(event) ?? Promise.resolve(false),
         onStuck: (event) => {
           this.triageProcessor?.markStuckAborted(event.taskId);
-          this.executor?.markStuckAborted(event.taskId, event.shouldRequeue);
-          runtimeLog.warn(
-            `Task ${event.taskId} stuck (${event.reason}) — ` +
-            `${event.shouldRequeue ? "will retry" : "budget exhausted"}`,
-          );
+          this.executor?.markStuckAborted(event.taskId);
+          runtimeLog.warn(`Task ${event.taskId} stuck (${event.reason}) — resuming in place`);
         },
       });
 
