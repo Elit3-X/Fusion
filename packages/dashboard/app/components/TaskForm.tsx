@@ -10,7 +10,7 @@ import { applyPresetToSelection, getRecommendedPresetForSize } from "../utils/mo
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { NodeHealthDot } from "./NodeHealthDot";
 import { LoadingSpinner } from "./LoadingSpinner";
-import { Sparkles, ChevronUp, ChevronDown, Maximize2, Minimize2, Paperclip, Zap, Brain, Server, ShieldCheck } from "lucide-react";
+import { Sparkles, ChevronUp, ChevronDown, Maximize2, Minimize2, Paperclip, Zap, Brain, Server } from "lucide-react";
 import { REPO_OVERRIDE_RE, resolveEffectiveGithubRepoDefault } from "./githubTracking";
 import { getPriorityColorVar, getPriorityIcon, getPriorityLabel } from "../utils/priorityIndicator";
 import { ProviderIcon } from "./ProviderIcon";
@@ -165,8 +165,6 @@ export interface TaskFormProps {
   onAutoMergeChange?: (value: boolean | undefined) => void;
   executionMode?: TaskExecutionModeSelection;
   onExecutionModeChange?: (value: TaskExecutionModeSelection) => void;
-  requirePlanApproval?: boolean;
-  onRequirePlanApprovalChange?: (value: boolean) => void;
   githubTrackingEnabled?: boolean;
   onGithubTrackingEnabledChange?: (value: boolean, meta?: TaskFormValueChangeMeta) => void;
   githubRepoOverride?: string;
@@ -287,8 +285,6 @@ export function TaskForm({
   onAutoMergeChange,
   executionMode,
   onExecutionModeChange,
-  requirePlanApproval = false,
-  onRequirePlanApprovalChange,
   githubTrackingEnabled,
   onGithubTrackingEnabledChange,
   githubRepoOverride,
@@ -1119,21 +1115,6 @@ export function TaskForm({
           </button>
 
           {/* FNXC:NewTask 2026-06-23-00:10: Fast — toggles executionMode standard⇄fast; btn-primary when active, matching QuickEntryBox's fast toggle. */}
-          {onRequirePlanApprovalChange && (
-            <button
-              type="button"
-              className={`btn btn-sm ${requirePlanApproval ? "btn-primary" : ""}`}
-              onClick={() => onRequirePlanApprovalChange(!requirePlanApproval)}
-              aria-pressed={requirePlanApproval}
-              aria-label={t("tasks.togglePlanApproval", "Wait for my approval before execution")}
-              disabled={disabled}
-              data-testid="task-form-plan-approval-toggle"
-              title={t("tasks.togglePlanApproval", "Wait for my approval before execution")}
-            >
-              <ShieldCheck size={12} aria-hidden="true" />
-            </button>
-          )}
-
           {onExecutionModeChange && executionMode !== undefined && (
             <button
               type="button"

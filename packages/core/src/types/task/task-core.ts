@@ -1336,12 +1336,6 @@ export interface Task {
    * Additive-only, nullable: legacy/never-approved rows stay NULL and behave exactly as before.
    */
   approvedPlanFingerprint?: string;
-  /**
-   * FNXC:PlanApproval 2026-08-28-06:24:
-   * Unset inherits project/workflow policy. `true` forces the manual plan-approval gate for this
-   * task alone; stored `false` is intentionally unable to weaken a project-wide require-all gate.
-   */
-  requirePlanApproval?: boolean;
   /** Thinking level for AI agent sessions — controls reasoning effort (off/minimal/low/medium/high) */
   thinkingLevel?: ThinkingLevel;
   /**
@@ -1769,11 +1763,5 @@ export interface TaskCreateInput {
    * Per-task session advisor override at create time. Unset inherits project default.
    */
   sessionAdvisorEnabled?: boolean;
-  /**
-   * FNXC:PlanApproval 2026-08-28-06:24:
-   * Optional create-time opt-in for a manual approval hold after planning. Unset inherits policy;
-   * `false` is persisted but cannot disable a project-level require-all gate.
-   */
-  requirePlanApproval?: boolean;
 }
 

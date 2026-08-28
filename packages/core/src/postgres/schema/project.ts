@@ -173,7 +173,11 @@ export const tasks = projectSchema.table("tasks", {
   is not enough for Gate boot-smoke before health reconciliation runs.
   */
   sessionAdvisorEnabled: integer("session_advisor_enabled"),
-  // FNXC:PlanApproval 2026-08-28-06:24: nullable three-state per-task manual approval override.
+  /*
+  FNXC:PlanApproval 2026-08-28-17:16:
+  FN-234 retired this task column from reads and writes. Keep it in the append-only schema because
+  migration 0070 and PostgreSQL health repair still materialize it for upgrade compatibility.
+  */
   requirePlanApproval: integer("require_plan_approval"),
   tokenUsageInputTokens: bigint("token_usage_input_tokens", { mode: "number" }),
   tokenUsageOutputTokens: bigint("token_usage_output_tokens", { mode: "number" }),

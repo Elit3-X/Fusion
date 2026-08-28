@@ -2,9 +2,6 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildPreservedPlanRespecifyPatch,
-  computePlanApprovalFingerprint,
-  isPlanReviewSatisfied,
   type Settings,
   type Task,
   type TaskDetail,
@@ -93,7 +90,7 @@ function storeFixture(task: Task, settings: Partial<Settings> = {}): TaskStore {
   return store as unknown as TaskStore;
 }
 
-describe("triage per-task plan approval", () => {
+describe("triage plan approval and surgical revision", () => {
   let rootDir = "";
 
   beforeEach(async () => {
@@ -109,19 +106,9 @@ describe("triage per-task plan approval", () => {
     await rm(rootDir, { recursive: true, force: true });
   });
 
-  it("parks recovery at awaiting-approval when the task opts in", async () => {
-    const task = taskFixture({ requirePlanApproval: true });
-    const store = storeFixture(task);
-
-    await expect(new TriageProcessor(store, rootDir).recoverApprovedTask(task)).resolves.toBe(true);
-
-    expect(task.status).toBe("awaiting-approval");
-    expect(store.moveTaskIf).not.toHaveBeenCalled();
-    expect(store.logEntry).toHaveBeenCalledWith(task.id, expect.stringContaining("awaiting manual approval"));
-  });
-
-  it("parks finalize under project auto-approve-all when the task opts in", async () => {
-    const task = taskFixture({ requirePlanApproval: true });
+  it("ignores a legacy per-task approval value under project auto-approval", async () => {
+    const legacyOverrides = { requirePlanApproval: true } as unknown as Partial<Task>;
+    const task = taskFixture(legacyOverrides);
     const store = storeFixture(task);
 
     await (new TriageProcessor(store, rootDir) as unknown as {
@@ -130,67 +117,10 @@ describe("triage per-task plan approval", () => {
       planApprovalMode: "auto-approve-all",
       requirePlanApproval: false,
     } as Settings);
-
-    expect(task.status).toBe("awaiting-approval");
-    expect(store.moveTaskIf).not.toHaveBeenCalled();
-  });
-
-  it("releases an operator-approved unchanged plan exactly once", async () => {
-    const task = taskFixture({
-      requirePlanApproval: true,
-      approvedPlanFingerprint: computePlanApprovalFingerprint(PLAN),
-    });
-    const store = storeFixture(task);
-    const processor = new TriageProcessor(store, rootDir);
-
-    await expect(processor.recoverApprovedTask(task)).resolves.toBe(true);
-    await expect(processor.recoverApprovedTask(task)).resolves.toBe(false);
-
-    expect(task.column).toBe("todo");
-    expect(store.moveTaskIf).toHaveBeenCalledTimes(1);
-  });
-
-  it("preserves auto-approve behavior when the task override is unset", async () => {
-    const task = taskFixture();
-    const store = storeFixture(task);
-
-    await expect(new TriageProcessor(store, rootDir).recoverApprovedTask(task)).resolves.toBe(true);
 
     expect(task.column).toBe("todo");
     expect(task.status).toBeUndefined();
     expect(store.moveTaskIf).toHaveBeenCalledTimes(1);
-  });
-
-  it("invalidates an approved unchanged plan before finalization can reuse it", async () => {
-    const task = taskFixture({
-      requirePlanApproval: true,
-      approvedPlanFingerprint: computePlanApprovalFingerprint(PLAN),
-      workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "passed" }],
-    });
-    const store = storeFixture(task);
-    await store.updateTask(task.id, buildPreservedPlanRespecifyPatch(task, "2026-08-28T06:30:00.000Z"));
-
-    expect(task.approvedPlanFingerprint).toBeUndefined();
-    expect(isPlanReviewSatisfied(task.workflowStepResults![0]!)).toBe(false);
-    expect(task.workflowStepResults![0]).toMatchObject({
-      supersededAt: "2026-08-28T06:30:00.000Z",
-      supersededReason: "respecify",
-    });
-    // Triage has claimed the required replan pass; the approval carriers remain invalidated.
-    task.status = "planning";
-
-    await (new TriageProcessor(store, rootDir) as unknown as {
-      finalizeApprovedTask(task: Task, prompt: string, settings: Settings): Promise<unknown>;
-    }).finalizeApprovedTask(task, PLAN, {
-      planApprovalMode: "auto-approve-all",
-      requirePlanApproval: false,
-    } as Settings);
-
-    expect(task.status).toBe("awaiting-approval");
-    expect(store.logEntry).not.toHaveBeenCalledWith(
-      task.id,
-      "Plan unchanged since prior approval — proceeding without re-approval",
-    );
   });
 
   it("uses a preserved plan and operator note as surgical revision source", () => {
@@ -219,7 +149,7 @@ describe("triage per-task plan approval", () => {
   });
 
   it("never auto-finalizes a preserved needs-replan task", async () => {
-    const task = taskFixture({ status: "needs-replan", requirePlanApproval: true });
+    const task = taskFixture({ status: "needs-replan" });
     const store = storeFixture(task);
 
     await expect(new TriageProcessor(store, rootDir).recoverApprovedTask(task)).resolves.toBe(false);

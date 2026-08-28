@@ -183,44 +183,36 @@ describe("POST /tasks/:id/spec/revise preservePlan", () => {
   });
 });
 
-describe("requirePlanApproval route fields", () => {
-  it("forwards a boolean task-create override", async () => {
-    const { store, app } = await setup({ requirePlanApproval: undefined });
+describe("retired requirePlanApproval route field", () => {
+  it("ignores the legacy field on task creation", async () => {
+    const { store, app } = await setup();
 
     const response = await performRequest(app, "POST", "/api/tasks", JSON.stringify({
-      description: "Create and wait for approval",
+      description: "Create using project approval policy",
       requirePlanApproval: true,
       bypassDuplicateCheck: true,
     }), { "Content-Type": "application/json" });
 
     expect(response.status, JSON.stringify(response.body)).toBe(201);
-    expect(store.createTask).toHaveBeenCalledWith(
-      expect.objectContaining({ requirePlanApproval: true }),
-      expect.any(Object),
-    );
+    const createInput = vi.mocked(store.createTask).mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    expect(createInput).not.toHaveProperty("requirePlanApproval");
   });
 
-  it("accepts boolean and null task updates and rejects other values", async () => {
-    const { row, store, app } = await setup({ requirePlanApproval: undefined });
+  it("ignores boolean and formerly-invalid legacy values on task updates", async () => {
+    const { store, app } = await setup();
 
     const enabled = await performRequest(app, "PATCH", "/api/tasks/FN-212", JSON.stringify({
       requirePlanApproval: true,
     }), { "Content-Type": "application/json" });
     expect(enabled.status, JSON.stringify(enabled.body)).toBe(200);
-    expect(store.updateTask).toHaveBeenLastCalledWith("FN-212", { requirePlanApproval: true });
-    expect(row.requirePlanApproval).toBe(true);
+    const enabledPatch = vi.mocked(store.updateTask).mock.calls.at(-1)?.[1] as unknown as Record<string, unknown>;
+    expect(enabledPatch).not.toHaveProperty("requirePlanApproval");
 
-    const cleared = await performRequest(app, "PATCH", "/api/tasks/FN-212", JSON.stringify({
-      requirePlanApproval: null,
-    }), { "Content-Type": "application/json" });
-    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
-    expect(store.updateTask).toHaveBeenLastCalledWith("FN-212", { requirePlanApproval: null });
-    expect(row.requirePlanApproval).toBeNull();
-
-    const invalid = await performRequest(app, "PATCH", "/api/tasks/FN-212", JSON.stringify({
+    const legacyInvalid = await performRequest(app, "PATCH", "/api/tasks/FN-212", JSON.stringify({
       requirePlanApproval: "yes",
     }), { "Content-Type": "application/json" });
-    expect(invalid.status).toBe(400);
-    expect(invalid.body.error).toContain("requirePlanApproval must be a boolean or null");
+    expect(legacyInvalid.status, JSON.stringify(legacyInvalid.body)).toBe(200);
+    const invalidPatch = vi.mocked(store.updateTask).mock.calls.at(-1)?.[1] as unknown as Record<string, unknown>;
+    expect(invalidPatch).not.toHaveProperty("requirePlanApproval");
   });
 });

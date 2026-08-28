@@ -100,8 +100,6 @@ export interface TaskRow {
   executionMode: string | null;
   /** FNXC:PlannerOversight 2026-07-14-18:11: null = inherit project; 0 = off; 1 = on (autoMerge pattern). */
   sessionAdvisorEnabled: number | null;
-  /** FNXC:PlanApproval 2026-08-28-06:24: null = inherit policy; 0 = stored false; 1 = force approval. */
-  requirePlanApproval: number | null;
   tokenUsageInputTokens: number | null;
   tokenUsageOutputTokens: number | null;
   tokenUsageCachedTokens: number | null;
@@ -255,9 +253,6 @@ const serializeTaskAutoMergeProvenance: TaskColumnDescriptor["serialize"] = (tas
 // FNXC:PlannerOversight 2026-07-14-18:11: three-state like autoMerge — null inherits project default.
 const serializeTaskSessionAdvisorEnabled: TaskColumnDescriptor["serialize"] = (task) =>
   task.sessionAdvisorEnabled === undefined ? null : (task.sessionAdvisorEnabled ? 1 : 0);
-// FNXC:PlanApproval 2026-08-28-06:24: preserve the three-state task override across both stores.
-const serializeTaskRequirePlanApproval: TaskColumnDescriptor["serialize"] = (task) =>
-  task.requirePlanApproval === undefined ? null : (task.requirePlanApproval ? 1 : 0);
 
 // Keep this descriptor order in lockstep with the named-column INSERT/UPSERT
 // clauses we generate below. SQLite binds by the explicit column list we emit,
@@ -355,7 +350,6 @@ export const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("mergerThinkingLevel", (task) => task.mergerThinkingLevel ?? null),
   defineTaskColumn("executionMode", (task) => task.executionMode ?? null),
   defineTaskColumn("sessionAdvisorEnabled", serializeTaskSessionAdvisorEnabled),
-  defineTaskColumn("requirePlanApproval", serializeTaskRequirePlanApproval),
   defineTaskColumn("tokenUsageInputTokens", (task) => task.tokenUsage?.inputTokens ?? null),
   defineTaskColumn("tokenUsageOutputTokens", (task) => task.tokenUsage?.outputTokens ?? null),
   defineTaskColumn("tokenUsageCachedTokens", (task) => task.tokenUsage?.cachedTokens ?? null),

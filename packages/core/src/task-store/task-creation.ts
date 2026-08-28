@@ -773,8 +773,6 @@ export async function _createTaskInternalBackendImpl(store: TaskStore, input: Ta
       executionMode: input.executionMode,
       // FNXC:PlannerOversight 2026-07-14-18:11: only set when create input is explicit boolean.
       sessionAdvisorEnabled: typeof input.sessionAdvisorEnabled === "boolean" ? input.sessionAdvisorEnabled : undefined,
-      // FNXC:PlanApproval 2026-08-28-06:24: omission inherits policy; explicit booleans round-trip.
-      requirePlanApproval: typeof input.requirePlanApproval === "boolean" ? input.requirePlanApproval : undefined,
       baseBranch: input.baseBranch,
       branch: input.branch,
       missionId: input.missionId,
@@ -1328,8 +1326,6 @@ export async function _createTaskInternalImpl(store: TaskStore, input: TaskCreat
       executionMode: input.executionMode,
       // FNXC:PlannerOversight 2026-07-14-18:11: only set when create input is explicit boolean.
       sessionAdvisorEnabled: typeof input.sessionAdvisorEnabled === "boolean" ? input.sessionAdvisorEnabled : undefined,
-      // FNXC:PlanApproval 2026-08-28-06:24: omission inherits policy; explicit booleans round-trip.
-      requirePlanApproval: typeof input.requirePlanApproval === "boolean" ? input.requirePlanApproval : undefined,
       baseBranch: input.baseBranch,
       branch: input.branch,
       missionId: input.missionId,

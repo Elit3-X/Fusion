@@ -42,7 +42,6 @@ import { useViewportMode } from "../hooks/useViewportMode";
 import { useAgentsMapCache } from "../hooks/useAgentsMapCache";
 import { FloatingWindow } from "./FloatingWindow";
 import { resolveQuickAddStartInitialColumn, resolveQuickAddStartTargetColumn, resolveQuickAddStartWorkflowTarget, validateQuickAddStartWorkflow, workflowSupportsQuickAddStart, type ValidatedQuickAddWorkflow } from "../utils/quickAddStart";
-import { readRequirePlanApprovalPreference, writeRequirePlanApprovalPreference } from "../utils/planApprovalPreference";
 
 type NewTaskCreateInput = Omit<CreateTaskInput, "branchSelection"> & {
   branchSelection?: {
@@ -428,11 +427,6 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
    * Full-dialog task creation must run the same duplicate preflight as QuickEntryBox before creating. Keep acknowledged duplicate IDs in the create payload so the API receives an explicit user confirmation when the user chooses Create anyway.
    */
   const [executionMode, setExecutionMode] = useState<"standard" | "fast">("standard");
-  const [requirePlanApproval, setRequirePlanApproval] = useState(() => readRequirePlanApprovalPreference(projectId));
-  const handleRequirePlanApprovalChange = useCallback((value: boolean) => {
-    setRequirePlanApproval(value);
-    writeRequirePlanApprovalPreference(projectId, value);
-  }, [projectId]);
   const [githubTrackingEnabled, setGithubTrackingEnabled] = useState(false);
   /*
   FNXC:NewTaskDirtyState 2026-07-24-14:00:
@@ -798,7 +792,6 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
       priority,
       nodeId,
       ...(executionMode === "fast" ? { executionMode: "fast" } : {}),
-      ...(requirePlanApproval ? { requirePlanApproval: true } : {}),
       branchSelection: {
         mode: branchMode,
         ...(isBranchNameRequired && branch.trim() ? { branchName: branch.trim() } : {}),
@@ -874,7 +867,7 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
       addToast(t("newTaskModal.taskCreated", "Created {{taskId}}", { taskId: task.id }), "success");
     }
     onClose();
-  }, [executorModel, credentialInstanceId, validatorModel, validatorCredentialInstanceId, planningModel, planningCredentialInstanceId, thinkingLevel, plannerOversightLevel, dependencies, shouldSubmitEnabledWorkflowSteps, enabledWorkflowSteps, selectedAgentId, presetMode, selectedPresetId, reviewLevel, autoMerge, priority, nodeId, executionMode, requirePlanApproval, branchMode, isBranchNameRequired, branch, baseBranch, githubTrackingEnabled, githubRepoOverrideTrimmed, onCreateTask, onMoveTask, pendingImages, resetForm, addToast, t, onClose, projectId]);
+  }, [executorModel, credentialInstanceId, validatorModel, validatorCredentialInstanceId, planningModel, planningCredentialInstanceId, thinkingLevel, plannerOversightLevel, dependencies, shouldSubmitEnabledWorkflowSteps, enabledWorkflowSteps, selectedAgentId, presetMode, selectedPresetId, reviewLevel, autoMerge, priority, nodeId, executionMode, branchMode, isBranchNameRequired, branch, baseBranch, githubTrackingEnabled, githubRepoOverrideTrimmed, onCreateTask, onMoveTask, pendingImages, resetForm, addToast, t, onClose, projectId]);
 
   const handleSubmit = useCallback(async (startWorkflow: ValidatedQuickAddWorkflow | null = null) => {
     const workflowSelection = selectedWorkflowId;
@@ -1282,8 +1275,6 @@ export function NewTaskModal({ isOpen, onClose, projectId, tasks, onCreateTask, 
         nodeOptions={nodes}
         executionMode={executionMode}
         onExecutionModeChange={setExecutionMode}
-        requirePlanApproval={requirePlanApproval}
-        onRequirePlanApprovalChange={handleRequirePlanApprovalChange}
         githubTrackingEnabled={githubTrackingEnabled}
         onGithubTrackingEnabledChange={handleGithubTrackingEnabledChange}
         githubRepoOverride={githubRepoOverride}

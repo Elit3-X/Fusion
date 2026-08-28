@@ -3378,7 +3378,6 @@
     "doneHiddenChip": "Completadas ocultas",
     "executorModel": "Modelo ejecutor",
     "fastMode": "Modo rápido",
-    "planApprovalBadge": "Se requiere revisión humana del plan",
     "filterChip": "Filtro: {{column}}",
     "forceDelete": "Forzar eliminación",
     "forceDeleteTitle": "Forzar eliminación de tarea",
@@ -8721,7 +8720,6 @@
     "fanoutTooltip_other": "",
     "fast": "Rápido",
     "fastMode": "Modo rápido",
-    "planApprovalBadge": "Se requiere revisión humana del plan",
     "filesChanged_one": "",
     "filesChanged_other": "",
     "forceDeleteTitle": "Forzar eliminación",
@@ -8877,8 +8875,7 @@
       "copy": "",
       "replanCapCopy": "",
       "title": ""
-    },
-    "togglePlanApproval": ""
+    }
   },
   "terminal": {
     "arrowKeysLabel": "",

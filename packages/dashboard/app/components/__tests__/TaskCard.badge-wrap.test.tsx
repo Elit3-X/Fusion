@@ -687,7 +687,6 @@ describe("TaskCard badge wrapping (FN-5162)", () => {
       ".card-size-badge",
       ".card-planner-overseer-state",
       ".card-execution-mode-badge",
-      ".card-plan-approval-badge",
       ".card-pr-node-badge",
       ".card-mission-badge",
       ".card-oversight-badge",

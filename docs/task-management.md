@@ -369,9 +369,7 @@ Board ordering behavior:
 
 Tasks cannot be relocated manually from Board, List, or Task Detail. The workflow and its automated recovery paths decide placement. Use **Retry** to repeat the current stage in place, **Reset** to edit the original description and restart cleanly from the confirmed request, or **Delete** to remove a task. A manual-intake card can still show **Start**, which admits a new idea into its workflow rather than relocating active work.
 
-### Per-task plan approval hold
-
-Quick Entry and New Task can opt one task into **Wait for my approval before execution**. This sticky, project-scoped create preference sets the task's `requirePlanApproval` override and remains enabled after submission until clicked again. A task-level `true` escalates the manual approval requirement even under project `planApprovalMode: "auto-approve-all"`; task-level `false` never disables project `require-all`. A shield badge on the Board card and in both List layouts marks a task that will request human plan review.
+### Plan approval hold
 
 After planning, the card remains at `status: "awaiting-approval"` in the workflow's planning lane, which may be an intake or hold column, and shows **Need Your Review**. **Approve** releases the reviewed plan. **Reject Plan** remains available in Task Detail; it discards the plan and regenerates in place when the card is already in its workflow's planning column. Cards outside planning retain the workflow intake rehome.
 

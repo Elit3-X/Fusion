@@ -3493,7 +3493,6 @@ export default interface Resources {
       "pauseSelectedTitle": "Pause all selected tasks that are not already paused",
       "pauseUnavailable": "Pause action is unavailable",
       "pausedByAgent": "paused by agent",
-      "planApprovalBadge": "Human plan review required",
       "preserveProgressMessage": "This task has completed steps. Keep progress before moving?",
       "preserveProgressTitle": "Preserve Progress?",
       "resetProgress": "Reset Progress",
@@ -9030,7 +9029,6 @@ export default interface Resources {
         "replanCapCopy": "Review the current plan, then approve it or request specific changes.",
         "title": "Need Your Review"
       },
-      "planApprovalBadge": "Human plan review required",
       "planButtonTitle": "Open planning mode with current description",
       "planModel": "Plan Model",
       "prBadgeTitle": "PR #{{number}}: {{title}}",
@@ -9104,7 +9102,6 @@ export default interface Resources {
       "subtask": "Subtask",
       "subtaskButtonTitle": "Break down into AI-generated subtasks",
       "toggleFastMode": "Toggle fast execution mode",
-      "togglePlanApproval": "Wait for my approval before execution",
       "unarchive": "Unarchive",
       "unarchiveFailed": "Failed to unarchive {{taskId}}: {{error}}",
       "unarchiveTask": "Unarchive task",

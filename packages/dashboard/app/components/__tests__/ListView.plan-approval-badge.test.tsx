@@ -1,29 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { readAppFile } from "../../test/cssFixture";
 
-const taskCardSource = readAppFile("components/TaskCard.tsx");
-const listViewSource = readAppFile("components/ListView.tsx");
+const productSources = {
+  TaskCard: readAppFile("components/TaskCard.tsx"),
+  ListView: readAppFile("components/ListView.tsx"),
+  TaskForm: readAppFile("components/TaskForm.tsx"),
+  QuickEntryBox: readAppFile("components/QuickEntryBox.tsx"),
+  NewTaskModal: readAppFile("components/NewTaskModal.tsx"),
+};
 
-describe("plan approval badge render-site census", () => {
-  it("renders beside the fast-mode badge in exactly the board and two list paths", () => {
-    const planApprovalSites = [
-      ...(taskCardSource.match(/className="card-plan-approval-badge"/g) ?? []),
-      ...(listViewSource.match(/className="list-plan-approval-badge"/g) ?? []),
-    ];
-    const fastModeSites = [
-      ...(taskCardSource.match(/className="card-execution-mode-badge card-execution-mode-badge--fast"/g) ?? []),
-      ...(listViewSource.match(/className="list-execution-mode-badge list-execution-mode-badge--fast"/g) ?? []),
-    ];
-
-    expect(planApprovalSites).toHaveLength(3);
-    expect(planApprovalSites).toHaveLength(fastModeSites.length);
-    expect(taskCardSource).toContain("plan-approval-badge-card-${task.id}");
-    expect(listViewSource).toContain("plan-approval-badge-list-card-${task.id}");
-    expect(listViewSource).toContain("plan-approval-badge-list-table-${task.id}");
+describe("retired plan approval UI census", () => {
+  it("has zero badge, toggle, task-field, or shield sites in every product component", () => {
+    for (const [name, source] of Object.entries(productSources)) {
+      for (const retiredTerm of [
+        "card-plan-approval-badge",
+        "list-plan-approval-badge",
+        "plan-approval-badge-",
+        "plan-approval-toggle",
+        "requirePlanApproval",
+        "ShieldCheck",
+      ]) {
+        expect(source, `${name} still contains ${retiredTerm}`).not.toContain(retiredTerm);
+      }
+    }
   });
 
-  it("uses an explicit true check at every badge render site", () => {
-    expect(taskCardSource.match(/task\.requirePlanApproval === true && \(/g)).toHaveLength(1);
-    expect(listViewSource.match(/task\.requirePlanApproval === true && \(/g)).toHaveLength(2);
+  it("retains the neighboring fast-mode badges and create toggles", () => {
+    expect(productSources.TaskCard).toContain("card-execution-mode-badge");
+    expect(productSources.ListView).toContain("list-execution-mode-badge");
+    expect(productSources.TaskForm).toContain("task-form-inline-fast");
+    expect(productSources.QuickEntryBox).toContain("quick-entry-fast-toggle");
+    expect(productSources.NewTaskModal).toContain("executionMode={executionMode}");
   });
 });

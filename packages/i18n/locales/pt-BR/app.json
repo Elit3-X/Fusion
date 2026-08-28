@@ -3388,7 +3388,6 @@
     "doneHiddenChip": "Concluídas ocultas",
     "executorModel": "Modelo executor",
     "fastMode": "Modo rápido",
-    "planApprovalBadge": "Revisão humana do plano necessária",
     "filterChip": "Filtro: {{column}}",
     "forceDelete": "Forçar exclusão",
     "forceDeleteTitle": "Forçar exclusão de tarefa",
@@ -8740,7 +8739,6 @@
     "fanoutTooltip_other": "Bloqueando {{count}} tarefas ativas; fila de bloqueio por sobreposição: {{queueCount}} a fazer{{highFanout}}{{escalation}}",
     "fast": "Rápido",
     "fastMode": "Modo rápido",
-    "planApprovalBadge": "Revisão humana do plano necessária",
     "filesChanged_one": "{{count}} arquivo alterado",
     "filesChanged_other": "{{count}} arquivos alterados",
     "forceDeleteTitle": "Forçar exclusão da tarefa",
@@ -8887,8 +8885,7 @@
       "copy": "",
       "replanCapCopy": "",
       "title": ""
-    },
-    "togglePlanApproval": ""
+    }
   },
   "terminal": {
     "arrowKeysLabel": "Teclas de seta do terminal",

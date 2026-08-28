@@ -3378,7 +3378,6 @@
     "doneHiddenChip": "완료 항목 숨김",
     "executorModel": "실행 모델",
     "fastMode": "빠른 모드",
-    "planApprovalBadge": "사람의 계획 검토 필요",
     "filterChip": "필터: {{column}}",
     "forceDelete": "강제 삭제",
     "forceDeleteTitle": "작업 강제 삭제",
@@ -8721,7 +8720,6 @@
     "fanoutTooltip_other": "",
     "fast": "빠름",
     "fastMode": "빠른 모드",
-    "planApprovalBadge": "사람의 계획 검토 필요",
     "filesChanged_one": "",
     "filesChanged_other": "",
     "forceDeleteTitle": "작업 강제 삭제",
@@ -8877,8 +8875,7 @@
       "copy": "",
       "replanCapCopy": "",
       "title": ""
-    },
-    "togglePlanApproval": ""
+    }
   },
   "terminal": {
     "arrowKeysLabel": "",

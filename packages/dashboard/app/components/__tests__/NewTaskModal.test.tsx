@@ -564,26 +564,22 @@ describe("NewTaskModal", () => {
     expect(Array.from(select.options).map((option) => option.value)).toEqual(["standard", "fast"]);
   });
 
-  it("keeps plan approval sticky across submits and remounts while Fast resets", async () => {
-    const onCreateTask = vi.fn().mockResolvedValue(makeTask("FN-212"));
-    const first = renderNewTaskModal({ onCreateTask, projectId: "project-1" });
-    const approvalToggle = screen.getByTestId("task-form-plan-approval-toggle");
-    const fastToggle = screen.getByTestId("task-form-inline-fast");
-    expect(approvalToggle).toHaveAttribute("aria-pressed", "false");
-
-    fireEvent.click(approvalToggle);
-    fireEvent.click(fastToggle);
-    fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), { target: { value: "First approval task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
-    await waitFor(() => expect(onCreateTask).toHaveBeenCalledWith(expect.objectContaining({ requirePlanApproval: true, executionMode: "fast" })));
-    expect(approvalToggle).toHaveAttribute("aria-pressed", "true");
-    expect(fastToggle).toHaveAttribute("aria-pressed", "false");
-
-    first.unmount();
+  it("omits plan approval across successive submissions while Fast still toggles", async () => {
+    const onCreateTask = vi.fn().mockResolvedValue(makeTask("FN-234"));
     renderNewTaskModal({ onCreateTask, projectId: "project-1" });
-    const remountedToggle = screen.getByTestId("task-form-plan-approval-toggle");
-    expect(remountedToggle).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(remountedToggle);
+    expect(screen.queryByTestId("task-form-plan-approval-toggle")).toBeNull();
+
+    const fastToggle = screen.getByTestId("task-form-inline-fast");
+    fireEvent.click(fastToggle);
+    expect(fastToggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), { target: { value: "First ordinary task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(onCreateTask).toHaveBeenCalledTimes(1));
+    expect(onCreateTask.mock.calls[0]?.[0]).toMatchObject({ executionMode: "fast" });
+    expect(onCreateTask.mock.calls[0]?.[0]).not.toHaveProperty("requirePlanApproval");
+
+    await waitFor(() => expect(screen.getByPlaceholderText("What needs to be done?")).toHaveValue(""));
+    expect(screen.getByTestId("task-form-inline-fast")).toHaveAttribute("aria-pressed", "false");
     fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), { target: { value: "Second ordinary task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
     await waitFor(() => expect(onCreateTask).toHaveBeenCalledTimes(2));

@@ -2,6 +2,6 @@
 "@runfusion/fusion": minor
 ---
 
-summary: Add plan-preserving Respecify and per-task approval holds.
+summary: Add plan-preserving Respecify.
 category: feature
-dev: Adds requirePlanApproval, migration 0070, and the preservePlan spec-revision flag.
+dev: Adds the preservePlan spec-revision flag.

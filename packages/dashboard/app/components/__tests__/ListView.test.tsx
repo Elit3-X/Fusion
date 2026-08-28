@@ -853,44 +853,33 @@ describe("ListView", () => {
     }
   });
 
-  it("renders the plan approval badge only for an enabled override in desktop rows", () => {
+  it("hides the retired plan approval badge for legacy data in desktop rows", () => {
     const viewportSpy = mockDesktopViewport();
-    const payload = {
-      ...DEFAULT_LANE_PAYLOAD,
-      taskWorkflowIds: {
-        "FN-228-badge": "builtin:coding",
-        "FN-228-opt-out": "builtin:coding",
-        "FN-228-inherit": "builtin:coding",
-      },
-    };
+    const payload = { ...DEFAULT_LANE_PAYLOAD, taskWorkflowIds: { "FN-234-legacy": "builtin:coding" } };
     writeBoardWorkflowsCache(TEST_PROJECT_ID, payload);
     vi.mocked(fetchBoardWorkflows).mockResolvedValue(payload);
     try {
-      renderListView({
-        tasks: [
-          createMockTask({ id: "FN-228-badge", requirePlanApproval: true }),
-          createMockTask({ id: "FN-228-opt-out", requirePlanApproval: false }),
-          createMockTask({ id: "FN-228-inherit", requirePlanApproval: undefined }),
-        ],
-      });
+      const legacyFields = { requirePlanApproval: true } as unknown as Partial<Task>;
+      renderListView({ tasks: [createMockTask({ id: "FN-234-legacy", executionMode: "fast", ...legacyFields })] });
 
-      expect(screen.getByTestId("plan-approval-badge-list-table-FN-228-badge")).toHaveAccessibleName("Human plan review required");
-      expect(screen.queryByTestId("plan-approval-badge-list-table-FN-228-opt-out")).toBeNull();
-      expect(screen.queryByTestId("plan-approval-badge-list-table-FN-228-inherit")).toBeNull();
+      expect(screen.queryByTestId("plan-approval-badge-list-table-FN-234-legacy")).toBeNull();
+      expect(screen.getByLabelText("Fast mode")).toBeVisible();
     } finally {
       viewportSpy.mockRestore();
     }
   });
 
-  it("renders the plan approval badge in compact cards", () => {
+  it("hides the retired plan approval badge for legacy data in compact cards", () => {
     const viewportSpy = mockMobileViewport();
-    const payload = { ...DEFAULT_LANE_PAYLOAD, taskWorkflowIds: { "FN-228-badge-mobile": "builtin:coding" } };
+    const payload = { ...DEFAULT_LANE_PAYLOAD, taskWorkflowIds: { "FN-234-legacy-mobile": "builtin:coding" } };
     writeBoardWorkflowsCache(TEST_PROJECT_ID, payload);
     vi.mocked(fetchBoardWorkflows).mockResolvedValue(payload);
     try {
-      renderListView({ tasks: [createMockTask({ id: "FN-228-badge-mobile", requirePlanApproval: true })] });
+      const legacyFields = { requirePlanApproval: true } as unknown as Partial<Task>;
+      renderListView({ tasks: [createMockTask({ id: "FN-234-legacy-mobile", executionMode: "fast", ...legacyFields })] });
 
-      expect(screen.getByTestId("plan-approval-badge-list-card-FN-228-badge-mobile")).toHaveAccessibleName("Human plan review required");
+      expect(screen.queryByTestId("plan-approval-badge-list-card-FN-234-legacy-mobile")).toBeNull();
+      expect(screen.getByLabelText("Fast mode")).toBeVisible();
     } finally {
       viewportSpy.mockRestore();
     }

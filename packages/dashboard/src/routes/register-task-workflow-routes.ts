@@ -1673,7 +1673,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         nodeId,
         githubTracking,
         sessionAdvisorEnabled,
-        requirePlanApproval,
         acknowledgedDuplicates,
         bypassDuplicateCheck,
         repositoryScope,
@@ -2165,8 +2164,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         ...(validatedGithubTracking ? { githubTracking: validatedGithubTracking } : {}),
         // FNXC:PlannerOversight 2026-07-14-18:11: only persist when client sent an explicit boolean override.
         ...(typeof sessionAdvisorEnabled === "boolean" ? { sessionAdvisorEnabled } : {}),
-        // FNXC:PlanApproval 2026-08-28-06:24: only explicit create-time booleans become task overrides.
-        ...(typeof requirePlanApproval === "boolean" ? { requirePlanApproval } : {}),
         ...(trusted?.proposalClaimId ? { proposalClaimId: trusted.proposalClaimId } : {}),
       };
 
@@ -6389,7 +6386,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
   router.patch("/tasks/:id", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
-      const { title, description, prompt, priority, dependencies, enabledWorkflowSteps, modelProvider, modelId, validatorModelProvider, validatorModelId, planningModelProvider, planningModelId, mergerModelProvider, mergerModelId, thinkingLevel, validatorThinkingLevel, planningThinkingLevel, mergerThinkingLevel, assigneeUserId, reviewLevel, executionMode, sourceIssue, nodeId, branch, baseBranch, githubTracking, gitlabTracking, noCommitsExpected, autoMerge, overlapBlockedBy, status, dismissNearDuplicate, sessionAdvisorEnabled, requirePlanApproval } = req.body;
+      const { title, description, prompt, priority, dependencies, enabledWorkflowSteps, modelProvider, modelId, validatorModelProvider, validatorModelId, planningModelProvider, planningModelId, mergerModelProvider, mergerModelId, thinkingLevel, validatorThinkingLevel, planningThinkingLevel, mergerThinkingLevel, assigneeUserId, reviewLevel, executionMode, sourceIssue, nodeId, branch, baseBranch, githubTracking, gitlabTracking, noCommitsExpected, autoMerge, overlapBlockedBy, status, dismissNearDuplicate, sessionAdvisorEnabled } = req.body;
       const hasBodyField = (field: string) => Object.prototype.hasOwnProperty.call(req.body, field);
 
       // Validate model fields are strings or undefined/null
@@ -6733,15 +6730,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           updates.sessionAdvisorEnabled = sessionAdvisorEnabled;
         } else {
           throw new Error("sessionAdvisorEnabled must be a boolean or null");
-        }
-      }
-      if (hasBodyField("requirePlanApproval")) {
-        if (requirePlanApproval === null) {
-          updates.requirePlanApproval = null;
-        } else if (typeof requirePlanApproval === "boolean") {
-          updates.requirePlanApproval = requirePlanApproval;
-        } else {
-          throw new Error("requirePlanApproval must be a boolean or null");
         }
       }
       if (hasBodyField("sourceIssue")) updates.sourceIssue = validatedSourceIssue === undefined ? undefined : validatedSourceIssue;

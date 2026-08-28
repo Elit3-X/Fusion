@@ -22,31 +22,18 @@ function postedBody(): Record<string, unknown> {
 describe("createTask plan approval payload", () => {
   beforeEach(() => {
     proxyApiMock.mockReset();
-    proxyApiMock.mockResolvedValue({ id: "FN-228" });
+    proxyApiMock.mockResolvedValue({ id: "FN-234" });
   });
 
-  it("forwards an enabled per-task plan approval override", async () => {
-    await createTask({ description: "Review this plan", requirePlanApproval: true });
+  it("omits the retired task override from ordinary and legacy-shaped inputs", async () => {
+    await createTask({ description: "Use project policy" });
+    expect(postedBody()).not.toHaveProperty("requirePlanApproval");
 
-    expect(postedBody()).toMatchObject({
-      description: "Review this plan",
-      requirePlanApproval: true,
-    });
+    await createTask({ description: "Ignore legacy override", requirePlanApproval: true } as never);
+    expect(postedBody()).not.toHaveProperty("requirePlanApproval");
   });
 
-  it("leaves the inherited plan approval override absent", async () => {
-    await createTask({ description: "Inherit project policy" });
-
-    expect(postedBody().requirePlanApproval).toBeUndefined();
-  });
-
-  it("forwards an explicit disabled override", async () => {
-    await createTask({ description: "Do not wait", requirePlanApproval: false });
-
-    expect(postedBody().requirePlanApproval).toBe(false);
-  });
-
-  it("keeps every create-time task override in the explicit API whitelist", () => {
+  it("keeps supported create-time overrides in the explicit API whitelist", () => {
     const source = readFileSync(resolve(__dirname, "../tasks/tasks.ts"), "utf8");
     const start = source.indexOf("export async function createTask(");
     const end = source.indexOf("/** Update explicit workspace repository intent", start);
@@ -59,9 +46,9 @@ describe("createTask plan approval payload", () => {
       "plannerOversightLevel",
       "sessionAdvisorEnabled",
       "enabledWorkflowSteps",
-      "requirePlanApproval",
     ]) {
       expect(createTaskSource).toContain(override);
     }
+    expect(createTaskSource).not.toContain("requirePlanApproval");
   });
 });

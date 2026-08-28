@@ -171,19 +171,14 @@ function stripInjectedFrontendUxCriteria(promptText: string): string {
 }
 
 /**
- * FNXC:PlanApproval 2026-06-26-00:00:
- * Per-project planApprovalMode controls the planning approval gate for every task in the project: require-all always parks approved specs for manual approval, auto-approve-all always bypasses the gate, and workflow/undefined preserves the workflow-resolved requirePlanApproval value.
+ * FNXC:PlanApproval 2026-08-28-17:16:
+ * FN-234 removes per-task approval escalation. Manual approval now derives only from the project
+ * planApprovalMode and the workflow-resolved requirePlanApproval setting: require-all always parks,
+ * auto-approve-all always bypasses, and workflow/undefined preserves the workflow value.
  */
 export function resolvePlanApprovalRequired(
   settings: Pick<ProjectSettings, "planApprovalMode" | "requirePlanApproval">,
-  task?: Pick<Task, "requirePlanApproval">,
 ): boolean {
-  /*
-  FNXC:PlanApproval 2026-08-28-06:24:
-  A task-level true only escalates to manual approval. Explicit false remains stored operator
-  intent but cannot disable a project-wide require-all gate or alter existing workflow policy.
-  */
-  if (task?.requirePlanApproval === true) return true;
   switch (settings.planApprovalMode) {
     case "require-all":
       return true;
