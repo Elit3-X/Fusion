@@ -3,15 +3,20 @@ import {
   remediationDeclaredFiles,
   remediationWaveCount,
   planRemediationPlacement,
+  type RunMutationContext,
   type Task,
   type TaskStep,
   type TaskStore,
 } from "@fusion/core";
-import { deriveRemediationSteps } from "./derive-remediation-steps.js";
+import { deriveRemediationSteps, verificationEvidenceDigest } from "./derive-remediation-steps.js";
 import type { RequestPreMergeOptionalStepFixInfo } from "./request-pre-merge-optional-step-fix.js";
 import { deriveWorkspaceReviewRemediation } from "./workspace-review-remediation.js";
 import { resolveReviewRemediationGate } from "./review-remediation-gate.js";
 import { resolveRemediationCheckout } from "./resolve-remediation-checkout.js";
+import {
+  countOptionalStepRevisionAttempts,
+  optionalStepRevisionLogOutcome,
+} from "./optional-step-revision.js";
 
 export type AppendReviewRemediationStepsDeps = {
   store: TaskStore;
@@ -21,7 +26,8 @@ export type AppendReviewRemediationStepsDeps = {
 
 export type AppendReviewRemediationOutcome =
   | "appended"
-  | "released-wave-exhausted"
+  | "budget-exhausted"
+  | "released-verification-no-progress"
   | "released-upstream-out-of-scope"
   | "released-no-actionable-findings"
   | "released-no-pending-work"
@@ -32,9 +38,14 @@ export type AppendReviewRemediationOutcome =
 /**
  * FNXC:ReviewGatedRemediation 2026-08-23-05:14:
  * A review-gated rejection appends named provenance work before it can bounce. This deliberately
- * refuses a blind return to implementation: no candidate, out-of-scope evidence, duplicate-only
- * work, or the fourth wave is recorded and released as non-blocking rather than producing either
- * an empty executor dispatch or an engine-authored human hold.
+ * refuses a blind return to implementation: no candidate, out-of-scope evidence, or duplicate-only
+ * work is recorded and released as non-blocking rather than producing either an empty executor
+ * dispatch or an engine-authored human hold.
+ *
+ * FNXC:ReviewGatedRemediation 2026-08-28-16:10:
+ * Review-to-fix passes are unbounded here, and `wave` is provenance rather than a count budget.
+ * Only an optional group's authored `maxRevisions` may impose a numeric cap; all appender releases
+ * are evidence-based so an unsatisfied plan with new actionable evidence keeps receiving fix work.
  *
  * FNXC:ReviewGatedRemediation 2026-08-28-07:48:
  * Review remediation may ask for human action only when an operator authored that gate. Automatic
@@ -49,17 +60,44 @@ is not safe for it: `performWorkflowRerunBounce` persists whatever path it recei
 self-healing can no longer reclaim the worktree as idle. Graph-driven callers (the Code Review
 remediation node) have no such path in hand and keep the task-record fallback.
 */
+export type ReviewRemediationAttemptClaim = {
+  revisionKey: string;
+  stepName: string;
+  status: string;
+  maxRevisions: number | "unbounded";
+  runContext?: RunMutationContext;
+};
+
+export type AppendReviewRemediationOptions = {
+  worktreePath?: string;
+  attemptClaim?: ReviewRemediationAttemptClaim;
+};
+
 export async function appendReviewRemediationSteps(
   deps: AppendReviewRemediationStepsDeps,
   task: Task,
   info: RequestPreMergeOptionalStepFixInfo,
-  options: { worktreePath?: string } = {},
+  options: AppendReviewRemediationOptions = {},
 ): Promise<AppendReviewRemediationOutcome> {
   const gate = resolveReviewRemediationGate(info);
   if (!gate) return "not-applicable";
   const wave = remediationWaveCount(task.steps ?? []) + 1;
-  if (wave > 3) {
-    return release(deps.store, task.id, "review-remediation-wave-exhausted", "released-wave-exhausted");
+  if (gate === "Verification") {
+    const currentEvidenceDigest = verificationEvidenceDigest(info.feedback);
+    const priorEvidenceDigest = (task.steps ?? [])
+      .filter((step) => step.remediation?.gate === "Verification"
+        && typeof step.remediation.evidenceDigest === "string"
+        && step.remediation.evidenceDigest.length > 0)
+      .sort((left, right) => (right.remediation?.wave ?? 0) - (left.remediation?.wave ?? 0))[0]
+      ?.remediation?.evidenceDigest;
+    if (currentEvidenceDigest && priorEvidenceDigest === currentEvidenceDigest) {
+      return release(
+        deps.store,
+        task.id,
+        "review-remediation-verification-no-progress",
+        "released-verification-no-progress",
+      );
+    }
   }
   const prompt = await deps.readTaskArtifact(task.id, "PROMPT.md");
   const derived = deriveRemediationSteps({
@@ -119,8 +157,9 @@ export async function appendReviewRemediationSteps(
 
   let appended: TaskStep[];
   let live: Task;
-  if (remediation) {
+  if (remediation || options.attemptClaim) {
     let scopeSuperseded = false;
+    let budgetExhausted = false;
     appended = [];
     live = await deps.store.updateTaskAtomic(task.id, (current) => {
       /*
@@ -128,34 +167,59 @@ export async function appendReviewRemediationSteps(
       A successful review-remediation CAS only claims the target at that instant. Append its named
       work and widen PROMPT.md in the same revision-fenced mutation, so an intervening scope edit
       cannot leave an invalid review episode's steps or File Scope behind.
+
+      FNXC:ReviewRemediationBudget 2026-08-28-16:32:
+      The authored revision budget is claimed in the same task mutation that publishes named fix
+      steps. Counting and writing the keyed attempt here prevents crashes, failed follow-up logging,
+      or concurrent requesters from delivering remediation that is absent from the durable budget
+      ledger. Executor dispatch happens only after this transaction commits.
       */
-      if (current.repositoryScope?.revision !== remediation.scopeRevision) {
+      if (remediation && current.repositoryScope?.revision !== remediation.scopeRevision) {
         scopeSuperseded = true;
         return null;
       }
+      const claim = options.attemptClaim;
+      const attemptCount = claim
+        ? countOptionalStepRevisionAttempts(current, claim.revisionKey, claim.stepName)
+        : 0;
+      if (claim && claim.maxRevisions !== "unbounded" && attemptCount >= claim.maxRevisions) {
+        budgetExhausted = true;
+        return null;
+      }
       const existing = current.steps ?? [];
+      const transactionWave = remediationWaveCount(existing) + 1;
       appended = derived.steps
         .filter((candidate) => candidate.remediation !== undefined)
         .filter((candidate) => !hasOpenEquivalentRemediationStep([...existing, ...appended], candidate))
         .map((candidate) => ({
           ...candidate,
           status: "pending" as const,
-          remediation: { ...candidate.remediation!, wave: candidate.remediation?.wave ?? wave },
+          remediation: { ...candidate.remediation!, wave: transactionWave },
           ...(candidate.dependsOn ? { dependsOn: [...candidate.dependsOn] } : {}),
         }));
       if (appended.length === 0) return null;
       const placement = planRemediationPlacement(existing, appended);
       const nextPrompt = widenPromptFileScopeContent(current.prompt ?? prompt, remediationDeclaredFiles(appended));
+      const attemptEntry = claim
+        ? {
+            timestamp: new Date().toISOString(),
+            action: `Review gate Code Review requested named remediation (attempt ${attemptCount + 1}/${claim.maxRevisions})`,
+            outcome: optionalStepRevisionLogOutcome(`Step: ${claim.stepName}\nStatus: ${claim.status}`, claim.revisionKey),
+            ...(claim.runContext ? { runContext: claim.runContext } : {}),
+          }
+        : undefined;
       return {
         steps: placement.steps,
         currentStep: placement.insertionIndex,
         ...(nextPrompt !== current.prompt ? { prompt: nextPrompt } : {}),
+        ...(attemptEntry ? { log: [...(current.log ?? []), attemptEntry] } : {}),
       };
-    });
+    }, options.attemptClaim?.runContext);
     if (scopeSuperseded) {
       await deps.store.logEntry(task.id, "Workspace review remediation superseded by repository scope change");
       return "superseded-scope";
     }
+    if (budgetExhausted) return "budget-exhausted";
   } else {
     const appendResult = await deps.store.appendRemediationSteps(task.id, derived.steps, { wave });
     appended = appendResult.appended;

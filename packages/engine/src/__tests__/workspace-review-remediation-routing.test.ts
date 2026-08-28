@@ -98,10 +98,15 @@ function harness(options: {
     parkPlanReviewReplanCapExhausted: vi.fn(async () => undefined),
     clearPausedAborted: vi.fn(),
     readTaskArtifact: async () => task.prompt,
-    appendReviewRemediationSteps: (live: Task, info: never) => appendReviewRemediationSteps(
+    appendReviewRemediationSteps: (
+      live: Task,
+      info: never,
+      options?: Parameters<typeof appendReviewRemediationSteps>[3],
+    ) => appendReviewRemediationSteps(
       { store: store as never, readTaskArtifact: async () => task.prompt, sendTaskBackForFix },
       live,
       info,
+      options,
     ),
     workflowLifecycleMovesInFlight: new Set<string>(),
     sendTaskBackForFix,

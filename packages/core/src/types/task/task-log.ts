@@ -36,6 +36,12 @@ export interface TaskStep {
     findingId?: string;
     filePath?: string;
     line?: number;
+    /**
+     * FNXC:VerificationRemediation 2026-08-28-16:10:
+     * This normalized verification-evidence identity proves whether a deterministic measurement
+     * changed between waves. Task steps are JSONB, so additive provenance needs no migration.
+     */
+    evidenceDigest?: string;
     detail?: string;
     declaredFiles?: string[];
   };

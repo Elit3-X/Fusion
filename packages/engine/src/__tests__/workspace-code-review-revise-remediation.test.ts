@@ -7,6 +7,7 @@ import { appendReviewRemediationSteps } from "../executor/append-review-remediat
 import { deriveRemediationSteps } from "../executor/derive-remediation-steps.js";
 import { requestPreMergeOptionalStepFix } from "../executor/request-pre-merge-optional-step-fix.js";
 import { resolveReviewRemediationGate } from "../executor/review-remediation-gate.js";
+import { deriveWorkspaceReviewRemediation } from "../executor/workspace-review-remediation.js";
 import { TaskExecutor } from "../executor.js";
 import { createMockStore, resetExecutorMocks } from "./executor-test-helpers.js";
 
@@ -100,7 +101,11 @@ describe("review remediation gate identity", () => {
 
     await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, { ...baseInfo, ...identity })).resolves.toBe(true);
 
-    expect(appendReviewRemediationSteps).toHaveBeenCalledWith(task, expect.objectContaining(identity));
+    expect(appendReviewRemediationSteps).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining(identity),
+      expect.objectContaining({ attemptClaim: expect.objectContaining({ revisionKey: identity.nodeId }) }),
+    );
   });
 
   it("routes a custom deterministic verification node into named remediation", async () => {
@@ -147,6 +152,7 @@ function reportedSymptomHarness(options: { findings?: WorkflowReviewFinding[]; r
     column: "in-review",
     prompt,
     modifiedFiles: ["repo1/bonjour.txt", "repo1/tests/test_bonjour.sh", "repo2/bonjour.txt", "repo2/tests/test_bonjour.sh"],
+    log: [],
     steps: [
       { name: "Preflight", status: "done" },
       { name: "Establish destination ownership", status: "done" },
@@ -187,7 +193,9 @@ function reportedSymptomHarness(options: { findings?: WorkflowReviewFinding[]; r
     getTask: vi.fn(async () => task),
     getSettings: vi.fn(async () => ({ autoMerge: true })),
     getTaskWorkflowSelectionAsync: vi.fn(async () => undefined),
-    logEntry: vi.fn(async () => undefined),
+    logEntry: vi.fn(async (_id: string, action: string, outcome?: string, runContext?: never) => {
+      task.log = [...(task.log ?? []), { timestamp: new Date().toISOString(), action, outcome, runContext }];
+    }),
     updateTask: vi.fn(async (_id: string, patch: Partial<Task>) => {
       Object.assign(task, patch);
       return task;
@@ -216,10 +224,15 @@ function reportedSymptomHarness(options: { findings?: WorkflowReviewFinding[]; r
     parkPlanReviewReplanCapExhausted: vi.fn(async () => undefined),
     clearPausedAborted: vi.fn(),
     readTaskArtifact: vi.fn(async () => task.prompt),
-    appendReviewRemediationSteps: (live: Task, info: never) => appendReviewRemediationSteps(
+    appendReviewRemediationSteps: (
+      live: Task,
+      info: never,
+      options?: Parameters<typeof appendReviewRemediationSteps>[3],
+    ) => appendReviewRemediationSteps(
       { store: store as never, readTaskArtifact: async () => task.prompt, sendTaskBackForFix },
       live,
       info,
+      options,
     ),
     workflowLifecycleMovesInFlight: new Set<string>(),
     sendTaskBackForFix,
@@ -311,15 +324,91 @@ describe("workspace Code Review REVISE symptom", () => {
     expect(task.steps?.at(-1)).toEqual({ name: "Testing & Verification", status: "pending" });
   });
 
-  it("records a visible release when the fourth remediation wave is refused", async () => {
+  it("appends a fourth workspace wave when its durable review input changed", async () => {
     const { task, store, deps, sendTaskBackForFix } = reportedSymptomHarness({ remediationWaves: 3 });
+    task.repositoryScope = {
+      ...task.repositoryScope!,
+      reviewRemediation: { scopeRevision: 1, repository: "repo2", inputSignature: "older-input" },
+    };
+
+    await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, {
+      ...baseInfo, nodeId: "code-review-step", reviewKind: "code", findings: [reportedFinding],
+    })).resolves.toBe(true);
+
+    expect(task.steps).toContainEqual(expect.objectContaining({
+      status: "pending",
+      remediation: expect.objectContaining({ wave: 4 }),
+    }));
+    expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
+    expect(sendTaskBackForFix.mock.calls[0]?.[1]).toBe("/tmp/mult-029/repo2");
+    expect(store.logEntry.mock.calls.some((call) => String(call[0]).includes("attempt 1/"))).toBe(false);
+    expect(task.log?.some((entry) => entry.action.includes("attempt 1/"))).toBe(true);
+  });
+
+  it("routes unchanged durable workspace input to convergence without appending", async () => {
+    const { task, store, deps, sendTaskBackForFix } = reportedSymptomHarness();
+    const current = deriveWorkspaceReviewRemediation(task.workflowStepResults![0]!);
+    expect(current).toBeDefined();
+    task.repositoryScope = { ...task.repositoryScope!, reviewRemediation: current };
+
+    await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, {
+      ...baseInfo, nodeId: "code-review-step", reviewKind: "code", findings: [reportedFinding],
+    })).resolves.toBe(false);
+
+    expect(store.appendRemediationSteps).not.toHaveBeenCalled();
+    expect(sendTaskBackForFix).not.toHaveBeenCalled();
+    expect(task.reviewConvergenceEscalationCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("preserves superseded-scope behavior when the workspace revision changed", async () => {
+    const { task, store, deps, sendTaskBackForFix } = reportedSymptomHarness();
+    task.repositoryScope = { ...task.repositoryScope!, revision: 2 };
 
     await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, {
       ...baseInfo, nodeId: "code-review-step", reviewKind: "code", findings: [reportedFinding],
     })).resolves.toBe(false);
 
     expect(sendTaskBackForFix).not.toHaveBeenCalled();
-    expect(store.logEntry).toHaveBeenCalledWith(task.id, "Review remediation released as non-blocking", "review-remediation-wave-exhausted");
+    expect(store.logEntry).toHaveBeenCalledWith(
+      task.id,
+      "Workspace review remediation superseded by repository scope change",
+    );
+  });
+
+  it("enforces an authored workspace maxRevisions budget from production-written attempts", async () => {
+    const { task, store, deps, sendTaskBackForFix } = reportedSymptomHarness();
+    task.workflowStepResults![0]!.workflowStepId = "code-review";
+    const info = {
+      ...baseInfo,
+      nodeId: "code-review",
+      reviewKind: "code" as const,
+      maxRevisions: 2,
+      findings: [reportedFinding],
+    };
+    const blockingOutcome = task.workflowStepResults![0]!.repositoryReviewOutcomes![1]!;
+
+    blockingOutcome.fingerprint = "workspace-fingerprint-1";
+    await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, info)).resolves.toBe(true);
+    for (const step of task.steps ?? []) if (step.status === "pending") step.status = "done";
+
+    blockingOutcome.fingerprint = "workspace-fingerprint-2";
+    await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, info)).resolves.toBe(true);
+    for (const step of task.steps ?? []) if (step.status === "pending") step.status = "done";
+
+    task.reviewConvergenceStage = 2;
+    blockingOutcome.fingerprint = "workspace-fingerprint-3";
+    await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, info)).resolves.toBe(false);
+
+    expect(store.appendRemediationSteps).toHaveBeenCalledTimes(0);
+    expect(sendTaskBackForFix).toHaveBeenCalledTimes(2);
+    expect(task.log?.filter((entry) => entry.action.includes("requested named remediation"))).toHaveLength(2);
+    expect(task.reviewConvergenceEscalationCount).toBeGreaterThanOrEqual(1);
+    expect(store.logEntry).toHaveBeenCalledWith(
+      task.id,
+      "Pre-merge remediation not scheduled — revision budget exhausted",
+      expect.stringContaining("Maximum revisions: 2"),
+      undefined,
+    );
   });
 
   it("keeps a finding in an unconfirmed repository out of scope", () => {

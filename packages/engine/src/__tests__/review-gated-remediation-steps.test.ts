@@ -59,17 +59,17 @@ describe("non-blocking review remediation releases", () => {
     } as Task;
   }
 
-  function storeFor(task: Task, append: readonly TaskStep[] = []) {
+  function storeFor(task: Task, append?: readonly TaskStep[]) {
     const logEntry = vi.fn(async () => undefined);
     return {
       logEntry,
       updateTask: vi.fn(async (_id: string, patch: Partial<Task>) => Object.assign(task, patch)),
       getTask: vi.fn(async () => task),
-      appendRemediationSteps: vi.fn(async () => {
-        const appended = [...append];
+      appendRemediationSteps: vi.fn(async (_id: string, candidates: readonly TaskStep[], options: { wave: number }) => {
+        const appended = [...(append ?? candidates)];
         const placement = planRemediationPlacement(task.steps ?? [], appended);
         task.steps = placement.steps;
-        return { task, appended, appendedCount: appended.length, wave: 1, ...placement };
+        return { task, appended, appendedCount: appended.length, wave: options.wave, ...placement };
       }),
       updateTaskAtomic: vi.fn(async (_id: string, callback: (current: Task) => Partial<Task> | null) => {
         const patch = callback(task);
@@ -90,11 +90,27 @@ describe("non-blocking review remediation releases", () => {
     return outcome;
   }
 
-  it("releases an exhausted remediation wave without lifecycle mutation", async () => {
-    const task = subject({ steps: [{ name: "prior", status: "done", remediation: { wave: 3, gate: "Code Review", gateStepId: "code-review", detail: "prior" } }] });
+  it("appends a fourth remediation wave when actionable evidence remains", async () => {
+    const task = subject({ worktree: "/tmp/fn-236-wave-4", steps: [{ name: "prior", status: "done", remediation: { wave: 3, gate: "Code Review", gateStepId: "code-review", detail: "prior" } }] });
     const store = storeFor(task);
-    await expect(append(task, store)).resolves.toBe("released-wave-exhausted");
-    expect(store.logEntry).toHaveBeenCalledWith(task.id, "Review remediation released as non-blocking", "review-remediation-wave-exhausted");
+    await expect(append(task, store, [{ id: "wave-4", title: "guard", body: "fix guard", filePath: "src/a.ts", severity: "critical" }]))
+      .resolves.toBe("appended");
+    expect(task.steps).toContainEqual(expect.objectContaining({
+      status: "pending",
+      remediation: expect.objectContaining({ wave: 4 }),
+    }));
+    expect(store.logEntry).not.toHaveBeenCalled();
+  });
+
+  it("keeps wave as provenance beyond ten remediation passes", async () => {
+    const task = subject({ worktree: "/tmp/fn-236-wave-11", steps: [{ name: "prior", status: "done", remediation: { wave: 10, gate: "Code Review", gateStepId: "code-review", detail: "prior" } }] });
+    const store = storeFor(task);
+    await expect(append(task, store, [{ id: "wave-11", title: "guard", body: "fix another guard", filePath: "src/b.ts", severity: "critical" }]))
+      .resolves.toBe("appended");
+    expect(task.steps).toContainEqual(expect.objectContaining({
+      status: "pending",
+      remediation: expect.objectContaining({ wave: 11 }),
+    }));
   });
 
   it("releases an out-of-scope finding without lifecycle mutation", async () => {

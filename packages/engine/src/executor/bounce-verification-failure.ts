@@ -26,9 +26,10 @@
  * the PROMPT.md File Scope to those files, and performs the bounce ITSELF — so this path must not
  * bounce again.
  *
- * It returns a non-blocking release when it cannot derive work (a fourth wave, out-of-scope-only
- * evidence, or no actionable findings). A follow-up `sendTaskBackForFix` would create the empty
- * executor bounce this contract forbids, so released outcomes stop here without lifecycle mutation.
+ * It returns a non-blocking release when it cannot derive work (unchanged normalized verification
+ * evidence, out-of-scope-only evidence, or no actionable findings). Remediation waves are unbounded.
+ * A follow-up `sendTaskBackForFix` would create the empty executor bounce this contract forbids, so
+ * released outcomes stop here without lifecycle mutation.
  */
 import type { StepReopenPolicy, Task, TaskStore, WorkflowReviewFinding } from "@fusion/core";
 import type { AppendReviewRemediationOutcome } from "./append-review-remediation-steps.js";

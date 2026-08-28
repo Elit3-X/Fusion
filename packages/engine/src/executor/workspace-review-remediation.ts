@@ -6,6 +6,17 @@ function normalize(value: string | undefined): string {
 
 export type WorkspaceReviewRemediation = NonNullable<NonNullable<Task["repositoryScope"]>["reviewRemediation"]>;
 
+export function hasDurableRepeatedWorkspaceReview(
+  task: Pick<Task, "repositoryScope">,
+  remediation: WorkspaceReviewRemediation | undefined,
+): boolean {
+  const prior = task.repositoryScope?.reviewRemediation;
+  return remediation !== undefined
+    && prior?.scopeRevision === remediation.scopeRevision
+    && prior.repository === remediation.repository
+    && prior.inputSignature === remediation.inputSignature;
+}
+
 /**
  * FNXC:WorkspaceFinalization 2026-08-21-09:33:
  * The remediation record is a scope-generation fence, not a coordinator preference. Reject a

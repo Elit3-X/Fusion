@@ -66,6 +66,11 @@ function harness(workflowId = "builtin:coding-ideas-v2") {
     getSettings: vi.fn(async () => ({ autoMerge: true })),
     logEntry: vi.fn(async () => undefined),
     updateTask: vi.fn(async (_id: string, patch: Partial<Task>) => { Object.assign(task, patch); return task; }),
+    updateTaskAtomic: vi.fn(async (_id: string, mutate: (current: Task) => Partial<Task> | null | undefined | Promise<Partial<Task> | null | undefined>) => {
+      const patch = await mutate(task);
+      if (patch) Object.assign(task, patch);
+      return task;
+    }),
     appendRemediationSteps: vi.fn(async (_id: string, steps: readonly TaskStep[], options: { wave?: number }) => {
       const appended = steps.map((step) => ({ ...step, status: "pending" as const }));
       const placement = planRemediationPlacement(task.steps ?? [], appended);
@@ -87,10 +92,15 @@ function harness(workflowId = "builtin:coding-ideas-v2") {
     parkPlanReviewReplanCapExhausted: vi.fn(async () => undefined),
     clearPausedAborted: vi.fn(),
     readTaskArtifact: async () => task.prompt,
-    appendReviewRemediationSteps: (live: Task, info: never) => appendReviewRemediationSteps(
+    appendReviewRemediationSteps: (
+      live: Task,
+      info: never,
+      options?: Parameters<typeof appendReviewRemediationSteps>[3],
+    ) => appendReviewRemediationSteps(
       { store: store as never, readTaskArtifact: async () => task.prompt, sendTaskBackForFix },
       live,
       info,
+      options,
     ),
     workflowLifecycleMovesInFlight: new Set<string>(),
     sendTaskBackForFix,
@@ -186,7 +196,7 @@ describe("fix steps appear on the card when a gate fails", () => {
   });
 
   it.each([
-    "released-wave-exhausted",
+    "released-verification-no-progress",
     "released-upstream-out-of-scope",
     "released-no-pending-work",
     "released-workspace-worktree-missing",
