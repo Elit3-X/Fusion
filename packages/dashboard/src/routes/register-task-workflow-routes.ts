@@ -2852,20 +2852,42 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         });
 
       /*
-      FNXC:TaskRevert 2026-07-16-00:00:
-      FN-8066 records dashboard provenance on the source task only when its changes
-      are proven reverted at the base branch HEAD: clean landed git reverts and
-      already-reverted outcomes, including autoMerge:false PR-mode results where
-      preparation finds nothing left to merge. AI undo, conflict, needsHuman,
-      unsupported, and PR-pending outcomes do not stamp this marker because the
-      source is not yet reverted at HEAD. This awaited persistence intentionally
-      fails the request if it cannot be written; a successful response must have a
-      durable badge marker. It does not change the source task lifecycle column.
+      FNXC:TaskRevert 2026-08-28-12:16:
+      Clean and already-reverted outcomes publish two awaited durable facts in a fixed order. Patchnode records one cancellation per cancelled delivery before the task's latest-only scalar marker can be overwritten by a later episode; legacy marker-only rows remain repairable by Patchnode reconciliation. AI undo, conflict, needsHuman, unsupported, and PR-pending outcomes still publish neither fact because the source is not reverted at HEAD.
       */
-      const stampReverted = async (revertCommitSha?: string): Promise<void> => {
+      /*
+      FNXC:TaskRevert 2026-08-28-22:17:
+      An `alreadyReverted` outcome cancelled NOTHING NEW — git found the task already reverted at HEAD. Re-affirm the cancellation episode the task already carries instead of opening a second one: keep the original marker timestamp (a fresh one would later re-point reconciliation at the newest delivery) and pin the ledger pairing to the delivery in effect back then. Without this, reverting an already-reverted task that was re-delivered in between marks that live re-delivery cancelled, erasing shipped work from the day it shipped on. A task with no prior marker still records the cancellation, and a genuine new revert keeps latest-delivery pairing.
+      */
+      const readRevertedMarker = (): { revertedAt: string; revertedCommitSha?: string } | null => {
+        const metadata = task.sourceMetadata as { revertedAt?: unknown; revertedCommitSha?: unknown } | undefined;
+        const revertedAt = typeof metadata?.revertedAt === "string" ? metadata.revertedAt.trim() : "";
+        if (!revertedAt) return null;
+        const revertedCommitSha = typeof metadata?.revertedCommitSha === "string" ? metadata.revertedCommitSha.trim() : "";
+        return { revertedAt, ...(revertedCommitSha ? { revertedCommitSha } : {}) };
+      };
+      const stampReverted = async (
+        revertCommitSha?: string,
+        options?: { alreadyReverted?: boolean },
+      ): Promise<void> => {
+        const existingMarker = options?.alreadyReverted ? readRevertedMarker() : null;
+        if (existingMarker) {
+          await scopedStore.recordPatchnodeRevert(task.id, {
+            occurredAt: existingMarker.revertedAt,
+            ...(existingMarker.revertedCommitSha ? { revertCommitSha: existingMarker.revertedCommitSha } : {}),
+            pairWithDeliveryAtOrBefore: true,
+          });
+          return;
+        }
+        const revertedAt = new Date().toISOString();
+        await scopedStore.recordPatchnodeRevert(task.id, {
+          occurredAt: revertedAt,
+          ...(revertCommitSha ? { revertCommitSha } : {}),
+          ...(options?.alreadyReverted ? { pairWithDeliveryAtOrBefore: true } : {}),
+        });
         await scopedStore.updateTask(task.id, {
           sourceMetadataPatch: {
-            revertedAt: new Date().toISOString(),
+            revertedAt,
             ...(revertCommitSha ? { revertedCommitSha: revertCommitSha } : {}),
           },
         });
@@ -2945,7 +2967,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             // prepared.eligible === true
             if (prepared.repos.length === 0) {
               // Every sub-repo was already-reverted — nothing to PR.
-              await stampReverted();
+              await stampReverted(undefined, { alreadyReverted: true });
               res.json({ mode: "git", clean: true, workspace: { repos: [] } });
               return;
             }
@@ -3087,7 +3109,13 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             workspaceResult.workspace.repos,
           );
           await scopedStore.updateTask(task.id, { workspaceWorktrees });
-          await stampReverted();
+          /*
+          FNXC:TaskRevert 2026-08-28-22:17:
+          A workspace revert that produced no revert commit in ANY sub-repo cancelled nothing new, so it takes the same already-reverted re-affirmation path as the single-repo outcome.
+          */
+          await stampReverted(undefined, {
+            alreadyReverted: workspaceResult.workspace.repos.every((repo) => !repo.revertCommitSha),
+          });
         }
 
         if (mode === "git") {
@@ -3246,7 +3274,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
 
         if (!prepared.eligible) {
           if ("alreadyReverted" in prepared && prepared.alreadyReverted) {
-            await stampReverted();
+            await stampReverted(undefined, { alreadyReverted: true });
             res.json({ mode: "git", clean: true, alreadyReverted: true });
             return;
           }
@@ -3332,7 +3360,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       });
 
       if (result.mode === "git" && "clean" in result && result.clean === true) {
-        await stampReverted("revertCommitSha" in result && typeof result.revertCommitSha === "string" ? result.revertCommitSha : undefined);
+        const revertCommitSha = "revertCommitSha" in result && typeof result.revertCommitSha === "string" ? result.revertCommitSha : undefined;
+        await stampReverted(revertCommitSha, { alreadyReverted: !revertCommitSha });
       }
 
       if (mode === "git") {

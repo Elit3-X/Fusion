@@ -196,6 +196,7 @@ export function MainContent({
   DocumentsView,
   EvalsView,
   GoalsView,
+  PatchnodeView,
   InsightsView,
   MemoryView,
   PullRequestView,
@@ -743,6 +744,21 @@ export function MainContent({
       <PageErrorBoundary>
         <Suspense fallback={null}>
           <SecretsView addToast={addToast} projectId={currentProject?.id} />
+        </Suspense>
+      </PageErrorBoundary>
+    );
+  }
+
+  if (taskView === "patchnode") {
+    return (
+      <PageErrorBoundary>
+        <Suspense fallback={null}>
+          <PatchnodeView
+            projectId={currentProject?.id}
+            onOpenTaskDetail={(taskId) => fetchTaskDetail(taskId, currentProject?.id)
+              .then((task) => openDetailTask(task as TaskDetail))
+              .catch(() => undefined)}
+          />
         </Suspense>
       </PageErrorBoundary>
     );

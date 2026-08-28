@@ -32,7 +32,10 @@ import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
 import {assertSafeGitBranchName} from "../task-store/shell-safety.js";
 import {isFusionDeletableBranch} from "../branch/branch-assignment.js";
 import {readTaskRow as readTaskRowAsync, readTaskRowInTransaction, resolveActiveTaskWedgeEpisodeRow} from "../task-store/async/async-persistence.js";
-import {upsertArchivedTaskEntry} from "./async/async-archive-lineage.js";
+import {findArchivedTaskEntry, upsertArchivedTaskEntry} from "./async/async-archive-lineage.js";
+import { appendPatchnodeEntry } from "./async/async-patchnode.js";
+import { buildPatchnodeEntryInput } from "../board/patchnode.js";
+import { resolveProjectColumnsForRoles } from "../project-lane-vocabulary.js";
 import {purgeTaskWorkflowSelectionRowsAsyncImpl} from "./workflow-definitions.js";
 import * as schema from "../postgres/schema/index.js";
 import {and, asc, eq, inArray, isNotNull, isNull, sql} from "drizzle-orm";
@@ -1519,10 +1522,31 @@ export async function cleanupArchivedTasksImpl(store: TaskStore): Promise<string
       .where(and(eq(schema.project.tasks.projectId, projectId), eq(schema.project.tasks.column, "archived")));
     const cleanedUpIds: string[] = [];
     const { rm } = await import("node:fs/promises");
+    const patchnodeCompleteColumns = await resolveProjectColumnsForRoles(store, ["complete"])
+      .catch(() => new Set<string>());
 
     for (const row of archivedRows) {
       const task = store.rowToTask(store.pgRowToTaskRow(row));
       const dir = store.taskDir(task.id);
+      /*
+      FNXC:PatchnodeLedger 2026-08-28-12:16:
+      A pre-Patchnode archived row reaches its last surviving summary here. Consult the existing cold snapshot before rewriting it, and leave the row intact when capture fails so a later cleanup can retry instead of hard-deleting the only evidence.
+      */
+      const existingEntry = await findArchivedTaskEntry(layer.db, task.id, layer.projectId);
+      if (
+        patchnodeCompleteColumns.has(existingEntry?.preArchiveColumn ?? "")
+        && task.columnMovedAt
+        && Number.isFinite(Date.parse(task.columnMovedAt))
+      ) {
+        try {
+          await appendPatchnodeEntry(layer, buildPatchnodeEntryInput(task, "completed", task.columnMovedAt));
+        } catch (error) {
+          storeLog.warn(`[patchnode] skipping archived cleanup after capture failure for ${task.id}`, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
+      }
       // Guarantee a cold-storage snapshot before the destructive delete.
       const entry = await store.taskToArchiveEntry(task, task.deletedAt ?? new Date().toISOString());
       await upsertArchivedTaskEntry(layer.db, entry, layer.projectId);

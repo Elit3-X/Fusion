@@ -17,6 +17,14 @@ Discussion filing uses the same scrub-before-egress report pipeline as Issues. F
 
 The Fusion dashboard is the main control plane for tasks, agents, missions, settings, logs, and repository operations.
 
+## Patchnode View
+
+Patchnode is the permanent daily delivery history available from the main navigation. It groups entries by UTC day and includes a search field that matches task IDs, titles, and captured completion summaries. Each delivery is a separate record, so reopening and completing the same task later adds another entry on that later day instead of replacing the first.
+
+Fusion writes a completion entry in the same database transaction that moves the task into its completion lane. The recorded title and summary are point-in-time snapshots that remain unchanged through later moves, re-summarisation, archive, or task deletion. A revert adds a distinct **Cancelled** entry paired to the specific delivery it cancels and marks that completion as **Reverted** without changing other deliveries of the same task.
+
+Chat reads this same history through the read-only `fn_patchnode_read` tool. Ask for a date range or search phrase to review shipped and cancelled work without opening the Patchnode view.
+
 ## Dashboard Updates
 
 When Fusion detects a newer `@runfusion/fusion` release, the Settings modal footer shows the available version with **Learn more** and **Update now** actions. Every Update now result remains visible: install success offers **Restart Fusion**, a current version reports no update, failed checks and installs show errors, and unsupported source-checkout, Homebrew, or missing-npm hosts show guidance instead of running a meaningless global install; missing npm advises updating the installation by its original method. Deployments with `FUSION_UPDATES_EXTERNALLY_MANAGED=1` show no update offer because their release pipeline owns the artifact. After a successful install, the running server retains the pending target until it restarts: closing and reopening Settings, the global update banner, and Command Center continue to show the installed-success state and **Restart Fusion**, never a second install action. Settings exposes independent **Automatically install updates** and **Automatically restart after an update** choices for the selected stable or beta channel; the watcher checks about one minute after boot and every six hours. The unattended updater skips unsupported hosts without restarting. When Fusion is unsupervised (for example, started with `--no-supervise`), the restart action remains available so the server can explain the refusal; restart Fusion manually when it cannot be scheduled.

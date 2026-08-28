@@ -7,6 +7,8 @@
  * instance as its first parameter and performs byte-identical work.
  */
 import {type TaskStore, type MoveTaskOptions, type MoveTaskInternalOptions, storeLog} from "../store.js";
+import { buildPatchnodeEntryInput } from "../board/patchnode.js";
+import { appendPatchnodeEntryInTransaction } from "./async/async-patchnode.js";
 import * as schema from "../postgres/schema/index.js";
 import {TaskDeletedError, HandoffInvariantViolationError, TransitionRejectionError} from "./errors.js";
 
@@ -1246,6 +1248,21 @@ export async function moveTaskInternalImpl(store: TaskStore, id: string, toColum
           moveSource,
         },
       });
+
+      /*
+      FNXC:PatchnodeLedger 2026-08-28-12:16:
+      Each genuine entry into the completion lane snapshots this delivery under its columnMovedAt occurrence. The next move overwrites that evidence, so this insert commits in the move transaction and intentionally aborts the move on failure; the move's early return, not conflict handling, prevents duplicate capture.
+
+      FNXC:PatchnodeLedger 2026-08-28-13:35:
+      Completion capture requires the store's real project partition. An unbound writer must fail this transaction instead of manufacturing a legacy project id whose entry the project-scoped feed can never read.
+      */
+      if (toColumn === (moveLifecycle?.complete ?? "done") && fromColumn !== toColumn && !internal.terminalFailureApply) {
+        await appendPatchnodeEntryInTransaction(
+          tx,
+          layer.projectId ?? "",
+          buildPatchnodeEntryInput(task, "completed", task.columnMovedAt ?? movedAt),
+        );
+      }
 
       // Dequeue from merge queue on column exit (if leaving in-review).
       await dequeueMergeQueueOnColumnExitInTransaction(tx, id, fromColumn, toColumn, movedAt, moveReviewColumns);

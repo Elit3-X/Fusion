@@ -682,6 +682,31 @@ export const memoryRecallRecords = projectSchema.table("memory_recall_records", 
   createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
 }, (t) => [primaryKey({ columns: [t.projectId, t.id] }), unique("memory_recall_records_project_kind_hash_key").on(t.projectId, t.kind, t.contentHash), index("idxMemoryRecallRecordsKindCreated").on(t.projectId, t.kind, t.createdAt), index("idxMemoryRecallRecordsCreated").on(t.projectId, t.createdAt)]);
 
+/*
+FNXC:PatchnodeLedger 2026-08-28-12:16:
+Patchnode deliberately does not follow this schema's task foreign-key convention. Archive cleanup hard-deletes task rows to fire sibling cascades, while this self-contained delivery ledger must remain readable after that deletion.
+*/
+export const patchnodeEntries = projectSchema.table("patchnode_entries", {
+  projectId: text("project_id").notNull().default(sql`current_setting('fusion.project_id', true)`),
+  entryId: text("entry_id").notNull(),
+  taskId: text("task_id").notNull(),
+  kind: text("kind").notNull(),
+  occurrenceKey: text("occurrence_key").notNull(),
+  day: text("day").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  revertsEntryId: text("reverts_entry_id"),
+  revertedAt: text("reverted_at"),
+  revertedCommitSha: text("reverted_commit_sha"),
+  createdAt: text("created_at").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.projectId, t.entryId] }),
+  check("patchnode_entries_kind_check", sql`${t.kind} IN ('completed', 'reverted')`),
+  index("idxPatchnodeEntriesFeed").on(t.projectId, t.day, t.occurredAt),
+  index("idxPatchnodeEntriesTaskKind").on(t.projectId, t.taskId, t.kind, t.occurredAt),
+]);
+
 export const agentActivityEventSeq = projectSchema.table("agent_activity_event_seq", {
   projectId: text("project_id").notNull().default(sql`current_setting('fusion.project_id', true)`), lastSeq: bigint("last_seq", { mode: "bigint" }).notNull().default(sql`0`),
 }, (t) => [primaryKey({ columns: [t.projectId] })]);
@@ -2629,7 +2654,7 @@ export const projectTableNames = [
   "mission_validator_runs", "mission_validator_failures",
   "mission_fix_feature_lineage", "verification_cache", "import_translation_cache",
   "approval_requests",
-  "approval_request_audit_events", "agent_activity_events", "agent_activity_event_seq", "memory_recall_records", "chat_rooms", "chat_room_members",
+  "approval_request_audit_events", "agent_activity_events", "agent_activity_event_seq", "patchnode_entries", "memory_recall_records", "chat_rooms", "chat_room_members",
   "chat_room_messages", "chat_token_usage",
   /*
   FNXC:WorkspaceCoordination 2026-08-23-20:05:

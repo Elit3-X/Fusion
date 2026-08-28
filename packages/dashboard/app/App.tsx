@@ -149,6 +149,7 @@ const SecretsView = lazy(() => import("./components/SecretsView").then((m) => ({
 const CommandCenter = lazy(() => import("./components/command-center/CommandCenter").then((m) => ({ default: m.CommandCenter })));
 const DevServerView = lazy(() => import("./components/DevServerView").then((m) => ({ default: m.DevServerView })));
 const GoalsView = lazy(() => import("./components/GoalsView").then((m) => ({ default: m.GoalsView })));
+const PatchnodeView = lazy(() => import("./components/PatchnodeView").then((m) => ({ default: m.PatchnodeView })));
 const PullRequestView = lazy(() => import("./components/PullRequestView").then((m) => ({ default: m.PullRequestView })));
 /*
 FNXC:Navigation 2026-06-22-00:00:
@@ -192,6 +193,7 @@ function prefetchLazyViews() {
     void import("./components/command-center/CommandCenter");
     void import("./components/DevServerView");
     void import("./components/GoalsView");
+    void import("./components/PatchnodeView");
     void import("./components/PullRequestView");
   });
 }
@@ -1871,6 +1873,7 @@ function AppInner() {
     DocumentsView,
     EvalsView,
     GoalsView,
+    PatchnodeView,
     InsightsView,
     MemoryView,
     PullRequestView,

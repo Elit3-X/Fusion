@@ -129,6 +129,13 @@ export const taskSearchParams = Type.Object({
   limit: Type.Optional(Type.Number({ minimum: 1, maximum: 50, description: "Max results (default 20, max 50)" })),
 });
 
+export const patchnodeReadParams = Type.Object({
+  query: Type.Optional(Type.String({ description: "Search task IDs, titles, and completion summaries" })),
+  from: Type.Optional(Type.String({ description: "First UTC day, YYYY-MM-DD (inclusive)" })),
+  to: Type.Optional(Type.String({ description: "Last UTC day, YYYY-MM-DD (inclusive)" })),
+  limit: Type.Optional(Type.Number({ minimum: 1, description: "Max entries (default 20, max 50)" })),
+});
+
 export const acquireRepoWorktreeParams = Type.Object({
   repo: Type.String({
     description:
@@ -1855,6 +1862,46 @@ export function createTaskSearchTool(store: TaskStore): ToolDefinition {
       return {
         content: [{ type: "text" as const, text }],
         details: { count: filtered.length },
+      };
+    },
+  };
+}
+
+/* FNXC:PatchnodeChat 2026-08-28-12:16: Chat reads the same permanent, per-delivery ledger as the dashboard and never looks task rows up, so archived and deleted deliveries remain answerable. */
+export function createPatchnodeReadTool(store: TaskStore): ToolDefinition {
+  return {
+    name: "fn_patchnode_read",
+    label: "Read Patchnode",
+    description: "Read the permanent daily history of completed and reverted task deliveries.",
+    parameters: patchnodeReadParams,
+    execute: async (_id: string, params: Static<typeof patchnodeReadParams>) => {
+      const limit = Math.min(50, Math.max(1, Math.floor(params.limit ?? 20)));
+      const result = await store.listPatchnodeEntries({
+        ...(params.query?.trim() ? { query: params.query.trim() } : {}),
+        ...(params.from ? { from: params.from } : {}),
+        ...(params.to ? { to: params.to } : {}),
+        limit,
+      });
+      const days = fusionCore.groupPatchnodeEntriesByDay(result.entries);
+      if (days.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No Patchnode entries matched." }],
+          details: { dayCount: 0, entryCount: 0 },
+        };
+      }
+      const lines = days.flatMap((day) => [
+        `## ${day.day}`,
+        ...day.entries.map((entry) => {
+          const cancelled = entry.kind === "reverted" ? "CANCELLED — " : "";
+          const reverted = entry.kind === "completed" && entry.revertedAt
+            ? ` (reverted ${entry.revertedAt.slice(0, 10)})`
+            : "";
+          return `${cancelled}${entry.taskId} — ${entry.title}: ${entry.body}${reverted}`;
+        }),
+      ]);
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        details: { dayCount: days.length, entryCount: result.entries.length },
       };
     },
   };

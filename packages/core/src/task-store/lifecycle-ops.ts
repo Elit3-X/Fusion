@@ -75,6 +75,18 @@ export async function initImpl(store: TaskStore): Promise<void> {
     async store API (listTasks/updateTask), so it is PG-safe.
     */
     await adoptLegacyTaskRowsOnOpen(store);
+    /*
+    FNXC:PatchnodeLedger 2026-08-28-12:16:
+    Store-open reconciliation is a warn-degraded backlog convenience, not the live durability guarantee. Init runs once per process; completion writers capture in their own transactions, while the TTL-rearmed read path revisits surviving legacy evidence.
+    */
+    try {
+      await store.reconcilePatchnodeLedger({ force: true });
+    } catch (error) {
+      storeLog.warn("Patchnode reconciliation failed during backend init", {
+        phase: "init:patchnode-reconcile",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     // Lifecycle listeners are backend-agnostic: recordActivity() routes their
     // best-effort writes through the injected PostgreSQL data layer.
     store.setupActivityLogListeners();

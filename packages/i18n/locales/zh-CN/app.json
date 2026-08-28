@@ -4225,7 +4225,8 @@
     "terminal": "终端",
     "todos": "待办",
     "usage": "用量",
-    "workflows": "工作流"
+    "workflows": "工作流",
+    "patchnode": ""
   },
   "newTaskModal": {
     "addDependencies": "添加依赖项",
@@ -9808,5 +9809,23 @@
       "skipped": "",
       "pending": ""
     }
+  },
+  "patchnode": {
+    "cancelled": "",
+    "empty": "",
+    "entryCount_one": "",
+    "entryCount_other": "",
+    "error": "",
+    "loadMore": "",
+    "loading": "",
+    "loadingMore": "",
+    "noResults": "",
+    "retry": "",
+    "reverted": "",
+    "searchAriaLabel": "",
+    "searchPlaceholder": "",
+    "title": "",
+    "today": "",
+    "yesterday": ""
   }
 }

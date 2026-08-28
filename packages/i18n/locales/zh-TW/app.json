@@ -4225,7 +4225,8 @@
     "terminal": "終端機",
     "todos": "待辦",
     "usage": "用量",
-    "workflows": "工作流程"
+    "workflows": "工作流程",
+    "patchnode": ""
   },
   "newTaskModal": {
     "addDependencies": "新增相依性",
@@ -9808,5 +9809,23 @@
       "skipped": "",
       "pending": ""
     }
+  },
+  "patchnode": {
+    "cancelled": "",
+    "empty": "",
+    "entryCount_one": "",
+    "entryCount_other": "",
+    "error": "",
+    "loadMore": "",
+    "loading": "",
+    "loadingMore": "",
+    "noResults": "",
+    "retry": "",
+    "reverted": "",
+    "searchAriaLabel": "",
+    "searchPlaceholder": "",
+    "title": "",
+    "today": "",
+    "yesterday": ""
   }
 }

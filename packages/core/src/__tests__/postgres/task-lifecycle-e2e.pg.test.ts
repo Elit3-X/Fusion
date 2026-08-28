@@ -19,6 +19,7 @@ const pgTest = pgDescribe;
 pgTest("VAL-CROSS-001: End-to-end task lifecycle (PostgreSQL)", () => {
   const h: SharedPgTaskStoreHarness = createSharedPgTaskStoreTestHarness({
     prefix: "fusion_lifecycle_e2e",
+    projectId: "lifecycle-e2e-test",
   });
 
   beforeAll(h.beforeAll);

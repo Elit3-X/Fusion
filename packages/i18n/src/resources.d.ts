@@ -4307,6 +4307,7 @@ export default interface Resources {
       "more": "More",
       "moreSheetTitle": "Navigate",
       "noScriptsAddOne": "No scripts — add one…",
+      "patchnode": "Patchnode",
       "planning": "Planning",
       "planningNeedsInputAriaLabel": "Planning needs your input",
       "primaryNavAriaLabel": "Primary navigation",
@@ -4749,6 +4750,24 @@ export default interface Resources {
       "tabCliAutoDerve": "Local CLI (auto-derive)",
       "testFailed": "Test failed — see status above.",
       "unreachable": "{{reason}}"
+    },
+    "patchnode": {
+      "cancelled": "Cancelled",
+      "empty": "Completed work will appear here day by day.",
+      "entryCount_one": "{{count}} entry",
+      "entryCount_other": "{{count}} entries",
+      "error": "Patchnode could not be loaded.",
+      "loadMore": "Load more",
+      "loading": "Loading Patchnode…",
+      "loadingMore": "Loading…",
+      "noResults": "No deliveries match this search.",
+      "retry": "Retry",
+      "reverted": "Reverted",
+      "searchAriaLabel": "Search Patchnode",
+      "searchPlaceholder": "Search deliveries",
+      "title": "Patchnode",
+      "today": "Today",
+      "yesterday": "Yesterday"
     },
     "piExtensions": {
       "filterHint": "{{extensions}} ext, {{skills}} skill, {{prompts}} prompt, {{themes}} theme"

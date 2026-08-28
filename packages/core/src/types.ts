@@ -103,6 +103,13 @@ export {
   DEFAULT_TASK_PRIORITY,
 };
 export type { ThinkingLevel, Column, ColumnId, TaskPriority };
+export type {
+  PatchnodeEntryKind,
+  PatchnodeEntry,
+  PatchnodeDay,
+  PatchnodeFeed,
+  PatchnodeQuery,
+} from "./types/task/patchnode.js";
 
 import {
   MERGE_REQUEST_STATES,

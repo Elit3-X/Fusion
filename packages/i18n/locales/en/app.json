@@ -4218,6 +4218,7 @@
     "more": "More",
     "moreSheetTitle": "Navigate",
     "noScriptsAddOne": "No scripts — add one…",
+    "patchnode": "Patchnode",
     "planning": "Planning",
     "planningNeedsInputAriaLabel": "Planning needs your input",
     "primaryNavAriaLabel": "Primary navigation",
@@ -4707,6 +4708,24 @@
     "toggleExtension": "Toggle {{name}}",
     "updateFailed": "Failed to update extension: {{error}}",
     "updateSettingsFailed": "Failed to update settings: {{error}}"
+  },
+  "patchnode": {
+    "cancelled": "Cancelled",
+    "empty": "Completed work will appear here day by day.",
+    "entryCount_one": "{{count}} entry",
+    "entryCount_other": "{{count}} entries",
+    "error": "Patchnode could not be loaded.",
+    "loadMore": "Load more",
+    "loading": "Loading Patchnode…",
+    "loadingMore": "Loading…",
+    "noResults": "No deliveries match this search.",
+    "retry": "Retry",
+    "reverted": "Reverted",
+    "searchAriaLabel": "Search Patchnode",
+    "searchPlaceholder": "Search deliveries",
+    "title": "Patchnode",
+    "today": "Today",
+    "yesterday": "Yesterday"
   },
   "planning": {
     "additionalComments": "Additional comments (optional)",

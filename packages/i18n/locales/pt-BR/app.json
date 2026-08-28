@@ -4235,7 +4235,8 @@
     "terminal": "Terminal",
     "todos": "Pendências",
     "usage": "Uso",
-    "workflows": "Fluxos de trabalho"
+    "workflows": "Fluxos de trabalho",
+    "patchnode": ""
   },
   "newTaskModal": {
     "addDependencies": "Adicionar dependências",
@@ -9808,5 +9809,23 @@
       "skipped": "",
       "pending": ""
     }
+  },
+  "patchnode": {
+    "cancelled": "",
+    "empty": "",
+    "entryCount_one": "",
+    "entryCount_other": "",
+    "error": "",
+    "loadMore": "",
+    "loading": "",
+    "loadingMore": "",
+    "noResults": "",
+    "retry": "",
+    "reverted": "",
+    "searchAriaLabel": "",
+    "searchPlaceholder": "",
+    "title": "",
+    "today": "",
+    "yesterday": ""
   }
 }

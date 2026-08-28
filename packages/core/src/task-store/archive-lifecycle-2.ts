@@ -34,6 +34,7 @@ import {findLiveDependencyDependents, findLiveLineageChildren as findLiveLineage
 import { classifyLineageInvalidationOutcomeError, lineageEvidenceTargetVersionForTest, recordLineageInvalidationOutcome, reconcileClearedLineageChildren, resolveAndAssertLineageCandidatesUnchanged, runLineageInvalidation } from "../task-store/lineage-approval-invalidation.js";
 import { resolveProjectColumnsForRoles } from "../project-lane-vocabulary.js";
 import {archiveParentTaskWithLineageGate, findArchivedTaskEntry, deleteArchivedTaskEntry, restoreTaskFromArchive} from "../task-store/async/async-archive-lineage.js";
+import { capturePatchnodeCompletionInTransaction } from "../task-store/async/async-patchnode.js";
 import {getArchivedRowCount, listArchivedTaskEntriesPage} from "../async-stores/async-archive-db.js";
 import {disposeArchivedWorkspaceWorktrees, disposeArchivedWorktree, prepareArchivedWorkspaceWorktrees, releasePreparedWorkspaceArchiveDisposal} from "./archive-lifecycle.js";
 import {resolveArchiveLivenessWipLanes, TaskIsLiveError} from "../tasks/task-archive-liveness.js";
@@ -509,6 +510,8 @@ export async function archiveTaskBackendImpl(store: TaskStore, id: string, optio
     */
     const archiveLineageArchivedLanes = await resolveProjectColumnsForRoles(store, ["archived"])
       .catch(() => undefined);
+    const patchnodeCompleteColumns = await resolveProjectColumnsForRoles(store, ["complete"])
+      .catch(() => undefined);
     // Resolve configuration before the transaction; only its durable row verdict is authoritative.
     const livenessWipLanes = liveExecutionGuard === "refuse" ? await resolveArchiveLivenessWipLanes(store, id) : undefined;
     const archiveRun = async (context?: { candidateIds: string[]; promptByChildId: ReadonlyMap<string, string>; locksHeld: boolean; attempt: number }) => {
@@ -530,6 +533,13 @@ export async function archiveTaskBackendImpl(store: TaskStore, id: string, optio
             if (linkedFeature) {
               await recordGeneratedFixOperatorStop(tx, linkedFeature, "task-archive");
               await unlinkMissionFeatureFromTaskId(tx, linkedFeature.id);
+            }
+            /*
+            FNXC:PatchnodeLedger 2026-08-28-12:16:
+            This transactional capture covers deliveries that predate live Patchnode writers. Archive is the last boundary where such a task is still identifiable by its completion lane, so a ledger failure defers the archive rather than destroying the remaining evidence.
+            */
+            if (patchnodeCompleteColumns) {
+              await capturePatchnodeCompletionInTransaction(tx, projectPartition(layer.projectId), task, patchnodeCompleteColumns);
             }
           },
         });

@@ -46,6 +46,14 @@ See the [2026-07-14 PostgreSQL runtime cutover review](./postgres-migration-revi
 
 ## Soft-deleted tasks (FN-5105)
 
+### Patchnode ledger (FN-227)
+
+`project.patchnode_entries` is a permanent, project-scoped, append-only delivery ledger. It deliberately has no foreign key to `project.tasks`, no row-expiry job or size cap, and its feed query never joins or filters through task rows. Those deviations let captured titles and completion summaries remain readable after a task is soft-deleted, archived, and finally hard-deleted by archive cleanup.
+
+Both completion writers insert the entry inside the same transaction that persists the completion-lane move. The occurrence key is that delivery's `columnMovedAt`: the next move overwrites this scalar, changes the lane, and permits later summary edits, so a post-commit or best-effort capture could become unrecoverable immediately. The transactional insert therefore fails the move when it cannot commit; retrying an uncommitted move is safer than silently losing shipped history.
+
+Archive captures any missing legacy delivery inside its archive transaction before soft deletion. Archive cleanup consults the existing cold snapshot and captures before rewriting that snapshot or hard-deleting the task row; a capture failure leaves the archived row intact for retry. `reconcilePatchnodeLedger` is insert-only and re-arms every 15 minutes to backfill current completion rows, latest-only legacy revert markers, and archived rows whose cold snapshot preserves a completion `preArchiveColumn`. It is a backlog convenience, not the live guarantee. A delivery completed and superseded before Patchnode existed left no reliable lane, occurrence, or point-in-time summary evidence and is intentionally not fabricated.
+
 - User-initiated `TaskStore.deleteTask` is a **soft delete**: the task row stays in `tasks` and `deletedAt` is set.
 - Active task readers (`getTask`, `listTasks`, search, dependency scans, scheduler/watcher reads, mission task aggregations) must filter with `deletedAt IS NULL`.
 - Archived-task flows (`archiveTask`, archived cleanup/migration) hard-delete from the active `tasks` table after copying to PostgreSQL cold storage. Legacy `archive.db` files are import-only.

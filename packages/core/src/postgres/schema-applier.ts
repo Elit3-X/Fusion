@@ -83,7 +83,8 @@ touches no data; it must advance in the same change that ships a new migration f
 /* FNXC:WorkspaceContention 2026-08-24-03:34: origin/main owns released migration 0066 for chat memory focus, so FN-179's session-contention wait state moves to 0067 and the binary ceiling advances with it. */
 /* FNXC:ExternalBlock 2026-08-28-03:48: advance the schema ceiling so upgraded projects materialize the external-obstacle freeze before task reads begin. */
 /* FNXC:PlanApproval 2026-08-28-06:24: advance the ceiling with the per-task approval migration so task reads never precede its column. */
-export const SCHEMA_BASELINE_VERSION = "0070";
+/* FNXC:PatchnodeLedger 2026-08-28-12:16: the permanent ledger table must exist before TaskStore can commit a completion move atomically with its entry. */
+export const SCHEMA_BASELINE_VERSION = "0071";
 /** FNXC:SymbolLock 2026-07-20-10:00: upgrades need durable task declarations before admission resolves symbols. */
 export const TASK_DECLARED_SYMBOLS_VERSION = "0028";
 const INITIAL_SCHEMA_VERSION = "0000";
@@ -260,6 +261,8 @@ export const TASK_STEP_REPORTS_VERSION = "0068";
 export const TASK_EXTERNAL_BLOCK_VERSION = "0069";
 /** FNXC:PlanApproval 2026-08-28-06:24: upgraded projects persist the per-task approval opt-in under an immutable migration identity. */
 export const TASK_REQUIRE_PLAN_APPROVAL_VERSION = "0070";
+/** FNXC:PatchnodeLedger 2026-08-28-12:16: upgraded projects need the durable delivery ledger before any completion transaction runs. */
+export const PATCHNODE_ENTRIES_VERSION = "0071";
 
 /** FNXC:MemoryFocus 2026-08-13-15:57: explicit registration prevents the per-conversation memory-focus migration from being skipped. Renumbered to 0060 (FN-9037 took 0059), then 0061, then 0065 (2026-08-20) when the upstream FN-066..FN-094 batch claimed 0061-0064. */
 export const CHAT_SESSION_MEMORY_FOCUS_VERSION = "0066";
@@ -508,6 +511,7 @@ const SESSION_CONTENTION_WAIT_STATE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0067_
 const TASK_STEP_REPORTS_MIGRATION_PATH = join(MIGRATIONS_DIR, "0068_fn_208_task_step_reports.sql");
 const TASK_EXTERNAL_BLOCK_MIGRATION_PATH = join(MIGRATIONS_DIR, "0069_fn_209_task_external_block.sql");
 const TASK_REQUIRE_PLAN_APPROVAL_MIGRATION_PATH = join(MIGRATIONS_DIR, "0070_fn_212_task_require_plan_approval.sql");
+const PATCHNODE_ENTRIES_MIGRATION_PATH = join(MIGRATIONS_DIR, "0071_fn_227_patchnode_entries.sql");
 
 /**
  * Ensure the migration bookkeeping table exists. Lives in the public schema so
@@ -648,6 +652,7 @@ export async function applySchemaBaseline(
     const taskStepReportsAlreadyApplied = applied.includes(TASK_STEP_REPORTS_VERSION);
     const taskExternalBlockAlreadyApplied = applied.includes(TASK_EXTERNAL_BLOCK_VERSION);
     const taskRequirePlanApprovalAlreadyApplied = applied.includes(TASK_REQUIRE_PLAN_APPROVAL_VERSION);
+    const patchnodeEntriesAlreadyApplied = applied.includes(PATCHNODE_ENTRIES_VERSION);
     assertBinaryNotOlderThanDatabase(applied);
     let schemaChanged = false;
 
@@ -1519,6 +1524,15 @@ export async function applySchemaBaseline(
       const migrationSql = await readFile(TASK_REQUIRE_PLAN_APPROVAL_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${TASK_REQUIRE_PLAN_APPROVAL_VERSION}) ON CONFLICT (version) DO NOTHING`);
+      schemaChanged = true;
+    }
+    const patchnodeEntriesMissing = ((await tx.execute(sql`
+      SELECT to_regclass('project.patchnode_entries') IS NULL AS missing
+    `)) as unknown as Array<{ missing: boolean }>)[0]?.missing ?? true;
+    if (!patchnodeEntriesAlreadyApplied || patchnodeEntriesMissing) {
+      const migrationSql = await readFile(PATCHNODE_ENTRIES_MIGRATION_PATH, "utf8");
+      await tx.execute(sql.raw(migrationSql));
+      await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${PATCHNODE_ENTRIES_VERSION}) ON CONFLICT (version) DO NOTHING`);
       schemaChanged = true;
     }
     return { applied: schemaChanged, pluginHooksRun: pluginHooks.length };

@@ -160,6 +160,17 @@ import { updateTaskUnlockedImpl } from "./task-store/task-update.js";
 import { __setTaskActivityLogLimitsForTesting } from "./task-store/comments.js";
 import { declaresAnyLifecycleTrait, resolveReviewColumns, resolveTaskLifecycleColumns, type LifecycleColumns } from "./workflows/workflow-lifecycle-traits.js";
 import { resolveProjectColumnsForRoles } from "./project-lane-vocabulary.js";
+import {
+  appendPatchnodeEntry,
+  appendPatchnodeEntryInTransaction,
+  findLatestPatchnodeCompletionInTransaction,
+  markPatchnodeEntryRevertedInTransaction,
+  queryPatchnodeEntries,
+  reconcilePatchnodeFromLiveTasks,
+  type PatchnodeReconcileResult,
+} from "./task-store/async/async-patchnode.js";
+import { buildPatchnodeEntryId, buildPatchnodeEntryInput } from "./board/patchnode.js";
+import type { PatchnodeEntry, PatchnodeQuery } from "./types/task/patchnode.js";
 import { resolveWorkflowIrForTask } from "./workflows/workflow-ir-resolver.js";
 // FNXC:RuntimeBackendAsync 2026-06-24-10:15:
 // Async helper imports for backend-mode (AsyncDataLayer/PostgreSQL) delegation.
@@ -440,6 +451,8 @@ export function holdsRepairFileScopeLease(
   return lanes.review !== undefined && candidate.column === lanes.review && Boolean(candidate.worktree);
 }
 
+export const PATCHNODE_RECONCILE_TTL_MS = 15 * 60_000;
+
 export class TaskStore extends EventEmitter<TaskStoreEvents> {
   public static readonly ACTIVE_TASKS_WHERE = '"deletedAt" IS NULL';
   /**
@@ -552,6 +565,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   public _pluginWorkflowStepTemplates: Array<{ pluginId: string; template: WorkflowStepTemplate }> = [];
   public globalSettingsStore: GlobalSettingsStore;
   public donePauseBackfillDone = false;
+  private patchnodeReconcileMemo: { promise: Promise<PatchnodeReconcileResult>; startedAt: number } | null = null;
   public startupSlimListMemo = new Map<string, { expiresAt: number; promise: Promise<Task[]> }>();
   public static readonly STARTUP_SLIM_LIST_MEMO_TTL_MS = 2_500;
 
@@ -1072,8 +1086,85 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   public async atomicCreateTaskJson(dir: string, task: Task, operation: string): Promise<void> {
     return atomicCreateTaskJsonImpl(this, dir, task, operation);
   }
-  public async atomicWriteTaskJson(dir: string, task: Task): Promise<void> {
-    return atomicWriteTaskJsonImpl2(this, dir, task);
+  public async atomicWriteTaskJson(
+    dir: string,
+    task: Task,
+    options?: { withinTransaction?: (tx: DbTransaction) => Promise<void> },
+  ): Promise<void> {
+    return atomicWriteTaskJsonImpl2(this, dir, task, options);
+  }
+
+  async recordPatchnodeCompletion(task: Task, occurredAt: string): Promise<PatchnodeEntry | null> {
+    if (!this.asyncLayer) throw new Error("Patchnode requires an async data layer");
+    return appendPatchnodeEntry(this.asyncLayer, buildPatchnodeEntryInput(task, "completed", occurredAt));
+  }
+
+  /*
+  FNXC:PatchnodeRevertReconciliation 2026-08-28-22:17:
+  `pairWithDeliveryAtOrBefore` records a cancellation against the delivery that was in effect at `occurredAt` instead of the latest one. The revert route sets it when git reports the task is ALREADY reverted at HEAD: that retry cancelled nothing new, so pairing it with the newest delivery would mark a later re-delivery reverted and silently remove shipped work from the day it shipped on. A genuine new revert keeps latest-delivery pairing.
+  */
+  async recordPatchnodeRevert(
+    taskId: string,
+    input: { occurredAt: string; revertCommitSha?: string; pairWithDeliveryAtOrBefore?: boolean },
+  ): Promise<PatchnodeEntry | null> {
+    if (!this.asyncLayer?.projectId) throw new Error("Patchnode requires a project-scoped async data layer");
+    const layer = this.asyncLayer;
+    const task = await this.getTask(taskId);
+    return layer.transactionImmediate(async (tx) => {
+      const completion = await findLatestPatchnodeCompletionInTransaction(
+        tx,
+        layer.projectId!,
+        taskId,
+        input.pairWithDeliveryAtOrBefore ? { noLaterThan: input.occurredAt } : {},
+      );
+      const occurrenceKey = completion?.occurrenceKey ?? "none";
+      const base = buildPatchnodeEntryInput(task, "reverted", input.occurredAt);
+      const reverted = await appendPatchnodeEntryInTransaction(tx, layer.projectId!, {
+        ...base,
+        entryId: buildPatchnodeEntryId("reverted", taskId, occurrenceKey),
+        occurrenceKey,
+        revertsEntryId: completion?.entryId ?? null,
+        revertedCommitSha: input.revertCommitSha ?? null,
+      });
+      if (completion) {
+        await markPatchnodeEntryRevertedInTransaction(tx, layer.projectId!, completion.entryId, {
+          revertedAt: input.occurredAt,
+          revertedCommitSha: input.revertCommitSha,
+        });
+      }
+      return reverted;
+    });
+  }
+
+  async reconcilePatchnodeLedger(options: { force?: boolean } = {}): Promise<PatchnodeReconcileResult> {
+    if (!this.asyncLayer) throw new Error("Patchnode requires an async data layer");
+    const now = Date.now();
+    if (!options.force && this.patchnodeReconcileMemo && now - this.patchnodeReconcileMemo.startedAt < PATCHNODE_RECONCILE_TTL_MS) {
+      return this.patchnodeReconcileMemo.promise;
+    }
+    const promise = (async () => {
+      const completeColumns = await resolveProjectColumnsForRoles(this, ["complete"]);
+      return reconcilePatchnodeFromLiveTasks(this.asyncLayer!, completeColumns ?? new Set<string>());
+    })();
+    this.patchnodeReconcileMemo = { promise, startedAt: now };
+    try {
+      return await promise;
+    } catch (error) {
+      if (this.patchnodeReconcileMemo?.promise === promise) this.patchnodeReconcileMemo = null;
+      throw error;
+    }
+  }
+
+  async listPatchnodeEntries(query: PatchnodeQuery = {}): Promise<{ entries: PatchnodeEntry[]; totalEntries: number; hasMore: boolean }> {
+    if (!this.asyncLayer) throw new Error("Patchnode requires an async data layer");
+    try {
+      await this.reconcilePatchnodeLedger();
+    } catch (error) {
+      storeLog.warn("Patchnode reconciliation failed before feed read", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return queryPatchnodeEntries(this.asyncLayer, query);
   }
   public async atomicWriteTaskJsonWithAudit( dir: string, task: Task, auditInput?: RunAuditEventInput, planningInvalidation?: PlanningDependencyInvalidation, specPlanPrompt?: string, ): Promise<void> {
     return atomicWriteTaskJsonWithAuditImpl(this, dir, task, auditInput, planningInvalidation, specPlanPrompt);

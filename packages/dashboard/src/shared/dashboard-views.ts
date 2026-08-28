@@ -6,6 +6,7 @@ Dashboard view ids, English fallback labels, and translation keys have one sourc
 export const DASHBOARD_VIEW_IDS = [
   "board",
   "list",
+  "patchnode",
   "graph",
   "agents",
   "missions",
@@ -53,6 +54,7 @@ export interface DashboardViewMetadata {
 export const DASHBOARD_VIEWS: readonly DashboardViewMetadata[] = [
   { id: "board", label: "Board", labelKey: "nav.board" },
   { id: "list", label: "List", labelKey: "nav.list" },
+  { id: "patchnode", label: "Patchnode", labelKey: "nav.patchnode" },
   { id: "graph", label: "Graph" },
   { id: "agents", label: "Agents", labelKey: "nav.agents" },
   { id: "missions", label: "Missions", labelKey: "nav.missions" },

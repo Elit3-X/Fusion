@@ -4225,7 +4225,8 @@
     "terminal": "터미널",
     "todos": "할 일",
     "usage": "사용량",
-    "workflows": "워크플로"
+    "workflows": "워크플로",
+    "patchnode": ""
   },
   "newTaskModal": {
     "addDependencies": "의존성 추가",
@@ -9808,5 +9809,23 @@
       "skipped": "",
       "pending": ""
     }
+  },
+  "patchnode": {
+    "cancelled": "",
+    "empty": "",
+    "entryCount_one": "",
+    "entryCount_other": "",
+    "error": "",
+    "loadMore": "",
+    "loading": "",
+    "loadingMore": "",
+    "noResults": "",
+    "retry": "",
+    "reverted": "",
+    "searchAriaLabel": "",
+    "searchPlaceholder": "",
+    "title": "",
+    "today": "",
+    "yesterday": ""
   }
 }
