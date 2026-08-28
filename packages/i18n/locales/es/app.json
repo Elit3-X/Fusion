@@ -9782,7 +9782,8 @@
       "completionSummary": "",
       "stepReport": "",
       "merged": "",
-      "noOpMerge": ""
+      "noOpMerge": "",
+      "verdictNoNotes": ""
     },
     "meta": {
       "commit": "",

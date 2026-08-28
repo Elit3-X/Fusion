@@ -83,7 +83,9 @@ import {
 import { isWorkflowStepSkillDiscoverable, mergeAdditionalSkillPaths } from "./skill-path-helpers.js";
 import { createSeenSteeringIds } from "./task-predicates.js";
 import {
+  parseWorkflowStepNotesRepair,
   parseWorkflowStepOutput,
+  WORKFLOW_STEP_NOTES_REPAIR_PROMPT,
   type WorkflowStepOutcome,
 } from "./workflow-step-verdict.js";
 import { resolveDiffBaseRef } from "./worktree-git-refs.js";
@@ -99,6 +101,8 @@ import { buildGraphPlanReviewConvergenceContext, buildReviewConvergenceContext, 
 import { attachAgentUsageTelemetry, emitAgentSessionStart } from "../agents/agent-usage-telemetry.js";
 
 const execAsync = promisify(exec);
+
+export const WORKFLOW_STEP_NOTES_REPAIR_TIMEOUT_MS = 120_000;
 
 /** Find the current reusable review result for one node, scope generation, and exact input fingerprint. */
 export function findReusableReviewResult(
@@ -553,12 +557,13 @@ CRITICAL SCOPING RULES — read before doing anything else:
         task.id,
         `[pre-merge] ${workflowStep.name} reused the recorded result for unchanged review input ${reviewInputFingerprint}`,
       );
+      const reusedNotes = reusableReviewResult.notes?.trim() || reusableReviewResult.output?.trim() || "";
       return {
         success: effectiveVerdict !== "REVISE",
         revisionRequested: effectiveVerdict === "REVISE",
         output: reusableReviewResult.output,
         verdict: effectiveVerdict,
-        notes: reusableReviewResult.notes,
+        notes: reusedNotes,
         ...(reusableReviewResult.findings ? { findings: reusableReviewResult.findings } : {}),
         reviewInputFingerprint,
         ...(reviewedCommitSha ? { reviewedCommitSha } : {}),
@@ -630,8 +635,8 @@ CRITICAL SCOPING RULES — read before doing anything else:
   Rules:
   - Output exactly one trailing JSON object and stop.
   - verdict must be exactly APPROVE, APPROVE_WITH_NOTES, or REVISE.
-  - notes should be concise and actionable. Use an empty string when there are no notes.
-  - For out-of-scope fast-bail responses, use: {"verdict":"APPROVE","notes":"out of scope: no UI files changed"}
+  - notes MUST contain one to three non-empty sentences naming what was checked and why the verdict was reached. An empty notes string is a protocol violation.
+  - For out-of-scope fast-bail responses, use: {"verdict":"APPROVE","notes":"I checked the diff scope and found no UI file changes, so this review is out of scope."}
   - If you CANNOT SEE the change you were asked to review — the described files appear absent, or the scope you were given looks empty when work was expected — that is NOT an approval and NOT out-of-scope. Return REVISE and state plainly in notes what you looked for and where. Never describe that situation in prose alone: a response with no verdict cannot be acted on and is treated as a failed review.${reviewFindingsContract ? "\n  - Every finding MUST carry a `severity`. Put each blocking issue in `findings` — prose in `notes` alone does not block.\n  - Omit resolution (or use open) for work still needed; use resolved-in-review only for an issue you fixed in this session.\n  - supersededFindingIds may list only IDs from one named Prior Findings result that you re-verified no longer apply; include that result’s workflow step ID in supersededFindingSourceWorkflowStepId; never list your own findings." : ""}${blockingSeverityRule}
 
   If you cannot produce the object above for any reason, begin your entire response with the line REQUEST REVISION so it can still be read as a revision request. This is a degraded path, not an alternative: every review is expected to end with the JSON object.`
@@ -1106,20 +1111,71 @@ CRITICAL SCOPING RULES — read before doing anything else:
 
         // Completed within the timeout — let any post-completion errors surface.
         checkSessionError(session);
+
+        /*
+        FNXC:PlanReviewNoOp 2026-08-09-22:10:
+        Thread optionalGroupId so Plan Review CLOSE_NO_OP is accepted only for that group.
+        */
+        let parsed = requireVerdict
+          ? parseWorkflowStepOutput(output, { optionalGroupId })
+          : parseWorkflowStepOutput(output, { requireVerdict: false, optionalGroupId });
+
+        /*
+        FNXC:ReviewVerdictNotes 2026-08-28-21:23:
+        Repair a missing rationale as one bounded continuation on the already-live session: the verdict
+        is decided and the review context is loaded, while a second session would pay for a full review
+        and could destabilize that decision. This seam serves singular reviews, workspace Plan Review,
+        and each workspace repository Code Review, so the budget is one prompt per session, not per task.
+        Run before the token snapshot so repair usage remains task cost.
+        */
+        if (parsed.verdict && parsed.notesMissing && parsed.verdict !== "CLOSE_NO_OP") {
+          const repairStart = output.length;
+          const repairTimeoutMs = Math.min(timeoutMs, WORKFLOW_STEP_NOTES_REPAIR_TIMEOUT_MS);
+          let repairTimer: ReturnType<typeof setTimeout> | undefined;
+          let repairResult = "unavailable";
+          try {
+            const repairTimeout = new Promise<"timeout">((resolve) => {
+              repairTimer = setTimeout(() => resolve("timeout"), repairTimeoutMs);
+            });
+            const repairPrompt = promptWithFallback(session, WORKFLOW_STEP_NOTES_REPAIR_PROMPT(parsed.verdict));
+            const repairOutcome = await Promise.race([
+              repairPrompt.then(() => "completed" as const),
+              repairTimeout,
+            ]);
+            if (repairOutcome === "completed") {
+              const repairedNotes = parseWorkflowStepNotesRepair(output.slice(repairStart), parsed.verdict);
+              if (repairedNotes) {
+                const { notesMissing: _notesMissing, ...original } = parsed;
+                parsed = { ...original, output: repairedNotes, notes: repairedNotes };
+                repairResult = "repaired";
+              } else {
+                repairResult = "empty";
+              }
+            } else {
+              repairResult = "timed-out";
+            }
+          } catch {
+            repairResult = "failed-soft";
+          } finally {
+            if (repairTimer) clearTimeout(repairTimer);
+            try {
+              await deps.store.logEntry(
+                task.id,
+                `[pre-merge] Workflow step '${workflowStep.name}' requested missing verdict notes`,
+                repairResult,
+              );
+            } catch {
+              // FNXC:ReviewVerdictNotes 2026-08-28-21:23: Best-effort repair telemetry cannot fail the review step.
+            }
+          }
+        }
+
         await accumulateSessionTokenUsage(deps.store, task.id, session, {
             agentId: task.assignedAgentId ?? undefined,
             role: "executor",
           });
         session.dispose();
         await agentLogger.flush();
-
-        /*
-        FNXC:PlanReviewNoOp 2026-08-09-22:10:
-        Thread optionalGroupId so Plan Review CLOSE_NO_OP is accepted only for that group.
-        */
-        const parsed = requireVerdict
-          ? parseWorkflowStepOutput(output, { optionalGroupId })
-          : parseWorkflowStepOutput(output, { requireVerdict: false, optionalGroupId });
         if (parsed.verdict) {
           /*
            * FNXC:ReviewSeverityGate 2026-08-10-17:33:
@@ -1158,6 +1214,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
             output: parsed.output,
             verdict: effectiveVerdict,
             notes: parsed.notes,
+            ...(parsed.notesMissing ? { notesMissing: true } : {}),
             ...(parsed.findings ? { findings: parsed.findings } : {}),
             ...(reviewInputFingerprint ? { reviewInputFingerprint } : {}),
             ...(reviewedCommitSha ? { reviewedCommitSha } : {}),

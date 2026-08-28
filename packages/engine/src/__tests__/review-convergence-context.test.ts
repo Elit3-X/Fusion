@@ -41,7 +41,7 @@ describe("FN-149 review convergence context", () => {
     mockedCreateFnAgent.mockImplementation(async (options: any) => {
       systemPrompt = options.systemPrompt;
       const listeners: Array<(event: any) => void> = [];
-      return { session: { state: {}, subscribe: (listener: (event: any) => void) => { listeners.push(listener); return () => {}; }, prompt: async () => listeners.forEach((listener) => listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: '{"verdict":"APPROVE","notes":""}' } })), dispose: vi.fn() } };
+      return { session: { state: {}, subscribe: (listener: (event: any) => void) => { listeners.push(listener); return () => {}; }, prompt: async () => listeners.forEach((listener) => listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: '{"verdict":"APPROVE","notes":"Reviewed the scoped work and found it correct."}' } })), dispose: vi.fn() } };
     });
     const executor = new TaskExecutor(store as any, "/tmp/test");
     await (executor as any).executeWorkflowStep(stale, {
@@ -85,7 +85,7 @@ describe("FN-149 review convergence context", () => {
     mockedCreateFnAgent.mockImplementation(async (options: any) => {
       systemPrompt = options.systemPrompt;
       const listeners: Array<(event: any) => void> = [];
-      return { session: { state: {}, subscribe: (listener: (event: any) => void) => { listeners.push(listener); return () => {}; }, prompt: async () => listeners.forEach((listener) => listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: '{"verdict":"APPROVE","notes":""}' } })), dispose: vi.fn() } };
+      return { session: { state: {}, subscribe: (listener: (event: any) => void) => { listeners.push(listener); return () => {}; }, prompt: async () => listeners.forEach((listener) => listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: '{"verdict":"APPROVE","notes":"Reviewed the scoped work and found it correct."}' } })), dispose: vi.fn() } };
     });
     const executor = new TaskExecutor(store as any, "/tmp/test");
 

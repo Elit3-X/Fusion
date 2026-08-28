@@ -1199,7 +1199,17 @@ export class WorkflowGraphExecutor {
           if (notRunReason && stepStatus === "skipped") {
             this.deps.logTaskEntry?.(`${logPrefix} Workflow step not executed: ${groupName}`, `${notRunReason}${stepOutput ? `\n${stepOutput}` : ""}`);
           } else if (stepStatus === "passed") {
-            this.deps.logTaskEntry?.(`${logPrefix} Workflow step completed: ${groupName}`);
+            /*
+            FNXC:ReviewVerdictNotes 2026-08-28-21:23:
+            Preserve the passed review rationale in the completion log detail. Both log-based Plan
+            Review reconstruction paths can then rebuild a result with its note instead of a bare verdict.
+            */
+            const completionDetail = stepNotes || stepOutput;
+            if (completionDetail) {
+              this.deps.logTaskEntry?.(`${logPrefix} Workflow step completed: ${groupName}`, completionDetail);
+            } else {
+              this.deps.logTaskEntry?.(`${logPrefix} Workflow step completed: ${groupName}`);
+            }
           } else if (stepStatus === "advisory_failure") {
             this.deps.logTaskEntry?.(`${logPrefix} Workflow step requested revision: ${groupName}`, stepOutput);
             this.deps.logTaskEntry?.(`${logPrefix} Advisory workflow step failed: ${groupName}`);

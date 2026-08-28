@@ -38,6 +38,11 @@ function i18n(key: string, defaultValue: string, params?: Record<string, string 
   return { kind: "i18n", key, defaultValue, ...(params ? { params } : {}) };
 }
 
+/*
+FNXC:TaskHistory 2026-08-28-21:23:
+History projection preserves reviewer-authored output, notes, and findings only. It returns undefined
+when none exist so the rendering component can choose verdict-aware localized fallback copy.
+*/
 function resultBody(result: WorkflowStepResult): string | undefined {
   const parts = workflowResultBodyParts(result.output, result.notes);
   if (parts.length > 0) return parts.join("\n\n");

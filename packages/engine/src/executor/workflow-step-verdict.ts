@@ -12,6 +12,83 @@ import { normalizeSupersededFindingIds, normalizeWorkflowReviewFindings, PLAN_RE
 /** Machine-readable workflow-step verdicts, including Plan Review CLOSE_NO_OP. */
 export type WorkflowStepVerdict = "APPROVE" | "APPROVE_WITH_NOTES" | "REVISE" | "CLOSE_NO_OP";
 
+export const MAX_DERIVED_WORKFLOW_STEP_NOTES_CHARS = 2_000;
+
+export const WORKFLOW_STEP_NOTES_REPAIR_PROMPT = (verdict: WorkflowStepVerdict): string => `Your previous answer carried verdict ${verdict} with an empty notes field. Do not re-review the work and do not change the verdict. Reply with exactly one JSON object of the form {"notes":"..."} containing one to three sentences that name what you checked and why the verdict was reached. Use no tools.`;
+
+function boundWorkflowStepNotes(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length <= MAX_DERIVED_WORKFLOW_STEP_NOTES_CHARS) return trimmed;
+  const prefix = trimmed.slice(0, MAX_DERIVED_WORKFLOW_STEP_NOTES_CHARS - 1);
+  const lastWhitespace = prefix.search(/\s+\S*$/);
+  return `${(lastWhitespace > 0 ? prefix.slice(0, lastWhitespace) : prefix).trimEnd()}…`;
+}
+
+function carriesStructuredVerdict(candidate: string): boolean {
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    return Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.hasOwn(parsed, "verdict"));
+  } catch {
+    return false;
+  }
+}
+
+/** Remove machine-readable verdict payloads while retaining the reviewer's surrounding prose. */
+export function stripStructuredVerdictPayload(rawOutput: string): string {
+  let remainder = rawOutput.replace(/```(?:json)?\s*([\s\S]*?)```/gi, (block, contents: string) => (
+    carriesStructuredVerdict(contents.trim()) ? "" : block
+  ));
+  const verdictObjects = extractJsonObjectCandidates(remainder)
+    .filter(carriesStructuredVerdict)
+    .sort((left, right) => right.length - left.length);
+  for (const candidate of verdictObjects) remainder = remainder.split(candidate).join("");
+  return remainder.trim();
+}
+
+/** Derive bounded human-readable notes only from text the reviewer already authored. */
+export function deriveWorkflowStepNotes(input: {
+  rawOutput: string;
+  verdict: WorkflowStepVerdict;
+  notes: string;
+  findings?: WorkflowReviewFinding[];
+}): string | undefined {
+  const explicit = boundWorkflowStepNotes(input.notes);
+  if (explicit) return explicit;
+  if (input.verdict === "CLOSE_NO_OP") return undefined;
+  const prose = boundWorkflowStepNotes(stripStructuredVerdictPayload(input.rawOutput));
+  if (prose) return prose;
+  const findingSummary = input.findings?.map((finding) => `- ${finding.title.trim()}`).filter((line) => line !== "- ").join("\n");
+  return findingSummary ? boundWorkflowStepNotes(findingSummary) : undefined;
+}
+
+/** Read one same-session repair reply without allowing it to replace the decided verdict. */
+export function parseWorkflowStepNotesRepair(rawOutput: string, verdict: WorkflowStepVerdict): string | undefined {
+  const candidates = extractJsonObjectCandidates(rawOutput);
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    try {
+      const parsed = JSON.parse(candidates[index]) as { notes?: unknown };
+      if (typeof parsed.notes !== "string") continue;
+      const notes = deriveWorkflowStepNotes({ rawOutput: "", verdict, notes: parsed.notes });
+      if (notes) return notes;
+    } catch {
+      // Continue to prose recovery.
+    }
+  }
+
+  let prose = stripStructuredVerdictPayload(rawOutput);
+  const noteObjects = extractJsonObjectCandidates(prose).filter((candidate) => {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      return Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.hasOwn(parsed, "notes"));
+    } catch {
+      return false;
+    }
+  }).sort((left, right) => right.length - left.length);
+  for (const candidate of noteObjects) prose = prose.split(candidate).join("");
+  return deriveWorkflowStepNotes({ rawOutput: prose, verdict, notes: "" });
+}
+
 /**
  * (U2 / KTD-2) Fusion workflow-step conventions preamble, prepended to a skill
  * step's prompt at the skill-prompt build path (runGraphCustomNode). It teaches
@@ -58,6 +135,12 @@ export interface WorkflowStepOutcome {
   verdict?: WorkflowStepVerdict;
   /** Notes extracted from structured JSON output (distinct from raw output). */
   notes?: string;
+  /**
+   * FNXC:ReviewVerdictNotes 2026-08-28-21:23:
+   * A verdict-carrying result must carry human-readable reviewer text. This transient flag asks the
+   * live-session execution seam for one bounded note repair and is never persisted as task state.
+   */
+  notesMissing?: boolean;
   /** Normalized independently actionable feedback from a review-kind node. */
   findings?: WorkflowReviewFinding[];
   /** Structured workspace review outcomes for durable node-result persistence. */
@@ -208,6 +291,7 @@ export function parseWorkflowStepOutput(rawOutput: string, options: { requireVer
   supersededFindingSourceWorkflowStepId?: string;
   supersededFindingIds?: string[];
   malformed?: boolean;
+  notesMissing?: boolean;
 } {
   const trimmed = rawOutput.trim();
   const parsed = parseWorkflowStepVerdict(trimmed, options);
@@ -216,10 +300,26 @@ export function parseWorkflowStepOutput(rawOutput: string, options: { requireVer
     FNXC:WorkflowResultText 2026-08-28-13:46:
     Structured verdict output deliberately mirrors parsed notes so downstream task logs and result consumers receive human-readable text instead of raw JSON. This makes output and notes identical by contract; presentation surfaces must collapse that pair rather than changing the persisted producer shape.
     */
-    return {
-      output: parsed.notes || "",
+    if (parsed.verdict === "CLOSE_NO_OP") {
+      return {
+        output: parsed.notes || "",
+        verdict: parsed.verdict,
+        notes: parsed.notes,
+        ...(parsed.findings ? { findings: parsed.findings } : {}),
+        ...(parsed.supersededFindingSourceWorkflowStepId && parsed.supersededFindingIds ? { supersededFindingSourceWorkflowStepId: parsed.supersededFindingSourceWorkflowStepId, supersededFindingIds: parsed.supersededFindingIds } : {}),
+      };
+    }
+    const notes = deriveWorkflowStepNotes({
+      rawOutput: trimmed,
       verdict: parsed.verdict,
       notes: parsed.notes,
+      findings: parsed.findings,
+    });
+    return {
+      output: notes ?? "",
+      verdict: parsed.verdict,
+      notes: notes ?? "",
+      ...(!notes ? { notesMissing: true } : {}),
       ...(parsed.findings ? { findings: parsed.findings } : {}),
       ...(parsed.supersededFindingSourceWorkflowStepId && parsed.supersededFindingIds ? { supersededFindingSourceWorkflowStepId: parsed.supersededFindingSourceWorkflowStepId, supersededFindingIds: parsed.supersededFindingIds } : {}),
     };
@@ -227,10 +327,11 @@ export function parseWorkflowStepOutput(rawOutput: string, options: { requireVer
 
   const inferred = inferWorkflowStepVerdictFromProse(trimmed, { suppressLenientApprovalForStructuredVerdict: textHasStructuredVerdictKey(trimmed) });
   if (inferred) {
+    const notes = inferred.notes || trimmed;
     return {
-      output: inferred.notes || trimmed,
+      output: notes,
       verdict: inferred.verdict,
-      notes: inferred.notes,
+      notes,
     };
   }
 

@@ -18,7 +18,7 @@ type CapturedSession = {
   fallbackThinkingLevel?: string;
 };
 
-function captureSession(output = '{"verdict":"APPROVE","notes":""}'): { last?: CapturedSession } {
+function captureSession(output = '{"verdict":"APPROVE","notes":"Reviewed the scoped work and found it correct."}'): { last?: CapturedSession } {
   const holder: { last?: CapturedSession } = {};
   mockedCreateFnAgent.mockImplementation(async (opts: any) => {
     holder.last = {

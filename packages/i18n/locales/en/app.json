@@ -8445,6 +8445,7 @@
     },
     "entry": {
       "noBody": "No report body was recorded.",
+      "verdictNoNotes": "The reviewer recorded no notes for this verdict.",
       "completionSummary": "Completion summary",
       "stepReport": "Step {{index}}: {{name}}",
       "merged": "Merged",

@@ -83,8 +83,15 @@ export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTa
                         <div className="task-history-body markdown-body">
                           {entry.body?.trim() ? (
                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{entry.body}</ReactMarkdown>
+                          ) : entry.verdict ? (
+                            /*
+                            FNXC:TaskHistory 2026-08-28-21:23:
+                            A legacy review outcome with no captured rationale must say that the reviewer
+                            recorded no notes rather than imply that the entire report record is missing.
+                            */
+                            <p data-testid="task-history-entry-no-notes">{t("taskHistory.entry.verdictNoNotes", "The reviewer recorded no notes for this verdict.")}</p>
                           ) : (
-                            <p>{t("taskHistory.entry.noBody", "No report body was recorded.")}</p>
+                            <p data-testid="task-history-entry-no-body">{t("taskHistory.entry.noBody", "No report body was recorded.")}</p>
                           )}
                         </div>
                       </article>

@@ -23,7 +23,7 @@ type CapturedSession = {
   customTools?: Array<{ name?: string }>;
 };
 
-function captureSession(output = '{"verdict":"APPROVE","notes":""}') {
+function captureSession(output = '{"verdict":"APPROVE","notes":"Reviewed the scoped work and found it correct."}') {
   const holder: { last?: CapturedSession } = {};
   mockedCreateFnAgent.mockImplementation(async (opts: any) => {
     holder.last = { skillSelection: opts.skillSelection, tools: opts.tools, systemPrompt: opts.systemPrompt, customTools: opts.customTools };

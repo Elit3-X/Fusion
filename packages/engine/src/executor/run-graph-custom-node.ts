@@ -105,12 +105,25 @@ export function resolveGraphNodeSessionBoundary(input: {
 FNXC:WorkspaceReviewFindings 2026-08-27-12:05:
 FN-201 requires the workspace callback to preserve structured reviewer findings. Dropping them here
 made a workspace REVISE unremediable even though the per-repository reviewer named actionable work.
+
+FNXC:ReviewVerdictNotes 2026-08-28-21:23:
+Workspace prompt reviews inherit the one-repair-per-session contract from executeWorkflowStep; do not
+add a second repair here. Preserve each repaired note before aggregate composition. If that repair
+fails soft, or an exit-zero script review has no stdout and no session to repair, deterministic engine
+narration prevents an empty repository section. This follows the lane's existing "No changes — not
+reviewed." and "reviewer error" narration rather than fabricating reviewer prose.
 */
+export const WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE = "The repository reviewer recorded no notes for this verdict.";
+
 export function toWorkspaceRepoReviewResult(repoOutcome: WorkflowStepOutcome): ReviewResult {
+  const reviewText = repoOutcome.notes?.trim()
+    || repoOutcome.output?.trim()
+    || repoOutcome.error?.trim()
+    || WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE;
   return {
     verdict: (repoOutcome.verdict ?? (repoOutcome.success ? "APPROVE" : "UNAVAILABLE")) as ReviewResult["verdict"],
-    review: repoOutcome.output ?? repoOutcome.error ?? "",
-    summary: repoOutcome.output ?? repoOutcome.error ?? "",
+    review: reviewText,
+    summary: reviewText,
     retryable: !repoOutcome.success,
     ...(repoOutcome.findings ? { findings: repoOutcome.findings } : {}),
   };
@@ -121,6 +134,7 @@ export function buildWorkspaceReviewOutcome(aggregate: ReviewResult, options: { 
     success: isApprovalFamilyVerdict(aggregate.verdict),
     verdict: aggregate.verdict as WorkflowStepOutcome["verdict"],
     output: aggregate.review,
+    ...(aggregate.review.trim() ? { notes: aggregate.review } : {}),
     repositoryReviewOutcomes: aggregate.repositoryReviewOutcomes,
     repositoryScopeRevision: aggregate.repositoryScopeRevision,
     ...(!options.superseded && aggregate.findings ? { findings: aggregate.findings } : {}),

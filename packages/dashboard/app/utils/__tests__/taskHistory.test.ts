@@ -79,14 +79,15 @@ describe("buildTaskHistory", () => {
     expect(entries[0]?.body).toBe("Execution output\n\nReviewer notes");
   });
 
-  it("retains bodyless workflow results with their status", () => {
-    const entries = stageEntries(buildTaskHistory(task(), [result({ output: " ", notes: " " })]), "code");
+  it("retains a bodyless verdict result for the component-owned fallback", () => {
+    const entries = stageEntries(buildTaskHistory(task(), [result({ verdict: "APPROVE", output: " ", notes: " " })]), "review");
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ status: "passed", body: undefined });
+    expect(entries[0]).toMatchObject({ status: "passed", verdict: "APPROVE", body: undefined });
   });
 
-  it("uses findings when output and notes are blank", () => {
+  it("uses findings before the component-owned verdict fallback", () => {
     const entries = stageEntries(buildTaskHistory(task(), [result({
+      verdict: "REVISE",
       output: " ",
       notes: " ",
       findings: [{ id: "finding-1", title: "Scope gap", body: "Add the missing case." }],

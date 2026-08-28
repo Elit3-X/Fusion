@@ -420,6 +420,37 @@ describe("WorkflowGraphExecutor optional-group", () => {
     }
   });
 
+  it("records and logs passed optional-group review notes without fabricating legacy detail", async () => {
+    const note = "Reviewed the scoped implementation and focused tests; both satisfy the task.";
+    const records: WorkflowStepResult[] = [];
+    const logs: Array<[string, string | undefined]> = [];
+    const executor = new WorkflowGraphExecutor({
+      handlers: {
+        prompt: async (node) => node.id === "review"
+          ? { outcome: "success", value: "APPROVE", contextPatch: { output: note, notes: note } }
+          : { outcome: "success" },
+      },
+      recordWorkflowStepResult: async (_taskId, result) => { records.push(result); },
+      logTaskEntry: (summary, detail) => { logs.push([summary, detail]); },
+    });
+    await executor.run(taskWith(["group"]), settingsOn(), reviseGroupIr());
+
+    expect(records.at(-1)).toMatchObject({ status: "passed", verdict: "APPROVE", output: note, notes: note });
+    expect(logs).toContainEqual(["[pre-merge] Workflow step completed: Code Review", note]);
+
+    const legacyLogs: Array<[string, string | undefined]> = [];
+    const legacyRecords: WorkflowStepResult[] = [];
+    const legacyExecutor = new WorkflowGraphExecutor({
+      handlers: { prompt: async (node) => node.id === "review" ? { outcome: "success", value: "APPROVE" } : { outcome: "success" } },
+      recordWorkflowStepResult: async (_taskId, result) => { legacyRecords.push(result); },
+      logTaskEntry: (summary, detail) => { legacyLogs.push([summary, detail]); },
+    });
+    await legacyExecutor.run(taskWith(["group"]), settingsOn(), reviseGroupIr());
+
+    expect(legacyRecords.at(-1)).not.toHaveProperty("notes");
+    expect(legacyLogs).toContainEqual(["[pre-merge] Workflow step completed: Code Review", undefined]);
+  });
+
   it("requests fixes for pre-merge gate REVISE but not post-merge, non-REVISE, or fast-mode skipped outcomes", async () => {
     const requestFix = vi.fn(async () => true);
     const gateExecutor = new WorkflowGraphExecutor({

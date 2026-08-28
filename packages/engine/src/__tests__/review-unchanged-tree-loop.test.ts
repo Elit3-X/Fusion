@@ -144,7 +144,7 @@ describe("unchanged review input reuse", () => {
     const executor = new TaskExecutor(store as any, "/tmp/test");
     let prompt = "# Approved plan\n\nVersion one.\n";
     vi.spyOn(executor as any, "readTaskArtifact").mockImplementation(async () => prompt);
-    installReviewer('{"verdict":"APPROVE","notes":""}');
+    installReviewer('{"verdict":"APPROVE","notes":"Reviewed the scoped work and found it correct."}');
 
     const first = await (executor as any).executeWorkflowStep(subject, planReviewStep(), subject.worktree, {});
     await persistResult(store, subject, first);
@@ -170,7 +170,7 @@ describe("unchanged review input reuse", () => {
     store.getTask.mockImplementation(async () => subject);
     const executor = new TaskExecutor(store as any, worktree);
     vi.spyOn(executor as any, "readTaskArtifact").mockResolvedValue("# Approved plan\n\nReview the implementation.\n");
-    installReviewer('{"verdict":"APPROVE","notes":""}');
+    installReviewer('{"verdict":"APPROVE","notes":"Reviewed the scoped work and found it correct."}');
 
     const first = await (executor as any).executeWorkflowStep(subject, codeReviewStep(), worktree, {});
     expect(first.reviewInputFingerprint).toBeTypeOf("string");

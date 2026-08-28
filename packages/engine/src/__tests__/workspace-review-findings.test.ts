@@ -7,6 +7,7 @@ import {
   buildWorkspaceReviewOutcome,
   preserveOutcomeFindingsFromReviewOutput,
   toWorkspaceRepoReviewResult,
+  WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE,
 } from "../executor/run-graph-custom-node.js";
 import { qualifyRepositoryFindings, reviewWorkspacePerRepo } from "../executor/workspace-review-per-repo.js";
 import { reviewInputSignature } from "../executor/request-pre-merge-optional-step-fix.js";
@@ -69,6 +70,31 @@ describe("workspace Code Review findings", () => {
       review: "reviewer unavailable",
       summary: "reviewer unavailable",
       retryable: true,
+    });
+  });
+
+  it("preserves repository notes and prefers them over mirrored output", () => {
+    expect(toWorkspaceRepoReviewResult({ success: true, verdict: "APPROVE", output: "older output", notes: "review rationale" })).toEqual({
+      verdict: "APPROVE",
+      review: "review rationale",
+      summary: "review rationale",
+      retryable: false,
+    });
+    expect(toWorkspaceRepoReviewResult({ success: true, verdict: "APPROVE", output: "", notes: "review rationale" })).toMatchObject({
+      review: "review rationale",
+      summary: "review rationale",
+    });
+  });
+
+  it.each([
+    ["prompt-shaped", { success: true, verdict: "APPROVE" as const }],
+    ["exit-zero script-shaped", { success: true }],
+  ])("uses deterministic narration for a note-less %s outcome", (_shape, outcome) => {
+    expect(toWorkspaceRepoReviewResult(outcome)).toEqual({
+      verdict: "APPROVE",
+      review: WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE,
+      summary: WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE,
+      retryable: false,
     });
   });
 
@@ -189,21 +215,35 @@ describe("workspace Code Review findings", () => {
     expect(rejectedTask.repositoryScope?.reviewEvidence).toBeUndefined();
   });
 
-  it("carries qualified aggregate findings into the workspace node outcome", () => {
+  it("carries qualified aggregate findings and narration into the workspace node outcome", () => {
     const findings = [{ id: "repo-a:finding-1", title: "Title", body: "Body", filePath: "repo-a/src/x.ts" }];
-    expect(buildWorkspaceReviewOutcome({
+    const outcome = buildWorkspaceReviewOutcome({
       verdict: "REVISE",
       review: "review",
       summary: "review",
       findings,
       repositoryReviewOutcomes: [],
       repositoryScopeRevision: 1,
-    })).toMatchObject({
+    });
+    expect(outcome).toMatchObject({
       success: false,
       verdict: "REVISE",
+      output: "review",
+      notes: "review",
       findings,
       repositoryScopeRevision: 1,
     });
+    expect(outcome).not.toHaveProperty("notesMissing");
+  });
+
+  it("keeps superseded aggregate narration as notes", () => {
+    const outcome = buildWorkspaceReviewOutcome({
+      verdict: "UNAVAILABLE",
+      review: "scope changed while review was running",
+      summary: "scope changed while review was running",
+    }, { superseded: true });
+    expect(outcome.notes).toBe("scope changed while review was running");
+    expect(outcome).not.toHaveProperty("notesMissing");
   });
 
   it("keeps structured workspace findings instead of reparsing concatenated review prose", () => {

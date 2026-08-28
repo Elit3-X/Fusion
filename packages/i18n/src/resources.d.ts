@@ -8781,7 +8781,8 @@ export default interface Resources {
         "merged": "Merged",
         "noBody": "No report body was recorded.",
         "noOpMerge": "No-op merge",
-        "stepReport": "Step {{index}}: {{name}}"
+        "stepReport": "Step {{index}}: {{name}}",
+        "verdictNoNotes": "The reviewer recorded no notes for this verdict."
       },
       "loading": "Loading history…",
       "meta": {

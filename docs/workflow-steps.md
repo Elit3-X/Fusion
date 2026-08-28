@@ -625,7 +625,7 @@ Use a JSON object with this schema:
 ```
 
 - Valid `verdict` values are exactly: `APPROVE`, `APPROVE_WITH_NOTES`, `REVISE`.
-- `notes` is optional and defaults to `""` when missing or non-string.
+- `notes` is required and must contain a short rationale naming what was checked and why the verdict was reached. When a structured verdict leaves it blank, Fusion first recovers the reviewer's surrounding prose, then a bounded list of its finding titles; if neither exists, the live session receives one bounded, verdict-preserving request for notes.
 - The parser checks fenced and inline JSON candidates, and the **last valid candidate wins**. Inline scanning keeps every balanced object (including nested objects) and is string-aware. If that scan detects desynchronization from arbitrary prose (an unpaired brace, quote, or stray close), it also recovers recent full JSON lines and `JSON.parse`-arbitrated brace slices across a generous trailing window. Fairly allocated close/open-anchor budgets preserve payloads with braces or escaped quotes in strings, many findings, and brace-bearing prose after the payload; recovery is based on scanner desync, not whether the payload happens to be near the end.
 
 Accepted shapes:
@@ -651,7 +651,7 @@ Legacy prose is still supported when structured JSON is missing. A visible but u
 - Output beginning with `REQUEST REVISION` (case-insensitive) maps to `REVISE`.
   - Remaining prose becomes `notes`.
   - If nothing follows, notes default to `"Revision requested"`.
-- Output containing one of these phrases maps to `APPROVE` with empty notes: `approve`, `approved`, `looks good`, `no issues`, `out of scope`.
+- Output containing one of these phrases maps to `APPROVE`, and the full reviewer-authored prose becomes the note: `approve`, `approved`, `looks good`, `no issues`, `out of scope`.
 
 For new workflow step prompts, prefer the structured JSON contract.
 
@@ -681,8 +681,8 @@ Recommended (structured JSON, prompt-mode):
 Also valid for approvals:
 
 ```json
-{"verdict":"APPROVE","notes":""}
-{"verdict":"APPROVE_WITH_NOTES","notes":"Optional non-blocking feedback"}
+{"verdict":"APPROVE","notes":"Reviewed the scoped implementation and targeted verification; both satisfy the acceptance criteria."}
+{"verdict":"APPROVE_WITH_NOTES","notes":"The implementation is correct; the non-blocking follow-up is described below."}
 ```
 
 Legacy fallback (still supported via prose inference):
@@ -693,7 +693,7 @@ REQUEST REVISION
 [Clear, actionable description of what needs to be fixed]
 ```
 
-The revision block replaces any prior revision instructions (no accumulation).
+The revision block replaces any prior revision instructions (no accumulation). Persisted workflow-step results mirror the final human-readable rationale into both `output` and `notes`; workspace review aggregates preserve each repository's rationale in their combined narrative.
 
 By default this split-and-fork behavior is enabled through the project setting `workflowRevisionForkOnScopeMismatch`. Set it to `false` to restore the legacy behavior that appends all workflow revision feedback to the original task even when it references files outside the declared File Scope.
 
@@ -832,7 +832,7 @@ FNXC:WorkflowStepResults 2026-06-26-15:00:
 Results now live on `task.workflowStepResults` (written by the graph executor, keyed by optional-group node id). The persisted `status` union is pending/passed/failed/advisory_failure/skipped; the UI derives a `running` display state from a `pending` entry with `startedAt` and no `completedAt`.
 -->
 
-Gate results are recorded on the task's **`workflowStepResults`** field (`WorkflowStepResult[]`), written by the graph executor and keyed by the optional-group node id. Each entry carries `status`, optional `verdict`, `notes`, `output`, and `phase`. The unified progress bar and the Workflow tab read this field directly.
+Gate results are recorded on the task's **`workflowStepResults`** field (`WorkflowStepResult[]`), written by the graph executor and keyed by the optional-group node id. Each entry carries `status`, optional `verdict`, `notes`, `output`, and `phase`. Verdict-carrying prompt reviews persist a non-empty rationale mirrored in `notes` and `output` whenever the reviewer supplies or repairs one; legacy rows may still lack both. The unified progress bar and the Workflow tab read this field directly.
 
 <!--
 FNXC:WorkflowStepResults 2026-07-09-01:10:
@@ -889,8 +889,8 @@ Prompt-mode workflow agents should emit a trailing JSON object:
 
 `{"verdict":"APPROVE|APPROVE_WITH_NOTES|REVISE","notes":"..."}`
 
-- `verdict` and `notes` are persisted on `WorkflowStepResult` when present.
-- Script-mode steps do not populate these fields.
+- `verdict` and a non-empty `notes` rationale are persisted on `WorkflowStepResult`; surrounding reviewer prose or finding titles are recovered before one bounded same-session note request is attempted.
+- Script-mode steps have no live session for note repair; workspace script reviews use deterministic engine narration when they produce no text.
 - Backward compatibility remains for legacy prose-only responses via heuristic fallback (`REQUEST REVISION` and approval keywords).
 - If neither structured JSON nor fallback prose can be interpreted, output is recorded as `malformed` (no inferable verdict). Malformed blocking gates fail closed; advisory gates record `advisory_failure` without blocking.
 

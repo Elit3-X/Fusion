@@ -92,14 +92,64 @@ describe("TaskHistoryTab", () => {
       completedAt: "2026-08-28T12:36:00.000Z",
     })]);
     expect(screen.getAllByText(REPORT)).toHaveLength(1);
+    expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-history-entry-no-body")).not.toBeInTheDocument();
   });
 
-  it("renders stage and merge titles through localization keys", async () => {
+  it("shows explicit no-notes copy for a legacy Plan Review verdict", async () => {
+    await renderHistory(task(), [result({
+      workflowStepId: "plan-review",
+      workflowStepName: "Plan Review",
+      reviewKind: "plan",
+      verdict: "APPROVE",
+      output: "",
+      notes: "",
+      completedAt: "2026-08-28T22:16:38.000Z",
+    })]);
+    expect(screen.getByTestId("task-history-entry-no-notes")).toHaveTextContent("The reviewer recorded no notes for this verdict.");
+    expect(screen.getByText("Approved")).toBeInTheDocument();
+    expect(screen.getByRole("time")).toHaveAttribute("dateTime", "2026-08-28T22:16:38.000Z");
+    expect(screen.queryByText("No report body was recorded.")).not.toBeInTheDocument();
+  });
+
+  it("shows the same verdict-aware fallback at the narrow breakpoint", async () => {
+    window.innerWidth = 375;
+    await renderHistory(task(), [result({ verdict: "APPROVE", output: "", notes: "" })]);
+    expect(screen.getByTestId("task-history-entry-no-notes")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-history-entry-no-body")).not.toBeInTheDocument();
+  });
+
+  it("renders a mirrored workspace aggregate once without fallback copy", async () => {
+    const aggregate = "### [repo-a] APPROVE\nRepository A is correct.\n\n### [repo-b] APPROVE\nRepository B is correct.";
+    await renderHistory(task(), [result({ verdict: "APPROVE", output: aggregate, notes: aggregate })]);
+    expect(screen.getAllByText(/Repository A is correct/)).toHaveLength(1);
+    expect(screen.getAllByText(/Repository B is correct/)).toHaveLength(1);
+    expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-history-entry-no-body")).not.toBeInTheDocument();
+  });
+
+  it("keeps generic missing-body copy for non-verdict reports", async () => {
+    await renderHistory(task({
+      stepReports: [{ id: "empty", stepIndex: 1, stepName: "Build", summary: "", recordedAt: "2026-08-28T02:00:00.000Z", source: "agent", attempt: 1 }],
+      mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" },
+    }));
+    expect(screen.getAllByTestId("task-history-entry-no-body")).toHaveLength(2);
+    expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
+  });
+
+  it("renders stage, merge, and body fallbacks through localization keys", async () => {
     const resources = structuredClone(realEnApp) as typeof realEnApp;
     resources.taskHistory.stage.plan = "PLAN_SENTINEL";
     resources.taskHistory.entry.merged = "MERGED_SENTINEL";
-    await renderHistory(task({ mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" } }), [], resources);
+    resources.taskHistory.entry.noBody = "NO_BODY_SENTINEL";
+    resources.taskHistory.entry.verdictNoNotes = "NO_NOTES_SENTINEL";
+    await renderHistory(task({
+      stepReports: [{ id: "empty", stepIndex: 1, stepName: "Build", summary: "", recordedAt: "2026-08-28T02:00:00.000Z", source: "agent", attempt: 1 }],
+      mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" },
+    }), [result({ verdict: "APPROVE", output: "", notes: "" })], resources);
     expect(screen.getByText("PLAN_SENTINEL")).toBeInTheDocument();
     expect(screen.getByText("MERGED_SENTINEL")).toBeInTheDocument();
+    expect(screen.getAllByText("NO_BODY_SENTINEL")).toHaveLength(2);
+    expect(screen.getByText("NO_NOTES_SENTINEL")).toBeInTheDocument();
   });
 });
