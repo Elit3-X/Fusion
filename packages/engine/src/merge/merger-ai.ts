@@ -1448,6 +1448,44 @@ Returns the proof marker when landed; null when unproven.
 */
 const STRONG_LANDED_STRATEGIES: ReadonlySet<string> = new Set(["trailer", "ancestry", "patch-id"]);
 
+interface RecordedMergeLandingProof {
+  landedSha: string;
+  landedBranchTipSha: string;
+}
+
+class RecordedMergeBranchTipChangedError extends Error {
+  constructor(readonly branch: string, readonly expectedTipSha: string) {
+    super(`Task branch ${branch} changed after its recorded landing was proven`);
+    this.name = "RecordedMergeBranchTipChangedError";
+  }
+}
+
+async function proveRecordedMergeAlreadyLanded(
+  task: Task,
+  branch: string,
+  integrationBranch: string,
+  projectRootDir: string,
+): Promise<RecordedMergeLandingProof | null> {
+  const details = task.mergeDetails;
+  const landedSha = details?.commitSha?.trim();
+  const landedBranchTipSha = details?.landedBranchTipSha?.trim();
+  if (
+    branch === integrationBranch
+    || details?.mergeConfirmed !== true
+    || !landedSha
+    || !landedBranchTipSha
+    || (details.mergeTargetBranch !== undefined && details.mergeTargetBranch !== integrationBranch)
+  ) return null;
+
+  const [commitExists, commitReachedTarget, liveBranchTip] = await Promise.all([
+    gitOk(["cat-file", "-e", `${landedSha}^{commit}`], projectRootDir),
+    gitOk(["merge-base", "--is-ancestor", landedSha, `refs/heads/${integrationBranch}`], projectRootDir),
+    git(["rev-parse", "--verify", `refs/heads/${branch}`], projectRootDir).catch(() => ""),
+  ]);
+  if (!commitExists || !commitReachedTarget || liveBranchTip !== landedBranchTipSha) return null;
+  return { landedSha, landedBranchTipSha };
+}
+
 async function proveEmptyMergeAlreadyLanded(
   task: Task,
   branch: string,
@@ -1747,6 +1785,51 @@ export async function runAiMerge(
 
   await setStatus("merging");
   try {
+  /*
+  FNXC:AIMerge 2026-08-28-09:29:
+  FN-216 durably advanced main at 08:33:51.039Z, then entered a second clean room at
+  08:33:52.561Z because its waiting-caller dispatch skipped the queue's merge-confirmed fast path.
+  This point-of-use guard belongs in runAiMerge, the sole merge path, so every dispatcher receives
+  the same protection. landOneRepo cannot detect this through its zero-ahead check: a squash commit
+  is not in the task branch's history, so `<integration>..<branch>` remains non-zero after landing.
+  Every proof condition is required. In particular, FN-5627's poisoned merge-confirmed row must
+  fall through when its commit is not reachable, and a branch with post-landing commits must fall
+  through when its live tip no longer matches the landing pin.
+
+  FNXC:AIMerge 2026-08-28-09:50:
+  Proof is admission, not ownership: another writer can advance the task branch after this read.
+  Recorded-landing finalization therefore deletes the branch ref with Git's expected-old-value CAS
+  after removing its worktree. A mismatch preserves the advanced ref and falls through to the full
+  merge, so post-landing commits cannot be silently discarded.
+  */
+  const alreadyLanded = await proveRecordedMergeAlreadyLanded(task, branch, integrationBranch, projectRootDir);
+  if (alreadyLanded) {
+    await log(
+      `AI merge: ${branch} has a recorded landing on ${integrationBranch} at ${short(alreadyLanded.landedSha)} — verifying its pinned branch tip before skipping a second clean-room merge`,
+    );
+    try {
+      const finalized = await finalizeMerged(store, projectRootDir, taskId, task, branch, integrationBranch, alreadyLanded.landedSha, audit, log, {
+        empty: false,
+        expectedBranchTipSha: alreadyLanded.landedBranchTipSha,
+      }, mergeTarget, groupRouting, options.syncGroupPr, fence);
+      await audit.git({
+        type: "merge:ai-landed",
+        target: integrationBranch,
+        metadata: { taskId, landedSha: alreadyLanded.landedSha, source: "already-landed-short-circuit" },
+      }).catch(() => undefined);
+      await log(
+        `AI merge: ${branch} already landed on ${integrationBranch} at ${short(alreadyLanded.landedSha)} — skipped a second clean-room merge`,
+      );
+      await runPushAfterMergeStep({ store, projectRootDir, taskId, settings, integrationBranch, audit, log, options, result: finalized, fence });
+      return finalized;
+    } catch (error) {
+      if (!(error instanceof RecordedMergeBranchTipChangedError)) throw error;
+      await log(
+        `AI merge: ${branch} advanced after its recorded landing was proven — preserving the branch and running the full clean-room merge`,
+      );
+    }
+  }
+
   // FNXC:Workspace 2026-06-21-23:40 (Phase C U1, KTD1):
   // runAiMerge is now the SINGLE-REPO caller of the extracted `landOneRepo`. It
   // builds the same per-task context it always built and lands the project root
@@ -1957,7 +2040,22 @@ export async function runAiMerge(
     return noOpFinalized;
   }
 
-  const finalized = await finalizeMerged(store, projectRootDir, taskId, task, branch, integrationBranch, landResult.squashSha, audit, log, { empty: false }, mergeTarget, groupRouting, options.syncGroupPr, fence);
+  let finalized: MergeResult;
+  try {
+    finalized = await finalizeMerged(store, projectRootDir, taskId, task, branch, integrationBranch, landResult.squashSha, audit, log, { empty: false }, mergeTarget, groupRouting, options.syncGroupPr, fence);
+  } catch (error: unknown) {
+    const failure = getErrorMessage(error);
+    const landingMessage = `AI merge: landed ${short(landResult.squashSha)} on ${integrationBranch}, but post-landing finalization failed: ${failure}. The landing is durable; a retry will finalize without re-merging.`;
+    /*
+    FNXC:AIMerge 2026-08-28-09:29:
+    Process logging remains outside the write fence so an orphaned merge body still leaves a
+    diagnostic when its durable task writes are correctly suppressed. A live owner also records the
+    same landed-but-not-finalized evidence in the task log before the original error propagates.
+    */
+    aiMergeLog.warn(`${taskId}: ${landingMessage}`);
+    await fence.write("log", () => store.logEntry(taskId, landingMessage, "AiMerge")).catch(() => undefined);
+    throw error;
+  }
   await runPushAfterMergeStep({ store, projectRootDir, taskId, settings, integrationBranch, audit, log, options, result: finalized, fence });
   return finalized;
   } finally {
@@ -3611,7 +3709,7 @@ async function finalizeMerged(
   landedSha: string,
   audit: RunAuditor,
   log: (message: string) => Promise<void>,
-  opts: { empty: boolean },
+  opts: { empty: boolean; expectedBranchTipSha?: string },
   mergeTarget?: MergeTargetResolution,
   groupRouting?: BranchGroupMergeRouting | null,
   syncGroupPr?: SyncGroupPrFn,
@@ -3630,14 +3728,18 @@ async function finalizeMerged(
   let mergeDetails: MergeDetails | undefined;
   let modifiedFiles: string[] | undefined;
   if (!opts.empty && landedSha) {
-    const [{ landedFiles: capturedLandedFiles, filesChanged, insertions, deletions }, mergeCommitMessage] = await Promise.all([
+    const [{ landedFiles: capturedLandedFiles, filesChanged, insertions, deletions }, mergeCommitMessage, landedBranchTipSha] = await Promise.all([
       captureSingleCommitLandedMetadata(projectRootDir, landedSha),
       git(["log", "-1", "--format=%s", landedSha], projectRootDir).catch(() => ""),
+      opts.expectedBranchTipSha
+        ? Promise.resolve(opts.expectedBranchTipSha)
+        : git(["rev-parse", "--verify", `refs/heads/${branch}`], projectRootDir).catch(() => ""),
     ]);
     const landedFiles = capturedLandedFiles ?? [];
-    const mergedAt = new Date().toISOString();
+    const mergedAt = task.mergeDetails?.mergedAt ?? new Date().toISOString();
     mergeDetails = {
       commitSha: landedSha,
+      ...(landedBranchTipSha ? { landedBranchTipSha } : {}),
       landedFiles,
       filesChanged,
       insertions,
@@ -3674,14 +3776,18 @@ async function finalizeMerged(
     task.mergeDetails = mergeDetails;
   }
   let branchDeleted = false;
-  // NEVER delete the integration branch itself — a task whose branch name
-  // coincides with the target (or merges into its own branch) must not have the
-  // just-advanced integration ref force-deleted out from under it.
-  fence?.assertOwned("finalization");
-  if (branch !== integrationBranch && await gitOk(["branch", "-D", branch], projectRootDir)) {
-    branchDeleted = true;
-    await audit.git({ type: "branch:delete", target: branch, metadata: { taskId, force: true } }).catch(() => undefined);
-  }
+  const deleteBranchNormally = async (): Promise<void> => {
+    // NEVER delete the integration branch itself — a task whose branch name
+    // coincides with the target (or merges into its own branch) must not have the
+    // just-advanced integration ref force-deleted out from under it.
+    fence?.assertOwned("finalization");
+    if (branch !== integrationBranch && await gitOk(["branch", "-D", branch], projectRootDir)) {
+      branchDeleted = true;
+      await audit.git({ type: "branch:delete", target: branch, metadata: { taskId, force: true } }).catch(() => undefined);
+    }
+  };
+  if (!opts.expectedBranchTipSha) await deleteBranchNormally();
+
   // Remove the task's own worktree if it still exists.
   let worktreeRemoved = false;
   if (task.worktree) {
@@ -3709,6 +3815,25 @@ async function finalizeMerged(
     } catch (error) {
       if (!(error instanceof ActiveSessionWorktreeRemovalError)) throw error;
     }
+  }
+
+  if (opts.expectedBranchTipSha) {
+    fence?.assertOwned("finalization");
+    const deletedAtExpectedTip = branch !== integrationBranch && await gitOk([
+      "update-ref",
+      "-d",
+      `refs/heads/${branch}`,
+      opts.expectedBranchTipSha,
+    ], projectRootDir);
+    if (!deletedAtExpectedTip) {
+      throw new RecordedMergeBranchTipChangedError(branch, opts.expectedBranchTipSha);
+    }
+    branchDeleted = true;
+    await audit.git({
+      type: "branch:delete",
+      target: branch,
+      metadata: { taskId, force: true, source: "recorded-landing-tip-cas" },
+    }).catch(() => undefined);
   }
 
   const result: MergeResult = {

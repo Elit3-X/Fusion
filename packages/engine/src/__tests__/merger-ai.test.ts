@@ -437,6 +437,154 @@ describe("runAiMerge", () => {
   });
 
   it.each([
+    ["manual waiting-caller dispatch", { manual: true }],
+    ["automatic dispatch", {}],
+  ])("skips a second clean-room merge after interrupted finalization for %s", async (_label, retryOptions) => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({ branch });
+    const branchTip = git(dir, `rev-parse ${branch}`);
+    const { store, task } = makeStore(dir);
+
+    await runAiMerge(store, dir, "FN-1", { manual: true }, {
+      mergeAgent: realMergeAgent(branch),
+      reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
+    });
+
+    const landedDetails = { ...task.mergeDetails };
+    task.column = "in-review";
+    task.status = null;
+    git(dir, `branch ${branch} ${branchTip}`);
+    const mainBeforeRetry = git(dir, "rev-parse main");
+    store.recordRunAuditEvent.mockClear();
+    const mergeAgent = vi.fn(async () => undefined);
+    const reviewAgent = vi.fn(async () => "REVIEW_VERDICT: approve");
+
+    const result = await runAiMerge(store, dir, "FN-1", retryOptions, { mergeAgent, reviewAgent });
+
+    expect(result.merged).toBe(true);
+    expect(mergeAgent).not.toHaveBeenCalled();
+    expect(reviewAgent).not.toHaveBeenCalled();
+    expect(store.recordRunAuditEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ mutationType: "merge:ai-clean-room" }),
+    );
+    expect(git(dir, "rev-parse main")).toBe(mainBeforeRetry);
+    expect(task.column).toBe("done");
+    expect(task.mergeDetails?.commitSha).toBe(landedDetails.commitSha);
+    expect(task.mergeDetails?.mergedAt).toBe(landedDetails.mergedAt);
+  });
+
+  it("falls through to a full merge when the branch advances after recorded-landing proof", async () => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({ branch });
+    const branchTip = git(dir, `rev-parse ${branch}`);
+    const { store, task, logs } = makeStore(dir);
+
+    await runAiMerge(store, dir, "FN-1", { manual: true }, {
+      mergeAgent: realMergeAgent(branch),
+      reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
+    });
+
+    task.column = "in-review";
+    task.status = null;
+    git(dir, `branch ${branch} ${branchTip}`);
+    let branchAdvancedAfterProof = false;
+    store.logEntry.mockImplementation(async (_id: string, message: string) => {
+      logs.push(message);
+      if (!branchAdvancedAfterProof && message.includes("has a recorded landing")) {
+        branchAdvancedAfterProof = true;
+        git(dir, `checkout -q ${branch}`);
+        writeFileSync(join(dir, "post-landing.txt"), "new work after recorded landing\n");
+        git(dir, "add post-landing.txt");
+        git(dir, "commit -q -m 'feat: post-landing work'");
+        git(dir, "checkout -q main");
+      }
+    });
+    store.recordRunAuditEvent.mockClear();
+    const mergeAgent = realMergeAgent(branch);
+    const reviewAgent = vi.fn(async () => "REVIEW_VERDICT: approve");
+
+    const result = await runAiMerge(store, dir, "FN-1", { manual: true }, { mergeAgent, reviewAgent });
+
+    expect(branchAdvancedAfterProof).toBe(true);
+    expect(result.merged).toBe(true);
+    expect(mergeAgent).toHaveBeenCalledOnce();
+    expect(reviewAgent).toHaveBeenCalled();
+    expect(readFileSync(join(dir, "post-landing.txt"), "utf-8")).toBe("new work after recorded landing\n");
+    expect(store.recordRunAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ mutationType: "merge:ai-clean-room" }),
+    );
+    expect(logs).toContainEqual(expect.stringContaining("advanced after its recorded landing was proven"));
+  });
+
+  it.each([
+    "no mergeDetails",
+    "missing commitSha",
+    "mergeConfirmed false",
+    "commit not reachable from target",
+    "commit absent locally",
+    "merge target mismatch",
+    "live branch advanced beyond pinned tip",
+    "missing pinned branch tip",
+  ])("runs the full merge when already-landed proof is incomplete: %s", async (proofCase) => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({ branch });
+    const integrationBranch = proofCase === "merge target mismatch" ? "integration/v2" : "main";
+    if (integrationBranch !== "main") git(dir, `branch ${integrationBranch} main`);
+    const integrationTip = git(dir, `rev-parse ${integrationBranch}`);
+    const branchTip = git(dir, `rev-parse ${branch}`);
+    const mergeDetails: Record<string, unknown> | undefined = proofCase === "no mergeDetails"
+      ? undefined
+      : {
+          mergeConfirmed: true,
+          commitSha: integrationTip,
+          mergeTargetBranch: integrationBranch,
+          landedBranchTipSha: branchTip,
+        };
+    if (proofCase === "missing commitSha") delete mergeDetails!.commitSha;
+    if (proofCase === "mergeConfirmed false") mergeDetails!.mergeConfirmed = false;
+    if (proofCase === "commit not reachable from target") mergeDetails!.commitSha = branchTip;
+    if (proofCase === "commit absent locally") mergeDetails!.commitSha = "f".repeat(40);
+    if (proofCase === "merge target mismatch") mergeDetails!.mergeTargetBranch = "main";
+    if (proofCase === "live branch advanced beyond pinned tip") mergeDetails!.landedBranchTipSha = integrationTip;
+    if (proofCase === "missing pinned branch tip") delete mergeDetails!.landedBranchTipSha;
+    const { store } = makeStore(dir, {
+      ...(mergeDetails ? { mergeDetails } : {}),
+      ...(integrationBranch !== "main" ? { baseBranch: integrationBranch } : {}),
+    });
+    const mergeAgent = realMergeAgent(branch);
+    const reviewAgent = vi.fn(async () => "REVIEW_VERDICT: approve");
+
+    const result = await runAiMerge(store, dir, "FN-1", { manual: true }, { mergeAgent, reviewAgent });
+
+    expect(result.merged).toBe(true);
+    expect(mergeAgent).toHaveBeenCalled();
+    expect(reviewAgent).toHaveBeenCalled();
+    expect(store.recordRunAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ mutationType: "merge:ai-clean-room" }),
+    );
+  });
+
+  it("records a durable diagnostic and preserves the original post-landing finalization error", async () => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({ branch });
+    const { store, task, logs } = makeStore(dir);
+    const finalizationError = new Error("simulated task move failure");
+    store.moveTask.mockRejectedValue(finalizationError);
+
+    await expect(runAiMerge(store, dir, "FN-1", { manual: true }, {
+      mergeAgent: realMergeAgent(branch),
+      reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
+    })).rejects.toBe(finalizationError);
+
+    const landedSha = git(dir, "rev-parse main");
+    expect(task.mergeDetails?.commitSha).toBe(landedSha);
+    expect(logs).toContainEqual(expect.stringMatching(
+      new RegExp(`landed ${landedSha.slice(0, 8)} on main, but post-landing finalization failed: simulated task move failure`),
+    ));
+    expect(logs).toContainEqual(expect.stringContaining("The landing is durable; a retry will finalize without re-merging."));
+  });
+
+  it.each([
     ["modern repo-local root", "FN-1", (dir: string) => join(dir, ".worktrees", ".ai-merge")],
     ["legacy .fusion root", "FN-2", (dir: string) => join(dir, ".fusion", "ai-merge")],
     ["direct tmpdir root", "FN-3", (_dir: string) => tmpdir()],

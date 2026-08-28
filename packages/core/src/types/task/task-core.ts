@@ -47,6 +47,14 @@ import type {
 export interface MergeDetails {
   commitSha?: string;
   /**
+   * FNXC:AIMerge 2026-08-28-09:29:
+   * The task-branch tip observed when a real landing was recorded. A later merge attempt may skip
+   * rebuilding its clean room only when this pin still equals the live branch tip, proving that no
+   * post-landing task work would be dropped. `mergeDetails` is stored in the task JSON column, so
+   * this additive optional field requires no SQL migration or schema-applier registration.
+   */
+  landedBranchTipSha?: string;
+  /**
    * When merger used rebase strategy (>=2 substantive commits), this is the
    * parent SHA on the target branch before the cherry-pick chain. The canonical
    * rebase display/audit range is `rebaseBaseSha..commitSha`.

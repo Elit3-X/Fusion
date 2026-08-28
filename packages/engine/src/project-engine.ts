@@ -4172,6 +4172,14 @@ export class ProjectEngine {
         // don't start a merge whose queue entry was cleared by stop().
         if (this.shuttingDown) break;
         const hasManualResolver = this.hasMergeResolvers(taskId);
+        /*
+        FNXC:MergeQueue 2026-08-28-09:29:
+        Waiting-caller dispatches deliberately skip the merge-confirmed fast path in the automatic
+        lane below. FN-219 traced a duplicate full merge to that gap after a landing completed but
+        its finalization did not. Keep this lane structure intact: runAiMerge's proof-gated
+        already-landed check is the load-bearing protection shared by onMerge, interpreter merge,
+        direct CLI callers, and automatic retries.
+        */
         try {
           // Manual merges (onMerge) skip auto-merge eligibility checks
           if (!hasManualResolver) {
