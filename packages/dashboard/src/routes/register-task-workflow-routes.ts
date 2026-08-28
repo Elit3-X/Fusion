@@ -118,6 +118,7 @@ import {
   // FN-8004 follow-up: shared with SelfHealingManager.recoverStaleMergingStatus so the manual
   // Retry gate and the automatic sweep agree on when a merge-active stamp is orphaned.
   isStaleMergeActiveStatus,
+  reconcileTaskResetSessionRoot,
   removeTaskResetWorktree,
   ResetWorktreeForeignSessionError,
   ActiveSessionWorktreeRemovalError,
@@ -3800,6 +3801,34 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         const targetPaths = (plan: ReturnType<typeof buildTaskResetWorktreePlan>) => plan.targets
           .map((target) => target.canonicalPath)
           .sort();
+        const reconcileWorkspaceTaskDirectory = async (phase: "admission" | "point-of-use") => {
+          if (!resetPlan.workspaceTaskDir) return;
+          const rawPath = resetPlan.workspaceTaskDir;
+          const canonicalPath = await canonicalizeWorktreePath(rawPath);
+          try {
+            for (const sessionRootPath of canonicalPath === rawPath ? [rawPath] : [rawPath, canonicalPath]) {
+              await reconcileTaskResetSessionRoot({
+                sessionRootPath,
+                taskId: req.params.id,
+                settleTooRecent: phase === "admission",
+              });
+            }
+          } catch (error) {
+            if (error instanceof ResetWorktreeForeignSessionError || error instanceof ActiveSessionWorktreeRemovalError) {
+              const holderTaskId = error instanceof ResetWorktreeForeignSessionError
+                ? error.details.holderTaskId
+                : error.details.taskId;
+              const holderKind = error instanceof ResetWorktreeForeignSessionError
+                ? error.details.holderKind
+                : error.details.kind;
+              if (phase === "point-of-use") {
+                throw conflict(`Reset incomplete; the workspace task directory is held by active task ${holderTaskId} (${holderKind}) and was retained; stop or finish it before retrying Reset`);
+              }
+              throw conflict(`Reset is blocked by active task ${holderTaskId} (${holderKind}); stop or finish it before retrying Reset (workspace task directory)`);
+            }
+            throw error;
+          }
+        };
 
         try {
           // FNXC:TaskReset 2026-08-27-22:20: Validate every target before cancellation so a later repository cannot leave an earlier one half-reset.
@@ -3892,6 +3921,12 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             throw conflict("Reset target changed while cancellation was settling; retry Reset");
           }
 
+          /*
+          FNXC:TaskReset 2026-08-28-08:09:
+          This admission screen classifies the workspace coordinator before any repository deletion, preserving the common-case guarantee that a live or foreign session root refuses Reset without touching filesystem state. It does not authorize the later coordinator removal because the repository loop is unbounded.
+          */
+          await reconcileWorkspaceTaskDirectory("admission");
+
           for (const target of resetPlan.targets) {
             if (existsSync(target.canonicalPath)) {
               let removal;
@@ -3927,6 +3962,11 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           }
 
           if (resetPlan.workspaceTaskDir) {
+            /*
+            FNXC:TaskReset 2026-08-28-08:09:
+            This point-of-use classification is the destructive-operation fence and must remain adjacent to the coordinator rmdir statements: the preceding repository-removal loop is unbounded, so its admission result is stale here. A newly registered or too-recent holder is refused immediately rather than settled, retaining the coordinator directory and plan.
+            */
+            await reconcileWorkspaceTaskDirectory("point-of-use");
             // FNXC:TaskReset 2026-08-27-22:20: Nested repository paths leave empty parents that Reset removes only one directory at a time before attempting the task directory.
             for (const target of resetPlan.targets) {
               let emptyParent = dirname(target.canonicalPath);

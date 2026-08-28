@@ -123,7 +123,7 @@ Archiving a workspace task synchronously removes every recorded member worktree.
 
 Reset returns a workspace task to fresh planning. It fences active task runtime owners, removes every recorded per-repository worktree, removes the empty workspace task directory when possible, deletes the current plan, and clears the task's workspace coordination leases and land intents. It then publishes the same task back to its intake column with pending steps and `needs-replan`.
 
-Reset retains the task ID, title, description, dependencies, workflow selection, comments, attachments, operator-authored documents, logs, and per-repository branches. A live, foreign, unsafe, or unprovable repository is reported as an actionable per-repository conflict. Fusion does not publish a partial reset when any repository cannot be cleaned safely.
+Reset retains the task ID, title, description, dependencies, workflow selection, comments, attachments, operator-authored documents, logs, and per-repository branches. A live, foreign, unsafe, or unprovable repository is reported as an actionable per-repository conflict, and the same live and foreign-holder checks cover the workspace task directory itself. If a holder appears at that directory during repository cleanup, Fusion retains the directory and current plan, reports incomplete cleanup, and does not publish fresh Planning state.
 
 ## Limitations and known sharp edges
 

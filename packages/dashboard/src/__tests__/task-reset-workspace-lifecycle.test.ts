@@ -2,16 +2,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Task, TaskStore } from "@fusion/core";
-import { registerTaskResetDisposer } from "@fusion/core";
+import { registerTaskMoveDisposer, registerTaskResetDisposer } from "@fusion/core";
 import {
   ActiveSessionWorktreeRemovalError,
   activeSessionRegistry,
   getRegisteredWorktreeBranches,
   pruneWorktreeAdminEntries,
+  reconcileTaskResetSessionRoot,
   removeTaskResetWorktree,
   ResetWorktreeForeignSessionError,
   registerPlanningLivenessProbe,
@@ -23,6 +24,7 @@ vi.mock("@fusion/engine", async () => {
   const actual = await vi.importActual<typeof import("@fusion/engine")>("@fusion/engine");
   return {
     ...actual,
+    reconcileTaskResetSessionRoot: vi.fn(async (input: Parameters<typeof actual.reconcileTaskResetSessionRoot>[0]) => await actual.reconcileTaskResetSessionRoot(input)),
     removeTaskResetWorktree: vi.fn(async (input: Parameters<typeof actual.removeTaskResetWorktree>[0]) => await actual.removeTaskResetWorktree({
       ...input,
       remove: async ({ worktreePath }) => {
@@ -114,27 +116,245 @@ async function reset(store: TaskStore) {
   return performRequest(createApp(store), "POST", "/api/tasks/FN-401/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" });
 }
 
+function coordinatorPath(root: string): string {
+  return join(root, ".fusion", "worktrees", "fn-401");
+}
+
+function ageRegistryEntry(path: string): void {
+  (activeSessionRegistry.lookupByPath(path) as { registeredAt: number }).registeredAt = 0;
+}
+
 describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    activeSessionRegistry.unregisterPath("");
+    activeSessionRegistry.clear();
   });
 
-  it("reproduces the former workspace refusal shape and publishes a clean reset", async () => {
+  it("starts both cancellation domains before workspace cleanup and publishes a clean reset", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-"));
     const task = workspaceTask(root);
     await createWorkspace(root, task);
     registerWorkspaceBranches(root, task);
     const { store, publication } = createStore(root, task);
+    const promptPath = join(root, ".fusion", "tasks", task.id, "PROMPT.md");
+    const cancellationSnapshots: string[] = [];
+    const assertCleanupHasNotStarted = async (domain: string) => {
+      expect(existsSync(promptPath)).toBe(true);
+      for (const entry of Object.values(task.workspaceWorktrees ?? {})) expect(existsSync(entry.worktreePath)).toBe(true);
+      cancellationSnapshots.push(domain);
+    };
+    const unregisterMove = registerTaskMoveDisposer(store, async (disposedTask) => {
+      expect(disposedTask).toBe(task);
+      await assertCleanupHasNotStarted("move");
+    });
+    const unregisterReset = registerTaskResetDisposer(store, async (disposedTask) => {
+      expect(disposedTask).toBe(task);
+      await assertCleanupHasNotStarted("reset");
+    });
 
     const res = await reset(store);
+    unregisterMove();
+    unregisterReset();
 
     expect(res.status).toBe(200);
+    expect(cancellationSnapshots.sort()).toEqual(["move", "reset"]);
     expect(JSON.stringify(res.body)).not.toContain("does not support workspace tasks");
     expect(publication).toHaveBeenCalledOnce();
     expect(publication).toHaveBeenCalledWith("FN-401", "triage");
     for (const entry of Object.values(task.workspaceWorktrees ?? {})) await expect(stat(entry.worktreePath)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(readFile(join(root, ".fusion", "tasks", task.id, "PROMPT.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(promptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("refuses a live coordinator session at admission without deleting workspace state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-coordinator-live-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const taskDir = coordinatorPath(root);
+    activeSessionRegistry.registerPath(taskDir, { taskId: task.id, kind: "planning", ownerKey: `planning:${task.id}` });
+    ageRegistryEntry(taskDir);
+    const unregisterProbe = registerPlanningLivenessProbe((id) => id === task.id);
+    try {
+      const { store, publication } = createStore(root, task);
+      const res = await reset(store);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/workspace task directory/i);
+      expect(publication).not.toHaveBeenCalled();
+      for (const entry of Object.values(task.workspaceWorktrees ?? {})) expect(existsSync(entry.worktreePath)).toBe(true);
+      expect(existsSync(taskDir)).toBe(true);
+      await expect(readFile(join(root, ".fusion", "tasks", task.id, "PROMPT.md"), "utf8")).resolves.toContain("Discarded plan");
+    } finally {
+      unregisterProbe();
+    }
+  });
+
+  it("reports a foreign coordinator holder at admission without deleting workspace state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-coordinator-foreign-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const taskDir = coordinatorPath(root);
+    activeSessionRegistry.registerPath(taskDir, { taskId: "FN-OTHER", kind: "executor", ownerKey: "FN-OTHER" });
+    const { store, publication } = createStore(root, task);
+
+    const res = await reset(store);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/FN-OTHER.*workspace task directory/i);
+    expect(publication).not.toHaveBeenCalled();
+    for (const entry of Object.values(task.workspaceWorktrees ?? {})) expect(existsSync(entry.worktreePath)).toBe(true);
+    expect(existsSync(taskDir)).toBe(true);
+    await expect(readFile(join(root, ".fusion", "tasks", task.id, "PROMPT.md"), "utf8")).resolves.toContain("Discarded plan");
+  });
+
+  it("probes the raw coordinator registry key when the workspace root is a symlink", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-symlink-"));
+    const realRoot = join(fixture, "real");
+    const root = join(fixture, "linked");
+    await mkdir(realRoot, { recursive: true });
+    await symlink(realRoot, root, "dir");
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const rawTaskDir = coordinatorPath(root);
+    await rm(rawTaskDir, { recursive: true, force: true });
+    activeSessionRegistry.registerPath(rawTaskDir, { taskId: task.id, kind: "planning", ownerKey: `planning:${task.id}` });
+    ageRegistryEntry(rawTaskDir);
+    const unregisterProbe = registerPlanningLivenessProbe((id) => id === task.id);
+    try {
+      const { store, publication } = createStore(root, task);
+      const res = await reset(store);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/workspace task directory/i);
+      expect(publication).not.toHaveBeenCalled();
+      expect(activeSessionRegistry.lookupByPath(rawTaskDir)?.taskId).toBe(task.id);
+      expect(existsSync(rawTaskDir)).toBe(false);
+    } finally {
+      unregisterProbe();
+    }
+  });
+
+  it("reconciles an aged dead coordinator entry and completes reset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-coordinator-stale-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const taskDir = coordinatorPath(root);
+    activeSessionRegistry.registerPath(taskDir, { taskId: task.id, kind: "executor", ownerKey: task.id });
+    ageRegistryEntry(taskDir);
+    const { store, publication } = createStore(root, task);
+
+    const res = await reset(store);
+
+    expect(res.status).toBe(200);
+    expect(activeSessionRegistry.lookupByPath(taskDir)).toBeNull();
+    expect(existsSync(taskDir)).toBe(false);
+    expect(publication).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a live coordinator holder registered during repository removal and retains the plan", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-midloop-live-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const taskDir = coordinatorPath(root);
+    const markerPath = join(taskDir, "operator-file");
+    await writeFile(markerPath, "keep");
+    const removal = vi.mocked(removeTaskResetWorktree);
+    const originalRemoval = removal.getMockImplementation();
+    let calls = 0;
+    removal.mockImplementation(async (input) => {
+      if (calls++ === 0) {
+        activeSessionRegistry.registerPath(taskDir, { taskId: task.id, kind: "planning", ownerKey: `planning:${task.id}` });
+        ageRegistryEntry(taskDir);
+      }
+      await rm(input.worktreePath, { recursive: true, force: true });
+      return { removed: true, classification: "removed" };
+    });
+    const unregisterProbe = registerPlanningLivenessProbe((id) => id === task.id);
+    try {
+      const { store, publication } = createStore(root, task);
+      const res = await reset(store);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/^Reset incomplete;.*workspace task directory.*retained/i);
+      expect(publication).not.toHaveBeenCalled();
+      for (const entry of Object.values(task.workspaceWorktrees ?? {})) expect(existsSync(entry.worktreePath)).toBe(false);
+      expect(existsSync(taskDir)).toBe(true);
+      await expect(readFile(markerPath, "utf8")).resolves.toBe("keep");
+      await expect(readFile(join(root, ".fusion", "tasks", task.id, "PROMPT.md"), "utf8")).resolves.toContain("Discarded plan");
+    } finally {
+      unregisterProbe();
+      if (originalRemoval) removal.mockImplementation(originalRemoval);
+    }
+  });
+
+  it("refuses a foreign coordinator holder registered during repository removal and cannot immediately recover absent targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-midloop-foreign-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const taskDir = coordinatorPath(root);
+    const markerPath = join(taskDir, "operator-file");
+    await writeFile(markerPath, "keep");
+    const removal = vi.mocked(removeTaskResetWorktree);
+    const originalRemoval = removal.getMockImplementation();
+    let calls = 0;
+    removal.mockImplementation(async (input) => {
+      if (calls++ === 0) activeSessionRegistry.registerPath(taskDir, { taskId: "FN-OTHER", kind: "executor", ownerKey: "FN-OTHER" });
+      await rm(input.worktreePath, { recursive: true, force: true });
+      return { removed: true, classification: "removed" };
+    });
+    try {
+      const { store, publication } = createStore(root, task);
+      const res = await reset(store);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/^Reset incomplete;.*workspace task directory.*FN-OTHER.*retained/i);
+      expect(publication).not.toHaveBeenCalled();
+      expect(existsSync(taskDir)).toBe(true);
+      await expect(readFile(markerPath, "utf8")).resolves.toBe("keep");
+      await expect(readFile(join(root, ".fusion", "tasks", task.id, "PROMPT.md"), "utf8")).resolves.toContain("Discarded plan");
+
+      activeSessionRegistry.unregisterPath(taskDir);
+      vi.mocked(getRegisteredWorktreeBranches).mockImplementation(async (repoRoot) => {
+        const repoRel = repoRoot.slice(root.length + 1);
+        const entry = task.workspaceWorktrees?.[repoRel];
+        return entry && existsSync(entry.worktreePath) ? [{ branch: entry.branch, worktreePath: entry.worktreePath }] : [];
+      });
+      const retry = await reset(store);
+      expect(retry.status).toBe(409);
+      expect(retry.body.error).toMatch(/managed task ownership cannot be proven/);
+      expect(publication).not.toHaveBeenCalled();
+    } finally {
+      if (originalRemoval) removal.mockImplementation(originalRemoval);
+    }
+  });
+
+  it("refuses rather than settles a recent coordinator registration created during removal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-midloop-recent-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const taskDir = coordinatorPath(root);
+    const removal = vi.mocked(removeTaskResetWorktree);
+    const originalRemoval = removal.getMockImplementation();
+    let calls = 0;
+    removal.mockImplementation(async (input) => {
+      if (calls++ === 0) activeSessionRegistry.registerPath(taskDir, { taskId: task.id, kind: "executor", ownerKey: task.id });
+      await rm(input.worktreePath, { recursive: true, force: true });
+      return { removed: true, classification: "removed" };
+    });
+    try {
+      const { store, publication } = createStore(root, task);
+      const res = await reset(store);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/^Reset incomplete;.*workspace task directory.*retained/i);
+      expect(publication).not.toHaveBeenCalled();
+      expect(existsSync(taskDir)).toBe(true);
+      expect(activeSessionRegistry.lookupByPath(taskDir)?.taskId).toBe(task.id);
+      await expect(readFile(join(root, ".fusion", "tasks", task.id, "PROMPT.md"), "utf8")).resolves.toContain("Discarded plan");
+    } finally {
+      if (originalRemoval) removal.mockImplementation(originalRemoval);
+    }
   });
 
   it("removes an empty new-layout task directory but retains a non-empty one", async () => {
@@ -158,15 +378,46 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     expect(existsSync(retainedDir)).toBe(true);
   });
 
-  it("removes legacy worktrees using their repository roots", async () => {
+  it("removes legacy worktrees without evaluating the new-layout coordinator", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-legacy-"));
     const task = workspaceTask(root, true);
     await createWorkspace(root, task);
     registerWorkspaceBranches(root, task);
+    const unusedCoordinator = coordinatorPath(root);
+    activeSessionRegistry.registerPath(unusedCoordinator, { taskId: "FN-OTHER", kind: "executor", ownerKey: "FN-OTHER" });
+    vi.mocked(reconcileTaskResetSessionRoot).mockClear();
     const { store } = createStore(root, task);
     expect((await reset(store)).status).toBe(200);
     expect(vi.mocked(removeTaskResetWorktree).mock.calls.slice(-2).map(([input]) => input.rootDir)).toEqual([join(root, "apps/a"), join(root, "apps/b")]);
-    expect(existsSync(join(root, ".fusion", "worktrees", "fn-401"))).toBe(false);
+    expect(vi.mocked(reconcileTaskResetSessionRoot)).not.toHaveBeenCalled();
+    expect(activeSessionRegistry.lookupByPath(unusedCoordinator)?.taskId).toBe("FN-OTHER");
+    expect(existsSync(unusedCoordinator)).toBe(false);
+  });
+
+  it("does not treat a foreign workspace-repo-acquire claim on a repository root as a reset target holder", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-repo-acquire-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const repoRoot = join(root, "apps/a");
+    activeSessionRegistry.registerPath(repoRoot, { taskId: "FN-OTHER", kind: "workspace-repo-acquire", ownerKey: "workspace-repo-acquire" });
+    const { store, publication } = createStore(root, task);
+
+    expect((await reset(store)).status).toBe(200);
+    expect(publication).toHaveBeenCalledOnce();
+    expect(activeSessionRegistry.lookupByPath(repoRoot)?.taskId).toBe("FN-OTHER");
+  });
+
+  it("logs an unmatched singular workspace pointer and still publishes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-ignored-pointer-"));
+    const task = { ...workspaceTask(root), worktree: join(root, ".worktrees", "unmatched") } as Task;
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const { store, publication } = createStore(root, task);
+
+    expect((await reset(store)).status).toBe(200);
+    expect(store.logEntry).toHaveBeenCalledWith(task.id, expect.stringContaining("Reset ignored unmatched workspace singular worktree pointer"));
+    expect(publication).toHaveBeenCalledOnce();
   });
 
   it("refuses a live first repository before touching the second repository or prompt", async () => {
@@ -289,7 +540,7 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     expect(vi.mocked(pruneWorktreeAdminEntries)).toHaveBeenCalledWith(expect.objectContaining({ rootDir: join(absentRoot, "apps/a") }));
   });
 
-  it("retains singular reset behavior with the project root", async () => {
+  it("retains singular reset behavior without evaluating a coordinator session root", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-reset-singular-"));
     const worktreePath = join(root, ".worktrees", "fn-401");
     const task = {
@@ -299,8 +550,10 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     await mkdir(join(root, ".fusion", "tasks", task.id), { recursive: true });
     await writeFile(join(root, ".fusion", "tasks", task.id, "PROMPT.md"), "# Discarded plan\n");
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath }]);
+    vi.mocked(reconcileTaskResetSessionRoot).mockClear();
     const { store } = createStore(root, task);
     expect((await reset(store)).status).toBe(200);
     expect(vi.mocked(removeTaskResetWorktree)).toHaveBeenCalledWith(expect.objectContaining({ rootDir: root }));
+    expect(vi.mocked(reconcileTaskResetSessionRoot)).not.toHaveBeenCalled();
   });
 });
