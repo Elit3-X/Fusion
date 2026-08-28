@@ -582,11 +582,11 @@ describe("TaskDetailModal", () => {
       expect(screen.queryByText(/Awaiting release authorization/i)).toBeNull();
     });
 
-    it("does not show approval buttons when task is not in triage", () => {
+    it("does not show approval buttons when task is outside the planning lane", () => {
       render(
         <TaskDetailModal
           task={makeTask({
-            column: "todo",
+            column: "in-progress",
             status: "awaiting-approval",
             prompt: "# Task Spec",
           })}

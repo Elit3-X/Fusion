@@ -807,6 +807,95 @@ describe("ListView", () => {
     expect(screen.getByText("View")).toBeDefined();
   });
 
+  it("renders plan approval actions for a hold-column task in desktop rows", () => {
+    const viewportSpy = mockDesktopViewport();
+    const payload = { ...DEFAULT_LANE_PAYLOAD, taskWorkflowIds: { "FN-228-desktop": "builtin:coding" } };
+    writeBoardWorkflowsCache(TEST_PROJECT_ID, payload);
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue(payload);
+    try {
+      renderListView({
+        tasks: [createMockTask({
+          id: "FN-228-desktop",
+          column: "todo",
+          status: "awaiting-approval",
+          prompt: "# Reviewed plan",
+        })],
+      });
+
+      const notice = screen.getByTestId("plan-approval-list-FN-228-desktop");
+      expect(within(notice).getByRole("button", { name: "Approve" })).toBeEnabled();
+      expect(within(notice).getByRole("button", { name: "Respecify" })).toBeEnabled();
+    } finally {
+      viewportSpy.mockRestore();
+    }
+  });
+
+  it("renders plan approval actions for a hold-column task in compact cards", () => {
+    const viewportSpy = mockMobileViewport();
+    const payload = { ...DEFAULT_LANE_PAYLOAD, taskWorkflowIds: { "FN-228-mobile": "builtin:coding" } };
+    writeBoardWorkflowsCache(TEST_PROJECT_ID, payload);
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue(payload);
+    try {
+      renderListView({
+        tasks: [createMockTask({
+          id: "FN-228-mobile",
+          column: "todo",
+          status: "awaiting-approval",
+          prompt: "# Reviewed plan",
+        })],
+      });
+
+      const notice = screen.getByTestId("plan-approval-list-FN-228-mobile");
+      expect(within(notice).getByRole("button", { name: "Approve" })).toBeEnabled();
+      expect(within(notice).getByRole("button", { name: "Respecify" })).toBeEnabled();
+    } finally {
+      viewportSpy.mockRestore();
+    }
+  });
+
+  it("renders the plan approval badge only for an enabled override in desktop rows", () => {
+    const viewportSpy = mockDesktopViewport();
+    const payload = {
+      ...DEFAULT_LANE_PAYLOAD,
+      taskWorkflowIds: {
+        "FN-228-badge": "builtin:coding",
+        "FN-228-opt-out": "builtin:coding",
+        "FN-228-inherit": "builtin:coding",
+      },
+    };
+    writeBoardWorkflowsCache(TEST_PROJECT_ID, payload);
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue(payload);
+    try {
+      renderListView({
+        tasks: [
+          createMockTask({ id: "FN-228-badge", requirePlanApproval: true }),
+          createMockTask({ id: "FN-228-opt-out", requirePlanApproval: false }),
+          createMockTask({ id: "FN-228-inherit", requirePlanApproval: undefined }),
+        ],
+      });
+
+      expect(screen.getByTestId("plan-approval-badge-list-table-FN-228-badge")).toHaveAccessibleName("Human plan review required");
+      expect(screen.queryByTestId("plan-approval-badge-list-table-FN-228-opt-out")).toBeNull();
+      expect(screen.queryByTestId("plan-approval-badge-list-table-FN-228-inherit")).toBeNull();
+    } finally {
+      viewportSpy.mockRestore();
+    }
+  });
+
+  it("renders the plan approval badge in compact cards", () => {
+    const viewportSpy = mockMobileViewport();
+    const payload = { ...DEFAULT_LANE_PAYLOAD, taskWorkflowIds: { "FN-228-badge-mobile": "builtin:coding" } };
+    writeBoardWorkflowsCache(TEST_PROJECT_ID, payload);
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue(payload);
+    try {
+      renderListView({ tasks: [createMockTask({ id: "FN-228-badge-mobile", requirePlanApproval: true })] });
+
+      expect(screen.getByTestId("plan-approval-badge-list-card-FN-228-badge-mobile")).toHaveAccessibleName("Human plan review required");
+    } finally {
+      viewportSpy.mockRestore();
+    }
+  });
+
   it("renders the exhausted review budget indicator only for the matching approval reason in desktop rows", () => {
     const viewportSpy = mockDesktopViewport();
     renderListView({

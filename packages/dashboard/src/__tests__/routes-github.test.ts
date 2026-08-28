@@ -2091,7 +2091,7 @@ describe("POST /tasks/:id/spec/revise", () => {
     return app;
   }
 
-  it("requests spec revision and moves task from todo to triage", async () => {
+  it("requests spec revision in place from the todo planning column", async () => {
     const todoTask = { ...FAKE_TASK_DETAIL, column: "todo" as const };
     const movedTask = { ...FAKE_TASK_DETAIL, column: "todo" as const };
     const tempRoot = mkdtempSync(join(tmpdir(), "kb-spec-revise-"));
@@ -2120,13 +2120,8 @@ describe("POST /tasks/:id/spec/revise", () => {
         "Please add more details about error handling"
       );
       /*
-      FNXC:WorkflowLifecycleColumns 2026-08-03-01:10 (red on main — `triage` no longer exists):
-      A CARD AT INTAKE IS RESET IN PLACE, not moved. #2515 merged Todo into Planning keeping the id `todo`, so
-      the default lineage's intake column IS `todo` — and the respecify route's own comment says a task already
-      sitting at intake skips the transition check and `moveTask` entirely, resetting for replanning where it is.
-
-      This case asserted `moveTask(id, "triage")`. Both halves were stale: the column is gone, and there is no
-      move at all for a card that is already where respecify sends it.
+      FNXC:PlanApproval 2026-08-28-11:39:
+      A card already in the workflow's planning column is reset in place, not moved. The fixture's `todo` column contains the planning node, so respecify must leave it there for triage's hold-column needs-replan rediscovery.
       */
       expect(store.moveTask).not.toHaveBeenCalled();
       expect(existsSync(join(taskDir, "PROMPT.md"))).toBe(false);

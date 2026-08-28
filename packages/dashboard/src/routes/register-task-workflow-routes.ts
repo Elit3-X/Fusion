@@ -210,10 +210,8 @@ async function resolveReboundColumnForTask(store: TaskStore, taskId: string): Pr
 }
 
 /*
-FNXC:WorkflowColumns 2026-07-19-2b:35 (U12 / R2):
-Spec revision rehomes to the workflow's INTAKE column (where specification happens), which is a
-different preference from the rebound target above — rebound prefers `hold`, respecify prefers
-`intake`. `builtin:coding`'s intake column IS `triage`, so the default path is unchanged.
+FNXC:PlanApproval 2026-08-28-11:39:
+Spec revision resolves intake as the conservative rehome target for cards outside planning or workflows that cannot declare placement. A card already where its workflow plans remains in place so `needs-replan` stays visible to hold-column triage rediscovery.
 */
 async function resolveIntakeColumnForTask(store: TaskStore, taskId: string): Promise<string> {
   try {
@@ -225,24 +223,29 @@ async function resolveIntakeColumnForTask(store: TaskStore, taskId: string): Pro
 }
 
 /**
- * FNXC:PlanReviewReplan 2026-08-04-06:35 FN-8768:
- * Plan approval normally belongs in workflow intake. An exhausted Plan Review stays where the
- * review node ran, and both operator decisions must be accepted there. Keep approve/reject on one
- * resolver so the UI cannot offer a choice that only one endpoint understands.
+ * FNXC:PlanApproval 2026-08-28-11:39:
+ * Manual plan approval parks at the workflow node that planned the task, which shipped coding workflows place in a hold column distinct from intake. Approve and reject therefore share the union of intake and hold columns, plus the exhausted Plan Review node column; unresolved workflows retain the legacy pre-implementation pair.
  */
 async function resolvePlanApprovalColumnsForTask(
   store: TaskStore,
   task: Task,
-): Promise<{ approvalColumn: string; intakeColumn: string }> {
+): Promise<{ acceptedColumns: ReadonlySet<string>; intakeColumn: string }> {
   try {
     const ir = await resolveWorkflowIrForTask(store, task.id);
-    const intakeColumn = columnsWithFlag(ir, "intake")[0] ?? "triage";
-    const approvalColumn = task.awaitingApprovalReason === "plan-review-replan-cap"
-      ? ir.nodes.find((node) => node.id === PLAN_REVIEW_GROUP_ID)?.column ?? intakeColumn
-      : intakeColumn;
-    return { approvalColumn, intakeColumn };
+    if (!workflowDeclaresColumnModel(ir)) {
+      return { acceptedColumns: new Set(["triage", "todo"]), intakeColumn: "triage" };
+    }
+    const intakeColumns = columnsWithFlag(ir, "intake");
+    const intakeColumn = intakeColumns[0] ?? "triage";
+    const acceptedColumns = new Set([...intakeColumns, ...columnsWithFlag(ir, "hold")]);
+    if (task.awaitingApprovalReason === "plan-review-replan-cap") {
+      const planReviewColumn = ir.nodes.find((node) => node.id === PLAN_REVIEW_GROUP_ID)?.column;
+      if (planReviewColumn) acceptedColumns.add(planReviewColumn);
+    }
+    if (acceptedColumns.size === 0) acceptedColumns.add(intakeColumn);
+    return { acceptedColumns, intakeColumn };
   } catch {
-    return { approvalColumn: "triage", intakeColumn: "triage" };
+    return { acceptedColumns: new Set(["triage", "todo"]), intakeColumn: "triage" };
   }
 }
 
@@ -4924,26 +4927,10 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         const task = await scopedStore.getTask(req.params.id);
 
         /*
-        FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — P0, post-#2515):
-        Resolve the workflow's INTAKE column; do not name `triage`. #2515 removed `triage`
-        from the default lineage — the single pre-implementation column is now id `todo`
-        displayed as "Planning" — so comparing the card's column against the legacy
-        `triage` id became TRUE for every
-        default-workflow card and this route rejected all of them. A card parked
-        `awaiting-approval` could not be approved OR rejected (same guard below), i.e. it
-        was STUCK with no operator action able to release it. The guard did not stop
-        firing; it started firing on everything.
+        FNXC:PlanApproval 2026-08-28-11:39:
+        Accept the workflow's complete pre-implementation planning set. The manual hold follows the planning node into a hold column, so an intake-only guard makes the dashboard show an action that the server refuses.
         */
-        const { approvalColumn: approveColumn } = await resolvePlanApprovalColumnsForTask(scopedStore, task);
-        /*
-        The resolved column ONLY — the legacy-`triage` disjunct this comment
-        used to justify is gone (PR #2614 review — greptile: the comment outlived the code).
-        It was a belt-and-braces widening added with the P0 fix, on the theory that a card
-        might still be sitting in `triage`. Nothing shipped declares that column since
-        #2515, so the disjunct only widened what the guard accepts, and re-adding it changed
-        no test in either direction. A guard that accepts a column no workflow declares is
-        not caution, it is an unreachable branch that reads like a requirement.
-        */
+        const { acceptedColumns: approveColumns } = await resolvePlanApprovalColumnsForTask(scopedStore, task);
         if (task.status !== "awaiting-approval") {
           throw badRequest("Task must have status 'awaiting-approval' to approve plan");
         }
@@ -4953,8 +4940,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
          * A split-column approval keeps the hold set while moving to rebound. Accept that lane on
          * retry so a failure after the move cannot strand a safely blocked partial decision.
          */
-        if (task.column !== approveColumn && task.column !== reboundColumn) {
-          throw badRequest(`Task must be in the '${approveColumn}' column to approve plan`);
+        if (!approveColumns.has(task.column) && task.column !== reboundColumn) {
+          throw badRequest(`Task must be in one of the '${[...approveColumns].join("', '")}' columns to approve plan`);
         }
         // FNXC:ReleaseAuthorizationGate 2026-07-09-00:00:
         // The triage release-authorization gate was removed (it over-fired and stranded
@@ -5133,15 +5120,14 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         const task = await scopedStore.getTask(req.params.id);
 
         /*
-         * FNXC:WorkflowResolvedColumns 2026-08-04-06:35 FN-8768:
-         * Match approve-plan by resolving the workflow-owned approval column rather than naming
-         * legacy `triage`; exhausted review may deliberately park outside intake.
+         * FNXC:PlanApproval 2026-08-28-11:39:
+         * Match approve-plan by accepting the same workflow-owned planning columns; exhausted review may additionally park at its review node.
          */
-        const { approvalColumn: rejectColumn, intakeColumn } = await resolvePlanApprovalColumnsForTask(scopedStore, task);
+        const { acceptedColumns: rejectColumns, intakeColumn } = await resolvePlanApprovalColumnsForTask(scopedStore, task);
         const retryingPartialCapRejection = task.awaitingApprovalReason === "plan-review-replan-cap"
           && task.column === intakeColumn;
-        if (task.column !== rejectColumn && !retryingPartialCapRejection) {
-          throw badRequest(`Task must be in the '${rejectColumn}' column to reject plan`);
+        if (!rejectColumns.has(task.column) && !retryingPartialCapRejection) {
+          throw badRequest(`Task must be in one of the '${[...rejectColumns].join("', '")}' columns to reject plan`);
         }
         if (task.status !== "awaiting-approval") {
           throw badRequest("Task must have status 'awaiting-approval' to reject plan");
@@ -5163,12 +5149,20 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         const promptPath = join(scopedStore.getRootDir(), ".fusion", "tasks", task.id, "PROMPT.md");
         await rm(promptPath, { force: true });
 
-        if (task.column !== intakeColumn) {
+        let plansInCurrentColumn = false;
+        try {
+          plansInCurrentColumn = workflowPlansInColumn(
+            await resolveWorkflowIrForTask(scopedStore, task.id),
+            task.column,
+          );
+        } catch {
+          // Preserve the conservative legacy rehome when workflow placement cannot be resolved.
+        }
+
+        if (!plansInCurrentColumn && task.column !== intakeColumn) {
           /*
-           * FNXC:PlanReviewReplan 2026-08-04-06:35 FN-8768:
-           * Keep awaiting-approval durable while a split-column cap park is rehomed to planning
-           * intake. If the final clear fails, the safely blocked intake row can retry this route;
-           * no interruption exposes rejected content to planning or execution.
+           * FNXC:PlanApproval 2026-08-28-11:39:
+           * Regenerate in place when the workflow plans in the current column. Blindly moving a held Coding (Ideas) task to its autoTriage:false intake leaves the cleared plan where triage will never re-plan it; unresolved or v1 workflows still conservatively rehome to intake.
            */
           await scopedStore.moveTask(task.id, intakeColumn, {
             preserveStatus: true,
@@ -5990,27 +5984,22 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       // Get current task state
       const task = await scopedStore.getTask(req.params.id);
 
-      /*
-      FNXC:WorkflowColumns 2026-07-19-11:10 (U12 review):
-      The in-place-reset early return must key on the workflow-resolved intake target, not only
-      the literal "triage". On a custom board whose intake column isn't "triage" (e.g. "backlog"),
-      a task already sitting at intake would otherwise fall through to
-      `canTransition = task.column !== respecifyTarget` === false and be rejected — permanently
-      blocking spec revision in exactly the column where respecify belongs. The literal "triage"
-      check is kept alongside so legacy behavior stays byte-identical even if a custom workflow
-      declares a non-intake column literally named "triage".
-      */
       const respecifyTarget = await resolveIntakeColumnForTask(scopedStore, task.id);
+      let plansInCurrentColumn = false;
+      try {
+        plansInCurrentColumn = workflowPlansInColumn(
+          await resolveWorkflowIrForTask(scopedStore, task.id),
+          task.column,
+        );
+      } catch {
+        // Preserve the conservative legacy move-to-intake behavior when placement is unreadable.
+      }
 
-      // If task is already at its workflow's intake column, skip the transition
-      // check and moveTask. Just reset for replanning in place.
       /*
-      FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — R8 drift conversion):
-      `respecifyTarget` IS the resolved intake column (`resolveIntakeColumnForTask`), so the
-      `=== "triage"` disjunct only ever fired for a workflow whose intake is literally
-      triage — which that same call already returns. Redundant before the merge, dead after.
+      FNXC:PlanApproval 2026-08-28-11:39:
+      Respecify stays in place when the workflow plans in the current column. Coding (Ideas) parks manual approval in hold column `todo`, while its `ideas` intake has autoTriage:false; moving a needs-replan card there bypasses triage's hold-column rediscovery and silently strands it. Cards outside planning and v1 workflows still use the existing intake move.
       */
-      if (task.column === respecifyTarget) {
+      if (task.column === respecifyTarget || plansInCurrentColumn) {
         // Log the revision request
         await scopedStore.logEntry(task.id, "AI spec revision requested", feedback);
 

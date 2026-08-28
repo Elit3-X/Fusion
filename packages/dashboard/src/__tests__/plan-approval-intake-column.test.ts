@@ -38,6 +38,23 @@ const MERGED_CODING_IR = {
   edges: [{ from: "start", to: "end" }],
 };
 
+const SPLIT_CODING_IR = {
+  version: "v2",
+  name: "split-coding",
+  columns: [
+    { id: "ideas", name: "Ideas", traits: [{ trait: "intake", config: { autoTriage: false } }] },
+    { id: "todo", name: "Planning", traits: [{ trait: "hold" }] },
+    { id: "in-progress", name: "In progress", traits: [{ trait: "wip" }] },
+    { id: "done", name: "Done", traits: [{ trait: "complete" }] },
+  ],
+  nodes: [
+    { id: "start", kind: "start", column: "ideas" },
+    { id: "planning", kind: "prompt", column: "todo", config: { seam: "planning" } },
+    { id: "end", kind: "end", column: "done" },
+  ],
+  edges: [{ from: "start", to: "planning" }, { from: "planning", to: "end" }],
+};
+
 /** A card parked awaiting approval on the merged planning column. */
 const PLANNING_TASK: TaskDetail = {
   id: "FN-200",
@@ -86,6 +103,10 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
     on: vi.fn(),
     off: vi.fn(),
     getProjectScopedPluginMcpServers: vi.fn().mockResolvedValue([]),
+    listWorkflowWorkItemsForTask: vi.fn().mockResolvedValue([]),
+    cancelActiveWorkflowWorkItemsForTask: vi.fn().mockResolvedValue(undefined),
+    replaceActiveTaskWorkflowContinuation: vi.fn().mockResolvedValue(undefined),
+    pauseTask: vi.fn().mockResolvedValue(PLANNING_TASK),
     ...overrides,
   } as unknown as TaskStore;
 }
@@ -111,6 +132,17 @@ describe("plan approval on the merged planning column (post-#2515)", () => {
 
   it("does NOT reject reject-plan for a card in the merged intake column", async () => {
     const res = await performRequest(createApp(createMockStore()), "POST", "/api/tasks/FN-200/reject-plan");
+    expect(res.status).toBe(200);
+  });
+
+  it("accepts approval in a distinct hold column instead of only the intake column", async () => {
+    const store = createMockStore({
+      getTaskWorkflowSelectionAsync: vi.fn().mockResolvedValue({ workflowId: "wf-split" }),
+      getWorkflowDefinition: vi.fn().mockResolvedValue({ id: "wf-split", name: "Split", ir: SPLIT_CODING_IR }),
+    });
+
+    const res = await performRequest(createApp(store), "POST", "/api/tasks/FN-200/approve-plan");
+
     expect(res.status).toBe(200);
   });
 

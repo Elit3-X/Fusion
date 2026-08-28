@@ -34,6 +34,7 @@ import {
   isCompleteColumnRole,
   isHoldColumnRole,
   isFieldEditableColumnRole,
+  isPreImplementationColumnRole,
   isReviewColumnRole,
   isWipColumnRole,
 } from "../utils/columnRoles";
@@ -3621,20 +3622,12 @@ export function TaskDetailContent({
   without converging so the operator is not guessing why the task is parked.
   */
   /*
-  FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — R8 drift conversion):
-  The INTAKE lane's approval hold. `task.column === "triage"` is deleted by U11, which
-  would silently drop the Approve/Reject controls from a parked planning card — the
-  operator sees a task stuck "awaiting approval" with no way to answer it.
-
-  FNXC:WorkflowLifecycleColumns 2026-07-29-23:40 DELIBERATE-LITERAL: the fallback arm only.
-  Reachable only with no resolved flags; guessing "not intake" hides Approve/Reject from a parked
-  planning card, which is an operator dead end. Retires with the pre-load window.
+  FNXC:PlanApproval 2026-08-28-11:29:
+  The approval banner follows the task's planning lane, not intake alone. Resolved intake or hold traits qualify, while the shared helper preserves the degraded `triage`/`todo` fallback so first paint cannot hide the operator's only release controls.
   */
-  const isIntakeColumn = detailColumnFlags
-    ? detailColumnFlags.intake === true
-    : task.column === "triage";
+  const isPlanningLane = isPreImplementationColumnRole(detailColumnFlags, task.column);
   const isPlanReviewReplanCapApproval = isReviewBudgetExhaustedApproval(task);
-  const isAwaitingApproval = isTaskAwaitingPlanApproval(task, isIntakeColumn);
+  const isAwaitingApproval = isTaskAwaitingPlanApproval(task, isPlanningLane);
 
   const handleTogglePause = useCallback(async () => {
     try {

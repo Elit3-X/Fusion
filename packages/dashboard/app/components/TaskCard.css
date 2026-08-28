@@ -615,7 +615,8 @@ FNXC:TaskCardLayout 2026-07-17-15:00 (FN-8254):
 Fast-mode's icon-only chip shares the text-badge box geometry instead of a fixed square. Keep the
 Zap at the badge text size so it remains centered without making the header row taller on desktop or mobile.
 */
-.card-execution-mode-badge {
+.card-execution-mode-badge,
+.card-plan-approval-badge {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
@@ -629,12 +630,18 @@ Zap at the badge text size so it remains centered without making the header row 
   border-radius: var(--radius-pill);
 }
 
-.card-execution-mode-badge svg {
+.card-execution-mode-badge svg,
+.card-plan-approval-badge svg {
   width: 0.625rem;
   height: 0.625rem;
 }
 
 .card-execution-mode-badge--fast {
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  color: var(--color-warning);
+}
+
+.card-plan-approval-badge {
   background: color-mix(in srgb, var(--color-warning) 20%, transparent);
   color: var(--color-warning);
 }
@@ -2213,6 +2220,7 @@ The three-dot menu is the sole card move/action entry point. Keep this shared bu
   .card-no-commits-expected-badge,
   .card-planner-overseer-state,
   .card-execution-mode-badge,
+  .card-plan-approval-badge,
   .card-pr-node-badge,
   .card-mission-badge,
   .card-oversight-badge {
@@ -2224,6 +2232,7 @@ The three-dot menu is the sole card move/action entry point. Keep this shared bu
 
   .card-planner-overseer-state svg,
   .card-execution-mode-badge svg,
+  .card-plan-approval-badge svg,
   .card-mission-badge svg {
     width: 0.5625rem;
     height: 0.5625rem;

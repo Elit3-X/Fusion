@@ -280,6 +280,10 @@ export async function createTask(
   projectId?: string,
   options?: CreateTaskRequestOptions,
 ): Promise<Task> {
+  /*
+  FNXC:PlanApproval 2026-08-28-11:29:
+  The dashboard create API is an explicit whitelist shared by Quick Entry and New Task. Forward the per-task approval override here so an opted-in task reaches planning with its human-review hold intact.
+  */
   const {
     title,
     description,
@@ -314,6 +318,7 @@ export async function createTask(
     branchSelection,
     githubTracking,
     sessionAdvisorEnabled,
+    requirePlanApproval,
     acknowledgedDuplicates,
     bypassDuplicateCheck,
     repositoryScope,
@@ -358,6 +363,7 @@ export async function createTask(
       branchSelection,
       githubTracking,
       sessionAdvisorEnabled,
+      requirePlanApproval,
       acknowledgedDuplicates,
       bypassDuplicateCheck,
       repositoryScope,

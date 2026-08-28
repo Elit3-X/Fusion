@@ -797,7 +797,8 @@ rows while preserving their existing badge geometry.
   color: var(--triage);
 }
 
-.list-execution-mode-badge {
+.list-execution-mode-badge,
+.list-plan-approval-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -807,12 +808,18 @@ rows while preserving their existing badge geometry.
   line-height: 1;
 }
 
-.list-execution-mode-badge svg {
+.list-execution-mode-badge svg,
+.list-plan-approval-badge svg {
   width: 0.75rem;
   height: 0.75rem;
 }
 
 .list-execution-mode-badge--fast {
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  color: var(--color-warning);
+}
+
+.list-plan-approval-badge {
   background: color-mix(in srgb, var(--color-warning) 20%, transparent);
   color: var(--color-warning);
 }

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { memo, useCallback, useState, useRef, useEffect, useLayoutEffect, useMemo, type CSSProperties, type ReactElement } from "react";
 import { createPortal } from "react-dom";
-import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch, GitPullRequest, AlertTriangle, ArrowUpRight, Eye, MoreHorizontal, Sparkles, X } from "lucide-react";
+import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, ShieldCheck, GitBranch, GitPullRequest, AlertTriangle, ArrowUpRight, Eye, MoreHorizontal, Sparkles, X } from "lucide-react";
 import { isTaskExternallyBlocked } from "@fusion/core";
 import type { Task, TaskDetail, Column, ColumnId, PrInfo, IssueInfo, TaskPriority, GithubIssueAction, MergeResult, PlannerOversightLevel } from "@fusion/core";
 import {
@@ -38,6 +38,7 @@ import {
   isArchivedColumnRole,
   isCompleteColumnRole,
   isFieldEditableColumnRole,
+  isPreImplementationColumnRole,
   isReviewColumnRole,
   isWipColumnRole,
 } from "../utils/columnRoles";
@@ -672,7 +673,7 @@ interface PlanApprovalNoticeProps {
   projectId?: string;
   addToast: (message: string, type?: ToastType) => void;
   onTaskUpdated?: (task: Task) => void;
-  isIntakeColumn?: boolean;
+  isPlanningLane?: boolean;
 }
 
 /*
@@ -686,12 +687,12 @@ export function PlanApprovalNotice({
   projectId,
   addToast,
   onTaskUpdated,
-  isIntakeColumn = true,
+  isPlanningLane = true,
 }: PlanApprovalNoticeProps) {
   const { t } = useTranslation("app");
   const [isApproving, setIsApproving] = useState(false);
   const [showRespecify, setShowRespecify] = useState(false);
-  const awaitingApproval = isTaskAwaitingPlanApproval(task, isIntakeColumn);
+  const awaitingApproval = isTaskAwaitingPlanApproval(task, isPlanningLane);
   if (isTaskExternallyBlocked(task) || !awaitingApproval) return null;
 
   const replanCap = isReviewBudgetExhaustedApproval(task);
@@ -1699,7 +1700,8 @@ function TaskCardComponent({
   converging — Approve keeps the current PROMPT.md; Reject regenerates.
   */
   const isPlanReviewReplanCapApproval = isReviewBudgetExhaustedApproval(task);
-  const isAwaitingApproval = isTaskAwaitingPlanApproval(task, isIntakeColumn);
+  const isPlanningLane = isPreImplementationColumnRole(taskColumnFlags, task.column);
+  const isAwaitingApproval = isTaskAwaitingPlanApproval(task, isPlanningLane);
   const isBlockedOnApprovalHold = isTaskBlockedOnApprovalHold(task);
   const isAwaitingInput = task.status === "awaiting-user-input";
   /*
@@ -3520,6 +3522,7 @@ function TaskCardComponent({
                   ?? getTaskStatusLabel(visualStatus ?? "", t, showOptionalGateBadge ? undefined : getRunningWorkflowStepLabel(task), { idle: !isAgentActive, overlapBlockedBy: task.overlapBlockedBy ?? null, sessionContentionWaitReason: task.sessionContentionWaitReason ?? null });
   const hasCardMetaBadges = showPriorityBadge
     || task.executionMode === "fast"
+    || task.requirePlanApproval === true
     // FNXC:PlannerOversight 2026-07-04-00:00: the oversight badge is opt-in
     // metadata (absent for the common "off" default) — include it in the wrapper
     // guard so `.card-meta-badges` only renders when it has a real child.
@@ -3659,7 +3662,7 @@ function TaskCardComponent({
           variant="card"
           projectId={projectId}
           addToast={addToast}
-          isIntakeColumn={isIntakeColumn}
+          isPlanningLane={isPlanningLane}
         />
       )}
       <div className="card-header">
@@ -3973,6 +3976,18 @@ function TaskCardComponent({
               >
                 <Zap aria-hidden="true" />
                 <span className="visually-hidden">{t("tasks.fastMode", "Fast mode")}</span>
+              </span>
+            )}
+            {task.requirePlanApproval === true && (
+              <span
+                className="card-plan-approval-badge"
+                data-testid={`plan-approval-badge-card-${task.id}`}
+                title={t("tasks.planApprovalBadge", "Human plan review required")}
+                aria-label={t("tasks.planApprovalBadge", "Human plan review required")}
+              >
+                {/* FNXC:PlanApproval 2026-08-28-11:48: The shield persists the create-time human-review intent on the card before the approval hold becomes active, so operators can distinguish tasks that will stop for their decision. */}
+                <ShieldCheck aria-hidden="true" />
+                <span className="visually-hidden">{t("tasks.planApprovalBadge", "Human plan review required")}</span>
               </span>
             )}
             {showOversightBadge && (

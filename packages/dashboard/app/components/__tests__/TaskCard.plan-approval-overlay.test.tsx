@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import type { Task } from "@fusion/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,8 +45,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderCard(row = task(), addToast = vi.fn()) {
-  render(<TaskCard task={row} projectId="project-1" onOpenDetail={vi.fn()} addToast={addToast} />);
+function renderCard(
+  row = task(),
+  addToast = vi.fn(),
+  taskColumnFlags?: ComponentProps<typeof TaskCard>["taskColumnFlags"],
+) {
+  render(<TaskCard task={row} projectId="project-1" onOpenDetail={vi.fn()} addToast={addToast} taskColumnFlags={taskColumnFlags} />);
   return addToast;
 }
 
@@ -56,6 +61,26 @@ describe("TaskCard plan approval overlay", () => {
     expect(notice).toHaveTextContent("Need Your Review");
     expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Respecify" })).toBeEnabled();
+  });
+
+  it("renders the actions where the shipped workflow parks its hold", () => {
+    renderCard(task({ column: "todo", awaitingApprovalReason: null }), vi.fn(), { intake: false, hold: true });
+
+    expect(screen.getByTestId("plan-approval-card-FN-212")).toHaveTextContent("Need Your Review");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Respecify" })).toBeEnabled();
+  });
+
+  it("does not render an ordinary approval hold in a WIP column", () => {
+    renderCard(task({ column: "in-progress", awaitingApprovalReason: null }), vi.fn(), { countsTowardWip: true });
+
+    expect(screen.queryByTestId("plan-approval-card-FN-212")).toBeNull();
+  });
+
+  it("keeps approval controls during the no-flags first paint", () => {
+    renderCard(task({ column: "todo", awaitingApprovalReason: null }));
+
+    expect(screen.getByTestId("plan-approval-card-FN-212")).toBeInTheDocument();
   });
 
   it("keeps distinct replan-cap copy", () => {

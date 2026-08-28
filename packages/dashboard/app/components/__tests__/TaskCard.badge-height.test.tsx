@@ -20,6 +20,7 @@ vi.mock("lucide-react", () => ({
   Trash2: () => null,
   RotateCw: () => null,
   Zap: () => <svg />,
+  ShieldCheck: () => <svg />,
   Eye: () => <svg />,
   AlertTriangle: () => null,
   ArrowDown: ({ style }: { style?: React.CSSProperties }) => <svg className="lucide-arrow-down" style={style} />,
@@ -143,6 +144,7 @@ describe("TaskCard badge heights (FN-4369)", () => {
           size: "M",
           priority: "urgent" as Task["priority"],
           executionMode: "fast",
+          requirePlanApproval: true,
           missionId: "M-8254",
           plannerOversightLevel: "autonomous",
           plannerOverseerState: {
@@ -167,6 +169,7 @@ describe("TaskCard badge heights (FN-4369)", () => {
     const chips = [
       ".card-planner-overseer-state",
       ".card-execution-mode-badge",
+      ".card-plan-approval-badge",
       ".card-pr-node-badge",
       ".card-mission-badge",
       ".card-oversight-badge",
@@ -252,7 +255,7 @@ describe("TaskCard badge heights (FN-4369)", () => {
     expect(sizeBadge).toBeTruthy();
     expect(statusBadge).toBeTruthy();
     expect(headerBadges).toBeTruthy();
-    expect(headerBadges.querySelectorAll(".card-status-badge, .card-priority-badge, .card-execution-mode-badge, .card-mission-badge").length).toBeGreaterThan(1);
+    expect(headerBadges.querySelectorAll(".card-status-badge, .card-priority-badge, .card-execution-mode-badge, .card-plan-approval-badge, .card-mission-badge").length).toBeGreaterThan(1);
 
     /*
      * FNXC:TaskCardLayout 2026-08-01-06:46 (FN-8675):

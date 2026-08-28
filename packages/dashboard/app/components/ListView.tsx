@@ -3,11 +3,11 @@ import { useState, useCallback, useMemo, Fragment, useEffect, useLayoutEffect, u
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ArrowUpDown, ArrowUp, ArrowDown, Link, Columns3, EyeOff, Eye, ChevronRight, Zap, Trash2, Pause, Play, Archive } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Link, Columns3, EyeOff, Eye, ChevronRight, Zap, ShieldCheck, Trash2, Pause, Play, Archive } from "lucide-react";
 import { DEFAULT_COLUMN, THINKING_LEVELS, getErrorMessage, isColumn, sortTasksForDisplayColumn, type Task, type TaskDetail, type Column, type ColumnId, type TaskCreateInput, type MergeResult, type GithubIssueAction, type PrInfo, type ThinkingLevel } from "@fusion/core";
 import { resolveEffectiveAutoMerge } from "../../../core/src/merge/task-merge";
 import { useColumnLabel } from "../i18n/labels";
-import { isArchivedColumnRole, isCompleteColumnRole, isIntakeColumnRole, isReviewColumnRole, isWipColumnRole } from "../utils/columnRoles";
+import { isArchivedColumnRole, isCompleteColumnRole, isIntakeColumnRole, isPreImplementationColumnRole, isReviewColumnRole, isWipColumnRole } from "../utils/columnRoles";
 import { batchUpdateTaskModels, fetchNodes, fetchTaskDetail, refreshPrStatus, updateTask } from "../api";
 import { TaskDetailContent } from "./TaskDetailModal";
 import { ExternalBlockNotice, PlanApprovalNotice } from "./TaskCard";
@@ -972,6 +972,9 @@ export function ListView({
      workflow's `intake` trait. Same one-line fix as the sites below. */
   const isIntakeColumnForTask = useCallback((task: Task): boolean => {
     return isIntakeColumnRole(getTaskColumnFlags(task), task.column);
+  }, [getTaskColumnFlags]);
+  const isPlanningLaneForTask = useCallback((task: Task): boolean => {
+    return isPreImplementationColumnRole(getTaskColumnFlags(task), task.column);
   }, [getTaskColumnFlags]);
 
   /*
@@ -3093,6 +3096,17 @@ export function ListView({
                                     <span className="visually-hidden">{t("listView.fastMode", "Fast mode")}</span>
                                   </span>
                                 )}
+                                {task.requirePlanApproval === true && (
+                                  <span
+                                    className="list-plan-approval-badge"
+                                    data-testid={`plan-approval-badge-list-card-${task.id}`}
+                                    title={t("listView.planApprovalBadge", "Human plan review required")}
+                                    aria-label={t("listView.planApprovalBadge", "Human plan review required")}
+                                  >
+                                    <ShieldCheck aria-hidden="true" />
+                                    <span className="visually-hidden">{t("listView.planApprovalBadge", "Human plan review required")}</span>
+                                  </span>
+                                )}
                                 <span className="list-card-spacer" />
                                 {isPaused && task.pausedByAgentId ? (
                                   <span className="list-status-badge paused">{t("listView.pausedByAgent", "paused by agent")}</span>
@@ -3139,7 +3153,7 @@ export function ListView({
                               </div>
 
                               <ExternalBlockNotice task={task} variant="list" onOpenChatWithPrefill={onOpenChatWithPrefill} onRetryTask={onRetryTask} addToast={addToast} />
-                              <PlanApprovalNotice task={task} variant="list" projectId={projectId} addToast={addToast} isIntakeColumn={isIntakeColumnForTask(task)} />
+                              <PlanApprovalNotice task={task} variant="list" projectId={projectId} addToast={addToast} isPlanningLane={isPlanningLaneForTask(task)} />
 
                               {(hasDependencies || hasProgress) && (
                                 <div className="list-card-row list-card-meta">
@@ -3372,6 +3386,17 @@ export function ListView({
                                             <span className="visually-hidden">{t("listView.fastMode", "Fast mode")}</span>
                                           </span>
                                         )}
+                                        {task.requirePlanApproval === true && (
+                                          <span
+                                            className="list-plan-approval-badge"
+                                            data-testid={`plan-approval-badge-list-table-${task.id}`}
+                                            title={t("listView.planApprovalBadge", "Human plan review required")}
+                                            aria-label={t("listView.planApprovalBadge", "Human plan review required")}
+                                          >
+                                            <ShieldCheck aria-hidden="true" />
+                                            <span className="visually-hidden">{t("listView.planApprovalBadge", "Human plan review required")}</span>
+                                          </span>
+                                        )}
                                         <span className="list-title-text">{getTaskTitleDisplay(task).text}</span>
                                       </div>
                                     </div>
@@ -3380,7 +3405,7 @@ export function ListView({
                                 {visibleColumns.has("status") && (
                                   <td className="list-cell">
                                     <ExternalBlockNotice task={task} variant="list" onOpenChatWithPrefill={onOpenChatWithPrefill} onRetryTask={onRetryTask} addToast={addToast} />
-                                    <PlanApprovalNotice task={task} variant="list" projectId={projectId} addToast={addToast} isIntakeColumn={isIntakeColumnForTask(task)} />
+                                    <PlanApprovalNotice task={task} variant="list" projectId={projectId} addToast={addToast} isPlanningLane={isPlanningLaneForTask(task)} />
                                     {isPaused && task.pausedByAgentId ? (
                                       <span className="list-status-badge paused">{t("listView.pausedByAgent", "paused by agent")}</span>
                                     ) : showStatusBadge ? (
