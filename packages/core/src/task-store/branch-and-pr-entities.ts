@@ -26,10 +26,11 @@ import { WorkflowSettingDefinition, WorkflowIr} from "../workflows/workflow-ir-t
 import { resolveTaskLifecycleColumns } from "../workflows/workflow-lifecycle-traits.js";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MoveTaskInternalOptions, MoveTaskOptions, storeLog } from "../store.js";
 import { resolveProjectColumnsForRoles } from "../project-lane-vocabulary.js";
+import {writePromptFileAtomic} from "./prompt-file.js";
 
 /*
 FNXC:BranchGroupProjectIsolation 2026-08-12-14:30:
@@ -613,7 +614,7 @@ export async function resetPromptCheckboxesImpl(store: TaskStore, dir: string): 
       const resetContent = content.replace(/^- \[x\]/gm, "- [ ]");
 
       if (resetContent !== content) {
-        await writeFile(promptPath, resetContent, "utf-8");
+        await writePromptFileAtomic(promptPath, resetContent);
       }
     } catch (err) {
       storeLog.warn(`[task-detail] failed to reset PROMPT.md checkboxes in ${dir}: ${err instanceof Error ? err.message : String(err)}`);

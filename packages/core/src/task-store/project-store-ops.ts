@@ -14,7 +14,7 @@ import {resolveWorkflowIntakeFacts} from "./task-creation.js";
 import {TransitionRejectionError} from "./errors.js";
 import * as schema from "../postgres/schema/index.js";
 import {and, eq, inArray, isNull, ne, or, sql} from "drizzle-orm";
-import {mkdir, writeFile} from "node:fs/promises";
+import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 import type {Task, ColumnId, CheckoutClaimPrecondition, ActivityLogEntry, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, GoalCitation, GoalCitationFilter} from "../types.js";
 import {parseWorkflowIr, downgradeIrToV1IfPure} from "../workflows/workflow-ir.js";
@@ -33,6 +33,7 @@ import {CentralCore} from "../central/central-core.js";
 import {extractTaskIdTokens, normalizeTitleForTaskId} from "../tasks/task-title-id-drift.js";
 import {generateTaskLineageId} from "../tasks/task-lineage.js";
 import {sanitizeFileScopeInPromptContent} from "../task-store/file-scope.js";
+import {writePromptFileAtomic} from "./prompt-file.js";
 import {preserveDurableTaskWedgeInvariants, type TaskRow} from "../task-store/persistence.js";
 import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
 import {isWorkflowDefinitionIdPrimaryKeyCollision, nextWorkflowDefinitionIdAsyncImpl} from "../task-store/workflow-definitions.js";
@@ -386,7 +387,7 @@ export async function duplicateTaskImpl(
           storeLog.log(`[file-scope-sanitize] duplicate ${newId} from ${id}: dropped=[${sanitizedPrompt.dropped.join(",")}]`);
         }
         await mkdir(newDir, { recursive: true });
-        await writeFile(join(newDir, "PROMPT.md"), sanitizedPrompt.sanitized);
+        await writePromptFileAtomic(join(newDir, "PROMPT.md"), sanitizedPrompt.sanitized);
 
         if (store.isWatching) store.taskCache.set(newId, { ...newTask });
         store.emit("task:created", newTask);

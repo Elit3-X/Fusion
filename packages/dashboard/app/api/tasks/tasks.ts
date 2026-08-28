@@ -120,8 +120,7 @@ export function fetchSpecLock(id: string, projectId?: string): Promise<SpecLockR
 
 /*
 FNXC:TaskDetailPlan 2026-08-05-04:05:
-Definition polling reads only PROMPT.md. It must not request a TaskDetail because board/SSE/mutation
-snapshots exclusively own lifecycle, workflow, and action state while a detail host is mounted.
+Definition polling reads only PROMPT.md so it cannot roll lifecycle or workflow state backward. Its response is degradable evidence: the mounted detail may adopt usable plan text, while absent or blank text retains the loaded plan until a separate authoritative detail read confirms whether PROMPT.md is genuinely gone.
 */
 export function fetchTaskPrompt(id: string, projectId?: string): Promise<TaskPromptResponse> {
   return api<TaskPromptResponse>(withProjectId(`/tasks/${id}/prompt`, projectId));

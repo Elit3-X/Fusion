@@ -16,7 +16,7 @@ import {
 } from "../workflows/workflow-lifecycle-traits.js";
 import {resolveWorkflowIrForTask} from "../workflows/workflow-ir-resolver.js";
 import {InvalidFileScopeError, SelfSpawnedDependencyError, detectSelfSpawnedDependency} from "./errors.js";
-import {mkdir, readFile, stat, writeFile} from "node:fs/promises";
+import {mkdir, readFile, stat} from "node:fs/promises";
 import {join} from "node:path";
 import {existsSync} from "node:fs";
 import type {Task, Column, TaskLogEntry, RunMutationContext, TaskRecommendation} from "../types.js";
@@ -39,6 +39,7 @@ import {PLAN_REVIEW_GROUP_ID} from "../workflows/builtin-plan-review-group.js";
 import {BranchWriteProvenanceError, validateTaskBranchName} from "../branch/branch-assignment.js";
 import {withTaskBranchContextInSourceMetadata} from "./branch-context.js";
 import {invalidateSupersededRepositoryScopeReviews} from "../tasks/repository-scope.js";
+import {writePromptFileAtomic} from "./prompt-file.js";
 
 /*
 FNXC:TaskRecommendations 2026-08-08-07:06:
@@ -1263,7 +1264,7 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       so no reader can dispatch work from a new heading paired with the preceding scope generation.
       */
       if (updates.prompt !== undefined) {
-        await writeFile(promptPath, updates.prompt);
+        await writePromptFileAtomic(promptPath, updates.prompt);
       }
 
       if (store.isBackendMode() && updates.prompt !== undefined) {
@@ -1331,7 +1332,7 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
 
             if (isBootstrapPromptStub(existingPrompt, task.id, preUpdateTitle, preUpdateDescription)) {
               const newPrompt = buildBootstrapPrompt(task.id, task.title, task.description);
-              await writeFile(promptPath, newPrompt);
+              await writePromptFileAtomic(promptPath, newPrompt);
             } else {
               // Real spec — surgical edits only. Each section we propagate to is
               // edited in place; everything else (Review Level, Frontend UX
@@ -1358,7 +1359,7 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
                 next = applyOriginalDescription(next, task.description ?? "");
               }
               if (next !== existingPrompt) {
-                await writeFile(promptPath, next);
+                await writePromptFileAtomic(promptPath, next);
               }
             }
           }

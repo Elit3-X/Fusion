@@ -312,14 +312,17 @@ owns a real column transition; within that column, a later `updatedAt` owns stat
 clock evidence retains the already-visible known lifecycle state unless a complete server snapshot is
 newer than the row and resolves an equal legacy move clock; sparse SSE patches never receive that tie-break.
 
-This helper intentionally merges only defined sparse fields and retains a fetched detail's prompt/log
-when a slim board row arrives. Every open-detail host and useTasks ingestion uses this one boundary so
-one provider cannot regress a modal, main panel, split detail, dock, or popup independently.
+This helper intentionally merges only defined sparse fields. A slim or sparse payload's absent, empty, or whitespace-only prompt is not evidence that a loaded plan was cleared, and an empty log is not evidence that a populated journal was cleared; marked full snapshots remain authoritative for both fields. Every open-detail host and useTasks ingestion uses this one boundary so one provider cannot regress a modal, main panel, split detail, dock, or popup independently.
 
 FNXC:TaskDetailStateStability 2026-08-09-07:13:
 `mergeTaskSnapshot` arbitrates server snapshots only. Locally-authored detail patches must use
 `applyLocalTaskPatch`: FN-5148 requires mismatched ids to be ignored while accepting an absent id, and
 FN-8796 showed that an absent or equal local clock is not evidence of staleness.
+
+FNXC:TaskDetailStateStability 2026-08-28-16:07:
+A sparse blank prompt must not add a `prompt` key to a slim task row. Task detail uses key presence to
+distinguish a complete detail from a board snapshot, so synthesizing that key would make a transient
+empty payload look authoritative and could replace the loaded Definition plan with `(no prompt)`.
 */
 export interface TaskSnapshotMergeOptions {
   /** Hook-local, non-persisted evidence captured when GET /api/tasks supplied a release verdict. */
@@ -438,8 +441,18 @@ export function mergeTaskSnapshot<T extends Task>(
     ? incoming.recentAgentActivityAt
     : current.recentAgentActivityAt;
 
-  if ("prompt" in current && incoming.prompt === undefined) {
-    merged.prompt = current.prompt;
+  const currentHasPrompt = "prompt" in current;
+  const incomingPrompt = incoming.prompt;
+  if (currentHasPrompt) {
+    const currentPrompt = current.prompt;
+    const sparseBlankCannotClear = options.fullSnapshot !== true
+      && Boolean(currentPrompt?.trim())
+      && !incomingPrompt?.trim();
+    if (incomingPrompt === undefined || sparseBlankCannotClear) {
+      merged.prompt = currentPrompt;
+    }
+  } else if (options.fullSnapshot !== true && !incomingPrompt?.trim()) {
+    delete merged.prompt;
   }
 
   /*

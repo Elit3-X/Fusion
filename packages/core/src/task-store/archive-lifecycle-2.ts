@@ -12,7 +12,7 @@ import { resolveWorkflowIrForTask } from "../workflows/workflow-ir-resolver.js";
 import { toTaskMoveLanes } from "../workflows/workflow-lifecycle-traits.js";
 import {getFeatureByTaskId as getMissionFeatureByTaskId, unlinkFeatureFromTaskId as unlinkMissionFeatureFromTaskId, recordGeneratedFixOperatorStop} from "../async-stores/async-mission-store-queries.js";
 import {TaskHasDependentsError, TaskHasLineageChildrenError, TaskNotFoundError, TaskSelfDeleteError} from "./errors.js";
-import {mkdir, writeFile} from "node:fs/promises";
+import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 import {and, eq, inArray, sql} from "drizzle-orm";
 import * as schema from "../postgres/schema/index.js";
@@ -37,6 +37,7 @@ import {archiveParentTaskWithLineageGate, findArchivedTaskEntry, deleteArchivedT
 import {getArchivedRowCount, listArchivedTaskEntriesPage} from "../async-stores/async-archive-db.js";
 import {disposeArchivedWorkspaceWorktrees, disposeArchivedWorktree, prepareArchivedWorkspaceWorktrees, releasePreparedWorkspaceArchiveDisposal} from "./archive-lifecycle.js";
 import {resolveArchiveLivenessWipLanes, TaskIsLiveError} from "../tasks/task-archive-liveness.js";
+import {writePromptFileAtomic} from "./prompt-file.js";
 
 export async function taskToArchiveEntryImpl(store: TaskStore, task: Task, archivedAt: string): Promise<ArchivedTaskEntry> {
     const settings = await store.getSettingsFast();
@@ -838,7 +839,7 @@ export async function restoreFromArchiveImpl(store: TaskStore, entry: import("..
       storeLog.log(`[file-scope-sanitize] restore ${entry.id}: dropped=[${sanitizedPrompt.dropped.join(",")}]`);
     }
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "PROMPT.md"), sanitizedPrompt.sanitized);
+    await writePromptFileAtomic(join(dir, "PROMPT.md"), sanitizedPrompt.sanitized);
 
     // Create empty attachments directory if attachments existed
     if (entry.attachments && entry.attachments.length > 0) {

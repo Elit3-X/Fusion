@@ -9,7 +9,7 @@
 import {TaskStore, storeLog} from "../store.js";
 import {InvalidFileScopeError, SelfDefeatingDependencyError, detectSelfDefeatingDependency, TombstonedTaskResurrectionError} from "./errors.js";
 import {and, eq, inArray, isNull, sql} from "drizzle-orm";
-import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rename, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {existsSync} from "node:fs";
 import {randomUUID} from "node:crypto";
@@ -43,6 +43,7 @@ import * as schema from "../postgres/schema/index.js";
 import type {DbTransaction} from "../postgres/data-layer.js";
 import { resolveTaskPrefix } from "./task-prefix.js";
 import {assertValidProviderInstanceId} from "../provider-instance.js";
+import {writePromptFileAtomic} from "./prompt-file.js";
 import {BranchWriteProvenanceError, validateTaskBranchName} from "../branch/branch-assignment.js";
 import {loadWorkspaceConfig} from "../git/git-repository.js";
 import {
@@ -240,7 +241,7 @@ async function persistDeferredTaskTitleIfUntitled(
         ? `Task: ${updated.id} - ${updated.title}`
         : `${updated.id}: ${updated.title}`;
       const nextPrompt = rewriteHeadingLine(existingPrompt, heading);
-      if (nextPrompt !== existingPrompt) await writeFile(promptPath, nextPrompt);
+      if (nextPrompt !== existingPrompt) await writePromptFileAtomic(promptPath, nextPrompt);
     }
   } catch (err) {
     storeLog.warn(`[title-summarization] failed to sync PROMPT.md heading for ${taskId}`, {
@@ -915,7 +916,7 @@ export async function _createTaskInternalBackendImpl(store: TaskStore, input: Ta
           throw new InvalidFileScopeError(id, validation.invalid);
         }
       }
-      await writeFile(join(stagingDir, "PROMPT.md"), prompt);
+      await writePromptFileAtomic(join(stagingDir, "PROMPT.md"), prompt);
     } catch (error) {
       await cleanupPreparedTaskFiles();
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
@@ -1442,7 +1443,7 @@ export async function _createTaskInternalImpl(store: TaskStore, input: TaskCreat
       }
     }
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "PROMPT.md"), prompt);
+    await writePromptFileAtomic(join(dir, "PROMPT.md"), prompt);
 
     await store._maybeAutoArchiveSameAgentDuplicate(task, input);
 

@@ -91,6 +91,7 @@ import { getUnifiedTaskProgress } from "../utils/taskProgress";
 import { getStalePausedReviewCopy, shouldShowStalePausedReviewBadge } from "../utils/stalePausedReviewCopy";
 import { getTaskAgeStalenessCopy } from "../utils/taskAgeStalenessCopy";
 import { splitTaskPlanSummary } from "../utils/taskPlanSummary";
+import { decideTaskPromptRefresh } from "../utils/taskPromptRefresh";
 import { getPriorityColorVar, getPriorityIcon, getPriorityLabel } from "../utils/priorityIndicator";
 import { hasPendingAutomaticRecovery } from "../utils/taskRecovery";
 import { resolveRetryStageCopy } from "../utils/taskRetryCopy";
@@ -888,6 +889,8 @@ export function TaskDetailContent({
   const [detailLoading, setDetailLoading] = useState(() =>
     !("prompt" in task),
   );
+  const fullDetailRef = useRef(fullDetail);
+  fullDetailRef.current = fullDetail;
   const [verificationRequest, setVerificationRequest] = useState<TaskVerificationRequest | null>(null);
   const [specLock, setSpecLock] = useState<SpecLockResponse | null>(null);
   const [overlapBlockerReport, setOverlapBlockerReport] = useState<TaskOverlapBlockerReport | null>(null);
@@ -897,10 +900,14 @@ export function TaskDetailContent({
   const detailRequestRef = useRef<{ key: string; promise: Promise<TaskDetail> } | null>(null);
   /*
   FNXC:TaskDetailPlan 2026-08-05-04:26:
-  A narrow Definition response may beat a slim task's initial full detail response. Keep it
-  separately so the older full read cannot overwrite its newer prompt on arrival.
+  A narrow Definition response may beat a slim task's in-flight full detail response. Overlay it only when its evidence sequence is newer than the sequence captured when that detail read was issued; a prompt observed before a later authoritative read must never overwrite that read on arrival.
+
+  FNXC:TaskDetailPlan 2026-08-28-15:31:
+  The Plan view must not blank on a degradable narrow read and must recover without a close/reopen. Retain the last usable narrow prompt, sequence every adoption, and use a follow-up full detail read as prompt authority when degraded evidence needs confirmation.
   */
-  const latestPromptResponseRef = useRef<{ key: string; prompt?: string } | null>(null);
+  const promptEvidenceSequenceRef = useRef(0);
+  const latestPromptResponseRef = useRef<{ key: string; prompt: string; sequence: number } | null>(null);
+  const promptReverifyInFlightRef = useRef<{key: string; promise: Promise<TaskDetail>} | null>(null);
 
   /*
   FNXC:TaskDetailPlan 2026-08-03-02:24:
@@ -920,6 +927,27 @@ export function TaskDetailContent({
     );
     return promise;
   }, []);
+
+  const adoptAuthoritativeDetail = useCallback((
+    detail: TaskDetail,
+    {issuedPromptSequence, promptAuthority}: {issuedPromptSequence: number; promptAuthority: boolean},
+  ) => {
+    const promptResponse = latestPromptResponseRef.current;
+    const promptResponseMatchesDetail = promptResponse?.key === `${projectId ?? ""}:${detail.id}`
+      && promptResponse.sequence > issuedPromptSequence;
+    const nextDetail = promptResponseMatchesDetail
+      ? {...detail, prompt: promptResponse.prompt} as TaskDetail
+      : detail;
+    setFullDetail((previous) => {
+      if (previous?.id !== detail.id) return nextDetail;
+      const merged = mergeTaskSnapshot(previous, nextDetail, {fullSnapshot: true});
+      /*
+      FNXC:TaskDetailPlan 2026-08-28-15:31:
+      A full detail read issued because narrow prompt evidence degraded is the freshest available statement about PROMPT.md. File content is not governed by the task row's updatedAt, so this explicit authority must carry an honest clear through equal or older row clocks.
+      */
+      return promptAuthority ? {...merged, prompt: nextDetail.prompt} as TaskDetail : merged;
+    });
+  }, [projectId]);
 
   /*
   FNXC:TaskPopupViewGating 2026-07-23-10:20:
@@ -954,7 +982,13 @@ export function TaskDetailContent({
   }, [active, activeTab, projectId, task.id]);
 
   useEffect(() => {
-    // FNXC:TaskDetailPlan 2026-08-03-02:06: hidden kept-alive hosts defer their initial detail request until reveal.
+    /*
+    FNXC:TaskDetailPlan 2026-08-03-02:06:
+    Hidden kept-alive hosts defer their initial detail request until reveal.
+
+    FNXC:TaskDetailPlan 2026-08-28-15:31:
+    A reveal refetch may fail transiently, so keep a loaded same-task detail and its plan visible while the request runs and after rejection. A task-id switch still clears the preceding task immediately so no plan crosses task identities.
+    */
     if (!active) return;
     // If the prop already has a prompt field, it's a full TaskDetail
     if ("prompt" in task) {
@@ -965,20 +999,15 @@ export function TaskDetailContent({
 
     let cancelled = false;
     const requestGeneration = ++detailRequestGenerationRef.current;
-    setDetailLoading(true);
-    setFullDetail(null);
+    const hasRetainedSameTaskDetail = fullDetailRef.current?.id === task.id;
+    setDetailLoading(!hasRetainedSameTaskDetail);
+    setFullDetail((previous) => previous?.id === task.id ? previous : null);
 
+    const issuedPromptSequence = promptEvidenceSequenceRef.current;
     requestTaskDetail(task.id, projectId)
       .then((detail) => {
         if (!cancelled && detailRequestGenerationRef.current === requestGeneration) {
-          const promptResponse = latestPromptResponseRef.current;
-          const promptResponseMatchesDetail = promptResponse?.key === `${projectId ?? ""}:${detail.id}`;
-          const detailWithLatestPrompt = promptResponseMatchesDetail
-            ? { ...detail, prompt: promptResponse.prompt } as TaskDetail
-            : detail;
-          setFullDetail((previous) => previous?.id === detail.id
-            ? mergeTaskSnapshot(previous, detailWithLatestPrompt, { fullSnapshot: true })
-            : detailWithLatestPrompt);
+          adoptAuthoritativeDetail(detail, {issuedPromptSequence, promptAuthority: false});
           setDetailLoading(false);
         }
       })
@@ -989,7 +1018,7 @@ export function TaskDetailContent({
       });
 
     return () => { cancelled = true; };
-  }, [task.id, projectId, active, requestTaskDetail]);
+  }, [task.id, projectId, active, requestTaskDetail, adoptAuthoritativeDetail]);
 
   // Derive a working task that always has all available fields.
   // Falls back to the optimistic Task while loading, uses fullDetail once loaded.
@@ -1017,6 +1046,8 @@ export function TaskDetailContent({
         : task.overlapBlockedBy === undefined ? fullDetail.overlapBlockedBy : task.overlapBlockedBy,
     } as TaskDetail)
     : ({ ...task, prompt: "" } as TaskDetail);
+  const retainedPromptRef = useRef(workingTask.prompt);
+  retainedPromptRef.current = workingTask.prompt;
   const activityLog = workingTask.log ?? [];
 
   useEffect(() => {
@@ -1390,10 +1421,7 @@ export function TaskDetailContent({
 
   /*
   FNXC:TaskDetailPlan 2026-08-05-04:05:
-  Definition is the authoritative PROMPT.md view while planning or graph Plan Review may rewrite it.
-  Its periodic read is deliberately prompt-only: replacing TaskDetail here rolled queued cards back
-  to Todo and retriggered workflow metadata. Board/SSE/mutations own card state; this effect updates
-  only the retained prompt and fences late identity responses without disturbing active edit buffers.
+  Definition polls only PROMPT.md while planning or graph Plan Review may rewrite it; board/SSE/mutations continue to own lifecycle and workflow state. A usable narrow response may refresh the retained plan, but an absent or blank response is degradable evidence and triggers one authoritative detail re-read instead of clearing the view.
   */
   const promptRefreshLifecycleActive = isPromptRefreshLifecycleActive(task);
   useEffect(() => {
@@ -1402,15 +1430,49 @@ export function TaskDetailContent({
     let cancelled = false;
     let inFlight = false;
     const identity = `${projectId ?? ""}:${task.id}`;
+    const schedulePromptReverify = () => {
+      if (promptReverifyInFlightRef.current?.key === identity) return;
+      // A shared request predates this degraded observation and has not earned prompt authority.
+      if (detailRequestRef.current?.key === identity) return;
+
+      const requestGeneration = detailRequestGenerationRef.current;
+      const issuedPromptSequence = promptEvidenceSequenceRef.current;
+      const promise = requestTaskDetail(task.id, projectId);
+      const request = {key: identity, promise};
+      promptReverifyInFlightRef.current = request;
+      void promise
+        .then((detail) => {
+          if (!mountedRef.current
+            || detailRequestGenerationRef.current !== requestGeneration
+            || activeTaskIdRef.current !== detail.id) return;
+          adoptAuthoritativeDetail(detail, {issuedPromptSequence, promptAuthority: true});
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (promptReverifyInFlightRef.current === request) promptReverifyInFlightRef.current = null;
+        });
+    };
     const refreshPrompt = () => {
       if (inFlight) return;
       inFlight = true;
       void fetchTaskPrompt(task.id, projectId)
         .then((response) => {
           if (cancelled || identity !== `${projectId ?? ""}:${task.id}` || response.id !== task.id) return;
-          // The narrow contract intentionally distinguishes an absent PROMPT.md from an empty file.
-          latestPromptResponseRef.current = { key: identity, prompt: response.prompt };
-          setFullDetail((previous) => previous ? ({ ...previous, prompt: response.prompt } as TaskDetail) : previous);
+          const decision = decideTaskPromptRefresh({
+            retainedPrompt: retainedPromptRef.current,
+            responsePrompt: response.prompt,
+          });
+          if (decision.action === "retain") {
+            schedulePromptReverify();
+            return;
+          }
+          const prompt = decision.action === "adopt" ? decision.prompt : "";
+          latestPromptResponseRef.current = {
+            key: identity,
+            prompt,
+            sequence: ++promptEvidenceSequenceRef.current,
+          };
+          setFullDetail((previous) => previous ? ({...previous, prompt} as TaskDetail) : previous);
         })
         .catch(() => {
           // FNXC:TaskDetailPlan 2026-08-05-04:05: retain the last good prompt; a later eligible tick may recover.
@@ -1426,7 +1488,7 @@ export function TaskDetailContent({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [active, activeTab, projectId, promptRefreshLifecycleActive, task.id]);
+  }, [active, activeTab, projectId, promptRefreshLifecycleActive, task.id, requestTaskDetail, adoptAuthoritativeDetail]);
   const [prCreateOpen, setPrCreateOpen] = useState(false);
 
   useLayoutEffect(() => {
@@ -4505,6 +4567,7 @@ export function TaskDetailContent({
     }
 
     const requestGeneration = detailRequestGenerationRef.current;
+    const issuedPromptSequence = promptEvidenceSequenceRef.current;
     const promise = requestTaskDetail(task.id, projectId);
     const request = { key: requestKey, needsFollowUp: false };
     activityFeedResyncRequestRef.current = request;
@@ -4514,14 +4577,7 @@ export function TaskDetailContent({
           || detailRequestGenerationRef.current !== requestGeneration
           || activeTaskIdRef.current !== detail.id) return;
 
-        const promptResponse = latestPromptResponseRef.current;
-        const promptResponseMatchesDetail = promptResponse?.key === `${projectId ?? ""}:${detail.id}`;
-        const detailWithLatestPrompt = promptResponseMatchesDetail
-          ? { ...detail, prompt: promptResponse.prompt } as TaskDetail
-          : detail;
-        setFullDetail((previous) => previous?.id === detail.id
-          ? mergeTaskSnapshot(previous, detailWithLatestPrompt, { fullSnapshot: true })
-          : detailWithLatestPrompt);
+        adoptAuthoritativeDetail(detail, {issuedPromptSequence, promptAuthority: false});
       })
       .catch(() => undefined)
       .finally(() => {
@@ -4532,7 +4588,7 @@ export function TaskDetailContent({
           || activeTaskIdRef.current !== task.id) return;
         resyncActivityFeed("task-updated-during-refresh");
       });
-  }, [task.id, projectId, requestTaskDetail]);
+  }, [task.id, projectId, requestTaskDetail, adoptAuthoritativeDetail]);
 
   /*
   FNXC:TaskActivityFeedFreshness 2026-08-28-00:13:
