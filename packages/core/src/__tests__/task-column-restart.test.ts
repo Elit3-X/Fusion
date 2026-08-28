@@ -12,6 +12,7 @@ const ir: WorkflowIr = {
     { id: "planning", name: "Planning", traits: [{ trait: "intake" }, { trait: "hold" }] },
     { id: "building", name: "Building", traits: [{ trait: "wip" }] },
     { id: "review", name: "Review", traits: [{ trait: "merge-blocker" }, { trait: "human-review" }] },
+    { id: "waiting", name: "Waiting", traits: [] },
     { id: "done", name: "Done", traits: [{ trait: "complete" }] },
     { id: "archive", name: "Archive", traits: [{ trait: "archived" }] },
   ],
@@ -20,6 +21,7 @@ const ir: WorkflowIr = {
     { id: "execute", kind: "prompt", column: "building" },
     { id: "review-node", kind: "optional-group", column: "review" },
     { id: "post-review", kind: "optional-group", column: "review", config: { phase: "post-merge" } },
+    { id: "wait", kind: "prompt", column: "waiting" },
   ],
   edges: [],
 };
@@ -36,9 +38,54 @@ function task(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
-function plan(overrides: Partial<Task> = {}, entryColumn = overrides.column ?? "planning") {
-  return planTaskColumnRestart({ task: task(overrides), ir, entryNode: { id: "entry", column: entryColumn }, now: "2026-08-28T00:00:00.000Z" });
+function plan(
+  overrides: Partial<Task> = {},
+  entryColumn = overrides.column ?? "planning",
+  workflowIr: WorkflowIr | undefined = ir,
+) {
+  return planTaskColumnRestart({
+    task: task(overrides),
+    ir: workflowIr,
+    entryNode: { id: "entry", column: entryColumn },
+    now: "2026-08-28T00:00:00.000Z",
+  });
 }
+
+const workspaceStates = {
+  one: {
+    api: {
+      worktreePath: "/worktrees/api",
+      branch: "fusion/fn-204-api",
+      baseCommitSha: "base-api",
+    },
+  },
+  several: {
+    api: {
+      worktreePath: "/worktrees/api",
+      branch: "fusion/fn-204-api",
+      baseCommitSha: "base-api",
+      landedSha: "landed-api",
+    },
+    web: {
+      worktreePath: "/worktrees/web",
+      branch: "fusion/fn-204-web",
+      baseCommitSha: "base-web",
+      landFailure: {
+        category: "content-conflict" as const,
+        message: "Repository could not be landed",
+        at: "2026-08-28T00:00:00.000Z",
+        branch: "fusion/fn-204-web",
+      },
+    },
+  },
+};
+
+const scopeCases = [
+  { scope: "plan", column: "planning", stepId: "plan" },
+  { scope: "implementation", column: "building", stepId: "execute" },
+  { scope: "review", column: "review", stepId: "review-node" },
+  { scope: "generic", column: "waiting", stepId: "wait" },
+] as const;
 
 describe("planTaskColumnRestart", () => {
   it("replans an intake/hold column without clearing implementation pointers", () => {
@@ -67,6 +114,71 @@ describe("planTaskColumnRestart", () => {
     expect("worktree" in result.patch).toBe(false);
   });
 
+  it.each(Object.entries(workspaceStates))(
+    "matches single-repository restart plans in every scope with %s workspace entries",
+    (_name, workspaceWorktrees) => {
+      for (const { scope, column, stepId } of scopeCases) {
+        const workflowStepResults = [{ workflowStepId: stepId, status: "failed" }] as WorkflowStepResult[];
+        const shared = { column, workflowStepResults, steps: [{ description: "build", status: "done" as const }] };
+        const workspaceTask = task({ ...shared, workspaceWorktrees });
+        const workspaceBefore = structuredClone(workspaceTask.workspaceWorktrees);
+        const workspaceResult = planTaskColumnRestart({
+          task: workspaceTask,
+          ir,
+          entryNode: { id: "entry", column },
+          now: "2026-08-28T00:00:00.000Z",
+        });
+        const singleResult = plan(shared, column);
+
+        expect(workspaceResult).toMatchObject({
+          kind: "restart",
+          scope,
+          entryNodeId: "entry",
+          discardedWorkflowStepIds: [stepId],
+        });
+        expect(singleResult).toMatchObject({
+          kind: "restart",
+          scope,
+          entryNodeId: "entry",
+          discardedWorkflowStepIds: [stepId],
+        });
+        if (workspaceResult.kind !== "restart" || singleResult.kind !== "restart") continue;
+        expect(workspaceResult.scope).toBe(singleResult.scope);
+        expect(workspaceResult.entryNodeId).toBe(singleResult.entryNodeId);
+        expect(workspaceResult.discardedWorkflowStepIds).toEqual(singleResult.discardedWorkflowStepIds);
+        expect("workspaceWorktrees" in workspaceResult.patch).toBe(false);
+        expect(workspaceTask.workspaceWorktrees).toEqual(workspaceBefore);
+      }
+    },
+  );
+
+  it("treats an empty workspace map exactly like an absent map", () => {
+    for (const { column } of scopeCases) {
+      const empty = plan({ column, workspaceWorktrees: {} }, column);
+      const absent = plan({ column }, column);
+      expect(empty).toEqual(absent);
+      if (empty.kind === "restart") expect("workspaceWorktrees" in empty.patch).toBe(false);
+    }
+  });
+
+  it("clears singular implementation aliases without changing workspace repository records", () => {
+    const workspaceWorktrees = structuredClone(workspaceStates.several);
+    const before = structuredClone(workspaceWorktrees);
+    const result = plan({
+      column: "building",
+      worktree: workspaceWorktrees.api.worktreePath,
+      branch: workspaceWorktrees.api.branch,
+      workspaceWorktrees,
+      steps: [{ description: "build", status: "done" }],
+    }, "building");
+
+    expect(result).toMatchObject({ kind: "restart", scope: "implementation" });
+    if (result.kind !== "restart") return;
+    expect(result.patch).toMatchObject({ worktree: null, branch: null, branchWriteOrigin: "engine" });
+    expect("workspaceWorktrees" in result.patch).toBe(false);
+    expect(workspaceWorktrees).toEqual(before);
+  });
+
   it("discards only restarted pre-merge results, preserving post-merge evidence and duplicates elsewhere", () => {
     const results = [
       { workflowStepId: "plan", status: "passed" },
@@ -92,13 +204,15 @@ describe("planTaskColumnRestart", () => {
     expect(implementation.patch.workflowStepResults).toEqual(results);
   });
 
-  it("refuses terminal, workspace, and non-entry-column stages before producing a patch", () => {
-    expect(plan({ column: "done" }, "done")).toMatchObject({ kind: "refused", reason: "terminal-column" });
-    expect(plan({ column: "archive" }, "archive")).toMatchObject({ kind: "refused", reason: "archived-column" });
-    expect(plan({ workspaceWorktrees: { api: { worktreePath: "/worktree", branch: "fusion/fn-204" } } }, "planning")).toMatchObject({ kind: "refused", reason: "workspace-task" });
-    const result = plan({ column: "planning" }, "building");
-    expect(result).toMatchObject({ kind: "refused", reason: "no-entry-node-in-column", detail: { resolvedEntryNodeColumn: "building" } });
-    expect("patch" in result).toBe(false);
+  it("retains every shape-based refusal for workspace rows", () => {
+    const workspace = { workspaceWorktrees: workspaceStates.one };
+    expect(plan({ ...workspace, column: "done" }, "done")).toMatchObject({ kind: "refused", reason: "terminal-column" });
+    expect(plan({ ...workspace, column: "archive" }, "archive")).toMatchObject({ kind: "refused", reason: "archived-column" });
+    expect(plan({ ...workspace, column: "missing" }, "missing")).toMatchObject({ kind: "refused", reason: "column-not-in-workflow" });
+    expect(plan(workspace, "planning", { version: "v1", name: "legacy", steps: [] })).toMatchObject({ kind: "refused", reason: "no-column-model" });
+    const noEntry = plan(workspace, "building");
+    expect(noEntry).toMatchObject({ kind: "refused", reason: "no-entry-node-in-column", detail: { resolvedEntryNodeColumn: "building" } });
+    expect("patch" in noEntry).toBe(false);
   });
 
   it("owns no pause lifecycle keys and resets every manual retry counter", () => {

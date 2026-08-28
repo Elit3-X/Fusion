@@ -101,6 +101,11 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
     resetTerminalFailureAutoRecoveryBudget: vi.fn().mockResolvedValue(undefined),
     getTask: vi.fn().mockResolvedValue(PLANNING_TASK),
     updateTask: vi.fn().mockResolvedValue(PLANNING_TASK),
+    updateTaskAtomic: vi.fn(async (_id: string, updater: (current: Task) => Partial<Task> | null | undefined | Promise<Partial<Task> | null | undefined>) => {
+      const current = await (overrides.getTask ?? vi.fn().mockResolvedValue(PLANNING_TASK))(_id);
+      const patch = await updater(structuredClone(current));
+      return patch ? { ...current, ...patch } : current;
+    }),
     withPlanningLifecycleLock: vi.fn(async (_id, fn) => await fn()),
     moveTask: vi.fn().mockResolvedValue(PLANNING_TASK),
     resetTaskPublication: vi.fn(async (id: string, intake: string) => ({ ...PLANNING_TASK, id, column: intake, status: "needs-replan" })),

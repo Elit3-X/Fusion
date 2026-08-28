@@ -3512,15 +3512,21 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       column's in-place restart, which preserves the card's column while discarding only that
       stage's artifacts. An unusable in-review worktree is the deliberate exception: it must take
       its established rebound path because an in-place stage restart does not remove the unusable
-      worktree. The legacy branches remain a fallback for task shapes that cannot declare an
-      in-place restart (workspace and v1 workflows, or columns without an entry node).
+      worktree. The legacy branches remain a fallback only for task shapes that cannot declare an
+      in-place restart, such as v1 workflows or columns without an entry node.
+
+      FNXC:WorkspaceRetry 2026-08-28-15:15:
+      Workspace cards use the same in-place column restart as single-repository cards, including
+      review cards with no legacy retry status. Their per-repository worktree and landing records
+      stay outside the restart patch, while restart-refused legacy shapes continue through the
+      established recovery classifier below.
       */
       let stageRestartRefusal: Extract<Awaited<ReturnType<typeof restartTaskStage>>, { kind: "refused" }> | undefined;
       if (!isMissingWorktreeSessionRetry) {
         // FNXC:TaskRecoveryVocabulary 2026-08-28-01:11: Retry must ask the locked restart
-        // planner about every non-missing-worktree shape. Its refusal preserves the precise
-        // operator reason (including workspace-task and no-column-model) before legacy recovery
-        // gets a chance to handle its older failure-state contracts.
+        // planner about every non-missing-worktree shape. Its shape-based refusal, including a
+        // v1 no-column-model result, is preserved before legacy recovery gets a chance to handle
+        // its older failure-state contracts.
         const stageResult = await restartTaskStage({
           store: scopedStore,
           engine,
@@ -3528,6 +3534,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           confirm: true,
           onRefusal: "signal",
           activeMergeTaskId: selfHealingManager?.getActiveMergeTaskId?.() ?? null,
+          getActiveMergeTaskId: () => selfHealingManager?.getActiveMergeTaskId?.() ?? null,
           staleMergingStatusMinAgeMs: selfHealingManager?.getStaleMergingStatusMinAgeMs?.(),
         });
         if (!("kind" in stageResult) || stageResult.kind !== "refused") {
@@ -3624,6 +3631,10 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         waiting for periodic recovery. Delegate only to ProjectEngine's fenced queue after its
         authoritative pending-owner probe says no local or remote owner exists; probe failures stay
         fail-closed so this route never duplicates an active land attempt or handles leases itself.
+
+        FNXC:WorkspaceRetry 2026-08-28-15:15:
+        A v2 workspace review card now exits through the in-place restart above, so this FN-087
+        prompt merge re-dispatch is deliberately limited to restart-refused legacy shapes.
         */
         const isCompletedWorkspaceMerge = isWorkspaceTask(task)
           && task.steps.every((step) => step.status === "done" || step.status === "skipped");

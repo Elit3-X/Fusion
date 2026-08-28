@@ -1,4 +1,4 @@
-import { isWorkspaceTask, type Task } from "../types.js";
+import type { Task } from "../types.js";
 import type { WorkflowIr, WorkflowIrV2 } from "../workflows/workflow-ir-types.js";
 import { resolveColumnFlags } from "../workflows/trait-registry.js";
 import { workflowDeclaresColumnModel } from "../workflows/workflow-transitions.js";
@@ -27,7 +27,7 @@ export interface TaskColumnRestartPlan {
 
 export interface TaskColumnRestartRefusal {
   kind: "refused";
-  reason: "terminal-column" | "archived-column" | "column-not-in-workflow" | "no-column-model" | "workspace-task" | "no-entry-node-in-column";
+  reason: "terminal-column" | "archived-column" | "column-not-in-workflow" | "no-column-model" | "no-entry-node-in-column";
   detail?: { resolvedEntryNodeId?: string; resolvedEntryNodeColumn?: string };
 }
 
@@ -55,6 +55,15 @@ Pause lifecycle is intentionally absent from this patch. `updateTask` cannot wri
 and the publisher's pauseTask fence/unfence atomically owns paused, userPaused, pausedReason, and
 pausedByAgentId. Keeping those writes separate prevents the planner patch from disagreeing with
 the durable publication fence.
+
+FNXC:ColumnRestart 2026-08-28-15:15:
+Workspace rows restart through the same scope plan as single-repository rows, but the patch never
+writes `workspaceWorktrees`. That map is the canonical workspace merge-routing discriminator, and
+its per-repository writes belong to `mergeWorkspaceWorktreeEntryImpl` under the task advisory lock;
+a wholesale restart write would both risk routing into the single-repository merger and reopen the
+Phase-B sibling-clobber race. Implementation restart still clears the singular `worktree` and
+`branch` aliases because null is the healthy workspace steady state, while each remembered
+repository checkout is independently liveness-checked before re-acquisition.
 */
 export function planTaskColumnRestart(input: {
   task: Task;
@@ -71,7 +80,6 @@ export function planTaskColumnRestart(input: {
   const flags = resolveColumnFlags(column);
   if (flags.complete) return { kind: "refused", reason: "terminal-column" };
   if (flags.archived) return { kind: "refused", reason: "archived-column" };
-  if (isWorkspaceTask(task)) return { kind: "refused", reason: "workspace-task" };
   if (!entryNode || entryNode.column !== task.column) {
     return {
       kind: "refused",

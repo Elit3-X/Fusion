@@ -90,9 +90,9 @@ A task created with **Wait for my approval before execution** stops after planni
 
 ## Task Recovery
 
-Every live card, including an intake or planning card, offers **Retry**, **Respecify**, **Reset**, and **Delete**. **Retry** stays in the current column: in planning it rebuilds the plan from the original request; during work it discards in-flight work and starts again on the approved plan; during review it discards review verdicts and reviews the produced work again. **Respecify** preserves the plan and worktree while revising the plan from an operator note. **Reset** starts the task over from only its original request, discarding plan, work, and reviews. **Delete** removes the task.
+Every live card, including an intake or planning card, offers **Retry**, **Respecify**, **Reset**, and **Delete**. **Retry** stays in the current column: in planning it rebuilds the plan from the original request; during work it discards in-flight work and starts again on the approved plan; during review it discards review verdicts and reviews the produced work again. Workspace retries use the same in-place behavior while preserving every per-repository worktree and landing record, including repositories already delivered. **Respecify** preserves the plan and worktree while revising the plan from an operator note. **Reset** starts the task over from only its original request, discarding plan, work, and reviews. **Delete** removes the task.
 
-Retry refuses terminal or archived columns, workspace tasks, active merges, and columns without a workflow entry node of their own. A retry interrupted during publication leaves the card paused with `restart-stage-publishing`; this durable safety fence is retained for compatibility, and selecting **Retry** again safely resumes publication.
+Retry refuses terminal or archived columns, active merges across the whole merge pipeline (including its review phase), and columns without a workflow entry node of their own. An orphaned stale merge stamp remains retryable after Fusion confirms that no live merger owns it. A retry interrupted during publication leaves the card paused with `restart-stage-publishing`; this durable safety fence is retained for compatibility, and selecting **Retry** again safely resumes publication.
 
 ## Keyboard shortcuts
 

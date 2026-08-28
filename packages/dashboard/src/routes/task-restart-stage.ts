@@ -9,7 +9,7 @@ import {
   type Task,
   type TaskStore,
 } from "@fusion/core";
-import { isStaleMergeActiveStatus, resolveColumnResumeNode } from "@fusion/engine";
+import { isMergeActiveStatus, isStaleMergeActiveStatus, resolveColumnResumeNode } from "@fusion/engine";
 import { badRequest, conflict, notFound } from "../api-error.js";
 
 interface RestartTaskStageEngine {
@@ -27,13 +27,13 @@ export interface RestartTaskStageDeps {
   confirm?: boolean;
   onRefusal?: "throw" | "signal";
   activeMergeTaskId?: string | null;
+  getActiveMergeTaskId?: () => string | null;
   staleMergingStatusMinAgeMs?: number;
 }
 
 export type RestartTaskStageResult = Task | Extract<ReturnType<typeof planTaskColumnRestart>, { kind: "refused" }>;
 
 function refusalError(plan: Extract<ReturnType<typeof planTaskColumnRestart>, { kind: "refused" }>) {
-  if (plan.reason === "workspace-task") return conflict("Retry does not support workspace tasks");
   if (plan.reason === "no-entry-node-in-column") {
     const later = plan.detail?.resolvedEntryNodeColumn;
     return badRequest(later
@@ -64,7 +64,31 @@ replace primitive. PROMPT.md deletion is W4, after the durable plan patch and be
 so neither an unmarked plan nor a freshly replanned prompt can be removed. This route adds no new
 run-audit mutation: reset/retry use task log entries and pause lifecycle records already provide
 the operator audit trail.
+
+FNXC:MergeReliability 2026-08-28-15:15:
+The restart fence uses `isMergeActiveStatus` from
+`packages/engine/src/merge/merge-active-status.ts` so every merge phase, including the long-running
+AI review phase, shares one definition and cannot drift open. The stale-stamp bypass is unchanged:
+an orphaned stamp in any phase remains retryable after the shared liveness and age proof passes.
+
+FNXC:MergeReliability 2026-08-28-15:51:
+The initial merge check is only an early refusal; a merger can claim the task before Retry raises
+its durable pause. Claim the publication fence with `updateTaskAtomic` and classify the exact
+lock-held snapshot with the same active/stale predicate and a fresh in-process lease read before
+disposing any runtime or publishing restart artifacts. If that snapshot or lease is merge-active,
+restore the prior pause fields and return the same conflict so Retry never interrupts a merger that
+won the race. The ordinary `pauseTask` write still follows for admitted retries so pause lifecycle
+logging and WIP/review presentation remain unchanged.
 */
+function isLiveMergeRestart(task: Task, deps: RestartTaskStageDeps): boolean {
+  const activeMergeTaskId = deps.getActiveMergeTaskId?.() ?? deps.activeMergeTaskId ?? null;
+  if (activeMergeTaskId === task.id) return true;
+  return isMergeActiveStatus(task.status) && !isStaleMergeActiveStatus(task, {
+    activeMergeTaskId,
+    minAgeMs: deps.staleMergingStatusMinAgeMs,
+  });
+}
+
 export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<RestartTaskStageResult> {
   const { store, engine, taskId, confirm } = deps;
   if (confirm !== true) {
@@ -84,17 +108,39 @@ export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<Rest
         if (deps.onRefusal === "signal") return plan;
         throw refusalError(plan);
       }
-      if (!isStaleMergeActiveStatus(task, {
-        activeMergeTaskId: deps.activeMergeTaskId ?? null,
-        minAgeMs: deps.staleMergingStatusMinAgeMs,
-      }) && ["merging", "merging-pr", "merging-fix", "landing"].includes(task.status ?? "")) {
+      if (isLiveMergeRestart(task, deps)) {
         throw conflict("Retry is unavailable while a merge is active");
       }
 
       publicationStep = "raise publication fence";
-      await store.pauseTask(taskId, true, undefined, { pausedReason: RESTART_STAGE_FENCE_REASON });
+      let mergeActiveAtFence = false;
+      let priorPaused: Task["paused"];
+      let priorPausedReason: Task["pausedReason"];
+      await store.updateTaskAtomic(taskId, (fenceSnapshot) => {
+        priorPaused = fenceSnapshot.paused;
+        priorPausedReason = fenceSnapshot.pausedReason;
+        mergeActiveAtFence = isLiveMergeRestart(fenceSnapshot, deps);
+        return {
+          paused: true,
+          pausedReason: RESTART_STAGE_FENCE_REASON,
+        };
+      });
       fenced = true;
 
+      if (mergeActiveAtFence) {
+        publicationStep = "release publication fence after merge claim";
+        await store.updateTaskAtomic(taskId, (current) => {
+          if (current.pausedReason !== RESTART_STAGE_FENCE_REASON) return null;
+          return {
+            paused: priorPaused ?? (null as unknown as Task["paused"]),
+            pausedReason: priorPausedReason ?? (null as unknown as Task["pausedReason"]),
+          };
+        });
+        fenced = false;
+        throw conflict("Retry is unavailable while a merge is active");
+      }
+
+      await store.pauseTask(taskId, true, undefined, { pausedReason: RESTART_STAGE_FENCE_REASON });
       const fencedTask = await store.getTask(taskId);
       if (!fencedTask) throw notFound(`Task ${taskId} not found after fencing`);
 
@@ -161,7 +207,8 @@ export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<Rest
       publicationStep = "lower publication fence";
       await store.pauseTask(taskId, false);
       fenced = false;
-      await store.logEntry(taskId, `Retry requested from dashboard (${plan.scope} restart in ${task.column}, discarded ${plan.discardedWorkflowStepIds.length} workflow step result(s), re-entering at ${plan.entryNodeId})`);
+      const preservedWorkspaceRepositoryRecords = Object.keys(task.workspaceWorktrees ?? {}).length;
+      await store.logEntry(taskId, `Retry requested from dashboard (${plan.scope} restart in ${task.column}, discarded ${plan.discardedWorkflowStepIds.length} workflow step result(s), preserved ${preservedWorkspaceRepositoryRecords} workspace repository record(s), re-entering at ${plan.entryNodeId})`);
       const updated = await store.getTask(taskId);
       if (!updated) throw notFound(`Task ${taskId} not found after retry`);
       return updated;
