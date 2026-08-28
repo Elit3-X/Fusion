@@ -92,6 +92,7 @@ import { findInReviewStallLogEntry, IN_REVIEW_STALL_LOG_REGEX } from "../utils/f
 import { getTaskLogEntryAction, getTaskLogEntryOutcome } from "../utils/taskLogEntryDisplay";
 import { copyTextToClipboard } from "../utils/copyToClipboard";
 import { getRelativeTimeBucket } from "../utils/relativeTimeAgo";
+import { recordResumeEvent } from "../utils/resumeInstrumentation";
 import { isReviewBudgetExhaustedApproval, isTaskAwaitingPlanApproval } from "../utils/reviewBudgetApproval";
 import { getTaskStatusBadgeLabel, hasTaskStatusBadge, isTaskPlanningActive } from "../utils/taskStatusBadgeLabel";
 import { ACTIVE_STATUSES, resolveEffectiveExecutor, resolveEffectivePlanning, resolveEffectiveTaskChat, resolveEffectiveValidator, type ModelSelection } from "./effective-model-resolution";
@@ -111,6 +112,7 @@ const ACTIVITY_VIEW_MENU_MIN_HEIGHT = 120;
 const ACTIVITY_VIEW_MENU_MAX_HEIGHT = 320;
 const ACTIVITY_VIEW_MENU_OPEN_VIEWPORT_GUARD_MS = 350;
 const PROMPT_REFRESH_INTERVAL_MS = 5_000;
+const TASK_FEED_RESYNC_DEBOUNCE_MS = 750;
 
 function isPromptRefreshLifecycleActive(task: Pick<Task, "status" | "workflowStepResults">): boolean {
   if (task.status === "planning" || task.status === "needs-replan") return true;
@@ -1747,6 +1749,11 @@ export function TaskDetailContent({
   const activityViewMenuRef = useRef<HTMLDivElement>(null);
   const activityViewButtonRef = useRef<HTMLButtonElement>(null);
   const activityViewMenuViewportGuardUntilRef = useRef(0);
+  const activityFeedResyncTimerRef = useRef<number | null>(null);
+  const activityFeedResyncRequestRef = useRef<{
+    key: string;
+    needsFollowUp: boolean;
+  } | null>(null);
 
   // Plugin UI slots for task-detail-tab
   const { getSlotsForId: getPluginSlots } = usePluginUiSlots(projectId);
@@ -4469,18 +4476,29 @@ export function TaskDetailContent({
   }, [oversightActive, activitySegment]);
 
   /*
-  FNXC:TaskActivityFeedFreshness 2026-08-07-08:30:
-  Task list and SSE snapshots intentionally strip task.log. If a shared detail host captured an
-  empty full-detail snapshot before activity was written, selecting Feed must retry that complete
-  read instead of preserving "(no activity)" forever. Populated feeds remain snapshot-stable and
-  incur no extra request; Live and Raw keep their independent streaming paths.
-  */
-  const activityFeedIsEmpty = !workingTask.log?.length;
-  const refreshEmptyActivityFeed = useCallback(() => {
-    if (!activityFeedIsEmpty) return;
+  FNXC:TaskActivityFeedFreshness 2026-08-28-00:13:
+  A Feed resync shares an initial slim-task detail request without invalidating its loading settlement.
+  Later reads are deduplicated by requestTaskDetail and still fence against the current task generation.
 
-    const requestGeneration = ++detailRequestGenerationRef.current;
-    requestTaskDetail(task.id, projectId)
+  FNXC:TaskActivityFeedFreshness 2026-08-28-00:42:
+  FN-205 must not lose an activity append that arrives while the shared initial detail request is in
+  flight. Mark that request dirty and issue one follow-up authoritative read after it settles; asking
+  requestTaskDetail during the flight would only receive the stale shared promise again.
+  */
+  const resyncActivityFeed = useCallback((reason: string) => {
+    void reason;
+    const requestKey = `${projectId ?? ""}:${task.id}`;
+    const activeRequest = activityFeedResyncRequestRef.current;
+    if (activeRequest?.key === requestKey) {
+      activeRequest.needsFollowUp = true;
+      return;
+    }
+
+    const requestGeneration = detailRequestGenerationRef.current;
+    const promise = requestTaskDetail(task.id, projectId);
+    const request = { key: requestKey, needsFollowUp: false };
+    activityFeedResyncRequestRef.current = request;
+    void promise
       .then((detail) => {
         if (!mountedRef.current
           || detailRequestGenerationRef.current !== requestGeneration
@@ -4494,39 +4512,87 @@ export function TaskDetailContent({
         setFullDetail((previous) => previous?.id === detail.id
           ? mergeTaskSnapshot(previous, detailWithLatestPrompt, { fullSnapshot: true })
           : detailWithLatestPrompt);
-        setDetailLoading(false);
       })
-      .catch(() => undefined);
-  }, [activityFeedIsEmpty, task.id, projectId, requestTaskDetail]);
+      .catch(() => undefined)
+      .finally(() => {
+        if (activityFeedResyncRequestRef.current !== request) return;
+        activityFeedResyncRequestRef.current = null;
+        if (!request.needsFollowUp
+          || !mountedRef.current
+          || activeTaskIdRef.current !== task.id) return;
+        resyncActivityFeed("task-updated-during-refresh");
+      });
+  }, [task.id, projectId, requestTaskDetail]);
 
   /*
-  FNXC:TaskActivityFeedFreshness 2026-08-26-12:20:
-  Rescue an empty Feed whenever it is VISIBLE, not only when the operator switches to it.
-
-  The retry used to hang off `selectActivityView`, so it could not fire on a card that OPENS on Feed
-  — which is how a deep link and the board's activity affordance land (`initialTab: "logs"`). Combined
-  with the mount effect trusting `"prompt" in task` as proof of a complete detail (an SSE snapshot
-  keeps `prompt` and empties `log`), a done task with real entries displayed "(no activity)"
-  permanently. Reported from a live board.
-
-  The guard inside `refreshEmptyActivityFeed` still returns immediately when the feed is populated, so
-  a card that already holds its journal pays nothing — and a genuinely empty task asks once, because
-  the callback identity is stable while it stays empty.
+  FNXC:TaskActivityFeedFreshness 2026-08-28-00:13:
+  FN-205 requires Feed to read authoritative activity on becoming visible, after each update for its
+  task while visible, and after an SSE reconnect. The journal is stripped from stream payloads, so this
+  coalesced detail read is the only live source for appended entries. Do not poll while the Feed is
+  hidden or its kept-alive host is inactive (FNXC:TaskPopupViewGating); reveal immediately resyncs it.
   */
   useEffect(() => {
     if (!active || activeTab !== "chat" || activitySegment !== "feed") return;
-    refreshEmptyActivityFeed();
-  }, [active, activeTab, activitySegment, refreshEmptyActivityFeed]);
+
+    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+    const scheduleResync = () => {
+      if (activityFeedResyncTimerRef.current !== null) {
+        window.clearTimeout(activityFeedResyncTimerRef.current);
+      }
+      activityFeedResyncTimerRef.current = window.setTimeout(() => {
+        activityFeedResyncTimerRef.current = null;
+        resyncActivityFeed("task-updated");
+      }, TASK_FEED_RESYNC_DEBOUNCE_MS);
+    };
+    const handleTaskUpdated = (event: MessageEvent) => {
+      try {
+        const updatedTask = JSON.parse(event.data) as { id?: unknown };
+        if (updatedTask.id === task.id) scheduleResync();
+      } catch {
+        // FNXC:TaskActivityFeedFreshness 2026-08-28-00:13: Ignore malformed stream payloads; the next authoritative resync remains available.
+      }
+    };
+    const handleReconnect = () => {
+      recordResumeEvent({
+        view: "taskActivityFeed",
+        trigger: "sse-reconnect",
+        projectId,
+        replayAttempted: false,
+        reason: "sse-reconnect",
+      });
+      resyncActivityFeed("sse-reconnect");
+    };
+
+    recordResumeEvent({
+      view: "taskActivityFeed",
+      trigger: "route-active",
+      projectId,
+      replayAttempted: false,
+      reason: "segment-visible",
+    });
+    resyncActivityFeed("segment-visible");
+    const unsubscribe = subscribeSse(`/api/events${query}`, {
+      onReconnect: handleReconnect,
+      events: { "task:updated": handleTaskUpdated },
+    });
+
+    return () => {
+      if (activityFeedResyncTimerRef.current !== null) {
+        window.clearTimeout(activityFeedResyncTimerRef.current);
+        activityFeedResyncTimerRef.current = null;
+      }
+      unsubscribe();
+    };
+  }, [active, activeTab, activitySegment, projectId, resyncActivityFeed, task.id]);
 
   const selectActivityView = useCallback((value: ActivitySegment) => {
     activityViewMenuViewportGuardUntilRef.current = 0;
     setActiveTab("chat");
     setActivitySegment(value);
-    if (value === "feed") refreshEmptyActivityFeed();
     setShowActivityViewMenu(false);
     setActivityViewMenuPosition(null);
     requestAnimationFrame(() => activityViewButtonRef.current?.focus());
-  }, [refreshEmptyActivityFeed]);
+  }, []);
 
   const handleActivityTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
     const shouldOpenMenu = event.key === "ArrowDown" || (event.altKey && event.key === "ArrowDown");

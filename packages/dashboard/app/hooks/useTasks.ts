@@ -440,7 +440,25 @@ export function mergeTaskSnapshot<T extends Task>(
 
   if ("prompt" in current && incoming.prompt === undefined) {
     merged.prompt = current.prompt;
-    merged.log = current.log;
+  }
+
+  /*
+  FNXC:TaskActivityFeed 2026-08-28-00:13:
+  FN-205 found `stripTaskListHeavyFields` emits `log: []` for every slim SSE/list task payload. The
+  task journal is append-only and trimmed server-side, so an absent or empty slim log is never evidence
+  that a populated journal was cleared. Retain it independently of prompt presence; board-to-board
+  merges remain inert because both slim rows have empty journals.
+
+  A marked full detail snapshot is authoritative, including an honestly empty journal. It also adopts a
+  populated journal over an empty current row even when its clock is older, because the empty stripped
+  row is not competing journal evidence.
+  */
+  const currentLog = current.log;
+  const incomingLog = incoming.log;
+  if (options.fullSnapshot === true) {
+    merged.log = incomingLog;
+  } else if (currentLog && currentLog.length > 0 && (!incomingLog || incomingLog.length === 0)) {
+    merged.log = currentLog;
   }
 
   return merged as T;

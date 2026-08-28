@@ -1606,26 +1606,30 @@ describe("TaskDetailModal delete affordance", () => {
 describe("TaskDetailModal in-review stall diagnostics", () => {
   it("renders diagnostic row and jumps to highlighted activity entry", async () => {
     const user = userEvent.setup();
+    const task = makeTask({
+      column: "in-review",
+      /*
+      FNXC:InReviewStallBadge 2026-07-26-18:20:
+      Fixture repointed off `merge-blocker`, which is now badge-suppressed. This case guards the
+      diagnostics row and its jump-to-activity-entry behavior — not any one stall code — so it
+      needs a code that still surfaces.
+      */
+      inReviewStall: {
+        code: "transient-merge-status-no-owner",
+        reason: "Workflow pre-merge check failed",
+        observedAt: "2026-05-13T00:00:00.000Z",
+      },
+      log: [
+        { timestamp: "2026-05-13T00:01:00.000Z", action: "In-review stall surfaced [transient-merge-status-no-owner]: Workflow pre-merge check failed" },
+      ],
+    });
+    const { fetchTaskDetail } = await import("../../api");
+    vi.mocked(fetchTaskDetail).mockResolvedValue(task);
+
     render(
       <TaskDetailModal
         initialTab="details"
-        task={makeTask({
-          column: "in-review",
-          /*
-          FNXC:InReviewStallBadge 2026-07-26-18:20:
-          Fixture repointed off `merge-blocker`, which is now badge-suppressed. This case guards the
-          diagnostics row and its jump-to-activity-entry behavior — not any one stall code — so it
-          needs a code that still surfaces.
-          */
-          inReviewStall: {
-            code: "transient-merge-status-no-owner",
-            reason: "Workflow pre-merge check failed",
-            observedAt: "2026-05-13T00:00:00.000Z",
-          },
-          log: [
-            { timestamp: "2026-05-13T00:01:00.000Z", action: "In-review stall surfaced [transient-merge-status-no-owner]: Workflow pre-merge check failed" },
-          ],
-        })}
+        task={task}
         onClose={noop}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}

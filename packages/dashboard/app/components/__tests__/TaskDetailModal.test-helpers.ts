@@ -11,7 +11,10 @@ import { clearAuthToken } from "../../auth";
 
 const taskDetailSseSubscriptions = vi.hoisted(() => [] as Array<{
   url: string;
-  options: { events?: Record<string, (event: MessageEvent) => void> };
+  options: {
+    events?: Record<string, (event: MessageEvent) => void>;
+    onReconnect?: () => void;
+  };
 }>);
 
 export { taskDetailSseSubscriptions };
@@ -39,7 +42,10 @@ export function expectSingleStatsRuntimeStatus(status: string): void {
 }
 
 vi.mock("../../sse-bus", () => ({
-  subscribeSse: vi.fn((url: string, options: { events?: Record<string, (event: MessageEvent) => void> }) => {
+  subscribeSse: vi.fn((url: string, options: {
+    events?: Record<string, (event: MessageEvent) => void>;
+    onReconnect?: () => void;
+  }) => {
     taskDetailSseSubscriptions.push({ url, options });
     return vi.fn();
   }),

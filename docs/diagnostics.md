@@ -201,11 +201,11 @@ Direct-report stale decisions in `HeartbeatMonitor.buildReportsHealthSection()` 
 Dashboard Phase 1 resume instrumentation adds observation-only client/server traces for refetch/reconnect attribution. It does not change visibility/pageshow/SSE behavior; FN-5392 consumes this data for fixes.
 
 - Client event shape (`ResumeEvent`): `{ ts, view, trigger, projectId?, gapMs?, replayAttempted, replayFromEventId?, lastEventId?, sseChannel?, reason?, detail? }`.
-- Trigger taxonomy: `visibility`, `pageshow`, `sse-error`, `sse-reconnect`, `sse-open`, `remount`, `route-active`, `route-inactive`, `project-context-change`.
+- Trigger taxonomy: `visibility`, `focus`, `pageshow`, `sse-error`, `sse-reconnect`, `sse-open`, `remount`, `route-active`, `route-inactive`, `project-context-change`. The browser and diagnostics route both import this accepted vocabulary from `packages/dashboard/src/shared/resume-triggers.ts`; `focus` is accepted for tab-return diagnostics.
 - Sources:
   - `sse-bus` (`pageshow`, visible `visibilitychange`, `openChannel`, `forceReconnect`, EventSource `error`)
-  - Hooks: `useTasks` (`visibility`, `sse-reconnect`), `useChatRooms` (`sse-reconnect`), `useChat` (`sse-open`, `project-context-change`)
-  - Components: `Board` and `ChatView` mount/unmount route markers (`remount` / `route-active` / `route-inactive`)
+  - Hooks: `useTasks` (`visibility`, `focus`, `sse-reconnect`), `useChatRooms` (`sse-reconnect`), `useChat` (`sse-open`, `project-context-change`)
+  - Components: `Board` and `ChatView` mount/unmount route markers (`remount` / `route-active` / `route-inactive`), and `taskActivityFeed` when Feed becomes visible or its stream reconnects
 - Access paths:
   - Client ring (500): `window.__fusionDebug.resumeInstrumentation.get()` / `.clear()`
   - Server ring (5000, in-memory): `GET /api/diagnostics/resume-events?limit=&since=&view=` returns `{ events, droppedSinceLastRead }`
