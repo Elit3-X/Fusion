@@ -38,15 +38,26 @@ describe("buildTaskResetWorktreePlan", () => {
       reservationWorktreesDir: join(rootDir, ".worktrees"),
       aliasRepoRels: [],
     })]);
+    expect(plan.branchCleanupTargets).toEqual([{ repoRootDir: rootDir, recordedBranches: ["fusion/fn-203"] }]);
   });
 
-  it("has no target for a singular task without a worktree", () => {
-    expect(buildTaskResetWorktreePlan(task({}), { rootDir, settings: {} }).targets).toEqual([]);
+  it("plans project-root branch cleanup for a singular task without a worktree", () => {
+    const plan = buildTaskResetWorktreePlan(task({}), { rootDir, settings: {} });
+    expect(plan.targets).toEqual([]);
+    expect(plan.branchCleanupTargets).toEqual([{ repoRootDir: rootDir, recordedBranches: [] }]);
   });
 
-  it("treats an empty workspace record as a singular task", () => {
+  it("plans project-root branch cleanup for a stale recorded singular worktree", () => {
+    const plan = buildTaskResetWorktreePlan(task({
+      worktree: join(rootDir, ".worktrees", "already-absent"),
+      branch: " fusion/fn-203 ",
+    }), { rootDir, settings: {} });
+    expect(plan.branchCleanupTargets).toEqual([{ repoRootDir: rootDir, recordedBranches: ["fusion/fn-203"] }]);
+  });
+
+  it("has no cleanup target for a workspace task without recorded repositories", () => {
     const plan = buildTaskResetWorktreePlan(task({ workspaceWorktrees: {} }), { rootDir, settings: {} });
-    expect(plan).toMatchObject({ kind: "singular", layout: "singular", targets: [] });
+    expect(plan).toMatchObject({ kind: "workspace", targets: [], branchCleanupTargets: [] });
   });
 
   it("plans every new-layout repository under one workspace task directory", () => {
@@ -61,6 +72,10 @@ describe("buildTaskResetWorktreePlan", () => {
       expect.objectContaining({ repoRel: "apps/api", repoRootDir: join(rootDir, "apps/api"), containmentRoot: taskDir, reservationWorktreesDir: join(rootDir, "apps/api/.worktrees") }),
       expect.objectContaining({ repoRel: "apps/web", repoRootDir: join(rootDir, "apps/web"), containmentRoot: taskDir, reservationWorktreesDir: join(rootDir, "apps/web/.worktrees") }),
     ]);
+    expect(plan.branchCleanupTargets).toEqual([
+      { repoRootDir: join(rootDir, "apps/api"), recordedBranches: ["fusion/fn-203"] },
+      { repoRootDir: join(rootDir, "apps/web"), recordedBranches: ["fusion/fn-203"] },
+    ]);
   });
 
   it("uses each repository worktrees directory as containment for legacy entries", () => {
@@ -74,6 +89,10 @@ describe("buildTaskResetWorktreePlan", () => {
     expect(plan.targets.map(({ containmentRoot, reservationWorktreesDir }) => [containmentRoot, reservationWorktreesDir])).toEqual([
       [join(rootDir, "api/.worktrees"), join(rootDir, "api/.worktrees")],
       [join(rootDir, "web/.worktrees"), join(rootDir, "web/.worktrees")],
+    ]);
+    expect(plan.branchCleanupTargets).toEqual([
+      { repoRootDir: join(rootDir, "api"), recordedBranches: ["fusion/fn-203"] },
+      { repoRootDir: join(rootDir, "web"), recordedBranches: ["fusion/fn-203"] },
     ]);
   });
 
@@ -96,6 +115,9 @@ describe("buildTaskResetWorktreePlan", () => {
     } }), { rootDir, settings: {} });
     expect(plan.targets).toHaveLength(1);
     expect(plan.targets[0]).toMatchObject({ repoRel: "api", aliasRepoRels: ["duplicate"] });
+    expect(plan.branchCleanupTargets).toEqual([
+      { repoRootDir: join(rootDir, "api"), recordedBranches: ["fusion/fn-203"] },
+    ]);
   });
 
   it("folds a workspace singular pointer into an equal target", () => {

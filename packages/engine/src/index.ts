@@ -1,6 +1,15 @@
 export { AgentLogger, type AgentLoggerOptions, summarizeToolArgs } from "./agents/agent-logger.js";
 export { PlanningResetFence, PLANNING_RESET_HOLD_MS } from "./planning-reset-fence.js";
 export { reconcileTaskResetSessionRoot, removeTaskResetWorktree, ResetWorktreeForeignSessionError } from "./worktree/remove-reset-worktree.js";
+export {
+  deleteTaskResetBranches,
+  planTaskResetBranchCleanup,
+  type TaskResetBlockedBranch,
+  type TaskResetBranchCleanupInput,
+  type TaskResetBranchCleanupOutcome,
+  type TaskResetDeletedBranch,
+  type TaskResetRetainedBranch,
+} from "./worktree/reset-branch-cleanup.js";
 export { ActiveSessionWorktreeRemovalError } from "./worktree/worktree-backend.js";
 export { planningLivenessRegistry, registerPlanningLivenessProbe, isPlanningLive } from "./agents/planning-liveness.js";
 export {

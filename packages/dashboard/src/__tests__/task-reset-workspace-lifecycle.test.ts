@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
@@ -10,7 +10,9 @@ import { registerTaskMoveDisposer, registerTaskResetDisposer } from "@fusion/cor
 import {
   ActiveSessionWorktreeRemovalError,
   activeSessionRegistry,
+  deleteTaskResetBranches,
   getRegisteredWorktreeBranches,
+  planTaskResetBranchCleanup,
   pruneWorktreeAdminEntries,
   reconcileTaskResetSessionRoot,
   removeTaskResetWorktree,
@@ -34,6 +36,8 @@ vi.mock("@fusion/engine", async () => {
     })),
     pruneWorktreeAdminEntries: vi.fn().mockResolvedValue(undefined),
     getRegisteredWorktreeBranches: vi.fn().mockResolvedValue([]),
+    planTaskResetBranchCleanup: vi.fn().mockResolvedValue({ deleted: [], retained: [], blocked: [] }),
+    deleteTaskResetBranches: vi.fn().mockResolvedValue({ deleted: [], retained: [], blocked: [] }),
   };
 });
 
@@ -125,6 +129,10 @@ function ageRegistryEntry(path: string): void {
 }
 
 describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
+  beforeEach(() => {
+    vi.mocked(planTaskResetBranchCleanup).mockReset().mockResolvedValue({ deleted: [], retained: [], blocked: [] });
+    vi.mocked(deleteTaskResetBranches).mockReset().mockResolvedValue({ deleted: [], retained: [], blocked: [] });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     activeSessionRegistry.clear();
@@ -161,6 +169,12 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     expect(JSON.stringify(res.body)).not.toContain("does not support workspace tasks");
     expect(publication).toHaveBeenCalledOnce();
     expect(publication).toHaveBeenCalledWith("FN-401", "triage");
+    const cleanupTargets = [
+      { repoRootDir: join(root, "apps/a"), recordedBranches: ["fusion/fn-401"] },
+      { repoRootDir: join(root, "apps/b"), recordedBranches: ["fusion/fn-401"] },
+    ];
+    expect(planTaskResetBranchCleanup).toHaveBeenCalledWith(expect.objectContaining({ targets: cleanupTargets }));
+    expect(deleteTaskResetBranches).toHaveBeenCalledWith(expect.objectContaining({ targets: cleanupTargets }));
     for (const entry of Object.values(task.workspaceWorktrees ?? {})) await expect(stat(entry.worktreePath)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(readFile(promptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
@@ -288,7 +302,7 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     }
   });
 
-  it("refuses a foreign coordinator holder registered during repository removal and cannot immediately recover absent targets", async () => {
+  it("recovers absent recorded targets after a foreign coordinator holder clears", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-midloop-foreign-"));
     const task = workspaceTask(root);
     await createWorkspace(root, task);
@@ -321,9 +335,8 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
         return entry && existsSync(entry.worktreePath) ? [{ branch: entry.branch, worktreePath: entry.worktreePath }] : [];
       });
       const retry = await reset(store);
-      expect(retry.status).toBe(409);
-      expect(retry.body.error).toMatch(/managed task ownership cannot be proven/);
-      expect(publication).not.toHaveBeenCalled();
+      expect(retry.status).toBe(200);
+      expect(publication).toHaveBeenCalledOnce();
     } finally {
       if (originalRemoval) removal.mockImplementation(originalRemoval);
     }
@@ -378,6 +391,41 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     expect(existsSync(retainedDir)).toBe(true);
   });
 
+  it("blocks one repository without losing either repository cleanup target on retry", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-branch-block-"));
+    const task = workspaceTask(root);
+    await createWorkspace(root, task);
+    registerWorkspaceBranches(root, task);
+    const blocked = {
+      repoRootDir: join(root, "apps/a"),
+      branch: "fusion/fn-401",
+      reason: "checked-out" as const,
+      holderWorktreePath: "/foreign/apps-a-holder",
+    };
+    vi.mocked(planTaskResetBranchCleanup)
+      .mockResolvedValueOnce({ deleted: [], retained: [], blocked: [blocked] })
+      .mockResolvedValueOnce({ deleted: [], retained: [], blocked: [] });
+    const { store, publication } = createStore(root, task);
+
+    const first = await reset(store);
+    expect(first.status).toBe(409);
+    expect(first.body.error).toMatch(/apps\/a.*foreign\/apps-a-holder/i);
+    expect(publication).not.toHaveBeenCalled();
+    for (const entry of Object.values(task.workspaceWorktrees ?? {})) expect(existsSync(entry.worktreePath)).toBe(true);
+
+    const retry = await reset(store);
+    expect(retry.status).toBe(200);
+    expect(publication).toHaveBeenCalledOnce();
+    const expectedTargets = [
+      { repoRootDir: join(root, "apps/a"), recordedBranches: ["fusion/fn-401"] },
+      { repoRootDir: join(root, "apps/b"), recordedBranches: ["fusion/fn-401"] },
+    ];
+    expect(vi.mocked(planTaskResetBranchCleanup).mock.calls.map(([input]) => input.targets)).toEqual([
+      expectedTargets,
+      expectedTargets,
+    ]);
+  });
+
   it("removes legacy worktrees without evaluating the new-layout coordinator", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-workspace-reset-legacy-"));
     const task = workspaceTask(root, true);
@@ -389,6 +437,12 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     const { store } = createStore(root, task);
     expect((await reset(store)).status).toBe(200);
     expect(vi.mocked(removeTaskResetWorktree).mock.calls.slice(-2).map(([input]) => input.rootDir)).toEqual([join(root, "apps/a"), join(root, "apps/b")]);
+    const cleanupTargets = [
+      { repoRootDir: join(root, "apps/a"), recordedBranches: ["fusion/fn-401"] },
+      { repoRootDir: join(root, "apps/b"), recordedBranches: ["fusion/fn-401"] },
+    ];
+    expect(planTaskResetBranchCleanup).toHaveBeenCalledWith(expect.objectContaining({ targets: cleanupTargets }));
+    expect(deleteTaskResetBranches).toHaveBeenCalledWith(expect.objectContaining({ targets: cleanupTargets }));
     expect(vi.mocked(reconcileTaskResetSessionRoot)).not.toHaveBeenCalled();
     expect(activeSessionRegistry.lookupByPath(unusedCoordinator)?.taskId).toBe("FN-OTHER");
     expect(existsSync(unusedCoordinator)).toBe(false);

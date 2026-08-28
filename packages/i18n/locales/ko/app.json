@@ -8162,7 +8162,7 @@
     },
     "reset": {
       "btn": "초기화",
-      "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+      "confirmMessage": "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered.",
       "resetSuccess": "{{id}} 초기화됨 — 새 실행이 할당됩니다",
       "confirmTitle": "Reset this task?"
     },

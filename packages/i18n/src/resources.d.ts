@@ -8417,7 +8417,7 @@ export default interface Resources {
       },
       "reset": {
         "btn": "Reset",
-        "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+        "confirmMessage": "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered.",
         "confirmTitle": "Reset this task?",
         "resetSuccess": "Reset {{id}} — fresh run will be allocated"
       },

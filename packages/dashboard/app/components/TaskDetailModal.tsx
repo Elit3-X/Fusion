@@ -3483,14 +3483,14 @@ export function TaskDetailContent({
   }, [addToast, onTaskUpdated, projectId, t, task.id]);
 
   /*
-  FNXC:TaskReset 2026-08-19-06:45:
-  Reset is destructive: confirmation explains that the owned worktree and current plan are discarded, while the success toast is emitted only after the server has fenced work, completed cleanup, and committed the fresh Planning state.
+  FNXC:TaskReset 2026-08-28-14:45:
+  Reset confirmation names the permanently deleted plan, worktree, task-owned branch commits, and reviews. The success toast is emitted only after the server has fenced work, proved cleanup, and committed fresh Planning state.
   */
   const handleReset = useCallback(async () => {
     if (!onResetTask) return;
     const shouldReset = await confirm({
       title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
-      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded."),
+      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered."),
       confirmLabel: t("taskDetail.reset.btn", "Reset"),
       cancelLabel: t("common.cancel", "Cancel"),
       danger: true,

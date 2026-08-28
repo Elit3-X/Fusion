@@ -8162,7 +8162,7 @@
     },
     "reset": {
       "btn": "Réinitialiser",
-      "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+      "confirmMessage": "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered.",
       "resetSuccess": "{{id}} réinitialisé — une nouvelle exécution sera allouée",
       "confirmTitle": "Reset this task?"
     },

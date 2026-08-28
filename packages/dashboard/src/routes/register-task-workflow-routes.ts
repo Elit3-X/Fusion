@@ -120,6 +120,8 @@ import {
   isStaleMergeActiveStatus,
   reconcileTaskResetSessionRoot,
   removeTaskResetWorktree,
+  planTaskResetBranchCleanup,
+  deleteTaskResetBranches,
   ResetWorktreeForeignSessionError,
   ActiveSessionWorktreeRemovalError,
   getRegisteredWorktreeBranches,
@@ -3784,7 +3786,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       const { confirm: confirmed } = (req.body ?? {}) as { confirm?: boolean };
       if (!confirmed) {
         throw badRequest(
-          "This operation is destructive and discards the task-owned worktree and current plan. Pass { \"confirm\": true } in the request body to proceed.",
+          "This operation is destructive and permanently discards the task-owned worktree, branch and its commits, and current plan. Pass { \"confirm\": true } in the request body to proceed.",
         );
       }
 
@@ -3797,6 +3799,23 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         const resetPlan = buildTaskResetWorktreePlan(task, { rootDir, settings });
         const reservations: Awaited<ReturnType<typeof acquireWorktreePathReservation>>[] = [];
         const targetSuffix = (repoRel: string) => repoRel === SINGULAR_RESET_WORKTREE_REPO_REL ? "" : ` (${repoRel})`;
+        const branchTargetSuffix = (repoRootDir: string) => {
+          const target = resetPlan.targets.find((entry) => resolve(entry.repoRootDir) === resolve(repoRootDir));
+          return target ? targetSuffix(target.repoRel) : "";
+        };
+        const branchBlockMessage = (blocked: Awaited<ReturnType<typeof planTaskResetBranchCleanup>>["blocked"]) => {
+          const details = blocked.map((entry) => {
+            const suffix = branchTargetSuffix(entry.repoRootDir);
+            if (entry.reason === "checked-out") {
+              return `branch ${entry.branch}${suffix} is still checked out at ${entry.holderWorktreePath ?? "an unknown worktree"}`;
+            }
+            return `branch ${entry.branch}${suffix} could not be removed (${entry.reason}${entry.detail ? `: ${entry.detail}` : ""})`;
+          });
+          return `Reset incomplete; ${details.join("; ")}; clear the named obstruction and retry Reset`;
+        };
+        const logBlockedBranches = async (blocked: Awaited<ReturnType<typeof planTaskResetBranchCleanup>>["blocked"]) => {
+          await scopedStore.logEntry(req.params.id, `Reset blocked by task branches: ${blocked.map((entry) => `${entry.branch} [${entry.reason}]${entry.holderWorktreePath ? ` at ${entry.holderWorktreePath}` : ""}`).join(", ")}`);
+        };
         const isStrictDescendant = (root: string, candidate: string) => {
           const pathRelative = relative(resolve(root), resolve(candidate));
           return pathRelative !== "" && !pathRelative.startsWith("..") && !isAbsolute(pathRelative);
@@ -3853,7 +3872,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             ) {
               throw badRequest("Reset refuses an external, unsafe, foreign, or project-root worktree path");
             }
-            if (existsSync(target.canonicalPath)) {
+            const targetExists = existsSync(target.canonicalPath);
+            if (targetExists) {
               const resolvedPath = await realpath(target.canonicalPath);
               const resolvedContained = resetPlan.layout === "workspace-task-dir"
                 ? isStrictDescendant(target.containmentRoot, resolvedPath)
@@ -3863,24 +3883,27 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               }
             }
             /*
-            FNXC:TaskReset 2026-08-27-22:20:
-            Every workspace child is disposable only when its own repository's Git registration
-            identifies its stored branch. Placement and absent competing task rows are not ownership
-            proof, so each repository fails closed before cancellation, reservation, or deletion.
+            FNXC:TaskReset 2026-08-28-14:45:
+            Git registration proves ownership only when Reset is about to destroy an existing directory.
+            An absent target can only trigger the existing stale-admin-entry prune, while resetTaskPublication
+            is the sole writer that clears worktree/branch pointers. Requiring a registration after removal
+            permanently wedged retries following coordinator, PROMPT.md, or runtime-finalization refusals.
             */
-            const registeredBranches = await getRegisteredWorktreeBranches(target.repoRootDir);
-            const targetBranch = typeof target.branch === "string" ? target.branch.trim() : "";
-            let registeredOwner = false;
-            if (targetBranch.length > 0) {
-              for (const entry of registeredBranches) {
-                if (entry.branch === targetBranch && await canonicalizeWorktreePath(entry.worktreePath) === target.canonicalPath) {
-                  registeredOwner = true;
-                  break;
+            if (targetExists) {
+              const registeredBranches = await getRegisteredWorktreeBranches(target.repoRootDir);
+              const targetBranch = typeof target.branch === "string" ? target.branch.trim() : "";
+              let registeredOwner = false;
+              if (targetBranch.length > 0) {
+                for (const entry of registeredBranches) {
+                  if (entry.branch === targetBranch && await canonicalizeWorktreePath(entry.worktreePath) === target.canonicalPath) {
+                    registeredOwner = true;
+                    break;
+                  }
                 }
               }
-            }
-            if (!registeredOwner) {
-              throw conflict(`Reset refuses a worktree whose managed task ownership cannot be proven${targetSuffix(target.repoRel)}`);
+              if (!registeredOwner) {
+                throw conflict(`Reset refuses a worktree whose managed task ownership cannot be proven${targetSuffix(target.repoRel)}`);
+              }
             }
           }
 
@@ -3907,6 +3930,21 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               worktreesDir: target.reservationWorktreesDir,
               rootDir: target.repoRootDir,
             }));
+          }
+
+          /*
+          FNXC:TaskReset 2026-08-28-14:45:
+          Branch admission runs after path reservations but before runtime fencing or filesystem cleanup,
+          so the common checked-out-elsewhere refusal destroys nothing and remains immediately retryable.
+          */
+          const branchAdmission = await planTaskResetBranchCleanup({
+            task,
+            targets: resetPlan.branchCleanupTargets,
+            ownedWorktreePaths: resetPlan.targets.map((target) => target.canonicalPath),
+          });
+          if (branchAdmission.blocked.length > 0) {
+            await logBlockedBranches(branchAdmission.blocked);
+            throw conflict(branchBlockMessage(branchAdmission.blocked));
           }
 
           /*
@@ -3962,6 +4000,29 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             if (existsSync(target.canonicalPath)) {
               throw conflict(`Reset incomplete; worktree remains for ${req.params.id}${targetSuffix(target.repoRel)}`);
             }
+          }
+
+          /*
+          FNXC:TaskReset 2026-08-28-14:45:
+          Branch deletion follows worktree removal because Git refuses to delete a checked-out branch.
+          Any survivor blocks publication; retry remains possible because absent recorded targets no longer
+          require the registration that removal necessarily pruned.
+          */
+          const branchCleanup = await deleteTaskResetBranches({
+            task: fencedTask,
+            targets: resetPlan.branchCleanupTargets,
+          });
+          if (branchCleanup.blocked.length > 0) {
+            await logBlockedBranches(branchCleanup.blocked);
+            throw conflict(branchBlockMessage(branchCleanup.blocked));
+          }
+          if (branchCleanup.deleted.length > 0 || branchCleanup.retained.length > 0) {
+            const deleted = branchCleanup.deleted.map((entry) => `${entry.branch}${branchTargetSuffix(entry.repoRootDir)}`);
+            const retained = branchCleanup.retained.map((entry) => `${entry.branch}${branchTargetSuffix(entry.repoRootDir)} [${entry.reason}]`);
+            await scopedStore.logEntry(req.params.id, [
+              deleted.length > 0 ? `Reset deleted task branches: ${deleted.join(", ")}` : undefined,
+              retained.length > 0 ? `Reset retained task branches: ${retained.join(", ")}` : undefined,
+            ].filter(Boolean).join("; "));
           }
 
           if (resetPlan.workspaceTaskDir) {

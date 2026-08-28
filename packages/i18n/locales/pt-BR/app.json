@@ -8201,7 +8201,7 @@
     },
     "reset": {
       "btn": "Redefinir",
-      "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+      "confirmMessage": "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered.",
       "resetSuccess": "{{id}} redefinida — uma nova execução será alocada",
       "confirmTitle": "Reset this task?"
     },

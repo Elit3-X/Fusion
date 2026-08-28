@@ -2782,7 +2782,7 @@ function TaskCardComponent({
     if (!onResetTask) return;
     const shouldReset = await confirm({
       title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
-      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded."),
+      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered."),
       confirmLabel: t("taskDetail.reset.btn", "Reset"),
       cancelLabel: t("common.cancel", "Cancel"),
       danger: true,

@@ -397,6 +397,8 @@ export interface TaskBranchContext {
   source?: TaskBranchGroupSource;
   /** Omitted for a provenance-only operator override payload. */
   assignmentMode?: TaskBranchAssignmentMode;
+  /** Shared-group integration target retained across per-task worktree cleanup and Reset. */
+  mergeTargetBranch?: string;
   inheritedBaseBranch?: string;
 }
 

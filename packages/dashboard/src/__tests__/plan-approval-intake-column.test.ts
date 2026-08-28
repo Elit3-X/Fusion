@@ -25,6 +25,15 @@ import type { TaskStore, TaskDetail } from "@fusion/core";
 import { createApiRoutes } from "../routes.js";
 import { request as performRequest } from "../test-request.js";
 
+vi.mock("@fusion/engine", async () => {
+  const actual = await vi.importActual<typeof import("@fusion/engine")>("@fusion/engine");
+  return {
+    ...actual,
+    planTaskResetBranchCleanup: vi.fn().mockResolvedValue({ deleted: [], retained: [], blocked: [] }),
+    deleteTaskResetBranches: vi.fn().mockResolvedValue({ deleted: [], retained: [], blocked: [] }),
+  };
+});
+
 /** The post-#2515 default lineage: ONE pre-implementation column, id `todo`. */
 const MERGED_CODING_IR = {
   version: "v2",
