@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task, TaskStep } from "@fusion/core";
+import { planRemediationPlacement } from "@fusion/core";
 import { deriveRemediationSteps } from "../executor/derive-remediation-steps.js";
 import { appendReviewRemediationSteps } from "../executor/append-review-remediation-steps.js";
 
@@ -64,7 +65,12 @@ describe("non-blocking review remediation releases", () => {
       logEntry,
       updateTask: vi.fn(async (_id: string, patch: Partial<Task>) => Object.assign(task, patch)),
       getTask: vi.fn(async () => task),
-      appendRemediationSteps: vi.fn(async () => ({ task, appended: [...append], appendedCount: append.length, wave: 1 })),
+      appendRemediationSteps: vi.fn(async () => {
+        const appended = [...append];
+        const placement = planRemediationPlacement(task.steps ?? [], appended);
+        task.steps = placement.steps;
+        return { task, appended, appendedCount: appended.length, wave: 1, ...placement };
+      }),
       updateTaskAtomic: vi.fn(async (_id: string, callback: (current: Task) => Partial<Task> | null) => {
         const patch = callback(task);
         if (patch) Object.assign(task, patch);

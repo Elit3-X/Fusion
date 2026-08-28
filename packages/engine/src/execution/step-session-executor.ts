@@ -18,8 +18,8 @@ const execAsync = promisify(exec);
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import type { AgentHeartbeatRun, AgentStore, MessageStore, PermanentAgentGatingContext, ProviderInstanceRef, ResolvedMcpServerDefinition, TaskDetail, Settings, SteeringComment, TaskStore } from "@fusion/core";
-import { isValidProviderInstanceId, resolvePersistAgentThinkingLog, resolveExecutorFallbackModel } from "@fusion/core";
+import type { AgentHeartbeatRun, AgentStore, MessageStore, PermanentAgentGatingContext, ProviderInstanceRef, ResolvedMcpServerDefinition, TaskDetail, Settings, SteeringComment, TaskStore, TaskStep } from "@fusion/core";
+import { isValidProviderInstanceId, resolvePersistAgentThinkingLog, resolveExecutorFallbackModel, resolveTrailingVerificationStepIndex } from "@fusion/core";
 
 import {
   createResolvedAgentSession,
@@ -433,9 +433,9 @@ export function buildStepPrompt(
   const prompt = scopePromptToWorktree(taskDetail.prompt, rootDir, worktreePath);
 
   // Extract step-specific section
-  const stepSection = extractStepSection(prompt, stepIndex);
   const totalSteps = countSteps(prompt);
-  const isLastStep = stepIndex === totalSteps - 1;
+  const stepSection = resolveStepSection(taskDetail, prompt, stepIndex, totalSteps);
+  const isLastStep = stepIndex === Math.max(totalSteps, taskDetail.steps.length) - 1;
 
   // Extract global sections from the prompt
   const fileScopeSection = extractSection(prompt, "File Scope");
@@ -605,6 +605,53 @@ function countSteps(prompt: string): number {
   return matches ? matches.length : 0;
 }
 
+/*
+FNXC:VerificationRemediation 2026-08-28-15:11:
+An appended remediation or verification occurrence has no authored PROMPT.md heading. Only indexes beyond the complete authored heading range may receive synthesized instructions; otherwise heading-number quirks could mask real authored content and the mandatory re-verification session could run with an empty body.
+*/
+function resolveStepSection(
+  taskDetail: TaskDetail,
+  prompt: string,
+  stepIndex: number,
+  authoredStepCount: number,
+): string {
+  const authoredSection = extractStepSection(prompt, stepIndex);
+  if (stepIndex < authoredStepCount) return authoredSection;
+  const liveStep = taskDetail.steps[stepIndex];
+  return liveStep ? synthesizeAppendedStepSection(liveStep) : authoredSection;
+}
+
+function synthesizeAppendedStepSection(step: TaskStep): string {
+  const lines = [
+    `### Appended Step: ${step.name}`,
+    "",
+    "Complete this appended workflow occurrence using the live task state.",
+  ];
+
+  if (step.remediation) {
+    lines.push(
+      "",
+      `- **Gate:** ${step.remediation.gate}`,
+      `- **Required fix:** ${step.remediation.detail}`,
+    );
+    if (step.remediation.filePath) lines.push(`- **File:** \`${step.remediation.filePath}\``);
+    if (step.remediation.line !== undefined) lines.push(`- **Line:** ${step.remediation.line}`);
+  }
+
+  if (resolveTrailingVerificationStepIndex([step]) === 0) {
+    lines.push(
+      "",
+      "Run a fresh verification pass after the preceding fixes:",
+      "- Run the project's configured test and build commands listed under Project Commands.",
+      "- Run the tests impacted by this task's changes.",
+      "- Fix every failure before completing this step.",
+      "- Never weaken, skip, or delete assertions merely to make verification pass.",
+    );
+  }
+
+  return lines.join("\n");
+}
+
 /**
  * Extract a named section from the prompt (e.g. "File Scope", "Do NOT").
  * Returns the section from the heading to the next ## or ### heading, or end.
@@ -646,7 +693,7 @@ export function buildReducedStepPrompt(taskDetail: TaskDetail, stepIndex: number
   const { prompt, id, title, attachments } = taskDetail;
 
   // Extract the step-specific section
-  const stepSection = extractStepSection(prompt, stepIndex);
+  const stepSection = resolveStepSection(taskDetail, prompt, stepIndex, countSteps(prompt));
   const hasAttachments = Boolean(attachments && attachments.length > 0);
   const attachmentDir = rootDir ? `${rootDir}/.fusion/tasks/${id}/attachments/` : `.fusion/tasks/${id}/attachments/`;
   const steeringSection = buildStepSteeringCommentsSection(taskDetail.steeringComments);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { getBuiltinWorkflow, type Task, type TaskStep } from "@fusion/core";
+import { getBuiltinWorkflow, planRemediationPlacement, type Task, type TaskStep } from "@fusion/core";
 
 import { appendReviewRemediationSteps } from "../executor/append-review-remediation-steps.js";
 import { requestPreMergeOptionalStepFix } from "../executor/request-pre-merge-optional-step-fix.js";
@@ -71,8 +71,9 @@ function harness(options: {
     }),
     appendRemediationSteps: vi.fn(async (_id: string, steps: readonly TaskStep[], options_: { wave?: number }) => {
       const appended = steps.map((step) => ({ ...step, status: "pending" as const }));
-      task.steps = [...(task.steps ?? []), ...appended];
-      return { task, appended, appendedCount: appended.length, wave: options_.wave ?? 1 };
+      const placement = planRemediationPlacement(task.steps ?? [], appended);
+      task.steps = placement.steps;
+      return { task, appended, appendedCount: appended.length, wave: options_.wave ?? 1, ...placement };
     }),
     updateTaskAtomic: vi.fn(async (_id: string, mutate: (current: Task) => Partial<Task> | null | undefined | Promise<Partial<Task> | null | undefined>) => {
       const patch = await mutate(task);
@@ -126,11 +127,12 @@ describe("workspace named Code Review remediation routing", () => {
     const scheduled = await requestPreMergeOptionalStepFix(deps as never, task.id, task, reviseInfo(findings));
 
     expect(scheduled).toBe(true);
-    expect(task.steps?.at(-1)?.remediation).toMatchObject({
+    expect(task.steps?.at(-2)?.remediation).toMatchObject({
       gate: "Code Review",
       filePath: "repo-a/src/x.ts",
       findingId: "repo-a:finding-1",
     });
+    expect(task.steps?.at(-1)).toEqual({ name: "Testing & Verification", status: "pending" });
     expect(sendTaskBackForFix).toHaveBeenCalledWith(
       expect.anything(), "/tmp/repo-a", expect.anything(), expect.anything(), expect.anything(), true, false,
       undefined, findings, false, "none",

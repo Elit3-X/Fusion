@@ -727,6 +727,75 @@ Some freeform text without checkboxes.`;
     expect(result).not.toContain("Project Commands");
   });
 
+  it("synthesizes actionable content for an appended remediation step", () => {
+    const task = makeTaskDetail({
+      prompt: fullPrompt,
+      steps: [
+        { name: "Preflight", status: "done" },
+        { name: "Implement", status: "done" },
+        { name: "Test", status: "done" },
+        {
+          name: "Fix: repair retry guard",
+          status: "pending",
+          remediation: {
+            wave: 1,
+            gate: "Code Review",
+            gateStepId: "code-review",
+            detail: "Reverse the retry guard condition",
+            filePath: "packages/engine/src/retry.ts",
+            line: 42,
+          },
+        },
+      ],
+    });
+
+    const result = buildStepPrompt(task, 3);
+    expect(result).toContain("### Appended Step: Fix: repair retry guard");
+    expect(result).toContain("**Gate:** Code Review");
+    expect(result).toContain("**Required fix:** Reverse the retry guard condition");
+    expect(result).toContain("**File:** `packages/engine/src/retry.ts`");
+    expect(result).toContain("**Line:** 42");
+  });
+
+  it("synthesizes a mandatory checklist for an appended verification step", () => {
+    const task = makeTaskDetail({
+      prompt: fullPrompt,
+      steps: [
+        { name: "Preflight", status: "done" },
+        { name: "Implement", status: "done" },
+        { name: "Test", status: "done" },
+        { name: "Fix: repair retry guard", status: "done" },
+        { name: "Testing & Verification", status: "pending" },
+      ],
+    });
+    const settings = { testCommand: "pnpm test:gate", buildCommand: "pnpm build" } as Settings;
+
+    const result = buildStepPrompt(task, 4, undefined, settings);
+    expect(result).toContain("### Appended Step: Testing & Verification");
+    expect(result).toContain("Run the project's configured test and build commands listed under Project Commands.");
+    expect(result).toContain("Run the tests impacted by this task's changes.");
+    expect(result).toContain("Fix every failure before completing this step.");
+    expect(result).toContain("Never weaken, skip, or delete assertions merely to make verification pass.");
+    expect(result).toContain("pnpm test:gate");
+    expect(result).toContain("pnpm build");
+  });
+
+  it("does not synthesize over an index inside the authored heading range", () => {
+    const prompt = "### Step 1: Authored first\n\nKeep this authored content.\n\n### Step 2: Authored second";
+    const task = makeTaskDetail({
+      prompt,
+      steps: [{
+        name: "Fix: must not mask authored numbering",
+        status: "pending",
+        remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "fallback detail" },
+      }],
+    });
+
+    const result = buildStepPrompt(task, 0);
+    expect(result).not.toContain("### Appended Step");
+    expect(result).not.toContain("fallback detail");
+  });
+
   it("includes user steering comments as next-session fallback when no active step session existed", () => {
     const task = makeTaskDetail({
       prompt: fullPrompt,
@@ -919,6 +988,25 @@ describe("buildReducedStepPrompt", () => {
 
     expect(result).not.toContain("attachment(s) available");
     expect(result).not.toContain(".fusion/tasks/FN-001/attachments/");
+  });
+
+  it("keeps synthesized verification instructions during context-limit recovery", () => {
+    const task = makeTaskDetail({
+      prompt: reducedPrompt,
+      steps: [
+        { name: "Preflight", status: "done" },
+        { name: "Implement", status: "done" },
+        { name: "Test", status: "done" },
+        { name: "Fix: repair retry guard", status: "done" },
+        { name: "Testing & Verification", status: "pending" },
+      ],
+    });
+
+    const result = buildReducedStepPrompt(task, 4);
+    expect(result).toContain("### Appended Step: Testing & Verification");
+    expect(result).toContain("Run the tests impacted by this task's changes.");
+    expect(result).toContain("Fix every failure before completing this step.");
+    expect(result).toContain("Never weaken, skip, or delete assertions merely to make verification pass.");
   });
 });
 

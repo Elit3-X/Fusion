@@ -15,6 +15,7 @@ policy. The card bounced to implementation with zero pending steps, the foreach 
 import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import type { Task, TaskStep } from "@fusion/core";
+import { planRemediationPlacement } from "@fusion/core";
 import {
   BUILTIN_CODING_IDEAS_V2_WORKFLOW_IR,
   BUILTIN_CODING_IDEAS_WORKFLOW_IR,
@@ -162,13 +163,17 @@ describe("deterministic verification failure → named remediation", () => {
   it("turns the failing command's output into pending named steps the executor can run", async () => {
     const live = task({
       prompt: "# Task\n\n## File Scope\n\n- `packages/engine/src/executor/*`\n\n## Steps\n",
-      steps: [{ name: "Implementation", status: "done" }],
+      steps: [
+        { name: "Implementation", status: "done" },
+        { name: "Testing & Verification", status: "done" },
+      ],
     });
     const store = {
       appendRemediationSteps: vi.fn(async (_id: string, steps: readonly TaskStep[], options: { wave?: number }) => {
         const appended = steps.map((step) => ({ ...step, status: "pending" as const }));
-        live.steps = [...(live.steps ?? []), ...appended];
-        return { task: live, appended, appendedCount: appended.length, wave: options.wave ?? 1 };
+        const placement = planRemediationPlacement(live.steps ?? [], appended);
+        live.steps = placement.steps;
+        return { task: live, appended, appendedCount: appended.length, wave: options.wave ?? 1, ...placement };
       }),
       getTask: vi.fn(async () => live),
       updateTask: vi.fn(async (_id: string, patch: Partial<Task>) => {
@@ -197,7 +202,7 @@ describe("deterministic verification failure → named remediation", () => {
 
     expect(appended).toBe("appended");
     const pending = (live.steps ?? []).filter((step) => step.status === "pending");
-    expect(pending).toHaveLength(1);
+    expect(pending).toHaveLength(2);
     expect(pending[0]!.name).toContain("packages/engine/src/retry.ts");
     expect(pending[0]!.remediation).toMatchObject({
       gate: "Verification",
@@ -205,6 +210,12 @@ describe("deterministic verification failure → named remediation", () => {
       filePath: "packages/engine/src/retry.ts",
       wave: 1,
     });
+    expect(live.steps?.map((step) => [step.name, step.status])).toEqual([
+      ["Implementation", "done"],
+      ["Testing & Verification", "done"],
+      [expect.stringContaining("packages/engine/src/retry.ts"), "pending"],
+      ["Testing & Verification", "pending"],
+    ]);
     // The executor may only edit what the spec declares, so remediation widens the declared scope.
     expect(live.prompt).toContain("- `packages/engine/src/retry.ts`");
     // And the executor is actually re-dispatched to run that step.

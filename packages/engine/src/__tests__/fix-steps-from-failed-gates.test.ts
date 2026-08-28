@@ -17,7 +17,7 @@ branch was present, correct, and caller-less for days, which is exactly the fail
 */
 import { describe, expect, it, vi } from "vitest";
 import type { Task, TaskStep } from "@fusion/core";
-import { getBuiltinWorkflow } from "@fusion/core";
+import { getBuiltinWorkflow, planRemediationPlacement } from "@fusion/core";
 
 import { appendReviewRemediationSteps } from "../executor/append-review-remediation-steps.js";
 import { requestPreMergeOptionalStepFix } from "../executor/request-pre-merge-optional-step-fix.js";
@@ -68,8 +68,9 @@ function harness(workflowId = "builtin:coding-ideas-v2") {
     updateTask: vi.fn(async (_id: string, patch: Partial<Task>) => { Object.assign(task, patch); return task; }),
     appendRemediationSteps: vi.fn(async (_id: string, steps: readonly TaskStep[], options: { wave?: number }) => {
       const appended = steps.map((step) => ({ ...step, status: "pending" as const }));
-      task.steps = [...(task.steps ?? []), ...appended];
-      return { task, appended, appendedCount: appended.length, wave: options.wave ?? 1 };
+      const placement = planRemediationPlacement(task.steps ?? [], appended);
+      task.steps = placement.steps;
+      return { task, appended, appendedCount: appended.length, wave: options.wave ?? 1, ...placement };
     }),
     getTaskWorkflowSelectionAsync: vi.fn(async () => ({ workflowId })),
     getWorkflowDefinition: vi.fn(async (id: string) => {
@@ -112,11 +113,15 @@ describe("fix steps appear on the card when a gate fails", () => {
     });
 
     expect(scheduled).toBe(true);
-    expect(pending()).toHaveLength(1);
+    expect(pending()).toHaveLength(2);
     expect(pending()[0]!.name).toContain("packages/engine/src/retry.ts");
     expect(pending()[0]!.remediation).toMatchObject({ gate: "Verification", wave: 1 });
-    // Completed implementation work is preserved: remediation appends, it never reopens.
-    expect(task.steps?.slice(0, 2).map((step) => step.status)).toEqual(["done", "done"]);
+    expect(task.steps?.map((step) => [step.name, step.status])).toEqual([
+      ["Add the retry guard", "done"],
+      ["Testing & Verification", "done"],
+      [expect.stringContaining("packages/engine/src/retry.ts"), "pending"],
+      ["Testing & Verification", "pending"],
+    ]);
     // And the card is actually re-dispatched to run that step.
     expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
   });
@@ -164,13 +169,19 @@ describe("fix steps appear on the card when a gate fails", () => {
     });
 
     expect(scheduled).toBe(true);
-    expect(pending()).toHaveLength(1);
+    expect(pending()).toHaveLength(2);
     expect(pending()[0]!.name).toContain("Reverse the retry guard condition");
     expect(pending()[0]!.remediation).toMatchObject({
       gate: "Code Review",
       findingId: "finding-1",
       filePath: "packages/engine/src/retry.ts",
     });
+    expect(task.steps?.map((step) => [step.name, step.status])).toEqual([
+      ["Add the retry guard", "done"],
+      ["Testing & Verification", "done"],
+      [expect.stringContaining("Reverse the retry guard condition"), "pending"],
+      ["Testing & Verification", "pending"],
+    ]);
     expect(sendTaskBackForFix).toHaveBeenCalledTimes(1);
   });
 
@@ -334,7 +345,8 @@ describe("fix steps appear on the card when a gate fails", () => {
       findings: [{ id: "f1", title: "t", body: "b", filePath: "packages/engine/src/retry.ts", severity: "critical" }],
     });
 
-    expect(pending()).toHaveLength(1);
+    expect(pending()).toHaveLength(2);
     expect(pending()[0]?.name).toBe("Fix: b");
+    expect(pending()[1]).toEqual({ name: "Testing & Verification", status: "pending" });
   });
 });

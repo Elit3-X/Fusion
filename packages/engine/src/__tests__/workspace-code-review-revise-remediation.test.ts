@@ -1,7 +1,7 @@
 import "./executor-test-helpers.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task, TaskStep, WorkflowReviewFinding } from "@fusion/core";
-import { getBuiltinWorkflow } from "@fusion/core";
+import { getBuiltinWorkflow, planRemediationPlacement } from "@fusion/core";
 
 import { appendReviewRemediationSteps } from "../executor/append-review-remediation-steps.js";
 import { deriveRemediationSteps } from "../executor/derive-remediation-steps.js";
@@ -173,11 +173,14 @@ function reportedSymptomHarness(options: { findings?: WorkflowReviewFinding[]; r
     }],
   } as Task;
   for (let wave = 1; wave <= (options.remediationWaves ?? 0); wave += 1) {
-    task.steps.push({
-      name: `Fix: prior wave ${wave}`,
-      status: "done",
-      remediation: { wave, gate: "Code Review", gateStepId: "code-review-step", detail: `Prior wave ${wave}` },
-    });
+    task.steps.push(
+      {
+        name: `Fix: prior wave ${wave}`,
+        status: "done",
+        remediation: { wave, gate: "Code Review", gateStepId: "code-review-step", detail: `Prior wave ${wave}` },
+      },
+      { name: "Testing & Verification", status: "done" },
+    );
   }
   const sendTaskBackForFix = vi.fn(async () => undefined);
   const store = {
@@ -191,8 +194,9 @@ function reportedSymptomHarness(options: { findings?: WorkflowReviewFinding[]; r
     }),
     appendRemediationSteps: vi.fn(async (_id: string, steps: readonly TaskStep[], options: { wave?: number }) => {
       const appended = steps.map((step) => ({ ...step, status: "pending" as const }));
-      task.steps = [...(task.steps ?? []), ...appended];
-      return { task, appended, appendedCount: appended.length, wave: options.wave ?? 1 };
+      const placement = planRemediationPlacement(task.steps ?? [], appended);
+      task.steps = placement.steps;
+      return { task, appended, appendedCount: appended.length, wave: options.wave ?? 1, ...placement };
     }),
     updateTaskAtomic: vi.fn(async (_id: string, mutate: (current: Task) => Partial<Task> | null | undefined | Promise<Partial<Task> | null | undefined>) => {
       const patch = await mutate(task);
@@ -246,6 +250,14 @@ describe("workspace Code Review REVISE symptom", () => {
         findingId: "repo2:MULT-029-source-location-unchecked",
       },
     });
+    expect(task.steps?.map((step) => [step.name, step.status])).toEqual([
+      ["Preflight", "done"],
+      ["Establish destination ownership", "done"],
+      ["Remove stale source ownership", "done"],
+      ["Testing & Verification", "done"],
+      [expect.stringContaining("Replace or add the source-location check"), "pending"],
+      ["Testing & Verification", "pending"],
+    ]);
     expect(task.prompt).toContain("- `repo2/tests/test_txt_absence.sh`");
     expect(sendTaskBackForFix).toHaveBeenCalledWith(
       expect.anything(),
@@ -284,6 +296,19 @@ describe("workspace Code Review REVISE symptom", () => {
 
     expect(sendTaskBackForFix).not.toHaveBeenCalled();
     expect(store.logEntry).toHaveBeenCalledWith(task.id, "Review remediation released as non-blocking", "review-remediation-no-actionable-findings");
+  });
+
+  it("keeps the first verification pass done when a second remediation wave is appended", async () => {
+    const { task, deps } = reportedSymptomHarness({ remediationWaves: 1 });
+
+    await expect(requestPreMergeOptionalStepFix(deps as never, task.id, task, {
+      ...baseInfo, nodeId: "code-review-step", reviewKind: "code", findings: [reportedFinding],
+    })).resolves.toBe(true);
+
+    expect(task.steps?.filter((step) => step.name === "Testing & Verification").map((step) => step.status))
+      .toEqual(["done", "done", "pending"]);
+    expect(task.steps?.at(-2)?.remediation).toMatchObject({ wave: 2, gate: "Code Review" });
+    expect(task.steps?.at(-1)).toEqual({ name: "Testing & Verification", status: "pending" });
   });
 
   it("records a visible release when the fourth remediation wave is refused", async () => {

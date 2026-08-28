@@ -1,9 +1,11 @@
 import type { TaskStep } from "../types/task/task-log.js";
 
+export const REMEDIATION_VERIFICATION_STEP_NAME = "Testing & Verification";
+
 export interface RemediationPlacementPlan {
   steps: TaskStep[];
   insertionIndex: number;
-  verificationResetIndex?: number;
+  verificationStepIndex?: number;
 }
 
 /** Return the final step only when it is the task's trailing verification gate. */
@@ -14,30 +16,27 @@ export function resolveTrailingVerificationStepIndex(steps: readonly TaskStep[])
   return /(?:testing|verification)/i.test(name) ? index : undefined;
 }
 
-/**
- * Insert remediation before trailing verification, preserving dependency meaning.
- * An absent dependency declaration stays absent; explicit independent roots stay
- * explicit empty arrays.
- */
+/*
+FNXC:ReviewGatedRemediation 2026-08-28-15:11:
+A completed verification step is immutable task history. Append named fixes after the existing list and append a new pending verification occurrence so every revision visibly requires a fresh verification pass before review.
+*/
 export function planRemediationPlacement(
   existing: readonly TaskStep[],
   appended: readonly TaskStep[],
 ): RemediationPlacementPlan {
-  const verificationIndex = resolveTrailingVerificationStepIndex(existing);
-  const insertionIndex = verificationIndex ?? existing.length;
-  const offset = appended.length;
-  const surviving = existing.map((step, index) => {
-    const remappedDependsOn = step.dependsOn?.map((dependency) => dependency >= insertionIndex ? dependency + offset : dependency);
-    const reset = index === verificationIndex ? { status: "pending" as const } : {};
-    return {
-      ...step,
-      ...reset,
-      ...(remappedDependsOn === undefined ? {} : { dependsOn: remappedDependsOn }),
-    };
-  });
+  const insertionIndex = existing.length;
+  if (appended.length === 0) {
+    return { steps: [...existing], insertionIndex };
+  }
+
+  const verificationStepIndex = insertionIndex + appended.length;
   return {
-    steps: [...surviving.slice(0, insertionIndex), ...appended, ...surviving.slice(insertionIndex)],
+    steps: [
+      ...existing,
+      ...appended,
+      { name: REMEDIATION_VERIFICATION_STEP_NAME, status: "pending" },
+    ],
     insertionIndex,
-    ...(verificationIndex === undefined ? {} : { verificationResetIndex: verificationIndex + offset }),
+    verificationStepIndex,
   };
 }

@@ -17,6 +17,32 @@ describe("review-gated parse-step preservation", () => {
       .resolves.toMatchObject({ outcome: "success", value: "preserved-remediation-steps" });
   });
 
+  it("preserves a completed remediation occurrence and its pending verification successor", async () => {
+    const writes: TaskStep[][] = [];
+    const audits: string[] = [];
+    const liveSteps: TaskStep[] = [
+      {
+        name: "Fix: guard",
+        status: "done",
+        remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "guard" },
+      },
+      { name: "Testing & Verification", status: "pending" },
+    ];
+    const runner = new ParseStepsNodeRunner({
+      readArtifact: async () => "### Step 1: stale authored step",
+      writeSteps: async (_task, steps) => { writes.push(steps); },
+      getLiveTask: async () => task(liveSteps),
+      audit: (reason) => audits.push(reason),
+    });
+
+    await expect(runner.run(
+      node({ artifact: "PROMPT.md", parser: "step-headings", preserveRemediationSteps: true }),
+      { task: task(), context: {} },
+    )).resolves.toMatchObject({ outcome: "success", value: "preserved-remediation-steps" });
+    expect(writes).toEqual([]);
+    expect(audits).toContain("preserved-remediation-steps");
+  });
+
   it("audits but never filters implementation names containing gate words", async () => {
     const writes: TaskStep[][] = [];
     const audits: string[] = [];

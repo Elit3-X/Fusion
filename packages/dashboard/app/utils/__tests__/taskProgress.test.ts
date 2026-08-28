@@ -512,6 +512,22 @@ describe("getUnifiedTaskProgress", () => {
     ]);
   });
 
+  it("keeps repeated verification occurrences distinct by history index", () => {
+    const progress = getUnifiedTaskProgress(makeTask({
+      steps: [
+        { name: "Testing & Verification", status: "done" },
+        { name: "Fix: repair retry guard", status: "done" },
+        { name: "Testing & Verification", status: "pending" },
+      ],
+    }));
+
+    expect(progress.items.map((item) => ({ id: item.id, name: item.name, status: item.status }))).toEqual([
+      { id: "step-0", name: "Testing & Verification", status: "done" },
+      { id: "step-1", name: "Fix: repair retry guard", status: "done" },
+      { id: "step-2", name: "Testing & Verification", status: "pending" },
+    ]);
+  });
+
   it("maps impl step statuses straight through and skipped as completed", () => {
     const progress = getUnifiedTaskProgress(
       makeTask({

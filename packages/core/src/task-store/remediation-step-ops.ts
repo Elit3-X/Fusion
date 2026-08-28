@@ -13,7 +13,7 @@ export interface AppendRemediationStepsResult {
   appendedCount: number;
   wave: number;
   insertionIndex?: number;
-  verificationResetIndex?: number;
+  verificationStepIndex?: number;
 }
 
 /**
@@ -30,7 +30,7 @@ export async function appendRemediationStepsImpl(
   let appended: TaskStep[] = [];
   let wave = 0;
   let insertionIndex: number | undefined;
-  let verificationResetIndex: number | undefined;
+  let verificationStepIndex: number | undefined;
   const task = await store.updateTaskAtomic(taskId, (current) => {
     const existing = current.steps ?? [];
     wave = options.wave ?? remediationWaveCount(existing) + 1;
@@ -46,7 +46,7 @@ export async function appendRemediationStepsImpl(
     if (appended.length === 0) return null;
     const placement = planRemediationPlacement(existing, appended);
     insertionIndex = placement.insertionIndex;
-    verificationResetIndex = placement.verificationResetIndex;
+    verificationStepIndex = placement.verificationStepIndex;
     return { steps: placement.steps, currentStep: placement.insertionIndex };
   });
   return {
@@ -55,6 +55,6 @@ export async function appendRemediationStepsImpl(
     appendedCount: appended.length,
     wave,
     ...(insertionIndex === undefined ? {} : { insertionIndex }),
-    ...(verificationResetIndex === undefined ? {} : { verificationResetIndex }),
+    ...(verificationStepIndex === undefined ? {} : { verificationStepIndex }),
   };
 }

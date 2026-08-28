@@ -1043,6 +1043,7 @@ export {
   type NoOpCompletionMarkerKind,
 } from "./merge/no-op-completion-marker.js";
 export {
+  REMEDIATION_VERIFICATION_STEP_NAME,
   planRemediationPlacement,
   resolveTrailingVerificationStepIndex,
   type RemediationPlacementPlan,
