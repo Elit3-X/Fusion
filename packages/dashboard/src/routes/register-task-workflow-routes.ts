@@ -3487,8 +3487,40 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
          this route already resolved, instead of falling back to its own literal — the gate above and this
          delegate must agree about which columns are review. */
       const isMissingWorktreeSessionRetry = isInReviewMissingWorktreeSessionStartFailure(task, retryReviewColumns.has(task.column));
+      /*
+      FNXC:TaskRecoveryVocabulary 2026-08-28-00:38:
+      Dashboard recovery exposes only Retry, Reset, and Delete. Retry first attempts the current
+      column's in-place restart, which preserves the card's column while discarding only that
+      stage's artifacts. An unusable in-review worktree is the deliberate exception: it must take
+      its established rebound path because an in-place stage restart does not remove the unusable
+      worktree. The legacy branches remain a fallback for task shapes that cannot declare an
+      in-place restart (workspace and v1 workflows, or columns without an entry node).
+      */
+      let stageRestartRefusal: Extract<Awaited<ReturnType<typeof restartTaskStage>>, { kind: "refused" }> | undefined;
+      if (!isMissingWorktreeSessionRetry) {
+        // FNXC:TaskRecoveryVocabulary 2026-08-28-01:11: Retry must ask the locked restart
+        // planner about every non-missing-worktree shape. Its refusal preserves the precise
+        // operator reason (including workspace-task and no-column-model) before legacy recovery
+        // gets a chance to handle its older failure-state contracts.
+        const stageResult = await restartTaskStage({
+          store: scopedStore,
+          engine,
+          taskId: req.params.id,
+          confirm: true,
+          onRefusal: "signal",
+          activeMergeTaskId: selfHealingManager?.getActiveMergeTaskId?.() ?? null,
+          staleMergingStatusMinAgeMs: selfHealingManager?.getStaleMergingStatusMinAgeMs?.(),
+        });
+        if (!("kind" in stageResult) || stageResult.kind !== "refused") {
+          res.json(stageResult);
+          return;
+        }
+        stageRestartRefusal = stageResult;
+      }
+
       if (task.status !== "failed" && task.status !== "stuck-killed" && !retrySpecification && !strandedSpecificationRetry && !isInReviewRetry && !isMissingWorktreeSessionRetry) {
-        throw badRequest(`Task is not in a retryable state (current status: ${task.status || 'none'})`);
+        const stageReason = stageRestartRefusal?.reason ?? "unavailable";
+        throw badRequest(`Retry cannot restart this stage (${stageReason}) and the task is not in a legacy retryable state (current status: ${task.status || "none"})`);
       }
 
       /*
@@ -3959,25 +3991,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
     }
   });
 
-  // Restart only the current workflow stage without moving the card.
-  router.post("/tasks/:id/restart-stage", async (req, res) => {
-    try {
-      const { store: scopedStore, engine } = await getProjectContext(req);
-      const selfHealingManager = _resolveSelfHealingManager(scopedStore);
-      const updated = await restartTaskStage({
-        store: scopedStore,
-        engine,
-        taskId: req.params.id,
-        confirm: (req.body ?? {}).confirm === true,
-        activeMergeTaskId: selfHealingManager?.getActiveMergeTaskId?.() ?? null,
-        staleMergingStatusMinAgeMs: selfHealingManager?.getStaleMergingStatusMinAgeMs?.(),
-      });
-      res.json(updated);
-    } catch (err: unknown) {
-      if (err instanceof ApiError) throw err;
-      rethrowTaskApiError(err, req.params.id);
-    }
-  });
 
   // Duplicate task
   router.post("/tasks/:id/duplicate", async (req, res) => {
@@ -6019,13 +6032,17 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       const isArchived = currentColumn != null
         ? resolveColumnFlags(currentColumn).archived === true
         : LEGACY_ARCHIVE_LANES.has(task.column);
+      /*
+      FNXC:TaskRecoveryVocabulary 2026-08-28-01:30:
+      The retained specification-rebuild route supports bulk and execution-mode replanning, but its operator-facing errors must use plan-rebuild terminology rather than the removed recovery-action vocabulary.
+      */
       if (isArchived) {
-        throw badRequest("Respecify is not available for archived tasks; unarchive first.");
+        throw badRequest("Plan rebuild is not available for archived tasks; unarchive first.");
       }
 
       /*
       FNXC:WorkflowReplan 2026-07-16-12:00:
-      Respecify must park work in a planner lane belonging to the task's own workflow:
+      Specification rebuild must park work in a planner lane belonging to the task's own workflow:
       triage when declared, otherwise plan-in-place todo, then legacy triage for workflows
       with neither. The legacy fallback is intentionally recovery-rehomed: plain moves reject
       an undeclared triage target as unknown-column (and reject non-adjacent sources), which
@@ -6060,7 +6077,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
 
       /*
       FNXC:WorkflowReplan 2026-07-16-12:00:
-      Respecify responses must re-read the persisted task after setting needs-replan so
+      Specification-rebuild responses must re-read the persisted task after setting needs-replan so
       planner-lane-in-place requests, including legacy triage, never return stale status.
       */
       const updated = await scopedStore.getTask(task.id);

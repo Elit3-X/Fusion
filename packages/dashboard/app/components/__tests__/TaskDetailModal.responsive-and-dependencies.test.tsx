@@ -1154,13 +1154,15 @@ describe("TaskDetailModal", () => {
       expect(standardFooter?.querySelector(".detail-move-dropdown, .detail-move-btn, .detail-move-menu")).toBeNull();
     });
 
-    it("keeps the triage footer usable when Actions is absent", () => {
+    it("keeps the triage footer recoverable through Actions", () => {
       const { baseElement: container } = render(
         <TaskDetailModal
           initialTab="definition"
           task={makeTask({ column: "triage" as Column })}
           onClose={noop}
           onDeleteTask={noopDelete}
+          onRetryTask={async () => makeTask()}
+          onResetTask={async () => makeTask()}
           onMergeTask={noopMerge}
           onOpenDetail={noopOpenDetail}
           addToast={noop}
@@ -1168,10 +1170,13 @@ describe("TaskDetailModal", () => {
       );
       const footer = container.querySelector(".modal-actions");
 
-      expect(footer?.querySelector(".detail-actions-dropdown")).toBeNull();
+      expect(footer?.querySelector(".detail-actions-dropdown")).toBeTruthy();
       expect(footer?.querySelector(".modal-actions-spacer")).toBeTruthy();
       expect(footer?.querySelector(".detail-move-dropdown, .detail-move-btn, .detail-move-menu")).toBeNull();
-      expect(screen.getByRole("button", { name: "Delete task" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+      expect(screen.getByRole("menuitem", { name: "Retry" })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "Reset" })).toBeTruthy();
+      expect(screen.getAllByRole("menuitem", { name: "Delete" })).toHaveLength(1);
     });
 
     it("modal-actions contains Delete and Pause buttons for non-done tasks (via Actions dropdown)", () => {

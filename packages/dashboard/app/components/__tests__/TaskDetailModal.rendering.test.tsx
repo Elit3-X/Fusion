@@ -1779,7 +1779,7 @@ describe("TaskDetailModal", () => {
     expect(screen.getByRole("menuitem", { name: "Retry" })).toBeTruthy();
   });
 
-  it("does NOT render Retry button when task status is not 'failed'", () => {
+  it("renders Retry for a live task even when its status is not failed", () => {
     render(
       <TaskDetailModal
         initialTab="definition"
@@ -1794,10 +1794,9 @@ describe("TaskDetailModal", () => {
       />,
     );
 
-    // No Retry should be visible in the Actions dropdown
     const actionsBtn = screen.getByRole("button", { name: "Actions" });
     fireEvent.click(actionsBtn);
-    expect(screen.queryByRole("menuitem", { name: "Retry" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Retry" })).toBeInTheDocument();
   });
 
   it("does NOT render Retry button when onRetryTask is not provided", () => {
@@ -1817,7 +1816,7 @@ describe("TaskDetailModal", () => {
     expect(screen.queryByText("Retry")).toBeNull();
   });
 
-  it("suppresses failure alert and Retry actions while a stale failed task has automatic recovery pending", () => {
+  it("shows the failure alert and Retry actions while automatic recovery is pending", () => {
     render(
       <TaskDetailModal
         initialTab="definition"
@@ -1837,10 +1836,12 @@ describe("TaskDetailModal", () => {
       />,
     );
 
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("Transient provider error");
+    expect(screen.getByText("Automatic recovery is pending. You can Retry now to restart this stage.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry with a different model/node" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    expect(screen.queryByRole("menuitem", { name: "Retry" })).toBeNull();
-    expect(screen.queryByText("Retry with a different model/node")).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Retry" })).toBeInTheDocument();
   });
 
   describe("retry action uniqueness for in-review failed tasks", () => {
@@ -1963,7 +1964,7 @@ describe("TaskDetailModal", () => {
 
       // Only one toast — the success toast, no info toast
       expect(addToast).toHaveBeenCalledTimes(1);
-      expect(addToast).toHaveBeenCalledWith("Retried FN-099", "success");
+      expect(addToast).toHaveBeenCalledWith("This stage will restart in its current column.", "success");
     });
 
     it("shows exactly one error toast when retry fails", async () => {

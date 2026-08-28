@@ -366,7 +366,7 @@ Board ordering behavior:
 
 ### Task placement on Board and List
 
-Tasks cannot be relocated manually from Board, List, or Task Detail. The workflow and its automated recovery paths decide placement. Use **Reset** or **Respecify** to replan from the original description, **Delete** to remove a task, and the remaining Actions controls for their documented purposes. A manual-intake card can still show **Start**, which admits a new idea into its workflow rather than relocating active work.
+Tasks cannot be relocated manually from Board, List, or Task Detail. The workflow and its automated recovery paths decide placement. Use **Retry** to repeat the current stage in place, **Reset** to restart from the original description, or **Delete** to remove a task. A manual-intake card can still show **Start**, which admits a new idea into its workflow rather than relocating active work.
 
 On desktop and tablet Boards, dragging a task card's noninteractive body or text pans the Board viewport without moving the task. Controls and editing remain native.
 

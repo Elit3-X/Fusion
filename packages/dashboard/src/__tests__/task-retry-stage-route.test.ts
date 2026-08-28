@@ -15,6 +15,13 @@ import {
 import { createApiRoutes } from "../routes.js";
 import { request as performRequest } from "../test-request.js";
 
+const LEGACY_V1_IR = {
+  version: "v1",
+  name: "legacy retry route",
+  nodes: [],
+  edges: [],
+} as never;
+
 const RESTART_IR = {
   version: "v2",
   name: "restart-route",
@@ -60,6 +67,7 @@ function createApp(store: TaskStore) {
   const app = express();
   app.use(express.json());
   app.use("/api", createApiRoutes(store));
+  app.use((_req, res) => res.status(404).json({ error: "Not found" }));
   return app;
 }
 
@@ -72,7 +80,7 @@ function createRestartStore(root: string, row: Task, options: { failAt?: "cancel
     getSettings: vi.fn().mockResolvedValue({}),
     getTask: vi.fn(async () => {
       reads += 1;
-      if (options.moveOnSecondRead && reads === 2) row.column = "building";
+      if (options.moveOnSecondRead && reads === 3) row.column = "building";
       return structuredClone(row);
     }),
     listTasks: vi.fn().mockResolvedValue([structuredClone(row)]),
@@ -108,6 +116,10 @@ function createRestartStore(root: string, row: Task, options: { failAt?: "cancel
       Object.assign(row, patch);
       return row;
     }),
+    moveTask: vi.fn(async (_id: string, column: Task["column"]) => {
+      row.column = column;
+      return row;
+    }),
     listWorkflowWorkItemsForTask: vi.fn(async () => items),
     replaceActiveTaskWorkflowContinuation: vi.fn(async (input: Record<string, unknown>) => {
       calls.push("arm");
@@ -123,8 +135,8 @@ function createRestartStore(root: string, row: Task, options: { failAt?: "cancel
   return { store: store as unknown as TaskStore, calls, items };
 }
 
-async function postRestart(app: ReturnType<typeof createApp>, taskId = "FN-204", body: unknown = { confirm: true }) {
-  return performRequest(app, "POST", `/api/tasks/${taskId}/restart-stage`, JSON.stringify(body), { "content-type": "application/json" });
+async function postRetry(app: ReturnType<typeof createApp>, taskId = "FN-204") {
+  return performRequest(app, "POST", `/api/tasks/${taskId}/retry`);
 }
 
 async function createPrompt(root: string, id = "FN-204") {
@@ -137,7 +149,7 @@ async function createPrompt(root: string, id = "FN-204") {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("POST /tasks/:id/restart-stage", () => {
+describe("POST /tasks/:id/retry", () => {
   it("uses the registered core disposer and atomically publishes a planning restart through the HTTP route", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-restart-stage-plan-"));
     const prompt = await createPrompt(root);
@@ -153,7 +165,7 @@ describe("POST /tasks/:id/restart-stage", () => {
     const unregister = registerTaskResetDisposer(store, observed);
 
     try {
-      const response = await postRestart(createApp(store));
+      const response = await postRetry(createApp(store));
       expect(response.status, JSON.stringify(response.body)).toBe(200);
       expect(observed).toHaveBeenCalledOnce();
       expect(row).toMatchObject({ column: "planning", status: "needs-replan", steps: [], paused: undefined, pausedReason: undefined });
@@ -180,7 +192,7 @@ describe("POST /tasks/:id/restart-stage", () => {
       workflowStepResults: [{ workflowStepId: "implement", status: "failed" }],
     });
     const implementationStore = createRestartStore(root, implementation);
-    const implementationResponse = await postRestart(createApp(implementationStore.store));
+    const implementationResponse = await postRetry(createApp(implementationStore.store));
     expect(implementationResponse.status).toBe(200);
     expect(implementation).toMatchObject({ column: "building", currentStep: 0, worktree: null, branch: null, paused: undefined });
     expect(implementation.steps.map((step) => step.status)).toEqual(["pending", "pending"]);
@@ -200,7 +212,7 @@ describe("POST /tasks/:id/restart-stage", () => {
       ],
     });
     const reviewStore = createRestartStore(root, review);
-    const reviewResponse = await postRestart(createApp(reviewStore.store));
+    const reviewResponse = await postRetry(createApp(reviewStore.store));
     expect(reviewResponse.status).toBe(200);
     expect(review).toMatchObject({ column: "signoff", steps: [{ name: "Implement", status: "done" }], worktree: "/worktree", branch: "fusion/fn-204", summary: "Finished implementation", paused: undefined, userPaused: undefined });
     expect(review.workflowStepResults).toEqual([{ workflowStepId: "post-review", status: "passed", phase: "post-merge" }]);
@@ -208,13 +220,12 @@ describe("POST /tasks/:id/restart-stage", () => {
     expect(getTaskMergeBlocker(review, { requiredPreMergeStepIds: new Set(["code-review"]), reviewColumns: new Set(["signoff"]) })).toBe(PRE_MERGE_STEPS_NOT_RUN_BLOCKER);
   });
 
-  it("refuses confirmation omissions and unsupported targets without invoking the disposer or publication writes", async () => {
+  it("refuses unsupported targets without invoking the disposer or publication writes", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-restart-stage-refuse-"));
-    const cases: Array<{ name: string; task: Task; body?: unknown; status: number }> = [
-      { name: "missing confirmation", task: taskFixture(), body: {}, status: 400 },
+    const cases: Array<{ name: string; task: Task; status: number }> = [
       { name: "complete column", task: taskFixture({ column: "done" }), status: 400 },
       { name: "archived column", task: taskFixture({ column: "archive" }), status: 400 },
-      { name: "workspace task", task: taskFixture({ workspaceWorktrees: { repo: {} } } as Partial<Task>), status: 409 },
+      { name: "workspace task without a legacy retry state", task: taskFixture({ workspaceWorktrees: { repo: {} } } as Partial<Task>), status: 400 },
       { name: "active merge", task: taskFixture({ status: "merging", updatedAt: new Date().toISOString() }), status: 409 },
     ];
     for (const testCase of cases) {
@@ -222,7 +233,7 @@ describe("POST /tasks/:id/restart-stage", () => {
       const disposer = vi.fn();
       const unregister = registerTaskResetDisposer(store, disposer);
       try {
-        const response = await postRestart(createApp(store), "FN-204", testCase.body ?? { confirm: true });
+        const response = await postRetry(createApp(store), "FN-204");
         expect(response.status, testCase.name).toBe(testCase.status);
         expect(disposer, testCase.name).not.toHaveBeenCalled();
         expect(calls, testCase.name).toEqual([]);
@@ -232,6 +243,31 @@ describe("POST /tasks/:id/restart-stage", () => {
         unregister();
       }
     }
+  });
+
+  it.each([
+    {
+      name: "workspace task",
+      task: taskFixture({ workspaceWorktrees: { repo: {} } as Task["workspaceWorktrees"] }),
+      options: {},
+      refusal: "workspace-task",
+    },
+    {
+      name: "v1 workflow",
+      task: taskFixture(),
+      options: { ir: LEGACY_V1_IR },
+      refusal: "no-column-model",
+    },
+  ])("retains the stage refusal for a non-retryable $name before legacy fallback", async ({ task, options, refusal }) => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-retry-refusal-reason-"));
+    const { store, calls } = createRestartStore(root, task, options);
+
+    const response = await postRetry(createApp(store));
+
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(response.body)).toContain(refusal);
+    expect(store.withPlanningLifecycleLock).toHaveBeenCalledWith("FN-204", expect.any(Function));
+    expect(calls).toEqual([]);
   });
 
   it("refuses a pure hold column whose graph can only resume in a later lane without touching its artifacts", async () => {
@@ -249,9 +285,9 @@ describe("POST /tasks/:id/restart-stage", () => {
     };
     const row = taskFixture({ column: "holding", workflowStepResults: [{ workflowStepId: "legacy", status: "failed" }] });
     const { store, calls, items } = createRestartStore(root, row, { ir: irWithPureHold });
-    const response = await postRestart(createApp(store));
+    const response = await postRetry(createApp(store));
     expect(response.status).toBe(400);
-    expect(JSON.stringify(response.body)).toContain("building");
+    expect(JSON.stringify(response.body)).toContain("no-entry-node-in-column");
     expect(row.workflowStepResults).toEqual([{ workflowStepId: "legacy", status: "failed" }]);
     await expect(readFile(prompt, "utf8")).resolves.toContain("Existing plan");
     expect(calls).toEqual([]);
@@ -264,7 +300,7 @@ describe("POST /tasks/:id/restart-stage", () => {
     const { store, calls, items } = createRestartStore(root, row);
     const unregister = registerTaskResetDisposer(store, async () => { throw new Error("owner is still live"); });
     try {
-      const response = await postRestart(createApp(store));
+      const response = await postRetry(createApp(store));
       expect(response.status).toBe(409);
       expect(row).toMatchObject({ paused: true, pausedReason: RESTART_STAGE_FENCE_REASON, workflowStepResults: [{ workflowStepId: "plan", status: "failed" }] });
       expect(calls).toEqual(["fence"]);
@@ -285,7 +321,7 @@ describe("POST /tasks/:id/restart-stage", () => {
     });
     const { store } = createRestartStore(root, row);
     expect(getTaskMergeBlocker(row, { requiredPreMergeStepIds: new Set(["code-review"]), reviewColumns: new Set(["signoff"]) })).toMatch(/pre-merge workflow steps/);
-    const response = await postRestart(createApp(store));
+    const response = await postRetry(createApp(store));
     expect(response.status).toBe(200);
     expect(row.workflowStepResults).toEqual([{ workflowStepId: "legacy-plan-review", status: "passed" }]);
     expect(getTaskMergeBlocker(row, { requiredPreMergeStepIds: new Set(["code-review"]), reviewColumns: new Set(["signoff"]) })).toBe(PRE_MERGE_STEPS_NOT_RUN_BLOCKER);
@@ -295,14 +331,14 @@ describe("POST /tasks/:id/restart-stage", () => {
     const root = await mkdtemp(join(tmpdir(), `fusion-restart-stage-${failAt}-`));
     const row = taskFixture({ workflowStepResults: [{ workflowStepId: "plan", status: "failed" }] });
     const failed = createRestartStore(root, row, { failAt });
-    const first = await postRestart(createApp(failed.store));
+    const first = await postRetry(createApp(failed.store));
     expect(first.status).toBe(409);
     expect(row).toMatchObject({ paused: true, pausedReason: RESTART_STAGE_FENCE_REASON });
     expect(failed.items.some((item) => item.kind === "task" && ["runnable", "retrying"].includes(String(item.state)))).toBe(false);
 
     const retry = createRestartStore(root, row);
     retry.items.splice(0, retry.items.length, ...failed.items);
-    const second = await postRestart(createApp(retry.store));
+    const second = await postRetry(createApp(retry.store));
     expect(second.status).toBe(200);
     expect(row).toMatchObject({ status: "needs-replan", paused: undefined, pausedReason: undefined });
     expect(retry.items.filter((item) => item.kind === "task" && item.state === "runnable")).toEqual([expect.objectContaining({ nodeId: "plan" })]);
@@ -312,11 +348,33 @@ describe("POST /tasks/:id/restart-stage", () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-restart-stage-target-change-"));
     const row = taskFixture({ workflowStepResults: [{ workflowStepId: "plan", status: "failed" }] });
     const { store, calls } = createRestartStore(root, row, { moveOnSecondRead: true });
-    const response = await postRestart(createApp(store));
+    const response = await postRetry(createApp(store));
     expect(response.status).toBe(409);
     expect(row).toMatchObject({ column: "building", paused: undefined, pausedReason: undefined, workflowStepResults: [{ workflowStepId: "plan", status: "failed" }] });
     expect(calls).toEqual(["fence", "unfence"]);
     expect(store.updateTask).not.toHaveBeenCalled();
     expect(store.replaceActiveTaskWorkflowContinuation).not.toHaveBeenCalled();
+  });
+
+  it("uses the legacy planning retry after a workspace stage refusal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-retry-workspace-fallback-"));
+    const prompt = await createPrompt(root);
+    const row = taskFixture({
+      status: "failed",
+      workspaceWorktrees: { repo: {} } as Task["workspaceWorktrees"],
+      workflowStepResults: [{ workflowStepId: "plan", status: "failed" }],
+    });
+    const { store } = createRestartStore(root, row);
+    const response = await postRetry(createApp(store));
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(row).toMatchObject({ column: "planning", status: "needs-replan" });
+    await expect(readFile(prompt, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("does not route the removed restart-stage endpoint", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-retry-route-removed-"));
+    const { store } = createRestartStore(root, taskFixture());
+    const response = await performRequest(createApp(store), "POST", "/api/tasks/FN-204/restart-stage");
+    expect(response.status).toBe(404);
   });
 });

@@ -1692,10 +1692,6 @@ export function useTasks(options?: UseTasksOptions) {
     return bypassedTask;
   }, [projectId]);
 
-  const restartTaskStage = useCallback(async (id: string): Promise<Task> => {
-    return normalizeNonBoardTask(await api.restartTaskStage(id, projectId));
-  }, [projectId]);
-
   const resetTask = useCallback(async (id: string): Promise<Task> => {
     return normalizeNonBoardTask(await api.resetTask(id, projectId));
   }, [projectId]);
@@ -1831,5 +1827,5 @@ export function useTasks(options?: UseTasksOptions) {
     advanceFreshnessClockForLiveUpdate();
   }, [advanceFreshnessClockForLiveUpdate]);
 
-  return { tasks, isStale, lastRefreshErrorAt, createTask, moveTask, pauseTask, unpauseTask, deleteTask, mergeTask, retryTask, bypassReview, restartTaskStage, resetTask, duplicateTask, updateTask, archiveTask, unarchiveTask, revertTask, archiveAllDone, loadArchivedTasks, loadMoreArchivedTasks, changeArchivedSortMode, archivedSortMode, archivedHasMore, archivedLoadingMore, includeArchived, refreshTasks, ingestCreatedTasks, lastFetchTimeMs: lastFetchTimeMs.current };
+  return { tasks, isStale, lastRefreshErrorAt, createTask, moveTask, pauseTask, unpauseTask, deleteTask, mergeTask, retryTask, bypassReview, resetTask, duplicateTask, updateTask, archiveTask, unarchiveTask, revertTask, archiveAllDone, loadArchivedTasks, loadMoreArchivedTasks, changeArchivedSortMode, archivedSortMode, archivedHasMore, archivedLoadingMore, includeArchived, refreshTasks, ingestCreatedTasks, lastFetchTimeMs: lastFetchTimeMs.current };
 }

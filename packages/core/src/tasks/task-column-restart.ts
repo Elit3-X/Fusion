@@ -32,8 +32,12 @@ export interface TaskColumnRestartRefusal {
 }
 
 /*
+FNXC:TaskRecoveryVocabulary 2026-08-28-00:38:
+FN-206 calls this operation Retry in operator-facing surfaces. The module and durable publication
+fence retain their restart-stage names so existing parked task state remains recognizable.
+
 FNXC:ColumnRestart 2026-08-28-00:00:
-Restart uses the current column's traits, rather than column ids, so renamed and custom boards
+Retry uses the current column's traits, rather than column ids, so renamed and custom boards
 preserve their lifecycle meaning. Review wins over WIP and WIP wins over hold/intake because a
 multi-trait column must have one deterministic artifact boundary.
 

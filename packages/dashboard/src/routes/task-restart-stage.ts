@@ -25,22 +25,30 @@ export interface RestartTaskStageDeps {
   engine?: RestartTaskStageEngine;
   taskId: string;
   confirm?: boolean;
+  onRefusal?: "throw" | "signal";
   activeMergeTaskId?: string | null;
   staleMergingStatusMinAgeMs?: number;
 }
 
+export type RestartTaskStageResult = Task | Extract<ReturnType<typeof planTaskColumnRestart>, { kind: "refused" }>;
+
 function refusalError(plan: Extract<ReturnType<typeof planTaskColumnRestart>, { kind: "refused" }>) {
-  if (plan.reason === "workspace-task") return conflict("Restart stage does not support workspace tasks");
+  if (plan.reason === "workspace-task") return conflict("Retry does not support workspace tasks");
   if (plan.reason === "no-entry-node-in-column") {
     const later = plan.detail?.resolvedEntryNodeColumn;
     return badRequest(later
-      ? `The ${later} workflow node is later than the task's ${plan.detail?.resolvedEntryNodeColumn === later ? "current" : ""} column; this stage cannot be restarted in place`
-      : "This column has no workflow entry node and cannot be restarted in place");
+      ? `The ${later} workflow node is later than the task's ${plan.detail?.resolvedEntryNodeColumn === later ? "current" : ""} column; this stage cannot be retried in place`
+      : "This column has no workflow entry node and cannot be retried in place");
   }
-  return badRequest(`Restart stage is unavailable: ${plan.reason}`);
+  return badRequest(`Retry is unavailable: ${plan.reason}`);
 }
 
 /*
+FNXC:TaskRecoveryVocabulary 2026-08-28-00:38:
+Retry is the operator name for this in-place stage restart. The module name and
+`RESTART_STAGE_FENCE_REASON` remain stable internal/durable identifiers so already parked cards
+with `restart-stage-publishing` are recognized and can safely resume publication.
+
 FNXC:ColumnRestart 2026-08-27-23:23:
 Restart publishes task state and a workflow continuation through separate durable writes, so write
 ordering alone cannot prevent a dispatcher from observing stale artifacts with a new continuation,
@@ -57,10 +65,10 @@ so neither an unmarked plan nor a freshly replanned prompt can be removed. This 
 run-audit mutation: reset/retry use task log entries and pause lifecycle records already provide
 the operator audit trail.
 */
-export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<Task> {
+export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<RestartTaskStageResult> {
   const { store, engine, taskId, confirm } = deps;
   if (confirm !== true) {
-    throw badRequest("Restart stage discards work produced in the current stage. Pass { \"confirm\": true } to proceed.");
+    throw badRequest("Retry discards work produced in the current stage. Pass { \"confirm\": true } to proceed.");
   }
 
   return store.withPlanningLifecycleLock(taskId, async () => {
@@ -72,12 +80,15 @@ export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<Task
       const ir = await resolveWorkflowIrForTask(store, task.id);
       const entryNode = resolveColumnResumeNode(ir, task.column);
       const plan = planTaskColumnRestart({ task, ir, entryNode });
-      if (plan.kind === "refused") throw refusalError(plan);
+      if (plan.kind === "refused") {
+        if (deps.onRefusal === "signal") return plan;
+        throw refusalError(plan);
+      }
       if (!isStaleMergeActiveStatus(task, {
         activeMergeTaskId: deps.activeMergeTaskId ?? null,
         minAgeMs: deps.staleMergingStatusMinAgeMs,
       }) && ["merging", "merging-pr", "merging-fix", "landing"].includes(task.status ?? "")) {
-        throw conflict("Restart stage is unavailable while a merge is active");
+        throw conflict("Retry is unavailable while a merge is active");
       }
 
       publicationStep = "raise publication fence";
@@ -96,7 +107,7 @@ export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<Task
       if (!freshTask || freshTask.column !== task.column || resolveColumnResumeNode(ir, freshTask?.column)?.id !== plan.entryNodeId) {
         await store.pauseTask(taskId, false);
         fenced = false;
-        throw conflict("Restart target changed while cancellation was settling; retry Restart stage");
+        throw conflict("Retry target changed while cancellation was settling; retry safely");
       }
 
       publicationStep = "clear restart boundaries";
@@ -150,15 +161,15 @@ export async function restartTaskStage(deps: RestartTaskStageDeps): Promise<Task
       publicationStep = "lower publication fence";
       await store.pauseTask(taskId, false);
       fenced = false;
-      await store.logEntry(taskId, `Restart stage requested from dashboard (${plan.scope} restart in ${task.column}, discarded ${plan.discardedWorkflowStepIds.length} workflow step result(s), re-entering at ${plan.entryNodeId})`);
+      await store.logEntry(taskId, `Retry requested from dashboard (${plan.scope} restart in ${task.column}, discarded ${plan.discardedWorkflowStepIds.length} workflow step result(s), re-entering at ${plan.entryNodeId})`);
       const updated = await store.getTask(taskId);
-      if (!updated) throw notFound(`Task ${taskId} not found after restart`);
+      if (!updated) throw notFound(`Task ${taskId} not found after retry`);
       return updated;
     } catch (error) {
       if (fenced) {
-        await store.logEntry(taskId, `Restart stage publication parked at ${publicationStep}; rerun Restart stage safely`).catch(() => undefined);
+        await store.logEntry(taskId, `Retry publication parked at ${publicationStep}; rerun Retry safely`).catch(() => undefined);
         if (error instanceof Error && ("status" in error)) throw error;
-        throw conflict(`Restart stage paused at ${publicationStep}; the card is parked with ${RESTART_STAGE_FENCE_REASON} and can be restarted again safely`);
+        throw conflict(`Retry paused at ${publicationStep}; the card is parked with ${RESTART_STAGE_FENCE_REASON} and can be retried safely`);
       }
       throw error;
     }

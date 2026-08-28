@@ -8159,11 +8159,9 @@
     },
     "reset": {
       "btn": "重置",
-      "confirmMessage": "这将清除 {{id}} 的所有进度并从头开始。继续？",
-      "resetSuccess": "已重置 {{id}} — 将分配新的运行"
-    },
-    "respecify": {
-      "btn": "重新规范"
+      "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+      "resetSuccess": "已重置 {{id}} — 将分配新的运行",
+      "confirmTitle": "Reset this task?"
     },
     "retries": {
       "branchConflict": "分支冲突恢复",
@@ -8194,7 +8192,18 @@
     "retriesLabel": "重试次数（恢复 / 工作流 / 合并 / 任务完成）",
     "retry": {
       "btn": "重试",
-      "retried": "已重试 {{id}}"
+      "retried": "已重试 {{id}}",
+      "confirmTitle": "Retry this stage?",
+      "confirmLabel": "Retry",
+      "planConfirmMessage": "Rebuild the plan from the original request. This card stays in its current column.",
+      "implementationConfirmMessage": "Discard the in-flight work and start it again on the approved plan. This card stays in its current column.",
+      "reviewConfirmMessage": "Discard the review verdicts and review the produced work again. This card stays in its current column.",
+      "genericConfirmMessage": "Repeat the current stage and keep this card in its current column.",
+      "planSuccess": "Planning will restart in this column.",
+      "implementationSuccess": "Work will restart in this column.",
+      "reviewSuccess": "Review will run again in this column.",
+      "genericSuccess": "This stage will restart in its current column.",
+      "pendingAutomaticRecovery": "Automatic recovery is pending. You can Retry now to restart this stage."
     },
     "runtimeLinks": "运行时链接",
     "runtimeStatus": "运行时状态",
@@ -8400,12 +8409,6 @@
     },
     "debug": {
       "none": ""
-    },
-    "restartStage": {
-      "btn": "",
-      "confirmTitle": "",
-      "confirmMessage": "",
-      "success": ""
     }
   },
   "taskDocuments": {

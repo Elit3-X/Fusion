@@ -33,7 +33,6 @@ interface WorktreeGroupProps {
   onRetryTask?: (id: string) => Promise<Task>;
   onUnpauseTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
-  onRestartStage?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   onMergeTask?: (id: string) => Promise<MergeResult>;
   onArchiveTask?: (id: string, options?: { removeLineageReferences?: boolean }) => Promise<Task>;
@@ -88,8 +87,7 @@ function WorktreeGroupComponent({
   onRetryTask,
   onUnpauseTask,
   onResetTask,
-  onRestartStage,
-  onDuplicateTask,
+    onDuplicateTask,
   onMergeTask,
   onArchiveTask,
   onUnarchiveTask,
@@ -160,7 +158,6 @@ function WorktreeGroupComponent({
           onPauseTask={onPauseTask}
           onRetryTask={onRetryTask}
           onUnpauseTask={onUnpauseTask}
-          onRestartStage={onRestartStage}
                   onResetTask={onResetTask}
           onDuplicateTask={onDuplicateTask}
           onMergeTask={onMergeTask}
@@ -199,7 +196,6 @@ function WorktreeGroupComponent({
           onPauseTask={onPauseTask}
           onRetryTask={onRetryTask}
           onUnpauseTask={onUnpauseTask}
-          onRestartStage={onRestartStage}
                   onResetTask={onResetTask}
           onDuplicateTask={onDuplicateTask}
           onMergeTask={onMergeTask}

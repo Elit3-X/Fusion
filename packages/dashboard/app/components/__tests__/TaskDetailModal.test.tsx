@@ -135,7 +135,7 @@ describe("TaskDetailModal reset confirmations", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
     await waitFor(() => expect(onResetTask).toHaveBeenCalledWith("FN-001"));
-    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset", message: expect.stringContaining("worktree") }));
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset this task?", message: expect.stringContaining("original request") }));
     expect(addToast).toHaveBeenCalledWith(expect.stringContaining("worktree and plan discarded"), "success");
     expect(document.querySelector(".confirm-dialog-overlay")).toBeNull();
   });
@@ -401,8 +401,10 @@ describe("TaskDetailModal planner Chat tab", () => {
     expect(document.querySelector(".detail-error-alert")).toBeNull();
   });
 
-  it("surfaces the latest tool error detail and stages a model override before retrying", async () => {
+  it("confirms the current stage before saving a model override and retrying", async () => {
     const user = userEvent.setup();
+    const retryConfirmation = createDeferred<boolean>();
+    mockConfirm.mockReturnValueOnce(retryConfirmation.promise);
     const { useAgentLogs } = await import("../../hooks/useAgentLogs");
     const { fetchModels, fetchNodes, updateTask } = await import("../../api");
     vi.mocked(useAgentLogs).mockReturnValue({
@@ -443,8 +445,21 @@ describe("TaskDetailModal planner Chat tab", () => {
     await user.selectOptions(screen.getByLabelText("Executor model"), "anthropic/claude-alternate");
     await user.click(screen.getByRole("button", { name: "Apply and retry" }));
 
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Retry this stage?",
+      message: "Repeat the current stage and keep this card in its current column.",
+      confirmLabel: "Retry",
+      danger: true,
+    })));
+    expect(updateTask).not.toHaveBeenCalled();
+    expect(onRetryTask).not.toHaveBeenCalled();
+
+    await act(async () => retryConfirmation.resolve(true));
+
     await waitFor(() => expect(updateTask).toHaveBeenCalledWith("FN-099", { modelProvider: "anthropic", modelId: "claude-alternate" }, undefined));
     await waitFor(() => expect(onRetryTask).toHaveBeenCalledWith("FN-099"));
+    expect(mockConfirm.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(updateTask).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(updateTask).mock.invocationCallOrder[0]).toBeLessThan(onRetryTask.mock.invocationCallOrder[0]!);
   });
 
   it("does not attribute a recovered historical tool error to an unknown graph failure", async () => {
@@ -1392,6 +1407,10 @@ describe("TaskDetailModal branch group surfacing", () => {
 });
 
 describe("TaskDetailModal delete affordance", () => {
+  async function selectDelete(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  }
   function dependencyConflictError(dependentIds: string[]) {
     const error = new Error("Task has dependents");
     (error as Error & { details: { code: string; dependentIds: string[] } }).details = {
@@ -1437,7 +1456,7 @@ describe("TaskDetailModal delete affordance", () => {
     });
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Delete task" }));
+    await selectDelete(user);
 
     await waitFor(() => expect(onDeleteTask).toHaveBeenCalledWith("FN-099", { allowResurrection: false }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -1465,7 +1484,7 @@ describe("TaskDetailModal delete affordance", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Delete task" }));
+    await selectDelete(user);
 
     await waitFor(() => expect(onDeleteTask).toHaveBeenCalledWith("FN-099", { allowResurrection: false }));
     expect(onRequestClose).toHaveBeenCalledTimes(1);
@@ -1496,7 +1515,7 @@ describe("TaskDetailModal delete affordance", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Delete task" }));
+    await selectDelete(user);
 
     await waitFor(() => expect(onDeleteTask).toHaveBeenCalledTimes(2));
     expect(onDeleteTask).toHaveBeenNthCalledWith(2, "FN-099", {
@@ -1517,7 +1536,7 @@ describe("TaskDetailModal delete affordance", () => {
     const addToast = vi.fn();
     const { onClose } = renderClosingTaskDetailModal({ onDeleteTask, addToast });
 
-    await user.click(screen.getByRole("button", { name: "Delete task" }));
+    await selectDelete(user);
 
     await waitFor(() => expect(onDeleteTask).toHaveBeenCalledWith("FN-099", { allowResurrection: false }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -1549,7 +1568,7 @@ describe("TaskDetailModal delete affordance", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Delete task" }));
+    await selectDelete(user);
 
     await waitFor(() => expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
       title: "Force Delete Task",
@@ -1564,7 +1583,7 @@ describe("TaskDetailModal delete affordance", () => {
     mockConfirmWithCheckbox.mockResolvedValueOnce({ choice: "cancel", checkboxValue: false });
     const { onClose } = renderClosingTaskDetailModal({ onDeleteTask });
 
-    await user.click(screen.getByRole("button", { name: "Delete task" }));
+    await selectDelete(user);
 
     expect(onDeleteTask).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();

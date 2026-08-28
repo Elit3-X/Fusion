@@ -8411,17 +8411,9 @@ export default interface Resources {
       },
       "reset": {
         "btn": "Reset",
-        "confirmMessage": "This will erase all progress for {{id}} and start the task from scratch. Continue?",
+        "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+        "confirmTitle": "Reset this task?",
         "resetSuccess": "Reset {{id}} — fresh run will be allocated"
-      },
-      "respecify": {
-        "btn": "Respecify"
-      },
-      "restartStage": {
-        "btn": "Restart stage",
-        "confirmMessage": "Discard this stage's work while keeping earlier stages and leaving the card in its current column?",
-        "confirmTitle": "Restart current stage",
-        "success": "Restarted the current stage"
       },
       "retries": {
         "branchConflict": "Branch conflict recovery",
@@ -8452,7 +8444,18 @@ export default interface Resources {
       "retriesLabel": "Retries (recovery / workflow / merge / task_done)",
       "retry": {
         "btn": "Retry",
-        "retried": "Retried {{id}}"
+        "confirmLabel": "Retry",
+        "confirmTitle": "Retry this stage?",
+        "genericConfirmMessage": "Repeat the current stage and keep this card in its current column.",
+        "genericSuccess": "This stage will restart in its current column.",
+        "implementationConfirmMessage": "Discard the in-flight work and start it again on the approved plan. This card stays in its current column.",
+        "implementationSuccess": "Work will restart in this column.",
+        "pendingAutomaticRecovery": "Automatic recovery is pending. You can Retry now to restart this stage.",
+        "planConfirmMessage": "Rebuild the plan from the original request. This card stays in its current column.",
+        "planSuccess": "Planning will restart in this column.",
+        "retried": "Retried {{id}}",
+        "reviewConfirmMessage": "Discard the review verdicts and review the produced work again. This card stays in its current column.",
+        "reviewSuccess": "Review will run again in this column."
       },
       "reverted": {
         "deleteAria": "Delete reverted task"

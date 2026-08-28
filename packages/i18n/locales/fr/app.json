@@ -8159,11 +8159,9 @@
     },
     "reset": {
       "btn": "Réinitialiser",
-      "confirmMessage": "Cela effacera toute la progression de {{id}} et relancera la tâche depuis le début. Continuer ?",
-      "resetSuccess": "{{id}} réinitialisé — une nouvelle exécution sera allouée"
-    },
-    "respecify": {
-      "btn": "Respécifier"
+      "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+      "resetSuccess": "{{id}} réinitialisé — une nouvelle exécution sera allouée",
+      "confirmTitle": "Reset this task?"
     },
     "retries": {
       "branchConflict": "Récupération après conflit de branche",
@@ -8194,7 +8192,18 @@
     "retriesLabel": "Nouvelles tentatives (récupération / workflow / fusion / tâche terminée)",
     "retry": {
       "btn": "Réessayer",
-      "retried": "{{id}} relancé"
+      "retried": "{{id}} relancé",
+      "confirmTitle": "Retry this stage?",
+      "confirmLabel": "Retry",
+      "planConfirmMessage": "Rebuild the plan from the original request. This card stays in its current column.",
+      "implementationConfirmMessage": "Discard the in-flight work and start it again on the approved plan. This card stays in its current column.",
+      "reviewConfirmMessage": "Discard the review verdicts and review the produced work again. This card stays in its current column.",
+      "genericConfirmMessage": "Repeat the current stage and keep this card in its current column.",
+      "planSuccess": "Planning will restart in this column.",
+      "implementationSuccess": "Work will restart in this column.",
+      "reviewSuccess": "Review will run again in this column.",
+      "genericSuccess": "This stage will restart in its current column.",
+      "pendingAutomaticRecovery": "Automatic recovery is pending. You can Retry now to restart this stage."
     },
     "runtimeLinks": "Liens d'exécution",
     "runtimeStatus": "Statut d'exécution",
@@ -8400,12 +8409,6 @@
     },
     "debug": {
       "none": ""
-    },
-    "restartStage": {
-      "btn": "",
-      "confirmTitle": "",
-      "confirmMessage": "",
-      "success": ""
     }
   },
   "taskDocuments": {

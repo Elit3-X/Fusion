@@ -8159,11 +8159,9 @@
     },
     "reset": {
       "btn": "초기화",
-      "confirmMessage": "{{id}}의 모든 진행 상태가 삭제되고 작업이 처음부터 다시 시작됩니다. 계속하시겠습니까?",
-      "resetSuccess": "{{id}} 초기화됨 — 새 실행이 할당됩니다"
-    },
-    "respecify": {
-      "btn": "재명세"
+      "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
+      "resetSuccess": "{{id}} 초기화됨 — 새 실행이 할당됩니다",
+      "confirmTitle": "Reset this task?"
     },
     "retries": {
       "branchConflict": "브랜치 충돌 복구",
@@ -8194,7 +8192,18 @@
     "retriesLabel": "재시도 (복구 / 워크플로 / 병합 / task_done)",
     "retry": {
       "btn": "재시도",
-      "retried": "{{id}} 재시도됨"
+      "retried": "{{id}} 재시도됨",
+      "confirmTitle": "Retry this stage?",
+      "confirmLabel": "Retry",
+      "planConfirmMessage": "Rebuild the plan from the original request. This card stays in its current column.",
+      "implementationConfirmMessage": "Discard the in-flight work and start it again on the approved plan. This card stays in its current column.",
+      "reviewConfirmMessage": "Discard the review verdicts and review the produced work again. This card stays in its current column.",
+      "genericConfirmMessage": "Repeat the current stage and keep this card in its current column.",
+      "planSuccess": "Planning will restart in this column.",
+      "implementationSuccess": "Work will restart in this column.",
+      "reviewSuccess": "Review will run again in this column.",
+      "genericSuccess": "This stage will restart in its current column.",
+      "pendingAutomaticRecovery": "Automatic recovery is pending. You can Retry now to restart this stage."
     },
     "runtimeLinks": "런타임 링크",
     "runtimeStatus": "런타임 상태",
@@ -8400,12 +8409,6 @@
     },
     "debug": {
       "none": ""
-    },
-    "restartStage": {
-      "btn": "",
-      "confirmTitle": "",
-      "confirmMessage": "",
-      "success": ""
     }
   },
   "taskDocuments": {

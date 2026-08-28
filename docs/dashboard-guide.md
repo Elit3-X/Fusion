@@ -80,11 +80,11 @@ A stale self-owned session registration is reconciled only under the ordinary li
 
 Reset retains the task ID, title, description, dependencies, workflow selection, comments, attachments, attachment-backed artifacts, operator-authored documents and their revisions, spec-lock history, commit associations, logs, and audit history. It clears agent-only documents and run-produced planning, verification, merge, and artifact projections; held symbol locks are released as history. If cancellation, cleanup, or publication fails, Fusion reports incomplete cleanup and does not expose the task to Planning. Once publication commits, a task-file mirror problem is repaired separately and does not turn the successful reset into a false failure.
 
-## Restart Stage
+## Task Recovery
 
-**Restart stage** is a confirmed, in-place recovery action for a live task. It never moves the card, deletes commits or branches, or jumps forward in the workflow. Planning restarts discard the plan and replan from scratch; implementation restarts keep the plan but reset implementation progress and worktree pointers; review restarts keep implementation work but discard the current column's pre-merge review results. Earlier-stage evidence and every post-merge result are retained.
+Every live card, including an intake or planning card, offers **Retry**, **Reset**, and **Delete**. **Retry** stays in the current column: in planning it rebuilds the plan from the original request; during work it discards in-flight work and starts again on the approved plan; during review it discards review verdicts and reviews the produced work again. **Reset** starts the task over from only its original request, discarding plan, work, and reviews. **Delete** removes the task.
 
-The action refuses terminal or archived columns, workspace tasks, active merges, and columns without a workflow entry node of their own. A restart interrupted during publication leaves the card paused with `restart-stage-publishing`; this is an intentional safety fence, and selecting **Restart stage** again safely resumes the publication.
+Retry refuses terminal or archived columns, workspace tasks, active merges, and columns without a workflow entry node of their own. A retry interrupted during publication leaves the card paused with `restart-stage-publishing`; this durable safety fence is retained for compatibility, and selecting **Retry** again safely resumes publication.
 
 ## Keyboard shortcuts
 
@@ -358,8 +358,8 @@ Board view is the kanban surface for day-to-day operation.
 
 Features:
 
-<!-- FNXC:TaskCardMovement 2026-08-27-12:01: FN-198 removes dashboard task relocation controls. Workflow automation owns placement; Actions retains Reset, Respecify, Delete, and related recovery controls. -->
-- Task context menus do not offer a destination picker. Use **Restart stage** to rerun only the current stage, **Reset** or **Respecify** to replan from the original description, or the other retained Actions controls. Manual-intake cards may still offer **Start** to admit a new idea into its workflow.
+<!-- FNXC:TaskRecoveryVocabulary 2026-08-28-00:38: FN-206 keeps recovery predictable: Retry repeats the current stage in place, Reset restarts the task, and Delete removes it. -->
+- Task context menus do not offer a destination picker. Use **Retry** to repeat the current stage in place, **Reset** to restart from the original request, or **Delete** to remove a task. Manual-intake cards may still offer **Start** to admit a new idea into its workflow.
 <!-- FNXC:BoardNavigation 2026-08-21-21:17: FN-115 keeps ordinary task-card clicks native until horizontal intent is proven, while preserving FN-109 card-body panning after the threshold. Edge proximity never starts or continues scrolling, and phones retain their separate native touch and column-snap ownership. -->
 - On desktop and tablet, click-hold and drag a safe Board surface, including empty-column text or a task card's noninteractive body/text, to pan columns by actual pointer movement after horizontal intent. Board text is intentionally non-selectable, preventing native text-selection autoscroll from competing with the pan; editable quick-create, inline card editing, and dependency search retain normal selection. An ordinary task-card click opens its configured detail destination; a qualifying pan suppresses only its compatibility click. Controls, editable content, and native-draggable targets retain their normal behavior; approaching an edge never auto-scrolls. Native wheel, trackpad, scrollbar, and keyboard scrolling remain available. Phones continue to use unchanged native touch scrolling and mobile-only column snapping.
 - Search/filter tasks (including working-branch and base-branch dropdown filters with explicit **No working branch** / **No base branch** options)

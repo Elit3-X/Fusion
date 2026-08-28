@@ -76,7 +76,7 @@ interface AppModalsProps {
     unpauseTask: (taskId: string) => Promise<Task>;
     /* FNXC:ReviewLaneBypass 2026-07-09-00:00 (FN-7720): operator-only review-lane bypass, threaded to TaskDetailModal only. */
     bypassReview?: (taskId: string, reason: string) => Promise<Task>;
-    restartTaskStage: (taskId: string) => Promise<Task>;
+
     resetTask: (taskId: string) => Promise<Task>;
     duplicateTask: (taskId: string) => Promise<Task>;
   };
@@ -334,7 +334,6 @@ export function AppModals({
             onPauseTask={taskOperations.pauseTask}
             onUnpauseTask={taskOperations.unpauseTask}
             onBypassReview={taskOperations.bypassReview}
-            onRestartStage={taskOperations.restartTaskStage}
             onResetTask={taskOperations.resetTask}
             onDuplicateTask={taskOperations.duplicateTask}
             onTaskUpdated={modalManager.updateDetailTask}

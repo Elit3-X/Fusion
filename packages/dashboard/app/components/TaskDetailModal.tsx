@@ -87,7 +87,8 @@ import { getStalePausedReviewCopy, shouldShowStalePausedReviewBadge } from "../u
 import { getTaskAgeStalenessCopy } from "../utils/taskAgeStalenessCopy";
 import { splitTaskPlanSummary } from "../utils/taskPlanSummary";
 import { getPriorityColorVar, getPriorityIcon, getPriorityLabel } from "../utils/priorityIndicator";
-import { hasPendingAutomaticRecovery, isTaskManuallyRetryable } from "../utils/taskRecovery";
+import { hasPendingAutomaticRecovery } from "../utils/taskRecovery";
+import { resolveRetryStageCopy } from "../utils/taskRetryCopy";
 import { findInReviewStallLogEntry, IN_REVIEW_STALL_LOG_REGEX } from "../utils/findInReviewStallLogEntry";
 import { getTaskLogEntryAction, getTaskLogEntryOutcome } from "../utils/taskLogEntryDisplay";
 import { copyTextToClipboard } from "../utils/copyToClipboard";
@@ -427,7 +428,6 @@ export interface TaskDetailModalProps {
   affordance surface for this policy-gated escape hatch.
   */
   onBypassReview?: (id: string, reason: string) => Promise<Task>;
-  onRestartStage?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   onTaskUpdated?: (task: Task) => void;
@@ -813,7 +813,6 @@ export function TaskDetailContent({
   onPauseTask,
   onUnpauseTask,
   onBypassReview,
-  onRestartStage,
   onResetTask,
   onDuplicateTask,
   onTaskUpdated,
@@ -1085,7 +1084,6 @@ export function TaskDetailContent({
     fileBrowser?.openFile(`.fusion/tasks/${workingTask.id}/PROMPT.md`, { workspace: "project" });
   }, [fileBrowser, workingTask.id]);
   const hasPendingRecovery = hasPendingAutomaticRecovery(task);
-  const canRetryTask = isTaskManuallyRetryable(task);
   const nearDuplicateOf = isStringValue(workingTask.sourceMetadata?.nearDuplicateOf)
     ? workingTask.sourceMetadata.nearDuplicateOf
     : null;
@@ -1258,6 +1256,9 @@ export function TaskDetailContent({
   const isArchivedColumn = isArchivedColumnRole(detailColumnFlags, task.column);
   const isWipColumn = isWipColumnRole(detailColumnFlags, task.column);
   const isReviewColumn = isReviewColumnRole(detailColumnFlags, task.column);
+  const isMutableLiveColumn = detailColumnFlags
+    ? detailColumnFlags.complete !== true && detailColumnFlags.archived !== true
+    : task.column !== "done" && task.column !== "archived";
 
   useEffect(() => {
     /*
@@ -3330,17 +3331,30 @@ export function TaskDetailContent({
       });
   }, [task.id, onMergeTask, requestClose, addToast, confirm]);
 
-  const handleRetry = useCallback(() => {
+  const confirmRetryStage = useCallback(async () => {
+    const copy = resolveRetryStageCopy(t, detailColumnFlags, task.column);
+    const confirmed = await confirm({
+      title: copy.confirmTitle,
+      message: copy.confirmMessage,
+      confirmLabel: copy.confirmLabel,
+      cancelLabel: t("common.cancel", "Cancel"),
+      danger: true,
+    });
+    return confirmed ? copy : null;
+  }, [confirm, detailColumnFlags, t, task.column]);
+
+  const handleRetry = useCallback(async () => {
     if (!onRetryTask) return;
+    const copy = await confirmRetryStage();
+    if (!copy) return;
     requestClose();
-    onRetryTask(task.id)
-      .then(() => {
-        addToast(t("taskDetail.retry.retried", "Retried {{id}}", { id: task.id }), "success");
-      })
-      .catch((err) => {
-        addToast(getErrorMessage(err), "error");
-      });
-  }, [task.id, onRetryTask, requestClose, addToast, t]);
+    try {
+      await onRetryTask(task.id);
+      addToast(copy.successMessage, "success");
+    } catch (err) {
+      addToast(getErrorMessage(err), "error");
+    }
+  }, [task.id, onRetryTask, requestClose, addToast, confirmRetryStage]);
 
   useEffect(() => {
     if (!showFailureRetryPicker) return;
@@ -3359,6 +3373,9 @@ export function TaskDetailContent({
   The failed-banner picker stages model/node choices and writes one per-task override
   only when the operator confirms Retry. RoutingTab saves on selection, which would
   leave an abandoned override when the operator closes this recovery picker.
+
+  FNXC:TaskRecoveryVocabulary 2026-08-28-01:20:
+  Model and node overrides do not change Retry semantics. The shared stage confirmation must finish before either the override or the destructive stage restart is published.
   */
   const handleRetryWithOverride = useCallback(async () => {
     if (!onRetryTask || isFailureRetrySaving) return;
@@ -3368,6 +3385,8 @@ export function TaskDetailContent({
     const hasNodeChange = failureRetryNodeId !== (task.nodeId ?? "");
     if (!hasModelChange && !hasNodeChange) return;
 
+    const copy = await confirmRetryStage();
+    if (!copy) return;
     setIsFailureRetrySaving(true);
     try {
       const updatedTask = await updateTask(task.id, {
@@ -3376,14 +3395,14 @@ export function TaskDetailContent({
       }, projectId);
       onTaskUpdated?.(updatedTask);
       await onRetryTask(task.id);
-      addToast(t("taskDetail.retry.retried", "Retried {{id}}", { id: task.id }), "success");
+      addToast(copy.successMessage, "success");
       requestClose();
     } catch (err) {
       addToast(getErrorMessage(err), "error");
     } finally {
       if (mountedRef.current) setIsFailureRetrySaving(false);
     }
-  }, [addToast, failureRetryModel, failureRetryNodeId, isFailureRetrySaving, onRetryTask, onTaskUpdated, projectId, requestClose, t, task.id, task.modelId, task.modelProvider, task.nodeId]);
+  }, [addToast, confirmRetryStage, failureRetryModel, failureRetryNodeId, isFailureRetrySaving, onRetryTask, onTaskUpdated, projectId, requestClose, task.id, task.modelId, task.modelProvider, task.nodeId]);
 
   /*
   FNXC:ReviewLaneBypass 2026-07-09-00:00:
@@ -3430,30 +3449,11 @@ export function TaskDetailContent({
   FNXC:TaskReset 2026-08-19-06:45:
   Reset is destructive: confirmation explains that the owned worktree and current plan are discarded, while the success toast is emitted only after the server has fenced work, completed cleanup, and committed the fresh Planning state.
   */
-  const handleRestartStage = useCallback(async () => {
-    if (!onRestartStage) return;
-    const confirmed = await confirm({
-      title: t("taskDetail.restartStage.confirmTitle", "Restart current stage"),
-      message: t("taskDetail.restartStage.confirmMessage", "Discard this stage's work while keeping earlier stages and leaving the card in its current column?"),
-      confirmLabel: t("taskDetail.restartStage.btn", "Restart stage"),
-      cancelLabel: t("common.cancel", "Cancel"),
-      danger: true,
-    });
-    if (!confirmed) return;
-    requestClose();
-    try {
-      await onRestartStage(task.id);
-      addToast(t("taskDetail.restartStage.success", "Restarted the current stage"), "success");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [addToast, confirm, onRestartStage, requestClose, t, task.id]);
-
   const handleReset = useCallback(async () => {
     if (!onResetTask) return;
     const shouldReset = await confirm({
-      title: t("taskDetail.reset.btn", "Reset"),
-      message: t("taskDetail.reset.confirmMessage", "This permanently discards {{id}}'s task-owned worktree and current plan, then returns it to Planning. Continue?", { id: task.id }),
+      title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
+      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded."),
       confirmLabel: t("taskDetail.reset.btn", "Reset"),
       cancelLabel: t("common.cancel", "Cancel"),
       danger: true,
@@ -3666,21 +3666,6 @@ export function TaskDetailContent({
       addToast(getErrorMessage(err), "error");
     }
   }, [task.id, requestClose, addToast, confirm]);
-
-  const handleRespecify = useCallback(async () => {
-    const shouldRebuild = await confirm({
-      title: t("taskDetail.plan.rebuildTitle", "Rebuild Plan"),
-      message: t("taskDetail.plan.rebuildMessage", "Rebuild the plan for this task? The task will move to planning for replanning."),
-    });
-    if (!shouldRebuild) return;
-    try {
-      await rebuildTaskSpec(task.id, projectId);
-      requestClose();
-      addToast(t("taskDetail.plan.replanning", "Replanning {{id}}…", { id: task.id }), "info");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [task.id, projectId, requestClose, addToast, confirm]);
 
   const handleOpenRefineModal = useCallback(() => {
     setShowRefineModal(true);
@@ -4274,8 +4259,11 @@ export function TaskDetailContent({
 
   FNXC:TaskFailedBanner 2026-08-07-23:36:
   Only the latest tool completion can supply failure detail. A later `tool_result` or a blank latest `tool_error` prevents an older recovered error from being attributed to the current failure.
+
+  FNXC:TaskRecoveryVocabulary 2026-08-28-01:20:
+  A scheduled automatic recovery must not hide the failed-task alert. Operators still need the pending-recovery explanation and an immediate, stage-aware Retry choice.
   */
-  const shouldShowTaskFailureAlert = Boolean(task.status === "failed" && !hasPendingRecovery && !isPlannerChatExpanded);
+  const shouldShowTaskFailureAlert = Boolean(task.status === "failed" && !isPlannerChatExpanded);
   const taskFailureReason = task.error?.trim() || t("taskDetail.error.genericFailureReason", "The task failed before it could complete.");
   const taskFailureToolDetail = useMemo(() => {
     const lastToolCompletion = agentLogEntries.findLast(
@@ -4300,10 +4288,8 @@ export function TaskDetailContent({
     menu then offers destinations from a card the operator is no longer looking at.
     */
     currentColumnFlags: detailColumnFlags,
-    canRetryTask,
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
-    hasRestartStageHandler: Boolean(onRestartStage),
     hasResetHandler: Boolean(onResetTask),
     hasBypassReviewHandler: Boolean(onBypassReview),
     mergeStrategy,
@@ -4313,9 +4299,7 @@ export function TaskDetailContent({
     onDelete: handleDelete,
     onDuplicate: handleDuplicate,
     onOpenRefine: handleOpenRefineModal,
-    onRespecify: handleRespecify,
     onRetry: handleRetry,
-    onRestartStage: handleRestartStage,
     onReset: handleReset,
     onTogglePause: handleTogglePause,
     onMerge: handleMergeMenuItemClick,
@@ -4326,10 +4310,8 @@ export function TaskDetailContent({
     task,
     t,
     workflowMoveMetadata,
-    canRetryTask,
     onDuplicateTask,
     onRetryTask,
-    onRestartStage,
     onResetTask,
     onBypassReview,
     mergeStrategy,
@@ -4339,9 +4321,7 @@ export function TaskDetailContent({
     handleDelete,
     handleDuplicate,
     handleOpenRefineModal,
-    handleRespecify,
     handleRetry,
-    handleRestartStage,
     handleReset,
     handleTogglePause,
     handleMergeMenuItemClick,
@@ -5709,7 +5689,8 @@ export function TaskDetailContent({
                   </div>
                 ) : null}
                 {taskFailureHint ? <div className="detail-error-hint">{taskFailureHint}</div> : null}
-                {onRetryTask && canRetryTask ? (
+                {hasPendingRecovery ? <div className="detail-error-hint">{t("taskDetail.retry.pendingAutomaticRecovery", "Automatic recovery is pending. You can Retry now to restart this stage.")}</div> : null}
+                {onRetryTask && isMutableLiveColumn ? (
                   <div className="detail-error-actions">
                     <button type="button" className="btn btn-sm" onClick={handleRetry}>
                       {t("taskDetail.error.retry", "Retry")}
@@ -5719,7 +5700,7 @@ export function TaskDetailContent({
                     </button>
                   </div>
                 ) : null}
-                {showFailureRetryPicker && onRetryTask && canRetryTask ? (
+                {showFailureRetryPicker && onRetryTask && isMutableLiveColumn ? (
                   <div className="detail-error-retry-picker">
                     <label htmlFor={`failure-retry-model-${task.id}`}>
                       {t("taskDetail.error.retryModelLabel", "Executor model")}
@@ -7411,21 +7392,6 @@ export function TaskDetailContent({
                   <button className="btn btn-sm btn-danger" onClick={() => void handleDelete()} aria-label={t("taskDetail.reverted.deleteAria", "Delete reverted task")}>{t("taskDetail.delete.btn", "Delete")}</button>
                   {onReviseTask && <button className="btn btn-sm" onClick={() => { onReviseTask(task); requestClose?.(); }}>{t("taskDetail.revise", "Revise")}</button>}
                 </>
-              )}
-
-              {/* Standalone Delete button for INTAKE-lane tasks — they hide the Actions
-                  dropdown (see condition below) so the user has no quick way to delete a
-                  freshly-created task otherwise. Keyed on the intake trait rather than the
-                  `triage` id, which U11 deletes. */}
-              {isIntakeColumn && !isAwaitingApproval && !canRetryTask && (
-                <button
-                  className="btn btn-sm btn-danger"
-                  onClick={() => void handleDelete()}
-                  aria-label={t("taskDetail.delete.ariaLabel", "Delete task")}
-                  title={t("taskDetail.delete.ariaLabel", "Delete task")}
-                >
-                  {t("taskDetail.delete.btn", "Delete")}
-                </button>
               )}
 
               {/*

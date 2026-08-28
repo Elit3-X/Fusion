@@ -155,8 +155,7 @@ export function MainContent({
   globalPaused,
   updateTask,
   retryTask,
-  restartTaskStage,
-  archiveTask,
+    archiveTask,
   unarchiveTask,
   revertTask,
   deleteTask,
@@ -911,7 +910,6 @@ export function MainContent({
             onUpdateTask={updateTask}
             onRetryTask={retryTask}
             onUnpauseTask={unpauseTask}
-            onRestartStage={restartTaskStage}
             onResetTask={resetTask}
             onDuplicateTask={duplicateTask}
             onMergeTask={mergeTask}
@@ -978,7 +976,6 @@ export function MainContent({
               onRetryTask={retryTask}
               onPauseTask={pauseTask}
               onUnpauseTask={unpauseTask}
-              onRestartStage={restartTaskStage}
             onResetTask={resetTask}
               onDuplicateTask={duplicateTask}
               /*
@@ -1034,7 +1031,6 @@ export function MainContent({
           onUpdateTask={updateTask}
           onRetryTask={retryTask}
           onUnpauseTask={unpauseTask}
-          onRestartStage={restartTaskStage}
             onResetTask={resetTask}
           onDuplicateTask={duplicateTask}
           onMergeTask={mergeTask}
@@ -1084,7 +1080,6 @@ export function MainContent({
         onArchiveTask={archiveTask}
         onRevertTask={revertTask}
         onMergeTask={mergeTask}
-        onRestartStage={restartTaskStage}
             onResetTask={resetTask}
         onDuplicateTask={duplicateTask}
         onRefinementCreated={(task) => ingestCreatedTasks([task])}

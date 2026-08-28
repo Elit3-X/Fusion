@@ -580,7 +580,7 @@ describe("TaskCard", () => {
       await waitFor(() => expectBoardContextMenuPortaled());
       fireEvent.click(screen.getByRole("menuitem", { name: "Reset" }));
       await waitFor(() => expect(onResetTask).toHaveBeenCalledWith("FN-001"));
-      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset" }));
+      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset this task?" }));
       expect(document.querySelector(".confirm-dialog-overlay")).toBeNull();
     } finally {
       cleanupGeometry();
@@ -748,6 +748,7 @@ describe("TaskCard", () => {
       await waitFor(() => expectBoardContextMenuPortaled());
       fireEvent.click(screen.getByRole("menuitem", { name: "Plan" }));
       expect(onPlanningMode).toHaveBeenLastCalledWith("Custom intake title", "WF-custom");
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 
       rerender(
         <TaskCard
@@ -757,11 +758,7 @@ describe("TaskCard", () => {
           addToast={noop}
         />,
       );
-      fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
-      await waitFor(() => expectBoardContextMenuPortaled());
-      expect(screen.queryByRole("menuitem", { name: "Plan" })).not.toBeInTheDocument();
-      fireEvent.keyDown(document, { key: "Escape" });
-      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+      expect(screen.queryByTestId("card-menu-btn-FN-001")).not.toBeInTheDocument();
 
       rerender(
         <TaskCard
@@ -4091,29 +4088,42 @@ describe("TaskCard", () => {
       expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     });
 
-    it("calls onRetryTask with task id", async () => {
+    it("confirms the stage-specific retry before calling onRetryTask", async () => {
       const onRetryTask = vi.fn(async () => ({}) as Task);
+      mockConfirm.mockResolvedValueOnce(true);
       render(
-        <TaskCard task={makeTask({ column: "todo", status: "failed", error: "Executor crashed" })} onOpenDetail={noop} addToast={noop} onRetryTask={onRetryTask} />,
+        <TaskCard
+          task={makeTask({ column: "todo", status: "failed", error: "Executor crashed" })}
+          onOpenDetail={noop}
+          addToast={noop}
+          onRetryTask={onRetryTask}
+          taskColumnFlags={{ countsTowardWip: true }}
+        />,
       );
 
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+        title: "Retry this stage?",
+        message: "Discard the in-flight work and start it again on the approved plan. This card stays in its current column.",
+        confirmLabel: "Retry",
+        danger: true,
+      })));
       await waitFor(() => expect(onRetryTask).toHaveBeenCalledWith("FN-001"));
     });
 
     it("shows loading and disabled state while retry is in progress", async () => {
       let resolveRetry: ((value: Task) => void) | null = null;
       const onRetryTask = vi.fn(() => new Promise<Task>((resolve) => { resolveRetry = resolve; }));
+      mockConfirm.mockResolvedValueOnce(true);
 
       render(
         <TaskCard task={makeTask({ column: "todo", status: "failed", error: "Executor crashed" })} onOpenDetail={noop} addToast={noop} onRetryTask={onRetryTask} />,
       );
 
-      const button = screen.getByRole("button", { name: "Retry" }) as HTMLButtonElement;
-      fireEvent.click(button);
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
-      expect(screen.getByRole("button", { name: "Retrying…" })).toBeDefined();
-      expect(button.disabled).toBe(true);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Retrying…" })).toBeDefined());
+      expect((screen.getByRole("button", { name: "Retrying…" }) as HTMLButtonElement).disabled).toBe(true);
 
       await act(async () => {
         resolveRetry?.({} as Task);
@@ -4127,6 +4137,7 @@ describe("TaskCard", () => {
       const onRetryTask = vi.fn(async () => {
         throw new Error("network down");
       });
+      mockConfirm.mockResolvedValueOnce(true);
 
       render(
         <TaskCard task={makeTask({ column: "todo", status: "failed", error: "Executor crashed" })} onOpenDetail={noop} addToast={addToast} onRetryTask={onRetryTask} />,

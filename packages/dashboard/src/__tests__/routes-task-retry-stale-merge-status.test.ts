@@ -212,7 +212,7 @@ describe("POST /api/tasks/:id/retry — orphaned merge-active status (FN-8004)",
     const res = await performRequest(app, "POST", "/api/tasks/FN-8004/retry", "{}", { "content-type": "application/json" });
 
     expect(res.status).toBe(400);
-    expect(JSON.stringify(res.body)).toContain("not in a retryable state");
+    expect(JSON.stringify(res.body)).toContain("not in a legacy retryable state");
   });
 
   it("still REFUSES to retry a merge that is progressing (fresh updatedAt)", async () => {
@@ -223,7 +223,7 @@ describe("POST /api/tasks/:id/retry — orphaned merge-active status (FN-8004)",
     const res = await performRequest(app, "POST", "/api/tasks/FN-8004/retry", "{}", { "content-type": "application/json" });
 
     expect(res.status).toBe(400);
-    expect(JSON.stringify(res.body)).toContain("not in a retryable state");
+    expect(JSON.stringify(res.body)).toContain("not in a legacy retryable state");
   });
 
   it("leaves the pre-existing failed-merge retry path unchanged", async () => {

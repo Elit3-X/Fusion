@@ -19,7 +19,7 @@ import { resolveEffectiveAutoMerge } from "../../../core/src/merge/task-merge";
 // resolver — like resolveEffectiveAutoMerge above — must be imported from its source module
 // directly rather than the package barrel.
 import { resolveEffectivePlannerOversightLevel } from "../../../core/src/workflows/workflow-settings-resolver";
-import { addressPrFeedback, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, rebuildTaskSpec, refreshPrStatus, fetchWorkflowSettingValues, type WorkflowFieldDefinition, type RevertTaskOptions, type RevertTaskResult } from "../api";
+import { addressPrFeedback, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, refreshPrStatus, fetchWorkflowSettingValues, type WorkflowFieldDefinition, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { GitHubBadge } from "./GitHubBadge";
 import { GitLabBadge } from "./GitLabBadge";
 import { RuntimeFallbackBadge } from "./RuntimeFallbackBadge";
@@ -39,7 +39,8 @@ import {
   isReviewColumnRole,
   isWipColumnRole,
 } from "../utils/columnRoles";
-import { hasPendingAutomaticRecovery, isTaskManuallyRetryable } from "../utils/taskRecovery";
+import { hasPendingAutomaticRecovery } from "../utils/taskRecovery";
+import { resolveRetryStageCopy } from "../utils/taskRetryCopy";
 import { getRevertOfId, isTaskReverted } from "../utils/taskRevert";
 import { getStalledReviewSignal } from "../utils/taskStalledReview";
 import { getInReviewStallCopy, shouldShowInReviewStallBadge } from "../utils/inReviewStallCopy";
@@ -640,7 +641,6 @@ interface TaskCardProps {
   onRetryTask?: (id: string) => Promise<Task>;
   onUnpauseTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
-  onRestartStage?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string) => Promise<Task>;
   onMergeTask?: (id: string) => Promise<MergeResult>;
   onOpenDetailWithTab?: (task: Task | TaskDetail, initialTab: "changes" | "retries" | "workflow") => void;
@@ -866,7 +866,6 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previous.onRetryTask === next.onRetryTask &&
     previous.onUnpauseTask === next.onUnpauseTask &&
     previous.onResetTask === next.onResetTask &&
-    previous.onRestartStage === next.onRestartStage &&
     previous.onDuplicateTask === next.onDuplicateTask &&
     previous.onMergeTask === next.onMergeTask &&
     previous.onOpenDetailWithTab === next.onOpenDetailWithTab &&
@@ -1013,7 +1012,6 @@ function TaskCardComponent({
   onRetryTask,
   onUnpauseTask,
   onResetTask,
-  onRestartStage,
   onDuplicateTask,
   onMergeTask,
   onOpenDetailWithTab,
@@ -1473,7 +1471,6 @@ function TaskCardComponent({
   const visualStatus = isDoneColumn ? "done" : task.status;
   const hasPendingRecovery = hasPendingAutomaticRecovery(task, lastFetchTimeMs);
   const isFailed = !isDoneColumn && task.status === "failed" && !hasPendingRecovery;
-  const canRetryTask = isTaskManuallyRetryable(task, lastFetchTimeMs);
   const isPaused = !isDoneColumn && (task.paused === true || task.userPaused === true);
   const isTriageDuplicateDecision = isPaused
     && task.pausedReason === "duplicate-decision-required"
@@ -2579,15 +2576,25 @@ function TaskCardComponent({
 
   const handleTaskActionRetry = useCallback(async () => {
     if (!onRetryTask || isRetrying) return;
+    const copy = resolveRetryStageCopy(t, taskColumnFlags, task.column);
+    const confirmed = await confirm({
+      title: copy.confirmTitle,
+      message: copy.confirmMessage,
+      confirmLabel: copy.confirmLabel,
+      cancelLabel: t("common.cancel", "Cancel"),
+      danger: true,
+    });
+    if (!confirmed) return;
     setIsRetrying(true);
     try {
       await onRetryTask(task.id);
+      addToast(copy.successMessage, "success");
     } catch (err) {
       addToast(t("tasks.retryFailed", "Failed to retry {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(err) }), "error");
     } finally {
       setIsRetrying(false);
     }
-  }, [addToast, isRetrying, onRetryTask, task.id, t]);
+  }, [addToast, confirm, isRetrying, onRetryTask, t, task.column, task.id, taskColumnFlags]);
 
   const handleTaskActionTogglePause = useCallback(async () => {
     try {
@@ -2605,29 +2612,11 @@ function TaskCardComponent({
     }
   }, [addToast, isPaused, onPauseTask, onUnpauseTask, task.id, t]);
 
-  const handleTaskActionRestartStage = useCallback(async () => {
-    if (!onRestartStage) return;
-    const confirmed = await confirm({
-      title: t("taskDetail.restartStage.confirmTitle", "Restart current stage"),
-      message: t("taskDetail.restartStage.confirmMessage", "Discard this stage's work while keeping earlier stages and leaving the card in its current column?"),
-      confirmLabel: t("taskDetail.restartStage.btn", "Restart stage"),
-      cancelLabel: t("common.cancel", "Cancel"),
-      danger: true,
-    });
-    if (!confirmed) return;
-    try {
-      await onRestartStage(task.id);
-      addToast(t("taskDetail.restartStage.success", "Restarted the current stage"), "success");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [addToast, confirm, onRestartStage, t, task.id]);
-
   const handleTaskActionReset = useCallback(async () => {
     if (!onResetTask) return;
     const shouldReset = await confirm({
-      title: t("taskDetail.reset.btn", "Reset"),
-      message: t("taskDetail.reset.confirmMessage", "This will erase all progress for {{id}} and start the task from scratch. Continue?", { id: task.id }),
+      title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
+      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded."),
       confirmLabel: t("taskDetail.reset.btn", "Reset"),
       cancelLabel: t("common.cancel", "Cancel"),
       danger: true,
@@ -2680,20 +2669,6 @@ function TaskCardComponent({
     onPlanningMode?.(seed, taskWorkflowId ?? planningWorkflowId ?? null);
   }, [onPlanningMode, planningWorkflowId, task, task.description, task.id, task.title]);
 
-  const handleTaskActionRespecify = useCallback(async () => {
-    const shouldRebuild = await confirm({
-      title: t("taskDetail.plan.rebuildTitle", "Rebuild Plan"),
-      message: t("taskDetail.plan.rebuildMessage", "Rebuild the plan for this task? The task will move to planning for replanning."),
-    });
-    if (!shouldRebuild) return;
-    try {
-      await rebuildTaskSpec(task.id, projectId);
-      addToast(t("taskDetail.plan.replanning", "Replanning {{id}}…", { id: task.id }), "info");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [addToast, confirm, projectId, task.id, t]);
-
   const handleTaskActionCheckPrStatus = useCallback(async () => {
     try {
       await refreshPrStatus(task.id, projectId);
@@ -2739,10 +2714,8 @@ function TaskCardComponent({
     task,
     t,
     currentColumnFlags: taskColumnFlags,
-    canRetryTask,
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
-    hasRestartStageHandler: Boolean(onRestartStage),
     hasResetHandler: Boolean(onResetTask),
     hasAssignedAgent: Boolean(task.assignedAgentId),
     autoMergeEnabled: effectiveAutoMerge,
@@ -2752,9 +2725,7 @@ function TaskCardComponent({
     onDuplicate: onDuplicateTask ? handleTaskActionDuplicate : undefined,
     onPlan: onPlanningMode ? handleTaskActionPlan : undefined,
     onOpenRefine: onOpenRefine ? () => onOpenRefine(task) : undefined,
-    onRespecify: handleTaskActionRespecify,
     onRetry: onRetryTask ? handleTaskActionRetry : undefined,
-    onRestartStage: onRestartStage ? handleTaskActionRestartStage : undefined,
     onReset: onResetTask ? handleTaskActionReset : undefined,
     onTogglePause: (isPaused ? onUnpauseTask : onPauseTask) ? handleTaskActionTogglePause : undefined,
     onMerge: onMergeTask ? handleTaskActionMerge : undefined,
@@ -2765,10 +2736,8 @@ function TaskCardComponent({
     task,
     t,
     taskColumnFlags,
-    canRetryTask,
     onDuplicateTask,
     onRetryTask,
-    onRestartStage,
     onResetTask,
     effectiveAutoMerge,
     mergeStrategy,
@@ -2780,7 +2749,6 @@ function TaskCardComponent({
     handleTaskActionMerge,
     handleTaskActionPlan,
     handleTaskActionReset,
-    handleTaskActionRespecify,
     handleTaskActionRetry,
     handleTaskActionTogglePause,
     handleTaskActionUnarchive,
@@ -3039,19 +3007,13 @@ function TaskCardComponent({
     }
   }, [addToast, isAddressingPrFeedback, projectId, t, task.id]);
 
-  const handleRetryTask = useCallback(async (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleRetryTask = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!onRetryTask || isRetrying) return;
-
-    setIsRetrying(true);
-    try {
-      await onRetryTask(task.id);
-    } catch (err) {
-      addToast(t("tasks.retryFailed", "Failed to retry {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(err) }), "error");
-    } finally {
-      setIsRetrying(false);
-    }
-  }, [addToast, isRetrying, onRetryTask, task.id]);
+    // FNXC:TaskRecoveryVocabulary 2026-08-28-01:11: The error-banner Retry discards
+    // the same stage artifacts as the context-menu action, so it must share that confirmation
+    // boundary instead of calling the route directly.
+    void handleTaskActionRetry();
+  }, [handleTaskActionRetry]);
 
   const cardClass = `card${queued ? " queued" : ""}${isAgentActive ? " agent-active" : ""}${isFailed ? " failed" : ""}${isPaused ? " paused" : ""}${isAwaitingApproval ? " awaiting-approval" : ""}${isAwaitingInput ? " awaiting-input" : ""}${fileDragOver ? " file-drop-target" : ""}${isEditing ? " card-editing" : ""}${isSaving ? " card-saving" : ""}`;
 
