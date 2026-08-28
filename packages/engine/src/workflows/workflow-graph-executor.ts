@@ -172,6 +172,8 @@ interface PreMergeOptionalStepFailureContext {
   status: WorkflowStepResult["status"];
   verdict?: string;
   nodeId?: string;
+  reviewKind?: WorkflowStepResult["reviewKind"];
+  workflowAction?: string;
   maxRevisions?: unknown;
 }
 
@@ -1317,6 +1319,8 @@ export class WorkflowGraphExecutor {
               verdict: verdict ?? (node.id === PLAN_REVIEW_GROUP_ID ? "REVISE" : undefined),
               ...(parseRequiredArtifactMissingValue(verdictRaw) ? { failureValue: verdictRaw } : {}),
               nodeId: node.id,
+              ...(this.workflowReviewKind(node) ? { reviewKind: this.workflowReviewKind(node) } : {}),
+              ...(typeof node.config?.workflowAction === "string" ? { workflowAction: node.config.workflowAction } : {}),
               maxRevisions: node.config?.maxRevisions,
               /*
                * FNXC:ReviewSeverityGate 2026-08-10-17:33:

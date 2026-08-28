@@ -269,7 +269,7 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
         false,
         { attempt: 1, max: 3 },
         undefined,
-        undefined,
+        true,
         "reopen-trailing",
       );
     }
@@ -330,7 +330,7 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
       false,
       { attempt: 1, max: 2 },
       undefined,
-      undefined,
+      true,
       "reopen-trailing",
     );
     expect(store.updateTask.mock.invocationCallOrder[0]).toBeLessThan(sendBack.mock.invocationCallOrder[0]);
@@ -998,7 +998,7 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
       false,
       { attempt: 4, max: undefined },
       undefined,
-      undefined,
+      true,
       "reopen-trailing",
     );
   });
@@ -1044,7 +1044,7 @@ describe("TaskExecutor pre-merge optional-step fix seam", () => {
       false,
       expect.anything(),
       findings,
-      undefined,
+      true,
       "reopen-trailing",
     );
   });

@@ -3,7 +3,7 @@ import { routeReviewConvergenceLadder, type ReviewConvergenceStop } from "../exe
 
 function task(overrides: Record<string, unknown> = {}) {
   return {
-    id: "FN-224", column: "in-review", dependencies: [],
+    id: "FN-224", column: "in-review", dependencies: [], worktree: "/tmp/review-convergence",
     steps: [{ name: "Fix review finding", status: "pending", remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Fix review finding" } }],
     currentStep: 0, log: [], createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z",
     workflowStepResults: [{

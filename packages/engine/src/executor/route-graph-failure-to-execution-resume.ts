@@ -13,6 +13,9 @@
  *
  * FNXC:WorkflowRemediation 2026-08-09-21:41:
  * FN-8910: completed work + policy-refused remediation stays parked in review.
+ *
+ * FNXC:WorkflowRemediation 2026-08-28-12:16:
+ * This generic resume router must not own review-to-WIP recovery. `sendTaskBackForFix` through `scheduleWorkflowRerun` owns that contained move only after named pending remediation exists; preserving this refusal prevents an unowned backward transition from bypassing lifecycle containment.
  */
 import type { TaskDetail, TaskStore } from "@fusion/core";
 import { COMPLETION_SUMMARY_NODE_ID, isTaskExternallyBlocked } from "@fusion/core";

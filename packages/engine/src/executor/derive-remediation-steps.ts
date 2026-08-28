@@ -11,6 +11,7 @@ export interface DeriveRemediationStepsInput {
   verificationCommandLabel?: string;
   prompt?: string;
   changedFiles?: readonly string[];
+  confirmedRepositories?: readonly string[];
 }
 
 export interface DerivedRemediationSteps {
@@ -40,6 +41,11 @@ function verificationCandidates(input: DeriveRemediationStepsInput): Array<{ fil
  * FNXC:ReviewGatedRemediation 2026-08-23-05:06:
  * Gate findings become explicit append-only steps with provenance. Scope filtering happens before
  * append: an unrelated failure is upstream work, never invented remediation for this task.
+ *
+ * FNXC:WorkspaceReviewRemediation 2026-08-28-12:16:
+ * Confirmed repository scope is the workspace task's intent boundary. A not-yet-declared file inside
+ * that boundary is remediable because the appender immediately widens PROMPT.md File Scope for every
+ * accepted fix step; rejecting it first would contradict the persistence operation that follows.
  */
 export function deriveRemediationSteps(input: DeriveRemediationStepsInput): DerivedRemediationSteps {
   const candidates: Array<{ filePath?: string; line?: number; detail: string; findingId?: string }> = input.gate === "Code Review"
@@ -49,11 +55,14 @@ export function deriveRemediationSteps(input: DeriveRemediationStepsInput): Deri
     : verificationCandidates(input);
   const declaredScope = extractFileScope(input.prompt ?? "");
   const changedFiles = new Set((input.changedFiles ?? []).map(normalized));
+  const confirmedRepositories = (input.confirmedRepositories ?? []).map(normalized).filter(Boolean);
   const steps: TaskStep[] = [];
   const outOfScope: Array<{ filePath?: string; detail: string }> = [];
   for (const candidate of candidates) {
     const filePath = candidate.filePath ? normalized(candidate.filePath) : undefined;
-    const allowed = !filePath || matchesScope(filePath, declaredScope) || changedFiles.has(filePath);
+    const insideConfirmedRepository = Boolean(filePath) && confirmedRepositories.some((repository) =>
+      filePath === repository || filePath?.startsWith(`${repository}/`));
+    const allowed = !filePath || matchesScope(filePath, declaredScope) || changedFiles.has(filePath) || insideConfirmedRepository;
     if (!allowed) {
       outOfScope.push({ filePath, detail: candidate.detail });
       continue;

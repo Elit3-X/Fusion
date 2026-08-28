@@ -17,7 +17,7 @@ operator-authored Plan Review cap; late rejection must remain observed rather th
 */
 function failedTask() {
   return {
-    id: "FN-149-audit", column: "in-review", dependencies: [], steps: [{ name: "Fix review finding", status: "pending", remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Fix review finding" } }], currentStep: 0, log: [],
+    id: "FN-149-audit", column: "in-review", dependencies: [], worktree: "/tmp/review-convergence-audit", steps: [{ name: "Fix review finding", status: "pending", remediation: { wave: 1, gate: "Code Review", gateStepId: "code-review", detail: "Fix review finding" } }], currentStep: 0, log: [],
     createdAt: "2026-08-22T00:00:00.000Z", updatedAt: "2026-08-22T00:00:00.000Z",
     reviewConvergenceStage: 2, reviewConvergenceEscalationCount: 2,
     workflowStepResults: [{

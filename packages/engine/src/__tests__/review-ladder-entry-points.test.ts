@@ -1,7 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
+
+const { resolveExternalExecutionCheckoutRouteMock } = vi.hoisted(() => ({
+  resolveExternalExecutionCheckoutRouteMock: vi.fn(async () => ({ configured: false as const })),
+}));
+
+vi.mock("../executor/review-arbitration.js", () => ({
+  runReviewArbitration: vi.fn(async () => "declined"),
+}));
+vi.mock("../execution/external-execution-checkout.js", () => ({
+  resolveExternalExecutionCheckoutRoute: resolveExternalExecutionCheckoutRouteMock,
+}));
 import { routeRetryableRemediationGraphFailureToPreMergeFix } from "../executor/route-retryable-remediation.js";
 import { recoverFailedPreMergeWorkflowStep } from "../executor/recover-failed-pre-merge-step.js";
 import { requestPreMergeOptionalStepFix } from "../executor/request-pre-merge-optional-step-fix.js";
+import { routeReviewConvergenceLadder } from "../executor/review-convergence-ladder.js";
+import { runReviewArbitration } from "../executor/review-arbitration.js";
+import { resolveRemediationCheckout } from "../executor/resolve-remediation-checkout.js";
+import { sendTaskBackForFix } from "../executor/send-task-back-for-fix.js";
 import { SelfHealingManager } from "../self-healing.js";
 
 /*
@@ -17,6 +32,26 @@ describe("FN-149 remediation graph ladder entry", () => {
     currentStep: 0, createdAt: "2026-08-22T00:00:00.000Z", updatedAt: "2026-08-22T00:00:00.000Z",
     workflowStepResults: [{ workflowStepId: "code-review", workflowStepName: "Code Review", phase: "pre-merge", status: "failed", verdict: "REVISE", startedAt: "2026-08-22T01:00:00.000Z" }],
   };
+
+  function workspaceLive() {
+    const row = structuredClone(live) as any;
+    delete row.worktree;
+    row.repositoryScope = { state: "confirmed", revision: 1, repositories: ["repo1", "repo2"] };
+    row.workspaceWorktrees = {
+      repo1: { worktreePath: "/tmp/mult-029/repo1", baseCommitSha: "r1" },
+      repo2: { worktreePath: "/tmp/mult-029/repo2", baseCommitSha: "r2" },
+    };
+    row.workflowStepResults[0] = {
+      ...row.workflowStepResults[0],
+      reviewKind: "code",
+      repositoryScopeRevision: 1,
+      repositoryReviewOutcomes: [{
+        repository: "repo2", status: "REVIEWED", verdict: "REVISE",
+        findings: [{ id: "repo2:finding", title: "Missing source guard", body: "Add the source-location check.", severity: "critical", resolution: "open", filePath: "repo2/tests/source.test.ts" }],
+      }],
+    };
+    return row;
+  }
 
   function deps(budget: { unbounded: boolean; max: number; attempts: number }, recovered = true) {
     const recoverFailedPreMergeWorkflowStep = vi.fn(async () => recovered);
@@ -36,6 +71,15 @@ describe("FN-149 remediation graph ladder entry", () => {
     await expect(routeRetryableRemediationGraphFailureToPreMergeFix(subject, live, "code-review-remediation", "retry")).resolves.toBe(true);
     expect(subject.recoverFailedPreMergeWorkflowStep).toHaveBeenCalledWith(live);
     expect(subject.store.updateTask).not.toHaveBeenCalled();
+  });
+
+  it("admits a retryable workspace remediation graph failure without a singular worktree", async () => {
+    const row = workspaceLive();
+    const subject = deps({ unbounded: true, max: Number.POSITIVE_INFINITY, attempts: 0 });
+
+    await expect(routeRetryableRemediationGraphFailureToPreMergeFix(subject, row, "code-review-remediation", "retry")).resolves.toBe(true);
+
+    expect(subject.recoverFailedPreMergeWorkflowStep).toHaveBeenCalledWith(row);
   });
 
   it("keeps a zero budget as an explicit policy refusal", async () => {
@@ -90,7 +134,7 @@ describe("FN-149 remediation graph ladder entry", () => {
   it("routes the finite Plan Review cap through the ladder before its human park", async () => {
     const row = structuredClone(live);
     row.column = "todo";
-    row.worktree = undefined;
+    row.worktree = "/tmp/plan-review";
     row.workflowStepResults = [{
       workflowStepId: "plan-review", workflowStepName: "Plan Review", phase: "pre-merge",
       status: "failed", verdict: "REVISE", startedAt: "2026-08-22T01:00:00.000Z",
@@ -215,7 +259,7 @@ describe("FN-149 remediation graph ladder entry", () => {
   it("routes the unbounded Plan Review safety cap through the ladder before parking", async () => {
     const row = structuredClone(live);
     row.column = "todo";
-    row.worktree = undefined;
+    row.worktree = "/tmp/plan-review";
     row.workflowStepResults = [{
       workflowStepId: "plan-review", workflowStepName: "Plan Review", phase: "pre-merge",
       status: "failed", verdict: "REVISE", startedAt: "2026-08-22T01:00:00.000Z",
@@ -345,6 +389,190 @@ describe("FN-149 remediation graph ladder entry", () => {
 
     expect(sendTaskBackForFix).not.toHaveBeenCalled();
     expect(claimedStages[0]).toBe(2);
+  });
+
+  it("recovers a failed workspace review through the failing repository checkout", async () => {
+    const row = workspaceLive();
+    const sendTaskBackForFix = vi.fn(async () => undefined);
+    const store = {
+      getSettings: vi.fn(async () => ({ autoMerge: true })),
+      getTaskWorkflowSelection: vi.fn(async () => undefined),
+      getWorkflowDefinition: vi.fn(async () => undefined),
+      updateTask: vi.fn(async () => row),
+      logEntry: vi.fn(async () => undefined),
+    };
+
+    await expect(recoverFailedPreMergeWorkflowStep({
+      store,
+      getRunContextFor: () => undefined,
+      resolveFailedPreMergeWorkflowStepBudget: vi.fn(async () => ({ unbounded: true, max: Infinity, attempts: 0, label: "unbounded", key: "code-review" })),
+      sendTaskBackForFix,
+    } as any, row)).resolves.toBe(true);
+
+    expect(sendTaskBackForFix.mock.calls[0]?.[1]).toBe("/tmp/mult-029/repo2");
+    expect(sendTaskBackForFix.mock.calls[0]?.[9]).toBe(false);
+  });
+
+  it("keeps an external execution route authoritative during workspace failed-step recovery", async () => {
+    const row = workspaceLive();
+    row.sourceMetadata = {
+      externalExecutionCheckout: "/tmp/operator-runtime",
+      externalExecutionBranch: "operator/runtime-fixes",
+    };
+    resolveExternalExecutionCheckoutRouteMock.mockResolvedValueOnce({
+      configured: true,
+      valid: true,
+      checkoutPath: "/tmp/operator-runtime",
+      branch: "operator/runtime-fixes",
+    });
+    const scheduleWorkflowRerun = vi.fn();
+    const store = {
+      getSettings: vi.fn(async () => ({ autoMerge: true })),
+      getTask: vi.fn(async () => row),
+      getTaskWorkflowSelection: vi.fn(async () => undefined),
+      getWorkflowDefinition: vi.fn(async () => undefined),
+      addTaskComment: vi.fn(async () => undefined),
+      updateTask: vi.fn(async (_id: string, patch: Record<string, unknown>) => {
+        Object.assign(row, patch);
+        return row;
+      }),
+      logEntry: vi.fn(async () => undefined),
+    };
+    const sendBackDeps = {
+      store,
+      clearCompletedTaskWatchdog: vi.fn(),
+      injectWorkflowStepFailureInstructions: vi.fn(async () => undefined),
+      reopenLastStepForRevision: vi.fn(async () => undefined),
+      scheduleWorkflowRerun,
+      maxWorkflowStepRetries: 3,
+    };
+
+    await expect(recoverFailedPreMergeWorkflowStep({
+      store,
+      getRunContextFor: () => undefined,
+      resolveFailedPreMergeWorkflowStepBudget: vi.fn(async () => ({ unbounded: true, max: Infinity, attempts: 0, label: "unbounded", key: "code-review" })),
+      sendTaskBackForFix: (...args: Parameters<typeof sendTaskBackForFix> extends [unknown, ...infer Rest] ? Rest : never) =>
+        sendTaskBackForFix(sendBackDeps as never, ...args),
+    } as any, row)).resolves.toBe(true);
+
+    expect(scheduleWorkflowRerun).toHaveBeenCalledWith(
+      row.id,
+      "/tmp/operator-runtime",
+      expect.stringContaining("sent back to in-progress for remediation"),
+      true,
+      false,
+    );
+    expect(store.updateTask.mock.calls.every(([, patch]) => !("worktree" in patch))).toBe(true);
+  });
+
+  it("uses the failing workspace checkout for a stage-one convergence bounce", async () => {
+    const row = workspaceLive();
+    const sendTaskBackForFix = vi.fn(async () => undefined);
+    const store = {
+      getSettings: vi.fn(async () => ({
+        autoMerge: true,
+        reviewConvergenceEscalationEnabled: true,
+        reviewConvergenceEscalationProvider: "mock",
+        reviewConvergenceEscalationModelId: "strong-reviewer",
+      })),
+      getTask: vi.fn(async () => row),
+      getTaskWorkflowSelection: vi.fn(async () => undefined),
+      getWorkflowDefinition: vi.fn(async () => undefined),
+      getWorkflowSettingValues: vi.fn(async () => ({})),
+      getWorkflowSettingsProjectId: vi.fn(() => undefined),
+      updateTask: vi.fn(async (_id, patch) => Object.assign(row, patch)),
+      updateTaskAtomic: vi.fn(async (_id, callback) => {
+        const patch = await callback(row);
+        if (patch) Object.assign(row, patch);
+        return row;
+      }),
+      logEntry: vi.fn(async () => undefined),
+    };
+
+    await expect(routeReviewConvergenceLadder({ store, getRunContextFor: () => undefined, sendTaskBackForFix } as any, row.id, {
+      kind: "budget-exhausted", workflowStepId: "code-review", stepName: "Code Review", feedback: "Fix it", findings: row.workflowStepResults[0].findings, attempt: 1, max: 1,
+    })).resolves.toBe("escalated");
+
+    expect(sendTaskBackForFix.mock.calls[0]?.[1]).toBe("/tmp/mult-029/repo2");
+    expect(sendTaskBackForFix.mock.calls[0]?.[9]).toBe(false);
+  });
+
+  it("reaches workspace arbitration through the stage-two convergence rung", async () => {
+    const row = workspaceLive();
+    row.reviewConvergenceStage = 1;
+    vi.mocked(runReviewArbitration).mockResolvedValueOnce("arbitrated");
+    const store = {
+      getSettings: vi.fn(async () => ({ autoMerge: true })),
+      getTask: vi.fn(async () => row),
+      getTaskWorkflowSelection: vi.fn(async () => undefined),
+      getWorkflowDefinition: vi.fn(async () => undefined),
+      getWorkflowSettingValues: vi.fn(async () => ({})),
+      getWorkflowSettingsProjectId: vi.fn(() => undefined),
+      updateTask: vi.fn(async (_id, patch) => Object.assign(row, patch)),
+      updateTaskAtomic: vi.fn(async (_id, callback) => {
+        const patch = await callback(row);
+        if (patch) Object.assign(row, patch);
+        return row;
+      }),
+      logEntry: vi.fn(async () => undefined),
+    };
+
+    await expect(routeReviewConvergenceLadder({ store, getRunContextFor: () => undefined, sendTaskBackForFix: vi.fn() } as any, row.id, {
+      kind: "repeat-unchanged", workflowStepId: "code-review", stepName: "Code Review", feedback: "Still broken", attempt: 2,
+    })).resolves.toBe("arbitrated");
+
+    expect(runReviewArbitration).toHaveBeenCalledWith(expect.anything(), row, "code-review", "Code Review", "Still broken", 2, undefined);
+  });
+
+  it("does not let a stale singular path mask the failing workspace repository", () => {
+    const row = workspaceLive();
+    row.worktree = "/tmp/stale-singular";
+
+    expect(resolveRemediationCheckout(row, row.workflowStepResults[0])).toEqual({
+      path: "/tmp/mult-029/repo2",
+      repository: "repo2",
+      persist: false,
+    });
+  });
+
+  it("skips remediation when neither a singular nor workspace checkout exists", async () => {
+    const row = structuredClone(live) as any;
+    delete row.worktree;
+    delete row.workspaceWorktrees;
+
+    expect(resolveRemediationCheckout(row, row.workflowStepResults[0])).toBeUndefined();
+    const subject = deps({ unbounded: true, max: Infinity, attempts: 0 });
+    await expect(routeRetryableRemediationGraphFailureToPreMergeFix(subject, row, "code-review-remediation", "retry")).resolves.toBe(false);
+    expect(subject.recoverFailedPreMergeWorkflowStep).not.toHaveBeenCalled();
+  });
+
+  it("admits a workspace failed gate to the self-healing delegate", async () => {
+    const row = {
+      ...workspaceLive(),
+      steps: [],
+      status: null,
+      paused: false,
+      autoMerge: true,
+      reviewConvergenceStage: 0,
+      log: [],
+    };
+    const recoverFailedPreMergeStep = vi.fn(async () => true);
+    const store = {
+      getSettings: vi.fn(async () => ({ autoMerge: true, globalPause: false, enginePaused: false, maxPostReviewFixes: 3 })),
+      listTasks: vi.fn(async () => [row]),
+      getTask: vi.fn(async () => row),
+      updateTask: vi.fn(async () => undefined),
+      logEntry: vi.fn(async () => undefined),
+      getTaskWorkflowSelection: vi.fn(() => undefined),
+      getWorkflowDefinition: vi.fn(async () => undefined),
+    };
+    const manager = new SelfHealingManager(store as any, { rootDir: "/tmp/fn-231", recoverFailedPreMergeStep });
+    try {
+      await expect(manager.recoverReviewTasksWithFailedPreMergeSteps()).resolves.toBe(1);
+      expect(recoverFailedPreMergeStep).toHaveBeenCalledWith(expect.objectContaining({ id: row.id }));
+    } finally {
+      manager.stop();
+    }
   });
 
   it("admits an exhausted failed gate to the self-healing delegate until stage three", async () => {

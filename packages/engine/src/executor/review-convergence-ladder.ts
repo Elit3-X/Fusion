@@ -23,6 +23,7 @@ import { moveTaskToReplanColumn } from "../execution/replan-target.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 import { runReviewArbitration } from "./review-arbitration.js";
+import { resolveRemediationCheckout } from "./resolve-remediation-checkout.js";
 
 export const REVIEW_CONVERGENCE_MAX_LADDER_CYCLES = 3;
 
@@ -292,13 +293,17 @@ export async function routeReviewConvergenceLadder(
   }
 
   let mode: "alternate-model" | "executor-remediation" | "replan";
+  const failedStep = claimedTask.workflowStepResults?.find((result) =>
+    result.workflowStepId === stop.workflowStepId && result.status === "failed");
+  const remediationCheckout = resolveRemediationCheckout(claimedTask, failedStep);
   try {
     if (decision.source !== "none") {
+      if (!remediationCheckout) throw new Error("Review convergence remediation checkout is unavailable");
       const workflowIr = await resolveWorkflowIrForTask(deps.store, taskId).catch(() => undefined);
       mode = "alternate-model";
       await deps.sendTaskBackForFix(
         claimedTask,
-        claimedTask.worktree ?? "",
+        remediationCheckout.path,
         stop.feedback,
         stop.stepName,
         `Review convergence ${stop.kind}: scheduling one bounded escalation round`,
@@ -306,7 +311,7 @@ export async function routeReviewConvergenceLadder(
         false,
         { attempt: stop.attempt + 1, max: stop.max },
         stop.findings,
-        undefined,
+        remediationCheckout.persist,
         resolveStepReopenPolicy(workflowIr),
       );
     } else if (stop.kind === "plan-review-cap") {
@@ -327,11 +332,12 @@ export async function routeReviewConvergenceLadder(
         graphResumeRetryCount: 0,
       }, deps.getRunContextFor(taskId));
     } else {
+      if (!remediationCheckout) throw new Error("Review convergence remediation checkout is unavailable");
       mode = "executor-remediation";
       const workflowIr = await resolveWorkflowIrForTask(deps.store, taskId).catch(() => undefined);
       await deps.sendTaskBackForFix(
         claimedTask,
-        claimedTask.worktree ?? "",
+        remediationCheckout.path,
         stop.feedback,
         stop.stepName,
         `Review convergence ${stop.kind}: resume named remediation in execution`,
@@ -339,7 +345,7 @@ export async function routeReviewConvergenceLadder(
         false,
         { attempt: stop.attempt + 1, max: stop.max },
         stop.findings,
-        undefined,
+        remediationCheckout.persist,
         resolveStepReopenPolicy(workflowIr),
       );
     }

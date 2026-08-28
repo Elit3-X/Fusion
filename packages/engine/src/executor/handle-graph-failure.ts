@@ -39,6 +39,7 @@ import {
   graphFailureValue,
   graphRunReportedPendingReview,
   isMergeGraphFailure,
+  latestFailedPreMergeWorkflowStep,
   isSessionContentionGraphFailure,
   isWorkspacePreparationGraphFailure,
   isWorktreeBaseRefreshGraphFailure,
@@ -1021,6 +1022,23 @@ export async function handleGraphFailure(
       taking the benign shortcut.
       */
       if (wipColumn !== undefined && live.column !== wipColumn) {
+        const failedPreMergeStep = latestFailedPreMergeWorkflowStep(live);
+        if (failedPreMergeStep) {
+          /*
+          FNXC:WorkflowRemediation 2026-08-28-12:16:
+          An advanced card is benign only when no failed pre-merge gate remains. If named remediation could not be scheduled, the card timeline must name the blocking gate and operator remedies rather than claim that no action is needed.
+          */
+          const stepName = failedPreMergeStep.workflowStepName || failedPreMergeStep.workflowStepId || "Unknown";
+          const blockedMessage = `Workflow graph run ended in '${live.column}' with failed pre-merge step '${stepName}' still blocking merge — remediation was not scheduled`;
+          executorLog.warn(`${task.id}: ${blockedMessage}`);
+          await deps.store.logEntry(
+            task.id,
+            blockedMessage,
+            "Retry the task after restoring its remediation checkout or revision policy. Use the privileged review bypass only when this failed review is known to be non-blocking.",
+            deps.getRunContextFor(task.id),
+          );
+          return;
+        }
         const benignMessage = `Workflow graph run ended after task already advanced to '${live.column}' — no further action needed`;
         executorLog.log(`${task.id}: ${benignMessage}`);
         await deps.store.logEntry(task.id, benignMessage, undefined, deps.getRunContextFor(task.id));

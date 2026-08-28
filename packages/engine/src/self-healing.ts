@@ -107,6 +107,7 @@ import { persistWorkspaceRepoLandFailure } from "./merge/workspace-land-failure.
 import { getCommitTaskOwnership } from "./merge/already-merged-detector.js";
 import { getTaskCompletionBlockerForStore } from "./execution/task-completion.js";
 import { shouldReclaimWedgedMerge } from "./merge/merge-reclaim-policy.js";
+import { resolveRemediationCheckout } from "./executor/resolve-remediation-checkout.js";
 
 import { advanceIntegrationBranchRef } from "./merge/merger-ref-update-advance.js";
 import { isReclaimableWorktreeCandidate, isWorktreeContainerDir, resolveAiMergeRootPath, resolveLegacyAiMergeRootPath, resolveWorktreesDir } from "./worktree/worktree-paths.js";
@@ -9287,8 +9288,10 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
         // the terminal human-only park FN-149 removes.
         if (!budget.unbounded && budget.attempts >= budget.max && (task.reviewConvergenceStage ?? 0) >= 3) return false;
 
-        // Must have at least one failed pre-merge workflow step result.
-        if (!latestFailedPreMergeStep(task)) return false;
+        // Must have a failed pre-merge result and either its singular checkout or the acquired
+        // workspace repository checkout selected by structured review evidence.
+        const failedStep = latestFailedPreMergeStep(task);
+        if (!failedStep || !resolveRemediationCheckout(task, failedStep)) return false;
 
         // Merge must be blocked *specifically* by the failed pre-merge step —
         // not by an unrelated condition (incomplete steps, etc.) that is
@@ -9299,11 +9302,6 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           reviewColumns: reviewLanesByTask.get(task.id) ?? new Set(["in-review"]),
         });
         if (!parkedRemediationFailure && blocker !== "task has failed pre-merge workflow steps") return false;
-
-        // The retry flow injects into PROMPT.md + re-executes on the worktree.
-        // If the worktree was cleaned up we can't reliably resume here; leave
-        // such tasks for human intervention.
-        if (!task.worktree) return false;
 
         return true;
       });

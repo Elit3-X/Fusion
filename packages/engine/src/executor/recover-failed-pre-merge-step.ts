@@ -34,6 +34,7 @@ import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import { routeReviewConvergenceLadder } from "./review-convergence-ladder.js";
 import { hasRepeatedUnchangedReview } from "./request-pre-merge-optional-step-fix.js";
+import { resolveRemediationCheckout } from "./resolve-remediation-checkout.js";
 
 export type RecoverFailedPreMergeStepDeps = {
   store: TaskStore;
@@ -100,6 +101,17 @@ export async function recoverFailedPreMergeWorkflowStep(
 
     const feedback = target.output?.trim() || "(no feedback captured)";
     const stepName = target.workflowStepName || target.workflowStepId || "Unknown";
+    const checkout = resolveRemediationCheckout(task, target);
+    if (!checkout) {
+      executorLog.warn(`${task.id}: failed pre-merge step recovery NOT scheduled for "${stepName}" — no remediation checkout is available. Card left parked.`);
+      await deps.store.logEntry(
+        task.id,
+        "Failed pre-merge step recovery not scheduled — checkout unavailable",
+        `Step: ${stepName}\nNo singular worktree or acquired workspace repository worktree is available. Retry after restoring the task checkout, or use the privileged review bypass when the failed review is known to be non-blocking.`,
+        deps.getRunContextFor?.(task.id),
+      );
+      return false;
+    }
     const budget = await deps.resolveFailedPreMergeWorkflowStepBudget(task, target);
     /*
      * FNXC:WorkflowRevisionBudget 2026-08-09-21:41:
@@ -159,7 +171,7 @@ export async function recoverFailedPreMergeWorkflowStep(
     const workflowIr = await resolveWorkflowIrForTask(deps.store, task.id).catch(() => undefined);
     await deps.sendTaskBackForFix(
       task,
-      task.worktree ?? "",
+      checkout.path,
       feedback,
       stepName,
       `Auto-revived from in-review: pre-merge workflow step "${stepName}" had failed`,
@@ -174,7 +186,7 @@ export async function recoverFailedPreMergeWorkflowStep(
        * restart-recovered bounce indistinguishable from a live one.
        */
       target.findings,
-      undefined,
+      checkout.persist,
       resolveStepReopenPolicy(workflowIr),
     );
     return true;

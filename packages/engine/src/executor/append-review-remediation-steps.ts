@@ -10,6 +10,8 @@ import {
 import { deriveRemediationSteps } from "./derive-remediation-steps.js";
 import type { RequestPreMergeOptionalStepFixInfo } from "./request-pre-merge-optional-step-fix.js";
 import { deriveWorkspaceReviewRemediation } from "./workspace-review-remediation.js";
+import { resolveReviewRemediationGate } from "./review-remediation-gate.js";
+import { resolveRemediationCheckout } from "./resolve-remediation-checkout.js";
 
 export type AppendReviewRemediationStepsDeps = {
   store: TaskStore;
@@ -53,7 +55,7 @@ export async function appendReviewRemediationSteps(
   info: RequestPreMergeOptionalStepFixInfo,
   options: { worktreePath?: string } = {},
 ): Promise<AppendReviewRemediationOutcome> {
-  const gate = info.nodeId === "verification" ? "Verification" : info.nodeId === "code-review" ? "Code Review" : undefined;
+  const gate = resolveReviewRemediationGate(info);
   if (!gate) return "not-applicable";
   const wave = remediationWaveCount(task.steps ?? []) + 1;
   if (wave > 3) {
@@ -69,6 +71,9 @@ export async function appendReviewRemediationSteps(
     verificationCommandLabel: gate === "Verification" ? info.stepName : undefined,
     prompt,
     changedFiles: task.modifiedFiles,
+    confirmedRepositories: task.repositoryScope?.state === "confirmed"
+      ? task.repositoryScope.repositories
+      : undefined,
   });
   if (derived.reason === "upstream-out-of-scope") {
     return release(
@@ -190,9 +195,21 @@ export async function appendReviewRemediationSteps(
     );
     return "appended";
   }
+  const providedPath = options.worktreePath?.trim();
+  const checkout = providedPath
+    ? { path: providedPath, persist: undefined }
+    : resolveRemediationCheckout(live, reviewResult);
+  if (!checkout) {
+    return release(
+      deps.store,
+      task.id,
+      "review-remediation-workspace-worktree-missing",
+      "released-workspace-worktree-missing",
+    );
+  }
   await deps.sendTaskBackForFix(
     live,
-    options.worktreePath?.trim() || live.worktree || "",
+    checkout.path,
     info.feedback,
     info.stepName,
     `Review gate ${gate} requested named remediation`,
@@ -200,7 +217,7 @@ export async function appendReviewRemediationSteps(
     false,
     undefined,
     info.findings,
-    undefined,
+    checkout.persist,
     "none",
   );
   return "appended";
