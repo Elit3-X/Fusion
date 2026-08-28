@@ -823,6 +823,7 @@ export async function runGraphCustomNode(
     if (repositoryReviewOutcomes?.length) contextPatch.repositoryReviewOutcomes = repositoryReviewOutcomes;
     if (outcome.repositoryScopeRevision !== undefined) contextPatch.repositoryScopeRevision = outcome.repositoryScopeRevision;
     if (outcome.reviewInputFingerprint !== undefined) contextPatch.reviewInputFingerprint = outcome.reviewInputFingerprint;
+    if (outcome.reviewedCommitSha !== undefined) contextPatch.reviewedCommitSha = outcome.reviewedCommitSha;
     if (outcome.supersededFindingIds?.length && outcome.supersededFindingSourceWorkflowStepId) {
       contextPatch.supersededFindingSourceWorkflowStepId = outcome.supersededFindingSourceWorkflowStepId;
       contextPatch.supersededFindingIds = outcome.supersededFindingIds;

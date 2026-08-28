@@ -396,10 +396,59 @@ export async function requestPreMergeOptionalStepFix(
    * guards above. A deterministic Verification failure has no reviewer verdict; Code Review still
    * requires a genuine REVISE so transport failures cannot manufacture remediation work.
    */
-  if (
-    info.nodeId === "verification"
-    || (info.nodeId === "code-review" && info.verdict === "REVISE")
-  ) {
+  if (info.nodeId === "verification") {
+    const remediationOutcome = await deps.appendReviewRemediationSteps(liveTask, info);
+    if (remediationOutcome === "appended") return true;
+    return false;
+  }
+
+  if (info.nodeId === "code-review" && info.verdict === "REVISE") {
+    /*
+    FNXC:ReviewConvergence 2026-08-28-11:11:
+    Singular Code Review must admit unchanged-input and exhausted-budget stops to convergence before
+    its named-remediation appender returns. Workspace review keeps its repository-scoped appender path;
+    its durable per-repository signature is a separate contract.
+    */
+    if (!liveTask.workspaceWorktrees) {
+      const codeReviewSettings = await mergeEffectiveSettings(deps.store, liveTask, await deps.store.getSettings());
+      const maxRevisions = resolveOptionalReviewRevisionBudget({
+        optionalGroupId: info.nodeId,
+        workflowSettings: codeReviewSettings as Record<string, unknown>,
+        nodeMaxRevisions: info.maxRevisions,
+        fallbackMaxRevisions: codeReviewSettings.maxPostReviewFixes ?? DEFAULT_MAX_POST_REVIEW_FIXES,
+      });
+      const codeReviewBudget = resolveOptionalStepRevisionBudget(
+        maxRevisions,
+        codeReviewSettings.maxPostReviewFixes ?? DEFAULT_MAX_POST_REVIEW_FIXES,
+      );
+      const revisionKey = optionalStepRevisionKey(info.nodeId, info.stepName);
+      const currentCount = countOptionalStepRevisionAttempts(liveTask, revisionKey, info.stepName);
+      const stop = hasRepeatedUnchangedCodeReview(liveTask, info)
+        ? { kind: "repeat-unchanged" as const, attempt: currentCount }
+        : !codeReviewBudget.unbounded && currentCount >= codeReviewBudget.max
+          ? { kind: "budget-exhausted" as const, attempt: currentCount }
+          : undefined;
+      if (stop) {
+        const outcome = await routeReviewConvergenceLadder(deps, taskId, {
+          ...stop,
+          workflowStepId: info.nodeId,
+          stepName: info.stepName,
+          feedback: info.feedback,
+          findings: info.findings,
+          max: codeReviewBudget.unbounded ? undefined : codeReviewBudget.max,
+        });
+        if (outcome === "escalated" || outcome === "arbitrated") return true;
+        if (stop.kind === "repeat-unchanged") {
+          await deps.store.logEntry(
+            taskId,
+            "Code Review did not converge — released as non-blocking",
+            `The same Code Review revision was returned twice without a changed review input. Latest feedback:\n${info.feedback}`,
+            deps.getRunContextFor(taskId),
+          );
+        }
+        return false;
+      }
+    }
     const remediationOutcome = await deps.appendReviewRemediationSteps(liveTask, info);
     if (remediationOutcome === "appended") return true;
     return false;

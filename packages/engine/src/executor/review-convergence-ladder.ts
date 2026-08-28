@@ -8,11 +8,14 @@ An exhausted Code Review convergence cycle is advisory, not a human gate. Its te
 import type { Task, TaskStore, WorkflowReviewFinding } from "@fusion/core";
 import {
   collectDisputedFindings,
+  hasConfiguredFallbackLane,
   hasPendingRemediationWork,
   hasPreMergeRemediationAutoMergeHold,
   isOpenWorkflowReviewFinding,
+  resolveExecutorFallbackModel,
   resolveReviewConvergenceEscalationTarget,
   resolveStepReopenPolicy,
+  resolveTaskExecutionModel,
   resolveWorkflowIrForTask,
 } from "@fusion/core";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
@@ -45,6 +48,43 @@ export type ReviewConvergenceLadderDeps = {
 };
 
 export type ReviewConvergenceLadderOutcome = "escalated" | "arbitrated" | "released" | "human-escalated" | "declined";
+
+type EscalationDecision =
+  | { source: "dedicated" | "execution-fallback"; provider: string; modelId: string }
+  | { source: "none"; reason: "dedicated-target-not-distinct" | "no-distinct-target-configured" };
+
+function resolveEscalationDecision(task: Task, settings: Awaited<ReturnType<typeof mergeEffectiveSettings>>): EscalationDecision {
+  const persistedBaseline = task.modelProvider && task.modelId
+    ? { provider: task.modelProvider, modelId: task.modelId }
+    : undefined;
+  const effective = persistedBaseline ?? resolveTaskExecutionModel(task, settings);
+  const isDistinct = (provider: string, modelId: string) =>
+    !effective.provider || !effective.modelId
+      || provider !== effective.provider
+      || modelId !== effective.modelId;
+
+  const dedicated = resolveReviewConvergenceEscalationTarget(settings);
+  const dedicatedNotDistinct = Boolean(
+    dedicated.enabled && dedicated.provider && dedicated.modelId
+      && !isDistinct(dedicated.provider, dedicated.modelId),
+  );
+  if (dedicated.enabled && dedicated.provider && dedicated.modelId
+    && isDistinct(dedicated.provider, dedicated.modelId)) {
+    return { source: "dedicated", provider: dedicated.provider, modelId: dedicated.modelId };
+  }
+
+  if (hasConfiguredFallbackLane(settings, "execution")) {
+    const fallback = resolveExecutorFallbackModel(settings);
+    if (fallback.provider && fallback.modelId && isDistinct(fallback.provider, fallback.modelId)) {
+      return { source: "execution-fallback", provider: fallback.provider, modelId: fallback.modelId };
+    }
+  }
+
+  return {
+    source: "none",
+    reason: dedicatedNotDistinct ? "dedicated-target-not-distinct" : "no-distinct-target-configured",
+  };
+}
 
 /*
 FNXC:ReviewConvergence 2026-08-28-07:48:
@@ -97,7 +137,8 @@ export async function routeReviewConvergenceLadder(
       && (result.status === "failed" || result.status === "advisory_failure"))) return "declined";
   let claimed = false;
   let claimedStage: 1 | 2 | 3 | undefined;
-  let escalationTarget: ReturnType<typeof resolveReviewConvergenceEscalationTarget> | undefined;
+  let claimedCycle: number | undefined;
+  let escalationDecision: EscalationDecision | undefined;
   let claimedTask: Task | undefined;
   const claim = async (current: Task) => {
     const currentSettings = await mergeEffectiveSettings(deps.store, current, settings);
@@ -112,17 +153,28 @@ export async function routeReviewConvergenceLadder(
       || !liveGate || (liveGate.status !== "failed" && liveGate.status !== "advisory_failure")) return null;
     const cycles = current.reviewConvergenceEscalationCount ?? 0;
     const currentStage = current.reviewConvergenceStage ?? 0;
-    claimedStage = cycles >= REVIEW_CONVERGENCE_MAX_LADDER_CYCLES || currentStage >= 2
+    escalationDecision = resolveEscalationDecision(current, currentSettings);
+    const nextStage = cycles >= REVIEW_CONVERGENCE_MAX_LADDER_CYCLES || currentStage >= 2
       ? 3
       : currentStage === 1 ? 2 : 1;
-    escalationTarget = resolveReviewConvergenceEscalationTarget(currentSettings);
+    /*
+    FNXC:ReviewConvergence 2026-08-28-11:04:
+    Candidate ordering is gated by usability, not the dedicated target's enabled bit: an enabled but
+    identical target must not strand a distinct execution fallback. Only repeat-unchanged may skip
+    stage one when no distinct model exists; budget exhaustion and the Plan Review cap keep their
+    existing stage-one lifecycle action, using the honest executor-remediation or replan label.
+    */
+    claimedStage = stop.kind === "repeat-unchanged" && nextStage === 1 && escalationDecision.source === "none"
+      ? 2
+      : nextStage;
+    claimedCycle = cycles + 1;
     claimedTask = current;
     claimed = true;
     return {
       reviewConvergenceStage: claimedStage,
-      reviewConvergenceEscalationCount: cycles + 1,
-      ...(claimedStage === 1 && escalationTarget?.enabled && escalationTarget.provider && escalationTarget.modelId
-        ? { modelProvider: escalationTarget.provider, modelId: escalationTarget.modelId }
+      reviewConvergenceEscalationCount: claimedCycle,
+      ...(claimedStage === 1 && escalationDecision.source !== "none"
+        ? { modelProvider: escalationDecision.provider, modelId: escalationDecision.modelId }
         : {}),
     };
   };
@@ -133,7 +185,42 @@ export async function routeReviewConvergenceLadder(
     const patch = await claim(task);
     if (patch) await deps.store.updateTask(taskId, patch, deps.getRunContextFor(taskId));
   }
-  if (!claimed || !claimedTask || !claimedStage) return "declined";
+  if (!claimed || !claimedTask || !claimedStage || !claimedCycle || !escalationDecision) return "declined";
+  const decision = escalationDecision;
+
+  if (claimedStage < 3) {
+    const decisionLog = decision.source === "none"
+      ? `No distinct model target was usable (${decision.reason}); ${claimedStage === 2 ? "advancing to arbitration" : "continuing the existing lifecycle action"}.`
+      : `Selected the ${decision.source} escalation source for one distinct-model round.`;
+    await (deps.store.logEntry as TaskStore["logEntry"] | undefined)?.call(
+      deps.store,
+      taskId,
+      `Review convergence escalation source: ${decision.source}`,
+      decisionLog,
+      deps.getRunContextFor(taskId),
+    );
+  }
+
+  const emitEscalationAudit = async (
+    stage: 1 | 2,
+    mode: "alternate-model" | "executor-remediation" | "replan" | "arbitration",
+  ) => {
+    const runContext = deps.getRunContextFor(taskId);
+    if (!runContext) return;
+    await emitBoundedRunAudit(deps.store, {
+      taskId, agentId: runContext.agentId, runId: runContext.runId, domain: "database",
+      mutationType: "task:review-convergence-escalation", target: taskId,
+      metadata: {
+        workflowStepId: stop.workflowStepId ?? stop.stepName,
+        stop: stop.kind,
+        stage,
+        cycle: claimedCycle,
+        mode,
+        hasModelTarget: stage === 1 && decision.source !== "none",
+        escalationSource: stage === 1 ? decision.source : "none",
+      },
+    });
+  };
 
   if (claimedStage === 3) {
     const context = deps.getRunContextFor(taskId);
@@ -187,6 +274,7 @@ export async function routeReviewConvergenceLadder(
       stop.attempt,
       stop.max,
     );
+    await emitEscalationAudit(2, "arbitration");
     if (outcome === "arbitrated") return outcome;
     // A malformed or unavailable arbiter is the final automatic rung, never a silent park.
     await deps.store.updateTask(taskId, { reviewConvergenceStage: 2 }, deps.getRunContextFor(taskId));
@@ -205,7 +293,7 @@ export async function routeReviewConvergenceLadder(
 
   let mode: "alternate-model" | "executor-remediation" | "replan";
   try {
-    if (escalationTarget?.enabled) {
+    if (decision.source !== "none") {
       const workflowIr = await resolveWorkflowIrForTask(deps.store, taskId).catch(() => undefined);
       mode = "alternate-model";
       await deps.sendTaskBackForFix(
@@ -265,13 +353,6 @@ export async function routeReviewConvergenceLadder(
     }
     return "declined";
   }
-  const runContext = deps.getRunContextFor(taskId);
-  if (runContext) await emitBoundedRunAudit(deps.store, {
-    taskId, agentId: runContext.agentId, runId: runContext.runId, domain: "database",
-    mutationType: "task:review-convergence-escalation", target: taskId,
-    metadata: { workflowStepId: stop.workflowStepId ?? stop.stepName, stop: stop.kind, stage: 1,
-      cycle: (claimedTask.reviewConvergenceEscalationCount ?? 0) + 1,
-      mode, hasModelTarget: escalationTarget?.enabled === true },
-  });
+  await emitEscalationAudit(1, mode);
   return "escalated";
 }

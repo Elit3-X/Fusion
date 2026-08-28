@@ -87,7 +87,7 @@ import {
   type WorkflowStepOutcome,
 } from "./workflow-step-verdict.js";
 import { resolveDiffBaseRef } from "./worktree-git-refs.js";
-import { computeReviewDiffFingerprint } from "../worktree/review-diff-fingerprint.js";
+import { computeReviewDiffFingerprint, probeReviewChangesSinceCommit } from "../worktree/review-diff-fingerprint.js";
 // FNXC:PlanReviewConvergence 2026-08-15-22:15: FN-8768 convergence primer + revision-key classifier (restored post-wave-18).
 import { buildGraphPlanReviewConvergenceContext, buildReviewConvergenceContext, optionalStepRevisionKey } from "./optional-step-revision.js";
 // FNXC:CommandCenterActivity 2026-08-15-22:15: FN-8868 usage telemetry + session boundaries (restored post-wave-18).
@@ -112,6 +112,44 @@ export function findReusableReviewResult(
       && result.bypassedAt === undefined
       && result.verdict !== undefined,
   );
+}
+
+/*
+FNXC:ReviewConvergence 2026-08-28-10:57:
+Prior findings alone cannot tell a reviewer whether a defect was fixed or ignored. Render a separate
+Git-derived changed-since block so the next same-gate round can make that distinction; workspace
+reviews omit it because the singular worktree is not authoritative for their repository set.
+*/
+export async function buildCodeReviewChangeSummaryBlock(
+  task: Pick<Task, "workflowStepResults" | "workspaceWorktrees">,
+  workflowStepId: string,
+  worktreePath: string,
+): Promise<string | undefined> {
+  if (task.workspaceWorktrees !== undefined) return undefined;
+  const ownResult = task.workflowStepResults?.find((result) => result.workflowStepId === workflowStepId);
+  const previousReviewedCommit = ownResult?.priorAttempts?.[0]?.reviewedCommitSha;
+  if (!previousReviewedCommit) return undefined;
+
+  const changedSince = await probeReviewChangesSinceCommit(worktreePath, previousReviewedCommit);
+  if (changedSince.state === "frozen") {
+    return `### Changed since your previous review
+No commits landed since your previous review; the reviewed code is unchanged.
+Maintain each prior finding by ID if it still applies, or approve. Do not derive new findings from unchanged code.`;
+  }
+  if (changedSince.state !== "changed") return undefined;
+
+  const commitLabel = changedSince.commitCount === 1 ? "commit" : "commits";
+  const files = changedSince.changedFiles.map((file) => `- ${file}`);
+  if (changedSince.totalChangedFileCount > changedSince.changedFiles.length) {
+    files.push(`- ... (${changedSince.totalChangedFileCount - changedSince.changedFiles.length} more files truncated)`);
+  }
+  return [
+    "### Changed since your previous review",
+    `${changedSince.commitCount} ${commitLabel} landed since the commit reviewed in your previous round.`,
+    "Changed files:",
+    ...files,
+    ...(changedSince.shortstat ? [`Diff stat: ${changedSince.shortstat}`] : []),
+  ].join("\n");
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mirror TaskExecutor method/map surface
@@ -240,10 +278,16 @@ export async function executeWorkflowStep(
     }
     const workflowReviewSpecText = typeof workflowReviewSpecArtifact === "string" ? workflowReviewSpecArtifact : "";
     const planReviewSpecText = isPlanReviewStep ? workflowReviewSpecText : "";
-    // FNXC:PlanReviewConvergence 2026-08-04-06:35 (FN-8768; restored 2026-08-15-22:15): cumulative
-    // prior-feedback primer + attempt-three severity ratchet for repeat Plan Review attempts.
+    const latestTaskForUserComments = await deps.store.getTask(task.id).catch(() => task);
+    const sameGateStepId = workflowStep.id.replace(/^graph:/, "");
+    /*
+    FNXC:ReviewConvergence 2026-08-28-10:57:
+    Plan Review must assemble convergence from a fresh task snapshot because disputes recorded during
+    remediation land after the executor's original task argument was captured. Code Review and Plan
+    Review therefore share this read, with the stale argument retained only as the storage-failure fallback.
+    */
     const planReviewConvergenceContext = isPlanReviewStep
-      ? buildGraphPlanReviewConvergenceContext(task, planReviewRevisionKey)
+      ? buildGraphPlanReviewConvergenceContext(latestTaskForUserComments, planReviewRevisionKey)
       : "";
 
     /*
@@ -299,6 +343,7 @@ export async function executeWorkflowStep(
     const scopedFiles = await deps.captureModifiedFiles(worktreePath, diffBaseCommitSha, task.id, undefined, "workflow-step-handler");
     let diffShortstat: string | undefined;
     let reviewInputFingerprint: string | undefined;
+    let reviewedCommitSha: string | undefined;
     try {
       const baseRef = await resolveDiffBaseRef(worktreePath, diffBaseCommitSha);
       if (baseRef) {
@@ -311,6 +356,17 @@ export async function executeWorkflowStep(
       }
     } catch {
       // best-effort — fall through with no shortstat
+    }
+    if (isReviewTypeWorkflowStep) {
+      try {
+        const { stdout } = await execAsync("git rev-parse HEAD", {
+          cwd: worktreePath,
+          encoding: "utf-8",
+        });
+        reviewedCommitSha = stdout.trim() || undefined;
+      } catch {
+        // best-effort — a missing anchor must not disturb the review fingerprint or prompt
+      }
     }
 
     const MAX_SCOPE_FILES = 100;
@@ -367,10 +423,15 @@ CRITICAL SCOPING RULES — read before doing anything else:
 - Keep adjacent reads bounded to the changed behavior and its immediate production/test chain so the review finishes within its wall-clock budget.${approvedContractBlock}`;
 
     if (isPlanReviewStep && workflowReviewSpecText.trim()) reviewInputFingerprint = computePlanApprovalFingerprint(workflowReviewSpecText);
-    const latestTaskForUserComments = await deps.store.getTask(task.id).catch(() => task);
-    const sameGateStepId = workflowStep.id.replace(/^graph:/, "");
+    const changeSummaryBlock = workflowStepMetadata.reviewKind === "code"
+      ? await buildCodeReviewChangeSummaryBlock(latestTaskForUserComments, sameGateStepId, worktreePath)
+      : undefined;
     const reviewConvergenceContext = workflowStepMetadata.reviewKind === "code"
-      ? buildReviewConvergenceContext(latestTaskForUserComments, { revisionKey: sameGateStepId, reviewKind: "code" })
+      ? buildReviewConvergenceContext(latestTaskForUserComments, {
+        revisionKey: sameGateStepId,
+        reviewKind: "code",
+        ...(changeSummaryBlock ? { changeSummaryBlock } : {}),
+      })
       : "";
     const workflowStepUserComments = selectUserCommentsForAgentContext(latestTaskForUserComments, { limit: null });
     const workflowStepUserCommentSection = buildUserCommentsPromptSection(workflowStepUserComments);
@@ -463,6 +524,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
         notes: reusableReviewResult.notes,
         ...(reusableReviewResult.findings ? { findings: reusableReviewResult.findings } : {}),
         reviewInputFingerprint,
+        ...(reviewedCommitSha ? { reviewedCommitSha } : {}),
         ...(repositoryScopeRevision !== undefined ? { repositoryScopeRevision } : {}),
         ...(reusableReviewResult.supersededFindingSourceWorkflowStepId && reusableReviewResult.supersededFindingIds
           ? {
@@ -1048,6 +1110,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
             notes: parsed.notes,
             ...(parsed.findings ? { findings: parsed.findings } : {}),
             ...(reviewInputFingerprint ? { reviewInputFingerprint } : {}),
+            ...(reviewedCommitSha ? { reviewedCommitSha } : {}),
             ...(repositoryScopeRevision !== undefined ? { repositoryScopeRevision } : {}),
             ...(parsed.supersededFindingSourceWorkflowStepId && parsed.supersededFindingIds ? { supersededFindingSourceWorkflowStepId: parsed.supersededFindingSourceWorkflowStepId, supersededFindingIds: parsed.supersededFindingIds } : {}),
           };
@@ -1070,6 +1133,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
             error: "malformed output — no verdict extracted",
             notes: undefined,
             malformed: true,
+            ...(reviewedCommitSha ? { reviewedCommitSha } : {}),
           };
         }
 

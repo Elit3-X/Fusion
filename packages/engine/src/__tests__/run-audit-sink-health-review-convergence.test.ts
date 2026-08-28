@@ -151,6 +151,17 @@ describe("FN-149 review convergence audit sink health", () => {
       kind: "repeat-unchanged", workflowStepId: "code-review", stepName: "Code Review", feedback: "same", attempt: 2,
     }))).resolves.toBe("escalated");
     expect(sendTaskBackForFix).toHaveBeenCalledOnce();
+    expect(row).toMatchObject({ reviewConvergenceStage: 1, modelProvider: "mock", modelId: "strong" });
+    if (sink.recordRunAuditEvent) {
+      const event = sink.recordRunAuditEvent.mock.calls.map((call) => call[0])
+        .find((candidate) => candidate.mutationType === "task:review-convergence-escalation");
+      expect(event?.metadata).toMatchObject({
+        stage: 1,
+        mode: "alternate-model",
+        hasModelTarget: true,
+        escalationSource: "dedicated",
+      });
+    }
   });
 
   it.each(["absent", "throws", "rejects", "pending", "late-resolve", "late-reject"] as const)("keeps a fenced arbitration release observable with a %s sink", async (mode) => {

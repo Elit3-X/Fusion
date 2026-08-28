@@ -64,6 +64,8 @@ export interface WorkflowStepOutcome {
   repositoryScopeRevision?: number;
   /** Content-addressed review input used to detect unchanged remediation loops. */
   reviewInputFingerprint?: string;
+  /** Commit inspected by this review, used to anchor the next same-gate change summary. */
+  reviewedCommitSha?: string;
   /** Specific prior result containing the findings this review step claims are superseded. */
   supersededFindingSourceWorkflowStepId?: string;
   /** Explicit prior-lane finding IDs this review step claims are now superseded. */

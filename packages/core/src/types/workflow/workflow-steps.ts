@@ -317,6 +317,12 @@ export interface WorkflowStepResult {
   remediationArchivedFromStatus?: WorkflowStepResult["status"];
   /** Durable input identity used to detect a repeated review over unchanged code or plan text. */
   reviewInputFingerprint?: string;
+  /**
+   * FNXC:ReviewConvergence 2026-08-28-10:57:
+   * This is the commit the review actually inspected, anchoring the next same-gate round's
+   * changed-since summary. It is absent on legacy results written before this field existed.
+   */
+  reviewedCommitSha?: string;
   /** Arbitration provenance is only written by the fenced single-gate ruling writer. */
   arbitrationDecision?: "UPHOLD_REVIEW" | "UPHOLD_IMPLEMENTER" | "SPLIT";
   arbitrationBindingFindingCount?: number;

@@ -1112,6 +1112,9 @@ export class WorkflowGraphExecutor {
           const reviewInputFingerprint = this.workflowReviewKind(node) && typeof exitContextPatch?.reviewInputFingerprint === "string"
             ? exitContextPatch.reviewInputFingerprint
             : undefined;
+          const reviewedCommitSha = this.workflowReviewKind(node) && typeof exitContextPatch?.reviewedCommitSha === "string"
+            ? exitContextPatch.reviewedCommitSha
+            : undefined;
           const supersededFindingSourceWorkflowStepId = this.workflowReviewKind(node) && typeof exitContextPatch?.supersededFindingSourceWorkflowStepId === "string"
             ? exitContextPatch.supersededFindingSourceWorkflowStepId
             : undefined;
@@ -1156,6 +1159,7 @@ export class WorkflowGraphExecutor {
             ...(repositoryReviewOutcomes?.length ? { repositoryReviewOutcomes } : {}),
             ...(repositoryScopeRevision !== undefined ? { repositoryScopeRevision } : {}),
             ...(reviewInputFingerprint !== undefined ? { reviewInputFingerprint } : {}),
+            ...(reviewedCommitSha !== undefined ? { reviewedCommitSha } : {}),
             ...(supersededFindingSourceWorkflowStepId && supersededFindingIds?.length ? { supersededFindingSourceWorkflowStepId, supersededFindingIds } : {}),
             startedAt: stepStartedAt,
             completedAt: new Date().toISOString(),
@@ -2122,6 +2126,9 @@ export class WorkflowGraphExecutor {
     const reviewInputFingerprint = this.workflowReviewKind(node) && typeof contextPatch.reviewInputFingerprint === "string"
       ? contextPatch.reviewInputFingerprint
       : undefined;
+    const reviewedCommitSha = this.workflowReviewKind(node) && typeof contextPatch.reviewedCommitSha === "string"
+      ? contextPatch.reviewedCommitSha
+      : undefined;
     /* FNXC:WorkflowReviewFindings 2026-08-11-19:39: This ordinary writer and the optional-group exit writer above carry explicit review supersession claims to the shared persistence sink. */
     const supersededFindingSourceWorkflowStepId = this.workflowReviewKind(node) && typeof contextPatch.supersededFindingSourceWorkflowStepId === "string"
       ? contextPatch.supersededFindingSourceWorkflowStepId
@@ -2157,6 +2164,7 @@ export class WorkflowGraphExecutor {
       ...(repositoryReviewOutcomes?.length ? { repositoryReviewOutcomes } : {}),
       ...(repositoryScopeRevision !== undefined ? { repositoryScopeRevision } : {}),
       ...(reviewInputFingerprint !== undefined ? { reviewInputFingerprint } : {}),
+      ...(reviewedCommitSha !== undefined ? { reviewedCommitSha } : {}),
       ...(supersededFindingSourceWorkflowStepId && supersededFindingIds?.length ? { supersededFindingSourceWorkflowStepId, supersededFindingIds } : {}),
       startedAt: started?.startedAt ?? new Date().toISOString(),
       completedAt: new Date().toISOString(),
