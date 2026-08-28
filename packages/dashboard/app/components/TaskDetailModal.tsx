@@ -8,7 +8,7 @@ import { mergeTaskSnapshot } from "../hooks/useTasks";
 import { dismissAiMergeReviewFinding } from "../api/tasks/tasks-lifecycle";
 import { FloatingWindow } from "./FloatingWindow";
 import { ExternalBlockNotice } from "./TaskCard";
-import { RespecifyPlanDialog } from "./RespecifyPlanDialog";
+import { TaskResetDialog } from "./TaskResetDialog";
 import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import { useModalDismissPreference, useOverlayDismiss } from "../hooks/useOverlayDismiss";
 import { useColumnLabel } from "../i18n/labels";
@@ -442,7 +442,7 @@ export interface TaskDetailModalProps {
   affordance surface for this policy-gated escape hatch.
   */
   onBypassReview?: (id: string, reason: string) => Promise<Task>;
-  onResetTask?: (id: string) => Promise<Task>;
+  onResetTask?: (id: string, options?: { description?: string }) => Promise<Task>;
   onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   onTaskUpdated?: (task: Task) => void;
   /** Publishes a successfully created refinement child to shared board state. */
@@ -1417,7 +1417,7 @@ export function TaskDetailContent({
   const [specEditContent, setSpecEditContent] = useState(workingTask.prompt || "");
   const [specFeedback, setSpecFeedback] = useState("");
   const [showRefineModal, setShowRefineModal] = useState(false);
-  const [showRespecifyPlanDialog, setShowRespecifyPlanDialog] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
 
   /*
   FNXC:TaskDetailPlan 2026-08-05-04:05:
@@ -3545,27 +3545,12 @@ export function TaskDetailContent({
   }, [addToast, onTaskUpdated, projectId, t, task.id]);
 
   /*
-  FNXC:TaskReset 2026-08-28-14:45:
-  Reset confirmation names the permanently deleted plan, worktree, task-owned branch commits, and reviews. The success toast is emitted only after the server has fenced work, proved cleanup, and committed fresh Planning state.
+  FNXC:TaskReset 2026-08-28-16:31:
+  Task Detail keeps its owner mounted while the editable Reset dialog submits. The detail surface closes only after the server has fenced cleanup and committed fresh Planning state; failures leave both the task and its corrected request visible for retry.
   */
-  const handleReset = useCallback(async () => {
-    if (!onResetTask) return;
-    const shouldReset = await confirm({
-      title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
-      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered."),
-      confirmLabel: t("taskDetail.reset.btn", "Reset"),
-      cancelLabel: t("common.cancel", "Cancel"),
-      danger: true,
-    });
-    if (!shouldReset) return;
-    requestClose();
-    try {
-      await onResetTask(task.id);
-      addToast(t("taskDetail.reset.resetSuccess", "Reset {{id}} — worktree and plan discarded; task returned to Planning", { id: task.id }), "success");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [task.id, onResetTask, requestClose, addToast, confirm, t]);
+  const handleReset = useCallback(() => {
+    if (onResetTask) setShowResetDialog(true);
+  }, [onResetTask]);
 
   const handleDuplicate = useCallback(async () => {
     if (!onDuplicateTask) return;
@@ -4380,7 +4365,6 @@ export function TaskDetailContent({
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
     hasResetHandler: Boolean(onResetTask),
-    hasRespecifyHandler: true,
     hasBypassReviewHandler: Boolean(onBypassReview),
     mergeStrategy,
     autoMergeEnabled: effectiveAutoMerge,
@@ -4391,7 +4375,6 @@ export function TaskDetailContent({
     onOpenRefine: handleOpenRefineModal,
     onRetry: handleRetry,
     onReset: handleReset,
-    onRespecify: () => setShowRespecifyPlanDialog(true),
     onTogglePause: handleTogglePause,
     onMerge: handleMergeMenuItemClick,
     onStartPrReview: handleStartPrReviewMenuItemClick,
@@ -5224,9 +5207,6 @@ export function TaskDetailContent({
                     <div className="detail-plan-approval-banner__actions" data-testid="detail-plan-approval-banner-actions">
                       <button className="btn btn-primary btn-sm" data-testid="detail-plan-approval-banner-approve" onClick={handleApprovePlan}>
                         {t("taskDetail.plan.approveBtn", "Approve Plan")}
-                      </button>
-                      <button className="btn btn-sm" data-testid="detail-plan-approval-banner-respecify" onClick={() => setShowRespecifyPlanDialog(true)}>
-                        {t("taskDetail.respecify.btn", "Respecify")}
                       </button>
                       <button className="btn btn-danger btn-sm" data-testid="detail-plan-approval-banner-reject" onClick={handleRejectPlan}>
                         {t("taskDetail.plan.rejectBtn", "Reject Plan")}
@@ -7569,13 +7549,14 @@ export function TaskDetailContent({
             </>
           )}
       </div>
-      {showRespecifyPlanDialog && (
-        <RespecifyPlanDialog
+      {showResetDialog && onResetTask && (
+        <TaskResetDialog
           taskId={task.id}
-          projectId={projectId}
+          initialDescription={workingTask.description}
+          onReset={onResetTask}
           addToast={addToast}
-          onClose={() => setShowRespecifyPlanDialog(false)}
-          onSubmitted={onTaskUpdated}
+          onResetCompleted={requestClose}
+          onClose={() => setShowResetDialog(false)}
         />
       )}
       {showRefineModal && (

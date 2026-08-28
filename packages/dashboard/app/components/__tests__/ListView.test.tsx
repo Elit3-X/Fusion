@@ -824,7 +824,7 @@ describe("ListView", () => {
 
       const notice = screen.getByTestId("plan-approval-list-FN-228-desktop");
       expect(within(notice).getByRole("button", { name: "Approve" })).toBeEnabled();
-      expect(within(notice).getByRole("button", { name: "Respecify" })).toBeEnabled();
+      expect(within(notice).getAllByRole("button")).toHaveLength(1);
     } finally {
       viewportSpy.mockRestore();
     }
@@ -847,7 +847,7 @@ describe("ListView", () => {
 
       const notice = screen.getByTestId("plan-approval-list-FN-228-mobile");
       expect(within(notice).getByRole("button", { name: "Approve" })).toBeEnabled();
-      expect(within(notice).getByRole("button", { name: "Respecify" })).toBeEnabled();
+      expect(within(notice).getAllByRole("button")).toHaveLength(1);
     } finally {
       viewportSpy.mockRestore();
     }
@@ -1332,17 +1332,41 @@ describe("ListView", () => {
     viewportSpy.mockRestore();
   });
 
-  it("routes reset through the centralized confirm seam and proceeds in skip mode", async () => {
+  it("opens editable Reset without consulting confirmation settings", async () => {
     const onResetTask = vi.fn(async () => createMockTask());
-    mockConfirm.mockResolvedValueOnce(true);
-    renderListView({ tasks: [createMockTask({ id: "FN-901", column: "in-progress" })], onResetTask });
+    renderListView({
+      tasks: [createMockTask({ id: "FN-901", column: "in-progress", description: "Original list request" })],
+      onResetTask,
+    });
 
     fireEvent.contextMenu(document.querySelector('.list-row[data-id="FN-901"]') as HTMLElement, { clientX: 40, clientY: 50 });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
 
+    expect(await screen.findByTestId("task-reset-dialog")).toBeInTheDocument();
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(screen.getByTestId("task-reset-description")).toHaveValue("Original list request");
+    fireEvent.change(screen.getByTestId("task-reset-description"), { target: { value: "Corrected list request" } });
+    fireEvent.click(screen.getByTestId("task-reset-submit"));
+    await waitFor(() => expect(onResetTask).toHaveBeenCalledWith(
+      "FN-901",
+      { description: "Corrected list request" },
+    ));
+  });
+
+  it("keeps the list Reset call arity unchanged when the description is untouched", async () => {
+    const onResetTask = vi.fn(async () => createMockTask());
+    renderListView({
+      tasks: [createMockTask({ id: "FN-901", column: "in-progress", description: "Original list request" })],
+      onResetTask,
+    });
+
+    fireEvent.contextMenu(document.querySelector('.list-row[data-id="FN-901"]') as HTMLElement, { clientX: 40, clientY: 50 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
+    fireEvent.click(await screen.findByTestId("task-reset-submit"));
+
     await waitFor(() => expect(onResetTask).toHaveBeenCalledWith("FN-901"));
-    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset this task?" }));
-    expect(document.querySelector(".confirm-dialog-overlay")).toBeNull();
+    expect(onResetTask.mock.calls[0]).toEqual(["FN-901"]);
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 
   it("forwards the selected workflow from the desktop row duplicate action", async () => {

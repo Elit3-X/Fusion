@@ -3,9 +3,12 @@ import { readAppFile } from "../../test/cssFixture";
 
 const component = (name: string) => readAppFile(`components/${name}`);
 
+const menuHosts = ["TaskCard.tsx", "ListView.tsx", "TaskDetailModal.tsx"];
+const passThroughHosts = ["Board.tsx", "Column.tsx", "WorktreeGroup.tsx", "AppModals.tsx", "dashboard/MainContent.tsx", "useRightDockController.tsx"];
+
 describe("Retry host inventory", () => {
   it("wires the shared action model and stage copy in every menu host", () => {
-    for (const name of ["TaskCard.tsx", "ListView.tsx", "TaskDetailModal.tsx"]) {
+    for (const name of menuHosts) {
       const source = component(name);
       expect(source).toContain("buildTaskActionMenuModel");
       expect(source).toContain("onRetry");
@@ -13,15 +16,19 @@ describe("Retry host inventory", () => {
     }
   });
 
-  it("keeps stage restart deleted while Respecify stays locally owned by menu hosts", () => {
-    for (const name of ["TaskCard.tsx", "ListView.tsx", "TaskDetailModal.tsx", "Board.tsx", "Column.tsx", "WorktreeGroup.tsx", "AppModals.tsx", "dashboard/MainContent.tsx", "useRightDockController.tsx"]) {
-      expect(component(name)).not.toContain("onRestart" + "Stage");
+  it("keeps stage restart and the removed recovery action deleted while Reset stays locally owned", () => {
+    const removedAction = ["re", "specify"].join("");
+    const allHosts = [...menuHosts, "TaskContextMenu.tsx", ...passThroughHosts];
+    for (const name of allHosts) {
+      const source = component(name);
+      expect(source).not.toContain("onRestart" + "Stage");
+      expect(source.toLowerCase()).not.toContain(removedAction);
     }
-    for (const name of ["TaskCard.tsx", "ListView.tsx", "TaskDetailModal.tsx"]) {
-      expect(component(name)).toContain("onRespecify");
+    for (const name of menuHosts) {
+      expect(component(name)).toContain('import { TaskResetDialog } from "./TaskResetDialog";');
     }
-    for (const name of ["Board.tsx", "Column.tsx", "WorktreeGroup.tsx", "AppModals.tsx", "dashboard/MainContent.tsx", "useRightDockController.tsx"]) {
-      expect(component(name)).not.toContain("onRespecify");
+    for (const name of passThroughHosts) {
+      expect(component(name)).not.toContain("TaskResetDialog");
     }
   });
 });

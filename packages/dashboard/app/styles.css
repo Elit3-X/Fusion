@@ -4036,7 +4036,7 @@ Toast text must contrast its status background across every dashboard theme and 
 .text-secondary { color: var(--text-muted); }
 .text-dim { color: var(--text-dim, var(--text-muted)); }
 
-/* === Column header dropdown menu (todo column "Respecify All", etc.) ====== */
+/* === Column header dropdown menu actions ================================ */
 .column-menu {
   position: relative;
   display: inline-flex;

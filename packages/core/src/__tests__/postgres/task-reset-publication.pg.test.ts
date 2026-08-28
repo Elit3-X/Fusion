@@ -79,6 +79,31 @@ pgDescribe("TaskStore reset publication", () => {
     expect(await store.hasWorkflowRunStepInstancesForTask(task.id)).toBe(false);
   });
 
+  it("commits a description override with intake state and preserves description without options", async () => {
+    const overridden = await seedPopulatedResetState();
+    const resetWithOverride = await overridden.store.resetTaskPublication(
+      overridden.task.id,
+      "todo",
+      { description: "  corrected original request  " },
+    );
+
+    expect(resetWithOverride).toMatchObject({
+      column: "todo",
+      status: "needs-replan",
+      description: "corrected original request",
+    });
+    expect(resetWithOverride.steps.every((step) => step.status === "pending")).toBe(true);
+    await expect(overridden.store.getTask(overridden.task.id)).resolves.toMatchObject({
+      column: "todo",
+      status: "needs-replan",
+      description: "corrected original request",
+    });
+
+    const preserved = await seedPopulatedResetState();
+    const resetWithoutOptions = await preserved.store.resetTaskPublication(preserved.task.id, "todo");
+    expect(resetWithoutOptions.description).toBe(preserved.task.description);
+  });
+
   it("clears workspace worktrees, acquire leases, and land intents with publication", async () => {
     const { store, task } = await seedPopulatedResetState();
     const now = new Date().toISOString();

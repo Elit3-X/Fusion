@@ -89,7 +89,12 @@ function createStore(
   root: string,
   task: Task,
   events: string[],
-  publish: (this: TaskStore, id: string, intake: string) => Promise<Task>,
+  publish: (
+    this: TaskStore,
+    id: string,
+    intake: string,
+    options?: { description?: string },
+  ) => Promise<Task>,
 ) {
   return {
     getRootDir: vi.fn().mockReturnValue(root),
@@ -162,6 +167,76 @@ describe("POST /tasks/:id/reset", () => {
     }
   });
 
+  it("forwards a trimmed description override only through the atomic publisher", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-reset-route-description-"));
+    const worktree = join(root, ".worktrees", "fn-400");
+    const taskDir = join(root, ".fusion", "tasks", "FN-400");
+    await mkdir(worktree, { recursive: true });
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(join(taskDir, "PROMPT.md"), "# Existing plan\n");
+    const task = taskFixture(worktree);
+    vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath: worktree }]);
+    const publication = vi.fn(async function (
+      this: TaskStore,
+      _id: string,
+      intake: string,
+      options?: { description?: string },
+    ) {
+      return { ...task, ...options, column: intake, status: "needs-replan" } as Task;
+    });
+    const store = createStore(root, task, [], publication);
+
+    const res = await performRequest(
+      createApp(store),
+      "POST",
+      "/api/tasks/FN-400/reset",
+      JSON.stringify({ confirm: true, description: "  Corrected request  " }),
+      { "content-type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(publication).toHaveBeenCalledWith(
+      "FN-400",
+      "triage",
+      { description: "Corrected request" },
+    );
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-400",
+      "Reset replaced the original description (17 characters)",
+    );
+    expect(res.body.description).toBe("Corrected request");
+  });
+
+  it.each([
+    { description: 42, error: "description must be a string" },
+    { description: "  \n\t ", error: "description must not be empty" },
+  ])("rejects invalid description $description before destructive reset work", async ({ description, error }) => {
+    const root = await mkdtemp(join(tmpdir(), "fusion-reset-route-invalid-description-"));
+    const worktree = join(root, ".worktrees", "fn-400");
+    const promptPath = join(root, ".fusion", "tasks", "FN-400", "PROMPT.md");
+    await mkdir(worktree, { recursive: true });
+    await mkdir(join(root, ".fusion", "tasks", "FN-400"), { recursive: true });
+    await writeFile(promptPath, "# Keep plan\n");
+    const task = taskFixture(worktree);
+    const publication = vi.fn();
+    const store = createStore(root, task, [], publication);
+
+    const res = await performRequest(
+      createApp(store),
+      "POST",
+      "/api/tasks/FN-400/reset",
+      JSON.stringify({ confirm: true, description }),
+      { "content-type": "application/json" },
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe(error);
+    expect(store.withPlanningLifecycleLock).not.toHaveBeenCalled();
+    expect(publication).not.toHaveBeenCalled();
+    await expect(readFile(promptPath, "utf8")).resolves.toBe("# Keep plan\n");
+    await expect(stat(worktree)).resolves.toBeTruthy();
+  });
+
   it("resets a planning-owned worktree after the planner reset fence releases it", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-reset-route-planning-"));
     const worktree = join(root, ".worktrees", "fn-400");
@@ -226,10 +301,11 @@ describe("POST /tasks/:id/reset", () => {
     const publication = vi.fn();
     const store = createStore(root, task, [], publication);
     try {
-      const res = await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true }), { "content-type": "application/json" });
+      const res = await performRequest(createApp(store), "POST", "/api/tasks/FN-400/reset", JSON.stringify({ confirm: true, description: "Corrected but blocked" }), { "content-type": "application/json" });
       expect(res.status).toBe(409);
       expect(res.body.error).toMatch(/active task FN-400 \(planning\).*stop or finish/i);
       expect(publication).not.toHaveBeenCalled();
+      expect(task.description).toBe("A populated task");
       await expect(readFile(promptPath, "utf8")).resolves.toBe("# Keep plan\n");
     } finally {
       unregisterProbe();

@@ -168,11 +168,24 @@ export function recoverBranchBinding(id: string, projectId?: string): Promise<Re
   return api<RecoverBranchBindingOutcome>(withProjectId(`/tasks/${id}/recover-branch-binding`, projectId), { method: "POST" });
 }
 
-export function resetTask(id: string, projectId?: string): Promise<Task> {
+export interface TaskResetOptions {
+  description?: string;
+}
+
+/*
+FNXC:TaskReset 2026-08-28-16:31:
+Reset deliberately uses the same options-second, projectId-last contract as duplicateTask and every host prop. The hook alone owns projectId; placing an options object in that slot would let withProjectId silently encode it as `[object Object]` while dropping the description from the request body.
+*/
+export function resetTask(
+  id: string,
+  options?: TaskResetOptions,
+  projectId?: string,
+): Promise<Task> {
+  const description = options?.description;
   return api<Task>(withProjectId(`/tasks/${id}/reset`, projectId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirm: true }),
+    body: JSON.stringify(description === undefined ? { confirm: true } : { confirm: true, description }),
   });
 }
 

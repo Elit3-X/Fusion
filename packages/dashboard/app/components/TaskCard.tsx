@@ -25,7 +25,7 @@ import { GitHubBadge } from "./GitHubBadge";
 import { GitLabBadge } from "./GitLabBadge";
 import { RuntimeFallbackBadge } from "./RuntimeFallbackBadge";
 import { PrCreateModal } from "./PrCreateModal";
-import { RespecifyPlanDialog } from "./RespecifyPlanDialog";
+import { TaskResetDialog } from "./TaskResetDialog";
 import { ProviderIcon } from "./ProviderIcon";
 import { PluginSlot } from "./PluginSlot";
 import { useBadgeWebSocket } from "../hooks/useBadgeWebSocket";
@@ -677,9 +677,8 @@ interface PlanApprovalNoticeProps {
 }
 
 /*
-FNXC:PlanApproval 2026-08-28-06:24:
-Every board surface shares one approval notice. Approve releases the reviewed plan; Respecify keeps
-that plan as revision source, and both controls stop propagation so card navigation never wins.
+FNXC:PlanApproval 2026-08-28-16:31:
+Every board surface shares one approval notice. Approve is the only in-notice control and stops propagation so card navigation never wins; operators who need to restate and restart the task use the separate Reset dialog.
 */
 export function PlanApprovalNotice({
   task,
@@ -691,7 +690,6 @@ export function PlanApprovalNotice({
 }: PlanApprovalNoticeProps) {
   const { t } = useTranslation("app");
   const [isApproving, setIsApproving] = useState(false);
-  const [showRespecify, setShowRespecify] = useState(false);
   const awaitingApproval = isTaskAwaitingPlanApproval(task, isPlanningLane);
   if (isTaskExternallyBlocked(task) || !awaitingApproval) return null;
 
@@ -711,7 +709,6 @@ export function PlanApprovalNotice({
   };
 
   return (
-    <>
       <div
         className={`plan-approval-notice plan-approval-notice--${variant}`}
         role="alert"
@@ -732,28 +729,8 @@ export function PlanApprovalNotice({
           <button type="button" className="btn btn-primary btn-sm" onClick={(event) => void approve(event)} disabled={!task.prompt || isApproving}>
             {isApproving ? t("tasks.planApproval.approving", "Approving...") : t("tasks.planApproval.approve", "Approve")}
           </button>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              setShowRespecify(true);
-            }}
-          >
-            {t("taskDetail.respecify.btn", "Respecify")}
-          </button>
         </span>
       </div>
-      {showRespecify && (
-        <RespecifyPlanDialog
-          taskId={task.id}
-          projectId={projectId}
-          addToast={addToast}
-          onClose={() => setShowRespecify(false)}
-          onSubmitted={onTaskUpdated}
-        />
-      )}
-    </>
   );
 }
 
@@ -798,7 +775,7 @@ interface TaskCardProps {
   onRetryTask?: (id: string) => Promise<Task>;
   onOpenChatWithPrefill?: (prefillText: string) => void;
   onUnpauseTask?: (id: string) => Promise<Task>;
-  onResetTask?: (id: string) => Promise<Task>;
+  onResetTask?: (id: string, options?: { description?: string }) => Promise<Task>;
   onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   onMergeTask?: (id: string) => Promise<MergeResult>;
   onOpenDetailWithTab?: (task: Task | TaskDetail, initialTab: "changes" | "retries" | "workflow") => void;
@@ -1200,7 +1177,7 @@ function TaskCardComponent({
   const { locale } = useLocaleFormat();
   const columnLabel = useColumnLabel();
   const [fileDragOver, setFileDragOver] = useState(false);
-  const [showRespecifyPlanDialog, setShowRespecifyPlanDialog] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editDescription, setEditDescription] = useState(task.description || "");
   /*
@@ -2778,23 +2755,9 @@ function TaskCardComponent({
     }
   }, [addToast, isPaused, onPauseTask, onUnpauseTask, task.id, t]);
 
-  const handleTaskActionReset = useCallback(async () => {
-    if (!onResetTask) return;
-    const shouldReset = await confirm({
-      title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
-      message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered."),
-      confirmLabel: t("taskDetail.reset.btn", "Reset"),
-      cancelLabel: t("common.cancel", "Cancel"),
-      danger: true,
-    });
-    if (!shouldReset) return;
-    try {
-      await onResetTask(task.id);
-      addToast(t("taskDetail.reset.resetSuccess", "Reset {{id}} — fresh run will be allocated", { id: task.id }), "success");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [addToast, confirm, onResetTask, task.id, t]);
+  const handleTaskActionReset = useCallback(() => {
+    if (onResetTask) setShowResetDialog(true);
+  }, [onResetTask]);
 
   const handleTaskActionDuplicate = useCallback(async () => {
     if (!onDuplicateTask) return;
@@ -2881,7 +2844,6 @@ function TaskCardComponent({
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
     hasResetHandler: Boolean(onResetTask),
-    hasRespecifyHandler: true,
     hasAssignedAgent: Boolean(task.assignedAgentId),
     autoMergeEnabled: effectiveAutoMerge,
     mergeStrategy,
@@ -2892,7 +2854,6 @@ function TaskCardComponent({
     onOpenRefine: onOpenRefine ? () => onOpenRefine(task) : undefined,
     onRetry: onRetryTask ? handleTaskActionRetry : undefined,
     onReset: onResetTask ? handleTaskActionReset : undefined,
-    onRespecify: () => setShowRespecifyPlanDialog(true),
     onTogglePause: (isPaused ? onUnpauseTask : onPauseTask) ? handleTaskActionTogglePause : undefined,
     onMerge: onMergeTask ? handleTaskActionMerge : undefined,
     onStartPrReview: () => setIsPrCreateOpen(true),
@@ -4508,12 +4469,13 @@ function TaskCardComponent({
         </div>
       )}
       <PluginSlot slotId="task-card-badge" projectId={projectId} />
-      {showRespecifyPlanDialog && (
-        <RespecifyPlanDialog
+      {showResetDialog && onResetTask && (
+        <TaskResetDialog
           taskId={task.id}
-          projectId={projectId}
+          initialDescription={task.description}
+          onReset={onResetTask}
           addToast={addToast}
-          onClose={() => setShowRespecifyPlanDialog(false)}
+          onClose={() => setShowResetDialog(false)}
         />
       )}
       {(showCreatePrQuickAction || isPrCreateOpen) && (

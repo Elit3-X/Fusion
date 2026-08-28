@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   makeTask,
@@ -60,8 +60,8 @@ describe("TaskDetailModal plan approval planning lane", () => {
     await waitFor(() => expect(fetchBoardWorkflows).toHaveBeenCalled());
     expect(screen.getByTestId("detail-plan-approval-banner")).toBeInTheDocument();
     expect(screen.getByTestId("detail-plan-approval-banner-approve")).toBeEnabled();
-    expect(screen.getByTestId("detail-plan-approval-banner-respecify")).toBeEnabled();
     expect(screen.getByTestId("detail-plan-approval-banner-reject")).toBeEnabled();
+    expect(within(screen.getByTestId("detail-plan-approval-banner-actions")).getAllByRole("button")).toHaveLength(2);
   });
 
   it("does not render plan decisions in a resolved WIP column", async () => {

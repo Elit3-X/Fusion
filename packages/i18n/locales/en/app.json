@@ -8199,23 +8199,15 @@
       "placeholder": "Enter your feedback here...",
       "taskCreated": "Refinement task created: {{id}}"
     },
-    "respecify": {
-      "btn": "Respecify",
-      "charCount_one": "{{count}}/2000 characters",
-      "charCount_other": "{{count}}/2000 characters",
-      "error": "Failed to request plan revision",
-      "help": "Describe what you want changed in the existing plan.",
-      "modalTitle": "Respecify plan",
-      "placeholder": "Enter your requested changes...",
-      "submit": "Respecify",
-      "submitting": "Submitting...",
-      "success": "Plan sent back for revision"
-    },
     "reset": {
       "btn": "Reset",
       "confirmMessage": "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered.",
+      "confirmTitle": "Reset this task?",
+      "descriptionHelp": "Edit the request Fusion will re-plan from, then confirm.",
+      "descriptionLabel": "Original description",
+      "descriptionRequired": "A description is required.",
       "resetSuccess": "Reset {{id}} — fresh run will be allocated",
-      "confirmTitle": "Reset this task?"
+      "submitting": "Resetting…"
     },
     "retries": {
       "branchConflict": "Branch conflict recovery",

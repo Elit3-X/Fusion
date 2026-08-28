@@ -12,7 +12,7 @@ import { batchUpdateTaskModels, fetchNodes, fetchTaskDetail, refreshPrStatus, up
 import { TaskDetailContent } from "./TaskDetailModal";
 import { ExternalBlockNotice, PlanApprovalNotice } from "./TaskCard";
 import { PrCreateModal } from "./PrCreateModal";
-import { RespecifyPlanDialog } from "./RespecifyPlanDialog";
+import { TaskResetDialog } from "./TaskResetDialog";
 import type { BoardWorkflowColumn, BoardWorkflowsPayload, ModelInfo, NodeInfo, RevertTaskOptions, RevertTaskResult } from "../api";
 import { QuickEntryBox } from "./QuickEntryBox";
 import { CustomModelDropdown } from "./CustomModelDropdown";
@@ -278,7 +278,7 @@ interface ListViewProps {
   /* FNXC:TaskRevert 2026-07-05-00:00 (FN-7525): threaded alongside onArchiveTask; never mutates the source task's column. */
   onRevertTask?: (id: string, body?: RevertTaskOptions) => Promise<RevertTaskResult>;
   onMergeTask: (id: string) => Promise<MergeResult>;
-  onResetTask?: (id: string) => Promise<Task>;
+  onResetTask?: (id: string, options?: { description?: string }) => Promise<Task>;
   onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   /** App-owned ingestion seam for successful split-detail refinements. */
   onRefinementCreated?: (task: Task) => void;
@@ -430,7 +430,7 @@ export function ListView({
   const [selectedColumn, setSelectedColumn] = useState<ColumnId | null>(null);
   const [contextMenuState, setContextMenuState] = useState<ListContextMenuState>(null);
   const [prCreateState, setPrCreateState] = useState<ListPrCreateState>(null);
-  const [respecifyTask, setRespecifyTask] = useState<Task | null>(null);
+  const [resetDialogTask, setResetDialogTask] = useState<Task | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
@@ -2095,7 +2095,6 @@ export function ListView({
       hasDuplicateHandler: Boolean(onDuplicateTask),
       hasRetryHandler: Boolean(onRetryTask),
       hasResetHandler: Boolean(onResetTask),
-      hasRespecifyHandler: true,
       hasAssignedAgent: Boolean(task.assignedAgentId),
       autoMergeEnabled: effectiveAutoMerge,
       mergeStrategy,
@@ -2134,23 +2133,7 @@ export function ListView({
           addToast(t("tasks.retryFailed", "Failed to retry {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(err) }), "error");
         }
       } : undefined,
-      onRespecify: () => setRespecifyTask(task),
-      onReset: onResetTask ? async () => {
-        const shouldReset = await confirm({
-          title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
-          message: t("taskDetail.reset.confirmMessage", "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered."),
-          confirmLabel: t("taskDetail.reset.btn", "Reset"),
-          cancelLabel: t("common.cancel", "Cancel"),
-          danger: true,
-        });
-        if (!shouldReset) return;
-        try {
-          await onResetTask(task.id);
-          addToast(t("taskDetail.reset.resetSuccess", "Reset {{id}} — fresh run will be allocated", { id: task.id }), "success");
-        } catch (err) {
-          addToast(getErrorMessage(err), "error");
-        }
-      } : undefined,
+      onReset: onResetTask ? () => setResetDialogTask(task) : undefined,
       onTogglePause: (isTaskPaused ? onUnpauseTask : onPauseTask) ? async () => {
         try {
           if (isTaskPaused) {
@@ -2823,13 +2806,13 @@ export function ListView({
         </div>,
         document.body,
       )}
-      {respecifyTask && (
-        <RespecifyPlanDialog
-          taskId={respecifyTask.id}
-          projectId={projectId}
+      {resetDialogTask && onResetTask && (
+        <TaskResetDialog
+          taskId={resetDialogTask.id}
+          initialDescription={resetDialogTask.description}
+          onReset={onResetTask}
           addToast={addToast}
-          onClose={() => setRespecifyTask(null)}
-          onSubmitted={(updated) => onTasksUpdated?.([updated])}
+          onClose={() => setResetDialogTask(null)}
         />
       )}
       {prCreateState && (

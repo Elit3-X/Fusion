@@ -9,6 +9,7 @@ import type { Task, Column, ColumnId, TaskCreateInput, MergeResult, GithubIssueA
 // column guards — the planner LANE keeps the name `triage`; U11 removed only the COLUMN.
 import { PLANNER_AGENT_ROLE, normalizeColumnId } from "@fusion/core";
 import * as api from "../api";
+import type { TaskResetOptions } from "../api/tasks/tasks-lifecycle";
 import { subscribeSse } from "../sse-bus";
 import { clearCache, readCache, readCacheSavedAt, SWR_CACHE_KEYS, SWR_TASKS_MAX_AGE_MS, writeCache } from "../utils/swrCache";
 import { pushTrace } from "../utils/dashboardTraceBuffer";
@@ -1705,8 +1706,8 @@ export function useTasks(options?: UseTasksOptions) {
     return bypassedTask;
   }, [projectId]);
 
-  const resetTask = useCallback(async (id: string): Promise<Task> => {
-    return normalizeNonBoardTask(await api.resetTask(id, projectId));
+  const resetTask = useCallback(async (id: string, options?: TaskResetOptions): Promise<Task> => {
+    return normalizeNonBoardTask(await api.resetTask(id, options, projectId));
   }, [projectId]);
 
   const duplicateTask = useCallback(async (id: string, options?: { workflowId?: string }): Promise<Task> => {

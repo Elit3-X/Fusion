@@ -575,18 +575,42 @@ describe("TaskCard", () => {
     }
   });
 
-  it("routes reset through the centralized confirm seam and proceeds in skip mode", async () => {
+  it("opens editable Reset without consulting confirmation settings", async () => {
     const cleanupGeometry = mockBoardContextMenuGeometry();
     const onResetTask = vi.fn(async () => makeTask());
-    mockConfirm.mockResolvedValueOnce(true);
     try {
-      render(<TaskCard task={makeTask({ column: "in-progress" })} onOpenDetail={noop} onResetTask={onResetTask} addToast={noop} />);
+      render(<TaskCard task={makeTask({ column: "in-progress", description: "Original request" })} onOpenDetail={noop} onResetTask={onResetTask} addToast={noop} />);
       fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
       await waitFor(() => expectBoardContextMenuPortaled());
       fireEvent.click(screen.getByRole("menuitem", { name: "Reset" }));
+
+      expect(await screen.findByTestId("task-reset-dialog")).toBeInTheDocument();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(screen.getByTestId("task-reset-description")).toHaveValue("Original request");
+      fireEvent.change(screen.getByTestId("task-reset-description"), { target: { value: "Corrected board request" } });
+      fireEvent.click(screen.getByTestId("task-reset-submit"));
+      await waitFor(() => expect(onResetTask).toHaveBeenCalledWith(
+        "FN-001",
+        { description: "Corrected board request" },
+      ));
+    } finally {
+      cleanupGeometry();
+    }
+  });
+
+  it("keeps the board Reset call arity unchanged when the description is untouched", async () => {
+    const cleanupGeometry = mockBoardContextMenuGeometry();
+    const onResetTask = vi.fn(async () => makeTask());
+    try {
+      render(<TaskCard task={makeTask({ column: "in-progress", description: "Original request" })} onOpenDetail={noop} onResetTask={onResetTask} addToast={noop} />);
+      fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+      await waitFor(() => expectBoardContextMenuPortaled());
+      fireEvent.click(screen.getByRole("menuitem", { name: "Reset" }));
+      fireEvent.click(await screen.findByTestId("task-reset-submit"));
+
       await waitFor(() => expect(onResetTask).toHaveBeenCalledWith("FN-001"));
-      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset this task?" }));
-      expect(document.querySelector(".confirm-dialog-overlay")).toBeNull();
+      expect(onResetTask.mock.calls[0]).toEqual(["FN-001"]);
+      expect(mockConfirm).not.toHaveBeenCalled();
     } finally {
       cleanupGeometry();
     }
@@ -764,10 +788,8 @@ describe("TaskCard", () => {
           addToast={noop}
         />,
       );
-      fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
-      await waitFor(() => expectBoardContextMenuPortaled());
+      expect(screen.queryByTestId("card-menu-btn-FN-001")).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Plan" })).not.toBeInTheDocument();
-      fireEvent.keyDown(document, { key: "Escape" });
 
       rerender(
         <TaskCard

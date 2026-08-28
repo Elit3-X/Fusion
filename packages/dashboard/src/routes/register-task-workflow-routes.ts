@@ -3794,7 +3794,17 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
   router.post("/tasks/:id/reset", async (req, res) => {
     try {
       const { store: scopedStore, engine } = await getProjectContext(req);
-      const { confirm: confirmed } = (req.body ?? {}) as { confirm?: boolean };
+      const { confirm: confirmed, description } = (req.body ?? {}) as {
+        confirm?: boolean;
+        description?: unknown;
+      };
+      if (description !== undefined && typeof description !== "string") {
+        throw badRequest("description must be a string");
+      }
+      const descriptionOverride = typeof description === "string" ? description.trim() : undefined;
+      if (description !== undefined && descriptionOverride?.length === 0) {
+        throw badRequest("description must not be empty");
+      }
       if (!confirmed) {
         throw badRequest(
           "This operation is destructive and permanently discards the task-owned worktree, branch and its commits, and current plan. Pass { \"confirm\": true } in the request body to proceed.",
@@ -4087,7 +4097,11 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           }
 
           const storeWithPublisher = scopedStore as TaskStore & {
-            resetTaskPublication?: (taskId: string, intake: string) => Promise<Task>;
+            resetTaskPublication?: (
+              taskId: string,
+              intake: string,
+              options?: { description?: string },
+            ) => Promise<Task>;
           };
           if (typeof storeWithPublisher.resetTaskPublication !== "function") {
             throw new Error("Atomic task reset publication is unavailable");
@@ -4097,8 +4111,24 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           Reset publication is a TaskStore instance method whose PostgreSQL implementation reads
           `this.asyncLayer`. Invoke it through the scoped store so the atomic publisher retains its
           project-scoped receiver after cleanup and runtime finalization.
+
+          FNXC:TaskReset 2026-08-28-16:31:
+          An edited description is validated before the lifecycle lock and is applied only by the atomic reset publisher. Cleanup conflicts or failures therefore leave stored intent untouched, while successful substitution logs only its character count and never the operator's prose.
           */
-          return storeWithPublisher.resetTaskPublication(req.params.id, intakeColumn);
+          const published = descriptionOverride === undefined
+            ? await storeWithPublisher.resetTaskPublication(req.params.id, intakeColumn)
+            : await storeWithPublisher.resetTaskPublication(
+              req.params.id,
+              intakeColumn,
+              { description: descriptionOverride },
+            );
+          if (descriptionOverride !== undefined) {
+            await scopedStore.logEntry(
+              req.params.id,
+              `Reset replaced the original description (${descriptionOverride.length} characters)`,
+            );
+          }
+          return published;
         } finally {
           for (const reservation of reservations) {
             if (reservation.state !== "held") continue;

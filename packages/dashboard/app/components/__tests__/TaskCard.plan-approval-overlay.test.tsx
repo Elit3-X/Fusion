@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type { Task } from "@fusion/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,20 +55,21 @@ function renderCard(
 }
 
 describe("TaskCard plan approval overlay", () => {
-  it("renders Need Your Review with Approve and Respecify", () => {
+  it("renders Need Your Review with Approve as its only action", () => {
     renderCard();
     const notice = screen.getByTestId("plan-approval-card-FN-212");
     expect(notice).toHaveTextContent("Need Your Review");
-    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Respecify" })).toBeEnabled();
+    expect(within(notice).getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(within(notice).getAllByRole("button")).toHaveLength(1);
   });
 
   it("renders the actions where the shipped workflow parks its hold", () => {
     renderCard(task({ column: "todo", awaitingApprovalReason: null }), vi.fn(), { intake: false, hold: true });
 
-    expect(screen.getByTestId("plan-approval-card-FN-212")).toHaveTextContent("Need Your Review");
-    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Respecify" })).toBeEnabled();
+    const notice = screen.getByTestId("plan-approval-card-FN-212");
+    expect(notice).toHaveTextContent("Need Your Review");
+    expect(within(notice).getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(within(notice).getAllByRole("button")).toHaveLength(1);
   });
 
   it("does not render an ordinary approval hold in a WIP column", () => {
@@ -111,15 +112,12 @@ describe("TaskCard plan approval overlay", () => {
     expect(screen.queryByTestId("plan-approval-card-FN-212")).toBeNull();
   });
 
-  it("approves through the existing API and opens the shared respecify dialog", async () => {
+  it("approves through the existing API", async () => {
     approvePlan.mockResolvedValue(task({ status: undefined, column: "todo" }));
     const addToast = renderCard();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(approvePlan).toHaveBeenCalledWith("FN-212", "project-1"));
     expect(addToast).toHaveBeenCalledWith(expect.any(String), "success");
-
-    fireEvent.click(screen.getByRole("button", { name: "Respecify" }));
-    expect(screen.getByTestId("respecify-plan-dialog")).toBeInTheDocument();
   });
 
   it("keeps mobile approval actions on the touch-target token", () => {

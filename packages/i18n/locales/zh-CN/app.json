@@ -8164,7 +8164,11 @@
       "btn": "重置",
       "confirmMessage": "Restart this task from nothing but the original request. Its plan, worktree, branch and commits, and reviews are permanently deleted and cannot be recovered.",
       "resetSuccess": "已重置 {{id}} — 将分配新的运行",
-      "confirmTitle": "Reset this task?"
+      "confirmTitle": "Reset this task?",
+      "descriptionHelp": "",
+      "descriptionLabel": "",
+      "descriptionRequired": "",
+      "submitting": ""
     },
     "retries": {
       "branchConflict": "分支冲突恢复",
@@ -8412,18 +8416,6 @@
     },
     "debug": {
       "none": ""
-    },
-    "respecify": {
-      "btn": "",
-      "charCount_one": "",
-      "charCount_other": "",
-      "error": "",
-      "help": "",
-      "modalTitle": "",
-      "placeholder": "",
-      "submit": "",
-      "submitting": "",
-      "success": ""
     },
     "activity": {
       "summaries": ""

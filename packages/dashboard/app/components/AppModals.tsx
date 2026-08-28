@@ -77,7 +77,7 @@ interface AppModalsProps {
     /* FNXC:ReviewLaneBypass 2026-07-09-00:00 (FN-7720): operator-only review-lane bypass, threaded to TaskDetailModal only. */
     bypassReview?: (taskId: string, reason: string) => Promise<Task>;
 
-    resetTask: (taskId: string) => Promise<Task>;
+    resetTask: (taskId: string, options?: { description?: string }) => Promise<Task>;
     duplicateTask: (taskId: string, options?: { workflowId?: string }) => Promise<Task>;
   };
   deepLink: {

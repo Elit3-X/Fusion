@@ -36,6 +36,7 @@ vi.mock("../../api", async (importOriginal) => {
     bypassReview: vi.fn(),
     pauseTask: vi.fn(),
     unpauseTask: vi.fn(),
+    resetTask: vi.fn(),
     duplicateTask: vi.fn(),
     updateTask: vi.fn(),
     archiveTask: vi.fn(),
@@ -57,6 +58,7 @@ const mockRetryTask = vi.mocked(api.retryTask);
 const mockBypassReview = vi.mocked(api.bypassReview);
 const mockPauseTask = vi.mocked(api.pauseTask);
 const mockUnpauseTask = vi.mocked(api.unpauseTask);
+const mockResetTask = vi.mocked(api.resetTask);
 const mockDuplicateTask = vi.mocked(api.duplicateTask);
 const mockUpdateTask = vi.mocked(api.updateTask);
 const mockArchiveAllDone = vi.mocked(api.archiveAllDone);
@@ -3448,6 +3450,26 @@ describe("useTasks", () => {
         updatedAt: "2026-01-02T00:00:00Z",
         size: "L",
       });
+    });
+  });
+
+  describe("resetTask forwarding", () => {
+    it("keeps options second and the hook-owned project id last", async () => {
+      mockResetTask.mockReset().mockResolvedValue(createMockTask({ id: "FN-1" }));
+      const { result } = renderHook(() => useTasks({ projectId: "proj-9", sseEnabled: false }));
+
+      await act(async () => {
+        await result.current.resetTask("FN-1", { description: "corrected" });
+        await result.current.resetTask("FN-1");
+      });
+
+      expect(mockResetTask).toHaveBeenNthCalledWith(
+        1,
+        "FN-1",
+        { description: "corrected" },
+        "proj-9",
+      );
+      expect(mockResetTask).toHaveBeenNthCalledWith(2, "FN-1", undefined, "proj-9");
     });
   });
 

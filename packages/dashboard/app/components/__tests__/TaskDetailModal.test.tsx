@@ -115,14 +115,13 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
-describe("TaskDetailModal reset confirmations", () => {
-  it("routes reset through the centralized confirm seam and proceeds in skip mode", async () => {
+describe("TaskDetailModal reset dialog", () => {
+  it("edits and submits the original description without consulting confirmation settings", async () => {
     const onResetTask = vi.fn(async () => makeTask());
     const addToast = vi.fn();
-    mockConfirm.mockResolvedValueOnce(true);
     render(
       <TaskDetailModal
-        task={makeTask({ id: "FN-001", column: "in-progress" as any })}
+        task={makeTask({ id: "FN-001", column: "in-progress" as any, description: "Original detail request" })}
         onClose={noop}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
@@ -134,19 +133,48 @@ describe("TaskDetailModal reset confirmations", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
+    expect(await screen.findByTestId("task-reset-dialog")).toBeInTheDocument();
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(screen.getByTestId("task-reset-description")).toHaveValue("Original detail request");
+    fireEvent.change(screen.getByTestId("task-reset-description"), { target: { value: "Corrected detail request" } });
+    fireEvent.click(screen.getByTestId("task-reset-submit"));
+
+    await waitFor(() => expect(onResetTask).toHaveBeenCalledWith(
+      "FN-001",
+      { description: "Corrected detail request" },
+    ));
+    expect(addToast).toHaveBeenCalledWith("Reset FN-001 — fresh run will be allocated", "success");
+  });
+
+  it("keeps the detail Reset call arity unchanged when the description is untouched", async () => {
+    const onResetTask = vi.fn(async () => makeTask());
+    render(
+      <TaskDetailModal
+        task={makeTask({ id: "FN-001", column: "in-progress" as any, description: "Original detail request" })}
+        onClose={noop}
+        onDeleteTask={noopDelete}
+        onMergeTask={noopMerge}
+        onOpenDetail={noopOpenDetail}
+        onResetTask={onResetTask}
+        addToast={noop}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
+    fireEvent.click(await screen.findByTestId("task-reset-submit"));
+
     await waitFor(() => expect(onResetTask).toHaveBeenCalledWith("FN-001"));
-    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset this task?", message: expect.stringContaining("original request") }));
-    expect(addToast).toHaveBeenCalledWith(expect.stringContaining("worktree and plan discarded"), "success");
-    expect(document.querySelector(".confirm-dialog-overlay")).toBeNull();
+    expect(onResetTask.mock.calls[0]).toEqual(["FN-001"]);
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 
   it("shows endpoint failure instead of reset success copy", async () => {
     const addToast = vi.fn();
     const onResetTask = vi.fn().mockRejectedValue(new Error("partial cleanup; retry Reset"));
-    mockConfirm.mockResolvedValueOnce(true);
     render(
       <TaskDetailModal
-        task={makeTask({ id: "FN-002", column: "in-progress" as any })}
+        task={makeTask({ id: "FN-002", column: "in-progress" as any, description: "Retry this request" })}
         onClose={noop}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
@@ -157,8 +185,11 @@ describe("TaskDetailModal reset confirmations", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
+    fireEvent.click(await screen.findByTestId("task-reset-submit"));
     await waitFor(() => expect(addToast).toHaveBeenCalledWith("partial cleanup; retry Reset", "error"));
-    expect(addToast).not.toHaveBeenCalledWith(expect.stringContaining("worktree and plan discarded"), "success");
+    expect(addToast).not.toHaveBeenCalledWith(expect.stringContaining("fresh run will be allocated"), "success");
+    expect(screen.getByTestId("task-reset-dialog")).toBeInTheDocument();
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 });
 

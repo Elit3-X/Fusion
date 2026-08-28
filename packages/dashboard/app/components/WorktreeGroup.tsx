@@ -33,7 +33,7 @@ interface WorktreeGroupProps {
   onRetryTask?: (id: string) => Promise<Task>;
   onOpenChatWithPrefill?: (prefillText: string) => void;
   onUnpauseTask?: (id: string) => Promise<Task>;
-  onResetTask?: (id: string) => Promise<Task>;
+  onResetTask?: (id: string, options?: { description?: string }) => Promise<Task>;
   onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   onMergeTask?: (id: string) => Promise<MergeResult>;
   onArchiveTask?: (id: string, options?: { removeLineageReferences?: boolean }) => Promise<Task>;

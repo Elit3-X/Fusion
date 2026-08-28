@@ -1750,8 +1750,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   }
 
   /** Publish the post-cleanup fresh-planning reset as one project-scoped transaction. */
-  async resetTaskPublication(id: string, intakeColumn: ColumnId): Promise<Task> {
-    return resetTaskPublicationImpl(this, id, intakeColumn);
+  async resetTaskPublication( id: string, intakeColumn: ColumnId, options?: { description?: string }, ): Promise<Task> {
+    return resetTaskPublicationImpl(this, id, intakeColumn, options);
   }
   async moveTaskIf(
     id: string,
