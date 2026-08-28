@@ -18,6 +18,7 @@ import { runReviewArbitration } from "../executor/review-arbitration.js";
 import { resolveRemediationCheckout } from "../executor/resolve-remediation-checkout.js";
 import { sendTaskBackForFix } from "../executor/send-task-back-for-fix.js";
 import { SelfHealingManager } from "../self-healing.js";
+import { EMPTY_REVIEW_DIFF_FINGERPRINT } from "../worktree/review-diff-fingerprint.js";
 
 /*
 FNXC:ReviewConvergenceEvidence 2026-08-22-16:29:
@@ -603,6 +604,145 @@ describe("FN-149 remediation graph ladder entry", () => {
       recoverFailedPreMergeStep.mockClear();
       await expect(manager.recoverReviewTasksWithFailedPreMergeSteps()).resolves.toBe(0);
       expect(recoverFailedPreMergeStep).not.toHaveBeenCalled();
+    } finally {
+      manager.stop();
+    }
+  });
+});
+
+function emptyReviewRow() {
+  return {
+    id: "FN-225-entry", column: "in-review", worktree: "/worktree", dependencies: [], steps: [], currentStep: 0,
+    createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z",
+    workflowStepResults: [{
+      workflowStepId: "code-review", workflowStepName: "Code Review", phase: "pre-merge", status: "failed",
+      reviewKind: "code", verdict: "REVISE", reviewInputFingerprint: EMPTY_REVIEW_DIFF_FINGERPRINT,
+      startedAt: "2026-08-28T01:00:00.000Z", completedAt: "2026-08-28T01:01:00.000Z",
+    }],
+  } as any;
+}
+
+function emptyReviewStore(row: any) {
+  return {
+    getSettings: vi.fn(async () => ({ autoMerge: true, globalPause: false, enginePaused: false })),
+    getTask: vi.fn(async () => row),
+    updateTask: vi.fn(async (_id: string, patch: Record<string, unknown>) => { Object.assign(row, patch); return row; }),
+    updateTaskAtomic: vi.fn(async (_id: string, updater: (current: any) => any) => {
+      const patch = await updater(row);
+      if (patch) Object.assign(row, patch);
+      return row;
+    }),
+    logEntry: vi.fn(async () => undefined),
+  } as any;
+}
+
+describe("FN-225 definite empty review entry points", () => {
+  it("terminalizes from the live requester without scheduling remediation", async () => {
+    const row = emptyReviewRow();
+    row.column = "in-progress";
+    const store = emptyReviewStore(row);
+    const sendTaskBackForFix = vi.fn(async () => undefined);
+
+    await expect(requestPreMergeOptionalStepFix({
+      store, getRunContextFor: () => undefined, recoverMissingRequiredArtifacts: vi.fn(async () => undefined),
+      parkPlanReviewReplanCapExhausted: vi.fn(async () => undefined), clearPausedAborted: vi.fn(),
+      appendReviewRemediationSteps: vi.fn(async () => "appended"), workflowLifecycleMovesInFlight: new Set(),
+      sendTaskBackForFix,
+    } as any, row.id, row, {
+      phase: "pre-merge", status: "failed", verdict: "REVISE", nodeId: "code-review", stepName: "Code Review", feedback: "No diff",
+    })).resolves.toBe(false);
+
+    expect(row).toMatchObject({ status: "failed", error: expect.stringMatching(/^NO REVIEWABLE CONTENT:/) });
+    expect(sendTaskBackForFix).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes from recovery before a zero budget is resolved", async () => {
+    const row = emptyReviewRow();
+    const store = emptyReviewStore(row);
+    const resolveBudget = vi.fn(async () => ({ unbounded: false, max: 0, attempts: 0, label: "0", key: "code-review" }));
+    const sendTaskBackForFix = vi.fn(async () => undefined);
+
+    await expect(recoverFailedPreMergeWorkflowStep({
+      store, getRunContextFor: () => undefined,
+      resolveFailedPreMergeWorkflowStepBudget: resolveBudget,
+      sendTaskBackForFix,
+    }, row)).resolves.toBe(false);
+
+    expect(row).toMatchObject({ status: "failed", error: expect.stringMatching(/^NO REVIEWABLE CONTENT:/) });
+    expect(resolveBudget).not.toHaveBeenCalled();
+    expect(sendTaskBackForFix).not.toHaveBeenCalled();
+  });
+
+  it("lets the manager terminalize a zero-budget empty review exactly once", async () => {
+    const emptyRow = Object.assign(emptyReviewRow(), {
+      id: "FN-225-empty-sweep",
+      status: null,
+      paused: false,
+      autoMerge: true,
+      log: [],
+    });
+    const digestRow = structuredClone(emptyRow);
+    digestRow.id = "FN-225-digest-sweep";
+    digestRow.workflowStepResults[0].reviewInputFingerprint = "a".repeat(64);
+    const rows = [emptyRow, digestRow];
+    const store = {
+      getSettings: vi.fn(async () => ({
+        autoMerge: true,
+        globalPause: false,
+        enginePaused: false,
+        maxPostReviewFixes: 0,
+        codeReviewMaxRevisions: 0,
+      })),
+      listTasks: vi.fn(async ({ column }: { column?: string } = {}) => rows.filter((row) => !column || row.column === column)),
+      getTask: vi.fn(async (id: string) => rows.find((row) => row.id === id)),
+      updateTask: vi.fn(async (id: string, patch: Record<string, unknown>) => {
+        const row = rows.find((candidate) => candidate.id === id);
+        if (row) Object.assign(row, patch);
+        return row;
+      }),
+      updateTaskAtomic: vi.fn(async (id: string, updater: (current: any) => any) => {
+        const row = rows.find((candidate) => candidate.id === id);
+        if (!row) return undefined;
+        const patch = await updater(row);
+        if (patch) Object.assign(row, patch);
+        return row;
+      }),
+      logEntry: vi.fn(async (id: string, action: string, outcome?: string) => {
+        const row = rows.find((candidate) => candidate.id === id);
+        row?.log.push({ action, outcome });
+      }),
+      getTaskWorkflowSelection: vi.fn(() => undefined),
+      getWorkflowDefinition: vi.fn(async () => undefined),
+      listWorkflowDefinitions: vi.fn(async () => []),
+    };
+    const resolveBudget = vi.fn(async () => ({ unbounded: false, max: 0, attempts: 0, label: "0", key: "code-review" }));
+    const sendTaskBackForFix = vi.fn(async () => undefined);
+    const recoverFailedPreMergeStep = vi.fn(async (task: any) => recoverFailedPreMergeWorkflowStep({
+      store: store as any,
+      getRunContextFor: () => undefined,
+      resolveFailedPreMergeWorkflowStepBudget: resolveBudget,
+      sendTaskBackForFix,
+    }, task));
+    const manager = new SelfHealingManager(store as any, { rootDir: "/tmp/fn-225", recoverFailedPreMergeStep });
+
+    try {
+      await expect(manager.recoverReviewTasksWithFailedPreMergeSteps()).resolves.toBe(0);
+      expect(recoverFailedPreMergeStep).toHaveBeenCalledTimes(1);
+      expect(recoverFailedPreMergeStep).toHaveBeenCalledWith(expect.objectContaining({ id: emptyRow.id }));
+      expect(emptyRow).toMatchObject({
+        column: "in-review",
+        status: "failed",
+        error: expect.stringMatching(/^NO REVIEWABLE CONTENT:/),
+      });
+      expect(digestRow).toMatchObject({ column: "in-review", status: null });
+      expect(digestRow.error).toBeUndefined();
+      expect(resolveBudget).not.toHaveBeenCalled();
+      expect(sendTaskBackForFix).not.toHaveBeenCalled();
+
+      await expect(manager.recoverReviewTasksWithFailedPreMergeSteps()).resolves.toBe(0);
+      expect(recoverFailedPreMergeStep).toHaveBeenCalledTimes(1);
+      expect(digestRow).toMatchObject({ column: "in-review", status: null });
+      expect(digestRow.error).toBeUndefined();
     } finally {
       manager.stop();
     }

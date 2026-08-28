@@ -3,11 +3,14 @@ import "./executor-test-helpers.js";
 import { TaskExecutor } from "../executor.js";
 import { persistWorkflowStepResult } from "../executor/execute-workflow-graph.js";
 
+const codeFingerprintOverride = vi.hoisted(() => ({ value: "stable-review-diff" as string | null }));
 vi.mock("../worktree/review-diff-fingerprint.js", async () => {
   const actual = await vi.importActual<typeof import("../worktree/review-diff-fingerprint.js")>("../worktree/review-diff-fingerprint.js");
   return {
     ...actual,
     computeReviewDiffFingerprint: vi.fn(async () => "stable-review-diff"),
+    computeCodeReviewInputFingerprint: vi.fn(async (...args: Parameters<typeof actual.computeCodeReviewInputFingerprint>) =>
+      codeFingerprintOverride.value ?? actual.computeCodeReviewInputFingerprint(...args)), 
   };
 });
 import { performWorkflowRerunBounce } from "../executor/workflow-rerun-bounce.js";
@@ -106,7 +109,11 @@ async function persistResult(store: any, subject: any, outcome: any, options: { 
 }
 
 describe("unchanged review input reuse", () => {
-  beforeEach(() => resetExecutorMocks());
+  beforeEach(() => {
+    resetExecutorMocks();
+    codeFingerprintOverride.value = "stable-review-diff";
+  });
+
 
   it("invokes a review node exactly once for identical authoritative input", async () => {
     const subject = task();

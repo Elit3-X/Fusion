@@ -507,6 +507,8 @@ export type DatabaseMutationType =
   */
   | "task:review-finding-disputed"
   | "task:review-convergence-escalation"
+  /** FNXC:ReviewEmptyContent 2026-08-28-13:14: Records the ids-only terminal close for a provably empty Code Review input. */
+  | "task:review-empty-content-parked"
   | "task:review-arbitration"
   | "task:review-convergence-human-escalation"
   /**

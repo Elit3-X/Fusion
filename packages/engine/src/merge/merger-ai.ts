@@ -1856,8 +1856,15 @@ export async function runAiMerge(
       /*
        * FNXC:Lifecycle 2026-06-14-20:02:
        * FN-6461/FN-6455 requires the AI empty-merge lane to demote no-commits tasks whose skipped/incomplete steps outweigh done steps instead of finalizing the operational work as done.
+       *
+       * FNXC:EmptyMergeFinalize 2026-08-28-13:14:
+       * Empty-merge blockers previously wrote only error, while merge-failure-rebound had no
+       * backward-move authority and getTaskMergeBlocker ignored error. The card therefore remained
+       * merge-eligible and repeated the same refusal forever. Persist a hard blocking failed status
+       * beside each guard's unchanged reason so the operator sees one terminal conclusion. Existing
+       * in-review Retry clears this park with progress preserved after evidence is corrected.
        */
-      await fence.write("lifecycle", () => store.updateTask(taskId, { error: reason }));
+      await fence.write("lifecycle", () => store.updateTask(taskId, { error: reason, status: "failed" }));
       if (fence.isOrphaned()) return {
         task, branch, merged: false, noOp: false, ok: true, reason, error: reason,
         worktreeRemoved: false, branchDeleted: false,
@@ -1884,6 +1891,7 @@ export async function runAiMerge(
           branch,
           integrationBranch,
           lane: "ai-empty-merge",
+          parkedStatus: "failed",
         },
       });
       await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));
@@ -1921,7 +1929,7 @@ export async function runAiMerge(
       if (!landedProof) {
         const reason =
           "branch had no net changes vs main — work may have been reverted or lost; operator review required";
-        await fence.write("lifecycle", () => store.updateTask(taskId, { error: reason }));
+        await fence.write("lifecycle", () => store.updateTask(taskId, { error: reason, status: "failed" }));
         if (fence.isOrphaned()) return {
           task, branch, merged: false, noOp: false, ok: true, reason, error: reason,
           worktreeRemoved: false, branchDeleted: false,
@@ -1942,6 +1950,7 @@ export async function runAiMerge(
             lane: "ai-empty-merge",
             baseCommitSha: task.baseCommitSha,
             hadPriorNoOpProof: false,
+            parkedStatus: "failed",
           },
         });
         await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));
@@ -1991,7 +2000,7 @@ export async function runAiMerge(
     const executorVeto = evaluateNoOpFinalizeExecutorVeto({ mergeIsEmpty: true, task, memory: executorMemory, settings });
     if (executorVeto.veto) {
       const vetoReason = executorVeto.reason ?? "overseer failed-executor no-op-finalize veto";
-      await fence.write("lifecycle", () => store.updateTask(taskId, { error: vetoReason }));
+      await fence.write("lifecycle", () => store.updateTask(taskId, { error: vetoReason, status: "failed" }));
       if (fence.isOrphaned()) return {
         task, branch, merged: false, noOp: false, ok: true, reason: vetoReason, error: vetoReason,
         worktreeRemoved: false, branchDeleted: false,
@@ -2018,6 +2027,7 @@ export async function runAiMerge(
           branch,
           integrationBranch,
           lane: "ai-empty-merge",
+          parkedStatus: "failed",
         },
       });
       await fence.write("lifecycle", () => reboundAiMergeTask(store, taskId));

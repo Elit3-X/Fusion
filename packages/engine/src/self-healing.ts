@@ -108,6 +108,7 @@ import { getCommitTaskOwnership } from "./merge/already-merged-detector.js";
 import { getTaskCompletionBlockerForStore } from "./execution/task-completion.js";
 import { shouldReclaimWedgedMerge } from "./merge/merge-reclaim-policy.js";
 import { resolveRemediationCheckout } from "./executor/resolve-remediation-checkout.js";
+import { isDefiniteEmptyCodeReviewRevise } from "./executor/review-empty-content-close.js";
 
 import { advanceIntegrationBranchRef } from "./merge/merger-ref-update-advance.js";
 import { isReclaimableWorktreeCandidate, isWorktreeContainerDir, resolveAiMergeRootPath, resolveLegacyAiMergeRootPath, resolveWorktreesDir } from "./worktree/worktree-paths.js";
@@ -9282,7 +9283,17 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
         if (task.status && !parkedRemediationFailure) return false;
         if (executingIds.has(task.id)) return false;
         const budget = revisionBudgetFor(task.id);
-        if (!budget.unbounded && (!Number.isFinite(budget.max) || budget.max <= 0)) return false;
+        /*
+        FNXC:ReviewEmptyContent 2026-08-28-13:14:
+        Admit only a definite-empty Code Review rejection around the zero/invalid-budget guard. The
+        recovery helper closes it on first admission; its failed status then fails the earlier status
+        filter on every later sweep. The checkout guard below remains unchanged. The graph-failure
+        router is intentionally untouched: its zero-budget decline reaches the generic sink, and this
+        sweep performs the fenced close on the next pass.
+        */
+        const definiteEmptyReview = isDefiniteEmptyCodeReviewRevise(latestFailedPreMergeStep(task));
+        if (!definiteEmptyReview
+          && !budget.unbounded && (!Number.isFinite(budget.max) || budget.max <= 0)) return false;
         // FNXC:ReviewConvergence 2026-08-22-06:05: exhausted failures must reach the
         // shared ladder in recoverFailedPreMergeWorkflowStep; filtering them here recreates
         // the terminal human-only park FN-149 removes.

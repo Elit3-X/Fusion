@@ -3,7 +3,7 @@ FNXC:ReviewConvergence 2026-08-22-05:54:
 FN-149 requires an exhausted or unchanged review cycle to take one bounded AI remediation action before reaching its terminal rung. The atomic stage claim prevents concurrent graph and recovery paths from scheduling duplicate bounces.
 
 FNXC:ReviewConvergence 2026-08-28-07:48:
-An exhausted Code Review convergence cycle is advisory, not a human gate. Its terminal rung records and releases the feedback without mutating lifecycle state. The operator-authored Plan Review replan-cap hold remains the explicit exception.
+An exhausted Code Review convergence cycle is advisory, not a human gate. Its terminal rung records and releases the feedback without mutating lifecycle state. A provably empty review input is a separate terminal carve-out: no content was reviewed, so there is no advisory position to release and no remediation or arbitration round can create one. The operator-authored Plan Review replan-cap hold remains the other lifecycle-mutating exception.
 */
 import type { Task, TaskStore, WorkflowReviewFinding } from "@fusion/core";
 import {
@@ -24,12 +24,17 @@ import type { EngineRunContext } from "../util/run-audit.js";
 import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
 import { runReviewArbitration } from "./review-arbitration.js";
 import { resolveRemediationCheckout } from "./resolve-remediation-checkout.js";
+import {
+  terminalizeEmptyReviewContent,
+  type EmptyReviewContentGateFence,
+} from "./review-empty-content-close.js";
 
 export const REVIEW_CONVERGENCE_MAX_LADDER_CYCLES = 3;
 
 export type ReviewConvergenceStop = {
-  kind: "repeat-unchanged" | "budget-exhausted" | "plan-review-cap";
+  kind: "repeat-unchanged" | "budget-exhausted" | "plan-review-cap" | "empty-review-input";
   workflowStepId?: string;
+  emptyInputFence?: EmptyReviewContentGateFence;
   stepName: string;
   feedback: string;
   findings?: WorkflowReviewFinding[];
@@ -48,7 +53,7 @@ export type ReviewConvergenceLadderDeps = {
   ) => Promise<void>;
 };
 
-export type ReviewConvergenceLadderOutcome = "escalated" | "arbitrated" | "released" | "human-escalated" | "declined";
+export type ReviewConvergenceLadderOutcome = "escalated" | "arbitrated" | "released" | "human-escalated" | "empty-content-terminalized" | "declined";
 
 type EscalationDecision =
   | { source: "dedicated" | "execution-fallback"; provider: string; modelId: string }
@@ -136,6 +141,18 @@ export async function routeReviewConvergenceLadder(
   if (!stop.workflowStepId || !(task.workflowStepResults ?? []).some((result) =>
     result.workflowStepId === stop.workflowStepId
       && (result.status === "failed" || result.status === "advisory_failure"))) return "declined";
+  /*
+  FNXC:ReviewEmptyContent 2026-08-28-13:14:
+  Empty Code Review input is terminal on first detection, including the built-in unbounded budget.
+  The checks above are only a pre-filter; the close owns its own exact-gate CAS because concurrent
+  lifecycle writers can land after this read. Do not claim a ladder stage, increment convergence,
+  dispatch escalation, or arbitrate content that does not exist.
+  */
+  if (stop.kind === "empty-review-input") {
+    if (!stop.emptyInputFence) return "declined";
+    const parked = await terminalizeEmptyReviewContent(deps, taskId, stop.emptyInputFence);
+    return parked ? "empty-content-terminalized" : "declined";
+  }
   let claimed = false;
   let claimedStage: 1 | 2 | 3 | undefined;
   let claimedCycle: number | undefined;

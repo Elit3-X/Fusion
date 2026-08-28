@@ -19,6 +19,7 @@ import {
   resolveMaxConsecutiveToolFailureRetries,
   resolveReboundTarget,
   resolveWorkflowIrForTask,
+  TransitionRejectionError,
 } from "@fusion/core";
 import {
   BRANCH_WRITE_PROVENANCE_FAILURE_VALUE,
@@ -184,17 +185,65 @@ export async function handleGraphFailure(
         return;
       }
       /*
+      FNXC:ReviewEmptyContent 2026-08-28-13:14:
+      The remediation seam returns false after its fenced park, so code-review-remediation fails and
+      reaches this sink. That node already crossed review to the maxConcurrent WIP lane on entry; a
+      terminal row left there would consume capacity forever. Settle it once with a forward WIP to
+      review move before any resume/remediation classifier, using moveTask rather than the merge-queue
+      handoff. preserveStatus plus a post-move reassert protects the ending, while
+      allowDirectInReviewMove identifies the transition as legitimate. A rejected settle is a
+      deferral and leaves the park valid in place. Reporting graph success is not an alternative:
+      no-merge workflows would close succeeded and bypass guards while moving the failed card to done.
+      */
+      if (live.status === "failed" && live.error?.startsWith("NO REVIEWABLE CONTENT:")) {
+        const parkedError = live.error;
+        let settledColumn = live.column;
+        if (failureLanes.wipDeclared && live.column === failureLanes.wip && failureLanes.review !== live.column) {
+          try {
+            await deps.store.moveTask(task.id, failureLanes.review, {
+              moveSource: "engine",
+              preserveProgress: true,
+              preserveWorktree: true,
+              preserveStatus: true,
+              allowDirectInReviewMove: true,
+            });
+            settledColumn = failureLanes.review;
+          } catch (error) {
+            if (!(error instanceof TransitionRejectionError)) throw error;
+            executorLog.warn(`${task.id}: empty-review terminal park could not settle into '${failureLanes.review}' (${error.message}); preserving park in '${live.column}'`);
+          }
+        }
+        const afterSettle = await deps.store.getTask(task.id);
+        if (afterSettle.status !== "failed" || afterSettle.error !== parkedError) {
+          await deps.store.updateTask(task.id, { status: "failed", error: parkedError }, deps.getRunContextFor(task.id));
+        }
+        deps.clearPausedAborted(task.id);
+        deps.activeWorktrees.delete(task.id);
+        const emptyParkHonored = `Workflow graph run ended after a no-reviewable-content park — honoring terminal state in '${settledColumn}', not retrying or resuming`;
+        executorLog.log(`${task.id}: ${emptyParkHonored}`);
+        await deps.store.logEntry(task.id, emptyParkHonored, undefined, deps.getRunContextFor(task.id));
+        await deps.persistTokenUsage(task.id);
+        return;
+      }
+      /*
       FNXC:WorkflowMerge 2026-08-06-14:41:
       A merge requester can deliberately reject finalization, persist the blocker in `error`, and
       rebound the task to its workflow hold column. The graph then unwinds as a merge-node failure.
       Retrying or resuming that stale graph overrides the merger's durable decision and creates an
       unbounded hold -> merge -> hold loop. Honor the fresh parked row before any retry router; an
       operator retry can clear the error and start a new graph run explicitly.
+
+      FNXC:EmptyMergeFinalize 2026-08-28-13:14:
+      FN-217 removed merge-failure-rebound's backward-move authority, so an empty-merge refusal now
+      remains in review. Honor that precise merger park when it carries a hard blocking status;
+      requiring only the historical hold lane would let graph teardown overwrite it with a generic
+      failure. The review lane already consumes no WIP capacity, so this branch performs no move.
       */
       const parkedMergeNode = result.visitedNodeIds[result.visitedNodeIds.length - 1];
       if (
         live.error != null &&
-        live.column === failureLanes.hold &&
+        (live.column === failureLanes.hold
+          || (live.column === failureLanes.review && live.status === "failed")) &&
         isMergeGraphFailure(parkedMergeNode)
       ) {
         deps.clearPausedAborted(task.id);

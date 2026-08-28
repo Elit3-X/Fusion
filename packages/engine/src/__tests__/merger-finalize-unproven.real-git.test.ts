@@ -207,9 +207,7 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
       ),
     ).toBe(false);
     expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column]) => column === "done")).toBe(false);
-    expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column, options]) =>
-      column === "in-progress" && options?.lifecycleReason === "merge-failure-rebound"
-    )).toBe(true);
+    expect(store.moveTask).not.toHaveBeenCalled();
   }, 20_000);
 
   it("FN-6461: demotes no-commits proven no-op tasks when skipped work outweighs done work", async () => {
@@ -255,12 +253,10 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
     expect(result.noOp).toBe(false);
     // "Verify"/"Testing" are skipped verification steps → precise reason naming them.
     expect(result.error).toContain("skipped verification step");
-    expect(store.updateTask).toHaveBeenCalledWith("FN-NO-COMMITS", expect.objectContaining({ error: expect.stringContaining("skipped verification step") }));
-    expect(store.moveTask).toHaveBeenCalledWith("FN-NO-COMMITS", "in-progress", expect.objectContaining({
-      preserveProgress: true,
-      moveSource: "engine",
-      lifecycleReason: "merge-failure-rebound",
+    expect(store.updateTask).toHaveBeenCalledWith("FN-NO-COMMITS", expect.objectContaining({
+      error: expect.stringContaining("skipped verification step"),
     }));
+    expect(store.moveTask).not.toHaveBeenCalled();
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-NO-COMMITS", "done");
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-NO-COMMITS",
@@ -393,11 +389,8 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
 
     expect(result.merged).toBe(false);
     expect(result.error).toContain("done=1, incomplete=1");
-    expect(store.moveTask).toHaveBeenCalledWith("FN-EMPTY-BLOCK", "in-progress", expect.objectContaining({
-      preserveProgress: true,
-      moveSource: "engine",
-      lifecycleReason: "merge-failure-rebound",
-    }));
+    expect(store.updateTask).toHaveBeenCalledWith("FN-EMPTY-BLOCK", expect.objectContaining({ error: expect.any(String) }));
+    expect(store.moveTask).not.toHaveBeenCalled();
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-EMPTY-BLOCK", "done");
     expect(git(repo, "git show-ref --verify --quiet refs/heads/fusion/fn-empty-block; echo $?")).toBe("0");
     expect(store.logEntry).toHaveBeenCalledWith(
@@ -491,10 +484,8 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
     const result = await aiMergeTask(store, repo, "FN-B");
     expect(result.merged).toBe(false);
     expect(result.error).toContain("finalize-unproven");
-    expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column]) => column === "done")).toBe(false);
-    expect((store.moveTask as ReturnType<typeof vi.fn>).mock.calls.some(([, column, options]) =>
-      column === "in-progress" && options?.lifecycleReason === "merge-failure-rebound"
-    )).toBe(true);
+    expect(store.updateTask).toHaveBeenCalledWith("FN-B", expect.objectContaining({ error: expect.any(String) }));
+    expect(store.moveTask).not.toHaveBeenCalled();
   }, 20_000);
 
   // FN-5345/FN-5377 + branch-group completion regression: a shared-group member

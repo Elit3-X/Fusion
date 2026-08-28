@@ -87,7 +87,12 @@ import {
   type WorkflowStepOutcome,
 } from "./workflow-step-verdict.js";
 import { resolveDiffBaseRef } from "./worktree-git-refs.js";
-import { computeReviewDiffFingerprint, probeReviewChangesSinceCommit } from "../worktree/review-diff-fingerprint.js";
+import {
+  computeCodeReviewInputFingerprint,
+  computeReviewDiffFingerprint,
+  EMPTY_REVIEW_DIFF_FINGERPRINT,
+  probeReviewChangesSinceCommit,
+} from "../worktree/review-diff-fingerprint.js";
 // FNXC:PlanReviewConvergence 2026-08-15-22:15: FN-8768 convergence primer + revision-key classifier (restored post-wave-18).
 import { buildGraphPlanReviewConvergenceContext, buildReviewConvergenceContext, optionalStepRevisionKey } from "./optional-step-revision.js";
 // FNXC:CommandCenterActivity 2026-08-15-22:15: FN-8868 usage telemetry + session boundaries (restored post-wave-18).
@@ -352,7 +357,11 @@ export async function executeWorkflowStep(
           encoding: "utf-8",
         });
         diffShortstat = stdout.trim() || undefined;
-        if (isReviewTypeWorkflowStep) reviewInputFingerprint = await computeReviewDiffFingerprint(worktreePath, baseRef);
+        if (workflowStepMetadata.reviewKind === "code") {
+          reviewInputFingerprint = await computeCodeReviewInputFingerprint(worktreePath, baseRef);
+        } else if (isReviewTypeWorkflowStep) {
+          reviewInputFingerprint = await computeReviewDiffFingerprint(worktreePath, baseRef);
+        }
       }
     } catch {
       // best-effort — fall through with no shortstat
@@ -495,6 +504,34 @@ CRITICAL SCOPING RULES — read before doing anything else:
     const repositoryScopeRevision = workflowStepMetadata.reviewKind === "code"
       ? latestTaskForUserComments.repositoryScope?.revision
       : undefined;
+    /*
+    FNXC:ReviewEmptyContent 2026-08-28-13:14:
+    A singular task explicitly confirmed with noCommitsExpected=true has no content for Code Review,
+    so dispatching a reviewer can only manufacture a REVISE loop. Resolve that exact, fail-closed
+    contract as passed; prompt-derived eligibility is intentionally insufficient because merge
+    admission honors only the durable field. A passed result satisfies the empty-merge required-gate
+    check and stays on the review success edge, avoiding the remediation node's WIP crossing. The
+    empty-merge finalization guards remain authoritative and may still refuse completion.
+    */
+    if (workflowStepMetadata.reviewKind === "code"
+      && reviewInputFingerprint === EMPTY_REVIEW_DIFF_FINGERPRINT
+      && latestTaskForUserComments.workspaceWorktrees === undefined
+      && latestTaskForUserComments.noCommitsExpected === true) {
+      const notes = "Code Review is not applicable because this task explicitly expects no commits and its review diff is empty.";
+      await deps.store.logEntry(
+        task.id,
+        `[pre-merge] ${workflowStep.name} passed without reviewer dispatch: ${notes}`,
+      );
+      return {
+        success: true,
+        output: notes,
+        verdict: "APPROVE",
+        notes,
+        reviewInputFingerprint,
+        ...(reviewedCommitSha ? { reviewedCommitSha } : {}),
+        ...(repositoryScopeRevision !== undefined ? { repositoryScopeRevision } : {}),
+      };
+    }
     const reusableReviewResult = reviewFindingsContract
       ? findReusableReviewResult(
           latestTaskForUserComments,

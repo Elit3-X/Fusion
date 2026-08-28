@@ -35,6 +35,7 @@ import type { EngineRunContext } from "../util/run-audit.js";
 import { routeReviewConvergenceLadder } from "./review-convergence-ladder.js";
 import { hasRepeatedUnchangedReview } from "./request-pre-merge-optional-step-fix.js";
 import { resolveRemediationCheckout } from "./resolve-remediation-checkout.js";
+import { isDefiniteEmptyCodeReviewRevise } from "./review-empty-content-close.js";
 
 export type RecoverFailedPreMergeStepDeps = {
   store: TaskStore;
@@ -112,6 +113,35 @@ export async function recoverFailedPreMergeWorkflowStep(
       );
       return false;
     }
+    /*
+    FNXC:ReviewEmptyContent 2026-08-28-13:14:
+    Definite empty Code Review input closes before resolving or rejecting any revision budget. A
+    zero, invalid, finite, or unbounded allowance cannot create reviewable content. The operator hold
+    and checkout guard remain authoritative; a declined gate CAS falls through unchanged.
+    */
+    if (isDefiniteEmptyCodeReviewRevise(target)) {
+      const outcome = await routeReviewConvergenceLadder({
+        ...deps,
+        getRunContextFor: deps.getRunContextFor ?? (() => undefined),
+      }, task.id, {
+        kind: "empty-review-input",
+        workflowStepId: target.workflowStepId,
+        stepName,
+        feedback,
+        findings: target.findings,
+        attempt: 1,
+        emptyInputFence: {
+          workflowStepId: target.workflowStepId,
+          stepName,
+          expectedStartedAt: target.startedAt,
+          expectedCompletedAt: target.completedAt,
+          expectedVerdict: target.verdict,
+          expectedReviewInputFingerprint: target.reviewInputFingerprint!,
+        },
+      });
+      if (outcome === "empty-content-terminalized") return false;
+    }
+
     const budget = await deps.resolveFailedPreMergeWorkflowStepBudget(task, target);
     /*
      * FNXC:WorkflowRevisionBudget 2026-08-09-21:41:

@@ -67,6 +67,7 @@ import { routeReviewConvergenceLadder } from "./review-convergence-ladder.js";
 import type { AppendReviewRemediationOutcome } from "./append-review-remediation-steps.js";
 import { resolveReviewRemediationGate } from "./review-remediation-gate.js";
 import { resolveRemediationCheckout } from "./resolve-remediation-checkout.js";
+import { isDefiniteEmptyCodeReviewRevise } from "./review-empty-content-close.js";
 
 function normalizeConvergenceText(value: string | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -400,6 +401,35 @@ export async function requestPreMergeOptionalStepFix(
       graphResumeRetryCount: 0,
     }, deps.getRunContextFor(taskId));
     return true;
+  }
+
+  /*
+  FNXC:ReviewEmptyContent 2026-08-28-13:14:
+  A definite empty Code Review rejection closes before the review-gated appender and every Code
+  Review budget branch. The built-in budget is unbounded, and no revision count can create content;
+  return false after the park because no remediation was scheduled. A declined CAS falls through to
+  the existing path. The operator hold, artifact, and Plan Review routes intentionally remain first.
+  */
+  const emptyResult = liveTask.workflowStepResults?.find((result) =>
+    result.workflowStepId === info.nodeId && isDefiniteEmptyCodeReviewRevise(result));
+  if (emptyResult) {
+    const outcome = await routeReviewConvergenceLadder(deps, taskId, {
+      kind: "empty-review-input",
+      workflowStepId: emptyResult.workflowStepId,
+      stepName: emptyResult.workflowStepName || info.stepName,
+      feedback: info.feedback,
+      findings: emptyResult.findings,
+      attempt: 1,
+      emptyInputFence: {
+        workflowStepId: emptyResult.workflowStepId,
+        stepName: emptyResult.workflowStepName || info.stepName,
+        expectedStartedAt: emptyResult.startedAt,
+        expectedCompletedAt: emptyResult.completedAt,
+        expectedVerdict: emptyResult.verdict,
+        expectedReviewInputFingerprint: emptyResult.reviewInputFingerprint!,
+      },
+    });
+    if (outcome === "empty-content-terminalized") return false;
   }
 
   const workflowIr = await resolveWorkflowIrForTask(deps.store, taskId).catch(() => undefined);

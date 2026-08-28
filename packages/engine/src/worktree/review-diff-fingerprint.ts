@@ -27,6 +27,8 @@ export type ReviewChangesSinceCommitProbe =
 
 export const MAX_REVIEW_CHANGED_FILES = 100;
 
+export const EMPTY_REVIEW_DIFF_FINGERPRINT = "empty-review-input:v1";
+
 /*
 FNXC:MergeContentDescriptor 2026-08-23-07:12:
 FN-180's positive merge gate must distinguish an empty patch from an unreadable
@@ -98,5 +100,21 @@ export async function probeReviewChangesSinceCommit(
 /** Returns no signal for an absent/empty/unreadable diff; a failed probe must never invent progress. */
 export async function computeReviewDiffFingerprint(worktreePath: string | undefined, baseRef: string | undefined, targetRef = "HEAD"): Promise<string | undefined> {
   const result = await probeReviewDiffFingerprint(worktreePath, baseRef, targetRef);
+  return result.state === "fingerprint" ? result.fingerprint : undefined;
+}
+
+/*
+FNXC:ReviewEmptyContent 2026-08-28-13:14:
+A provably empty Code Review diff is a definite input, not missing evidence. Collapsing it into
+undefined made unchanged-review convergence permanently blind for tasks with no changes, while an
+unreadable Git diff must remain unavailable and fail closed.
+*/
+export async function computeCodeReviewInputFingerprint(
+  worktreePath: string | undefined,
+  baseRef: string | undefined,
+  targetRef = "HEAD",
+): Promise<string | undefined> {
+  const result = await probeReviewDiffFingerprint(worktreePath, baseRef, targetRef);
+  if (result.state === "empty") return EMPTY_REVIEW_DIFF_FINGERPRINT;
   return result.state === "fingerprint" ? result.fingerprint : undefined;
 }
