@@ -37,7 +37,7 @@ import { parseAwaitInputSentinel } from "./await-input-parse.js";
 // FNXC:ReviewLaneRecommendations 2026-08-26-07:34: a readonly review node holds no writer; projection is its only durable channel.
 import { parseWorkflowStepRecommendations, resolveMaxRecommendationsPerTask } from "./workflow-step-recommendations.js";
 import { buildAgentPersona } from "./agent-binding-pure.js";
-import { reviewWorkspacePerRepo } from "./workspace-review-per-repo.js";
+import { isApprovalFamilyVerdict, reviewWorkspacePerRepo } from "./workspace-review-per-repo.js";
 import type { ReviewResult } from "../execution/reviewer.js";
 import type { SessionBoundaryDescriptor } from "../agents/agent-runtime.js";
 import { runDeterministicVerificationGate } from "../workflow-node-runners/verification-gate.js";
@@ -117,7 +117,7 @@ export function toWorkspaceRepoReviewResult(repoOutcome: WorkflowStepOutcome): R
 
 export function buildWorkspaceReviewOutcome(aggregate: ReviewResult, options: { superseded?: boolean } = {}): WorkflowStepOutcome {
   return {
-    success: aggregate.verdict === "APPROVE",
+    success: isApprovalFamilyVerdict(aggregate.verdict),
     verdict: aggregate.verdict as WorkflowStepOutcome["verdict"],
     output: aggregate.review,
     repositoryReviewOutcomes: aggregate.repositoryReviewOutcomes,
@@ -700,7 +700,7 @@ export async function runGraphCustomNode(
               reviewSuperseded = true;
               return null;
             }
-            if (aggregate.verdict !== "APPROVE" || !aggregate.repositoryDiffFingerprints || Object.keys(aggregate.repositoryDiffFingerprints).length === 0) {
+            if (!isApprovalFamilyVerdict(aggregate.verdict) || !aggregate.repositoryDiffFingerprints || Object.keys(aggregate.repositoryDiffFingerprints).length === 0) {
               return null;
             }
             return {

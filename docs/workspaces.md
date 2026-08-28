@@ -75,7 +75,7 @@ The choice is pinned per repository at acquisition. The recorded `WorkspaceWorkt
 
 ## Review and verification
 
-Fusion captures changes per acquired sub-repository, not from the non-Git root. Modified file paths are repository-prefixed, such as `api/src/server.ts`, and each member is diffed against its own base. Per-repository branch attribution, contamination, and worktree-invariant checks apply to those member worktrees. `fn_run_verification` can select a repository explicitly and records the selected repository with its command result.
+Fusion captures changes per acquired sub-repository, not from the non-Git root. Modified file paths are repository-prefixed, such as `api/src/server.ts`, and each member is diffed against its own base. Per-repository branch attribution, contamination, and worktree-invariant checks apply to those member worktrees. A workspace Code Review evaluates every modified in-scope repository before returning one aggregate verdict, with repository-qualified findings and an outcome for each reviewed member. `fn_run_verification` can select a repository explicitly and records the selected repository with its command result.
 
 ## Merging: the per-repo land loop
 
@@ -172,6 +172,6 @@ An executor that needs another repository before landing records a scope extensi
 
 ## Workspace review evidence and landing
 
-Code Review captures the complete binary diff from each repository's recorded base to its task branch. Landing consumes that same repository-qualified file list and fingerprint. A clean acquired repository is recorded as `NOT_REVIEWED`; acquiring a checkout alone never creates a landing or approval obligation.
+Code Review captures the complete binary diff from each repository's recorded base to its task branch. One episode reviews every modified in-scope repository and reports one verdict covering all per-repository outcomes and findings; clean acquired repositories are recorded as `NOT_REVIEWED`. An ordinary repository reviewer failure is named as not covered by a verdict while other repository findings remain visible. An approval carrying non-blocking notes still approves without another remediation round. A reviewer provider failure, such as a rate limit or transient outage, ends the episode as unavailable and the bounded retry reruns the whole episode rather than publishing a rejection assembled from only part of the workspace. Landing consumes that same repository-qualified file list and fingerprint. Acquiring a checkout alone never creates a landing or approval obligation.
 
 If a modified repository lacks approval, Fusion reports `approval-missing`; if its approved diff no longer matches, it reports `content-changed`. Both diagnostics identify the repository and files, preserve completed work, and automatically route the task back through Code Review rather than exhausting merge retries. Repository/base-ref preparation errors are environment failures: Fusion keeps the Git cause, retries the environment lane only, and Retry resumes that lane without charging a reviewer provider.

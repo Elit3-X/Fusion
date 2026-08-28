@@ -42,6 +42,7 @@ import {
 import type { EngineRunContext } from "../util/run-audit.js";
 import { executorLog, reviewerLog } from "../logger.js";
 import { normalizeWorkspaceTaskRouting } from "./workspace-config-resolver.js";
+import { isApprovalFamilyVerdict } from "./workspace-review-per-repo.js";
 
 const WORKFLOW_THINKING_LEVEL_SET: ReadonlySet<string> = new Set(THINKING_LEVELS);
 
@@ -67,7 +68,7 @@ export async function persistWorkspaceCodeReviewApproval(
       superseded = true;
       return null;
     }
-    if (review.verdict !== "APPROVE" || !review.repositoryDiffFingerprints || Object.keys(review.repositoryDiffFingerprints).length === 0) return null;
+    if (!isApprovalFamilyVerdict(review.verdict) || !review.repositoryDiffFingerprints || Object.keys(review.repositoryDiffFingerprints).length === 0) return null;
     return {
       repositoryScope: {
         ...scope,
