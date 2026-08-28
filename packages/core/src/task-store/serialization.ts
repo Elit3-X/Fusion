@@ -175,6 +175,7 @@ export function rowToTask(row: TaskRow): Task {
     executionCompletedAt: row.executionCompletedAt || undefined,
     dependencies: fromJson<string[]>(row.dependencies) || [],
     steps: fromJson<import("../types.js").TaskStep[]>(row.steps) || [],
+    stepReports: (() => { const reports = fromJson<import("../types.js").TaskStepReport[]>(row.stepReports); return reports && reports.length > 0 ? reports : undefined; })(),
     customFields: fromJson<Record<string, unknown>>(row.customFields) ?? undefined,
     log: fromJson<import("../types.js").TaskLogEntry[]>(row.log) || [],
     tokenBudgetSoftAlertedAt: row.tokenBudgetSoftAlertedAt || undefined,

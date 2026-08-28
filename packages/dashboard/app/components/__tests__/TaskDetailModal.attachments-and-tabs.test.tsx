@@ -838,8 +838,8 @@ describe("TaskDetailModal", () => {
 
       // For an in-progress task (no workflow steps, no merge commit), the
       // top-level tabs are: Activity, Chat, Plan, Dependencies, Attachments, Changes, Review,
-      // Comments, Terminal, Cost, Artifacts, Model, Workflow, Stats, Routing, Details, Debug.
-      const tabTexts = ["Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug"];
+      // History, Comments, Terminal, Cost, Artifacts, Model, Workflow, Stats, Routing, Details, Debug.
+      const tabTexts = ["Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug"];
       const tabs = screen.getAllByRole("button").filter((b) =>
         tabTexts.includes(b.textContent || "")
       );
@@ -847,12 +847,18 @@ describe("TaskDetailModal", () => {
       expect(tabs[0].textContent).toBe("Activity");
       expect(tabs[1].textContent).toBe("Chat");
       expect(tabs[2].textContent).toBe("Plan");
-      expect(tabs[7].textContent).toBe("Comments");
-      expect(tabs[8].textContent).toBe("Terminal");
-      expect(tabs[9].textContent).toBe("Cost");
+      expect(tabs[7].textContent).toBe("History");
+      expect(tabs[8].textContent).toBe("Comments");
+      expect(tabs[9].textContent).toBe("Terminal");
+      expect(tabs[10].textContent).toBe("Cost");
       expect(screen.queryByRole("button", { name: "Logs" })).toBeNull();
 
-      expect(container.querySelectorAll(".detail-tab").length).toBe(17);
+      expect(container.querySelectorAll(".detail-tab").length).toBe(18);
+      fireEvent.click(screen.getByRole("button", { name: "History" }));
+      expect(screen.getByTestId("task-history-stage-plan")).toBeInTheDocument();
+      expect(screen.getByTestId("task-history-stage-code")).toBeInTheDocument();
+      expect(screen.getByTestId("task-history-stage-review")).toBeInTheDocument();
+      expect(screen.getByTestId("task-history-stage-merge")).toBeInTheDocument();
       // Workflow tab should always appear even when no workflow steps are configured
       expect(screen.getByText("Workflow")).toBeInTheDocument();
       // Commits tab should NOT appear for non-done tasks

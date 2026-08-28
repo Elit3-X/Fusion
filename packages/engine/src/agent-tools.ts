@@ -332,6 +332,7 @@ export const taskUpdateParams = Type.Object({
     STEP_STATUSES.map((s) => Type.Literal(s)),
     { description: "New status: pending, in-progress, done, or skipped. Required when step is set." },
   )),
+  summary: Type.Optional(Type.String({ description: "2-4 plain-language sentences describing what THIS step actually delivered (files/behavior changed, verification run). Required when status is 'done'. Shown to the operator in the task History tab." })),
   dependencies: Type.Optional(Type.Array(Type.String(), {
     description: "Optional task dependency array. Replaces existing dependencies. Pass ['FN-001', 'FN-002'] to set dependencies. Pass [] to clear all dependencies. Omit parameter to preserve existing dependencies.",
   })),
@@ -3486,8 +3487,13 @@ export function createTaskUpdateTool(store: TaskStore, taskId: string): ToolDefi
           await store.updateTask(taskId, { dependencies: params.dependencies });
         }
         if (params.step !== undefined && params.status !== undefined) {
-          const task = await store.updateStep(taskId, params.step, params.status);
-          return { content: [{ type: "text" as const, text: `Updated ${taskId}: step ${params.step} → ${params.status}` }], details: { taskId: task.id, step: params.step, status: params.status } };
+          const task = params.summary === undefined
+            ? await store.updateStep(taskId, params.step, params.status)
+            : await store.updateStep(taskId, params.step, params.status, { summary: params.summary });
+          const reminder = params.status === "done" && !params.summary?.trim()
+            ? " No step summary recorded — call fn_task_update again for this step with `summary` to record what it delivered."
+            : "";
+          return { content: [{ type: "text" as const, text: `Updated ${taskId}: step ${params.step} → ${params.status}.${reminder}` }], details: { taskId: task.id, step: params.step, status: params.status } };
         }
         if (params.custom_fields !== undefined || params.dependencies !== undefined) {
           return { content: [{ type: "text" as const, text: "Updated." }], details: {} };

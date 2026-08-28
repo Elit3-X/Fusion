@@ -18,6 +18,7 @@ import {__setTaskActivityLogLimitsForTesting} from "../task-store/comments.js";
 import {assertSafeGitBranchName, assertSafeAbsolutePath} from "../task-store/shell-safety.js";
 import {isFusionDeletableBranch} from "../branch/branch-assignment.js";
 import {acquireMergeQueueLease as acquireMergeQueueLeaseAsync} from "../task-store/async/async-merge-coordination.js";
+import {appendTaskStepReport} from "../workflows/task-step-reports.js";
 
 export type StepStartDisposition = "started" | "resumed" | "blocked" | "terminal";
 
@@ -67,7 +68,7 @@ async function appendProactiveStepStatus(store: TaskStore, taskId: string, messa
   await store.appendAgentLog(taskId, message, "status", undefined, "executor");
 }
 
-async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph" },): Promise<{ task: Task; startResult?: Omit<StepStartResult, "task"> }> {
+async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph"; summary?: string },): Promise<{ task: Task; startResult?: Omit<StepStartResult, "task"> }> {
     // FNXC:WorkflowStepOrdering 2026-07-20-20:05:
     // Step-inversion projection discipline (U6/KTD-7). A `source: "graph"` write
     // is the workflow-graph executor projecting a foreach instance's lifecycle
@@ -250,6 +251,19 @@ async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, s
       task.steps[stepIndex].status = status;
       task.updatedAt = new Date().toISOString();
 
+      /*
+      FNXC:TaskHistory 2026-08-28-02:23:
+      The locked updateStep seam is the sole ledger writer: updateTask cannot rewrite implementation history. Suppressed regression and dependency-order writes return above this point, so they cannot manufacture reports for transitions that never landed.
+      */
+      if (status === "done" && options?.summary?.trim()) {
+        task.stepReports = appendTaskStepReport(task.stepReports, {
+          stepIndex,
+          stepName: task.steps[stepIndex].name,
+          summary: options.summary,
+          recordedAt: task.updatedAt,
+        });
+      }
+
       // Recompute from the full list: an out-of-index parallel step may have
       // moved currentStep ahead of an earlier unfinished dependency branch.
       if (status === "done") {
@@ -311,7 +325,7 @@ async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, s
     });
 }
 
-export async function updateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph" },): Promise<Task> {
+export async function updateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph"; summary?: string },): Promise<Task> {
   return (await mutateStepImpl(store, id, stepIndex, status, options)).task;
 }
 

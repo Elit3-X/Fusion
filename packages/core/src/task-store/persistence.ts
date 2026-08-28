@@ -129,6 +129,7 @@ export interface TaskRow {
   executionCompletedAt: string | null;
   dependencies: string | null;
   steps: string | null;
+  stepReports: string | null;
   customFields: string | null;
   log: string | null;
   attachments: string | null;
@@ -231,7 +232,7 @@ FNXC:TaskLifecyclePersistence 2026-07-14-13:27:
 PostgreSQL task JSONB conversion must use one registry for both descriptor writes and SQLite-shaped row hydration. Separate read/write lists drifted when late lifecycle columns were added, allowing JSON strings or parsed objects to cross the wrong serialization boundary.
 */
 export const TASK_JSONB_COLUMNS: ReadonlySet<string> = new Set([
-  "dependencies", "steps", "customFields", "log", "attachments", "steeringComments",
+  "dependencies", "steps", "stepReports", "customFields", "log", "attachments", "steeringComments",
   "comments", "review", "reviewState", "workflowStepResults", "prInfo", "prInfos",
   "issueInfo", "githubTracking", "gitlabTracking", "mergeDetails", "workspaceWorktrees", "repositoryScope", "enabledWorkflowSteps",
   "modifiedFiles", "declaredSymbols", "scopeAutoWiden", "sourceMetadata", "tokenUsagePerModel",
@@ -380,6 +381,7 @@ export const TASK_COLUMN_DESCRIPTORS: TaskColumnDescriptor[] = [
   defineTaskColumn("executionCompletedAt", (task) => task.executionCompletedAt ?? null),
   defineTaskColumn("dependencies", (task) => toJson(task.dependencies || [])),
   defineTaskColumn("steps", (task) => toJson(task.steps || [])),
+  defineTaskColumn("stepReports", (task) => toJson(task.stepReports || [])),
   defineTaskColumn("customFields", (task) => toJson(task.customFields ?? {})),
   defineTaskColumn("log", (task) => toJson(task.log || [])),
   defineTaskColumn("attachments", (task) => toJson(task.attachments || [])),

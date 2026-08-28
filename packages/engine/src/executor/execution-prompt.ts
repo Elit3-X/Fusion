@@ -260,7 +260,7 @@ You are running in an **isolated git worktree**. This means:
 ${hasProgress
     ? `Resume from Step ${task.currentStep}. Do NOT redo completed steps.`
     : "Start with Step 0 (Preflight). Work through each step in order."}
-Use \`fn_task_update\` to report progress on every step transition; its \`step\` value is 0-based and equals the \`### Step N:\` number in PROMPT.md.
+Use \`fn_task_update\` to report progress on every step transition; its \`step\` value is 0-based and equals the \`### Step N:\` number in PROMPT.md. When marking a step done, include the \`summary\` argument with 2–4 plain-language sentences describing what that step delivered and verified.
 Use \`fn_task_log\` for important actions and decisions.
 Use \`fn_task_create\` for truly separate follow-up work, including unrelated/pre-existing broad-suite failures.
 Commit at step boundaries: \`git commit -m "feat(${task.id}): complete Step N — <short summary>"${sourceIssueRef ? ` -m "Ref: ${sourceIssueRef}"` : ""}${authorArg}\`

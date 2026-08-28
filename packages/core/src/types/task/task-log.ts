@@ -7,6 +7,20 @@ import type { ColumnId } from "../board/board.js";
 
 export type StepStatus = "pending" | "in-progress" | "done" | "skipped";
 
+/*
+FNXC:TaskHistory 2026-08-28-02:23:
+Step reports live on the task rather than inside TaskStep because replanning replaces task.steps wholesale. The top-level append-only ledger preserves implementation history across every replan so History never loses an earlier delivery report.
+*/
+export interface TaskStepReport {
+  id: string;
+  stepIndex: number;
+  stepName: string;
+  summary: string;
+  recordedAt: string;
+  source: "agent";
+  attempt: number;
+}
+
 export interface TaskStep {
   name: string;
   status: StepStatus;

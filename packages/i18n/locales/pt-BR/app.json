@@ -8337,7 +8337,8 @@
       "dependencies": "",
       "attachments": "",
       "details": "",
-      "debug": ""
+      "debug": "",
+      "history": ""
     },
     "terminal": {
       "loading": "Carregando terminal…"
@@ -9730,5 +9731,50 @@
     "close": "",
     "loading": "",
     "retry": ""
+  },
+  "taskHistory": {
+    "stage": {
+      "plan": "",
+      "code": "",
+      "review": "",
+      "merge": ""
+    },
+    "stageToggleAria": "",
+    "empty": {
+      "plan": "",
+      "code": "",
+      "review": "",
+      "merge": ""
+    },
+    "entry": {
+      "noBody": "",
+      "completionSummary": "",
+      "stepReport": "",
+      "merged": "",
+      "noOpMerge": ""
+    },
+    "meta": {
+      "commit": "",
+      "targetBranch": "",
+      "strategy": "",
+      "method": "",
+      "files": "",
+      "insertions": "",
+      "deletions": "",
+      "pr": "",
+      "noOpReason": ""
+    },
+    "loading": "",
+    "verdict": {
+      "approve": "",
+      "approve-with-notes": "",
+      "revise": "",
+      "close-no-op": "",
+      "passed": "",
+      "failed": "",
+      "advisory-failure": "",
+      "skipped": "",
+      "pending": ""
+    }
   }
 }

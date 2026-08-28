@@ -208,6 +208,7 @@ export const tasks = projectSchema.table("tasks", {
   executionCompletedAt: text("execution_completed_at"),
   dependencies: jsonb("dependencies").default([]),
   steps: jsonb("steps").default([]),
+  stepReports: jsonb("step_reports").default([]),
   log: jsonb("log").default([]),
   attachments: jsonb("attachments").default([]),
   steeringComments: jsonb("steering_comments").default([]),

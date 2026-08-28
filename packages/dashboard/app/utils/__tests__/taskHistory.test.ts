@@ -1,0 +1,98 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { describe, expect, it } from "vitest";
+import type { Task, WorkflowStepResult } from "@fusion/core";
+import { buildTaskHistory, TASK_HISTORY_WORKFLOW_IDS } from "../taskHistory";
+
+function task(overrides: Partial<Task> = {}): Task {
+  return { id: "FN-208", title: "History", description: "", priority: "normal", column: "todo", currentStep: 0, steps: [], dependencies: [], log: [], createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z", ...overrides } as Task;
+}
+
+function result(overrides: Partial<WorkflowStepResult> = {}): WorkflowStepResult {
+  return { workflowStepId: "verification", workflowStepName: "Verification", phase: "pre-merge", status: "passed", completedAt: "2026-08-28T01:00:00.000Z", output: "Verified output", ...overrides };
+}
+
+function stageEntries(history: ReturnType<typeof buildTaskHistory>, id: string) {
+  return history.find((stage) => stage.id === id)!.entries;
+}
+
+describe("buildTaskHistory", () => {
+  it("always returns four empty stages for a fresh task", () => {
+    expect(buildTaskHistory(task(), [])).toEqual([
+      { id: "plan", entries: [] }, { id: "code", entries: [] }, { id: "review", entries: [] }, { id: "merge", entries: [] },
+    ]);
+  });
+
+  it("projects a fully populated task into all four stages", () => {
+    const history = buildTaskHistory(task({
+      stepReports: [{ id: "code-1", stepIndex: 1, stepName: "Implement", summary: "Built it", recordedAt: "2026-08-28T02:00:00.000Z", source: "agent", attempt: 1 }],
+      mergeDetails: { commitSha: "1234567890abcdef", mergedAt: "2026-08-28T04:00:00.000Z", mergeCommitMessage: "Merge history", filesChanged: 3 },
+    }), [
+      result({ workflowStepId: "plan-review-step", workflowStepName: "Plan Review", reviewKind: "plan", verdict: "APPROVE", completedAt: "2026-08-28T01:00:00.000Z" }),
+      result({ workflowStepId: "code-review-step", workflowStepName: "Code Review", reviewKind: "code", verdict: "APPROVE", completedAt: "2026-08-28T03:00:00.000Z" }),
+    ]);
+    expect(history.map((stage) => [stage.id, stage.entries.length])).toEqual([["plan", 1], ["code", 1], ["review", 1], ["merge", 1]]);
+  });
+
+  it("restores chronological order for newest-first prior review attempts", () => {
+    const current = result({
+      workflowStepId: "plan-review-step", workflowStepName: "Plan Review", reviewKind: "plan", verdict: "APPROVE", completedAt: "2026-08-28T03:00:00.000Z",
+      priorAttempts: [
+        result({ workflowStepId: "plan-review-step", workflowStepName: "Plan Review", reviewKind: "plan", verdict: "REVISE", completedAt: "2026-08-28T02:00:00.000Z", output: "Second revision" }),
+        result({ workflowStepId: "plan-review-step", workflowStepName: "Plan Review", reviewKind: "plan", verdict: "REVISE", completedAt: "2026-08-28T01:00:00.000Z", output: "First revision" }),
+      ],
+    });
+    expect(stageEntries(buildTaskHistory(task(), [current]), "plan").map((entry) => entry.verdict)).toEqual(["REVISE", "REVISE", "APPROVE"]);
+  });
+
+  it("omits a stripped archived carrier while retaining its prior attempt", () => {
+    const carrier = result({
+      workflowStepId: "code-review-step", workflowStepName: "Code Review", reviewKind: "code", status: "skipped", remediationArchivedAt: "2026-08-28T03:00:00.000Z", output: undefined,
+      priorAttempts: [result({ workflowStepId: "code-review-step", workflowStepName: "Code Review", reviewKind: "code", status: "failed", verdict: "REVISE", output: "Fix it" })],
+    });
+    const entries = stageEntries(buildTaskHistory(task(), [carrier]), "review");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.body).toBe("Fix it");
+  });
+
+  it("retains bodyless workflow results with their status", () => {
+    const entries = stageEntries(buildTaskHistory(task(), [result({ output: " ", notes: " " })]), "code");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ status: "passed", body: undefined });
+  });
+
+  it("does not duplicate task summary when its workflow result exists", () => {
+    const entries = stageEntries(buildTaskHistory(task({ summary: "Summary" }), [result({ workflowStepId: "completion-summary", workflowStepName: "Completion summary", output: "Summary" })]), "code");
+    expect(entries).toHaveLength(1);
+  });
+
+  it("classifies post-merge workflow output as merge", () => {
+    const history = buildTaskHistory(task(), [result({ workflowStepId: "post-audit", workflowStepName: "Post merge audit", phase: "post-merge", verdict: "APPROVE" })]);
+    expect(stageEntries(history, "merge")).toHaveLength(1);
+    expect(stageEntries(history, "review")).toHaveLength(0);
+  });
+
+  it("keeps local workflow identity literals aligned with core built-ins", () => {
+    const testModuleUrl = pathToFileURL(__filename);
+    const sources = [
+      fileURLToPath(new URL("../../../../core/src/workflows/builtin-plan-review-group.ts", testModuleUrl)),
+      fileURLToPath(new URL("../../../../core/src/workflows/builtin-code-review-group.ts", testModuleUrl)),
+      fileURLToPath(new URL("../../../../core/src/workflows/builtin-browser-verification-group.ts", testModuleUrl)),
+      fileURLToPath(new URL("../../../../core/src/workflows/builtin-completion-summary-node.ts", testModuleUrl)),
+    ].map((path) => readFileSync(path, "utf8")).join("\n");
+    for (const value of Object.values(TASK_HISTORY_WORKFLOW_IDS)) expect(sources).toContain(`= "${value}"`);
+  });
+
+  it("emits only task-sourced text or taskHistory i18n descriptors", () => {
+    const fixtureValues = new Set(["Plan Review", "Code Review"]);
+    const history = buildTaskHistory(task({
+      stepReports: [{ id: "r", stepIndex: 1, stepName: "Implement", summary: "Built", recordedAt: "2026-08-28T02:00:00.000Z", source: "agent", attempt: 1 }],
+      mergeDetails: { commitSha: "abcdef123456", mergedAt: "2026-08-28T04:00:00.000Z", mergeTargetBranch: "main" },
+    }), [result({ workflowStepId: "plan-review", workflowStepName: "Plan Review", reviewKind: "plan" }), result({ workflowStepId: "code-review", workflowStepName: "Code Review", reviewKind: "code" })]);
+    const labels = history.flatMap((stage) => stage.entries.flatMap((entry) => [entry.title, ...(entry.meta ?? []).map((item) => item.label)]));
+    for (const label of labels) {
+      if (label.kind === "text") expect(fixtureValues).toContain(label.text);
+      else expect(label.key).toMatch(/^taskHistory\./);
+    }
+  });
+});

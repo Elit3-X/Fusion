@@ -81,7 +81,8 @@ touches no data; it must advance in the same change that ships a new migration f
 /* FNXC:MemoryFocus 2026-08-20-22:10: the upstream 2026-08-20 batch (FN-066..FN-094) claimed 0061-0064 after this branch had already taken 0061, so the memory-focus migration was renumbered to 0065 and the baseline ceiling advanced with it. */
 /* FNXC:MemoryFocus 2026-08-23-12:50: upstream then shipped FN-149's 0065_fn_149_review_convergence_stage.sql on origin/main, claiming 0065 for its own migration. Upstream's 0065 is canonical (already released), so the memory-focus migration is renumbered to 0066 and the ceiling advances to 0066. Production databases that already applied the memory-focus SQL under ledger row "0065" (v17-era ledger) need a one-time ledger remap 0065->0066 before first boot of a 0066-ceiling binary, or the fresh 0065_fn_149 migration would be skipped as "already applied". */
 /* FNXC:WorkspaceContention 2026-08-24-03:34: origin/main owns released migration 0066 for chat memory focus, so FN-179's session-contention wait state moves to 0067 and the binary ceiling advances with it. */
-export const SCHEMA_BASELINE_VERSION = "0067";
+/* FNXC:TaskHistory 2026-08-28-02:23: advance the schema ceiling so upgraded projects materialize the durable step-report ledger before task reads begin. */
+export const SCHEMA_BASELINE_VERSION = "0068";
 /** FNXC:SymbolLock 2026-07-20-10:00: upgrades need durable task declarations before admission resolves symbols. */
 export const TASK_DECLARED_SYMBOLS_VERSION = "0028";
 const INITIAL_SCHEMA_VERSION = "0000";
@@ -252,6 +253,8 @@ export const TASK_REPOSITORY_SCOPE_VERSION = "0064";
 export const REVIEW_CONVERGENCE_STAGE_VERSION = "0065";
 /** FNXC:WorkspaceContention 2026-08-24-03:34: upgrades must persist owner-visible scheduling waits at 0067 because released chat memory focus owns 0066. */
 export const SESSION_CONTENTION_WAIT_STATE_VERSION = "0067";
+/** FNXC:TaskHistory 2026-08-28-02:23: upgraded projects persist implementation reports under a dedicated immutable migration identity. */
+export const TASK_STEP_REPORTS_VERSION = "0068";
 
 /** FNXC:MemoryFocus 2026-08-13-15:57: explicit registration prevents the per-conversation memory-focus migration from being skipped. Renumbered to 0060 (FN-9037 took 0059), then 0061, then 0065 (2026-08-20) when the upstream FN-066..FN-094 batch claimed 0061-0064. */
 export const CHAT_SESSION_MEMORY_FOCUS_VERSION = "0066";
@@ -497,6 +500,7 @@ const REVIEW_CONVERGENCE_STAGE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0065_fn_14
 /* FNXC:MemoryFocus 2026-08-14-10:30: renumbered to 0061 (FN-9059 workspace leases own 0060), then to 0065 (2026-08-20) when the upstream FN-066..FN-094 batch claimed 0061-0064, then to 0066 (2026-08-23) when upstream's FN-149 claimed 0065. */
 const CHAT_SESSION_MEMORY_FOCUS_MIGRATION_PATH = join(MIGRATIONS_DIR, "0066_chat_session_memory_focus.sql");
 const SESSION_CONTENTION_WAIT_STATE_MIGRATION_PATH = join(MIGRATIONS_DIR, "0067_fn_179_session_contention_wait_state.sql");
+const TASK_STEP_REPORTS_MIGRATION_PATH = join(MIGRATIONS_DIR, "0068_fn_208_task_step_reports.sql");
 
 /**
  * Ensure the migration bookkeeping table exists. Lives in the public schema so
@@ -634,6 +638,7 @@ export async function applySchemaBaseline(
     const reviewConvergenceStageAlreadyApplied = applied.includes(REVIEW_CONVERGENCE_STAGE_VERSION);
     const chatSessionMemoryFocusAlreadyApplied = applied.includes(CHAT_SESSION_MEMORY_FOCUS_VERSION);
     const sessionContentionWaitStateAlreadyApplied = applied.includes(SESSION_CONTENTION_WAIT_STATE_VERSION);
+    const taskStepReportsAlreadyApplied = applied.includes(TASK_STEP_REPORTS_VERSION);
     assertBinaryNotOlderThanDatabase(applied);
     let schemaChanged = false;
 
@@ -1448,6 +1453,25 @@ export async function applySchemaBaseline(
       const migrationSql = await readFile(SESSION_CONTENTION_WAIT_STATE_MIGRATION_PATH, "utf8");
       await tx.execute(sql.raw(migrationSql));
       await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${SESSION_CONTENTION_WAIT_STATE_VERSION}) ON CONFLICT (version) DO NOTHING`);
+      schemaChanged = true;
+    }
+    const taskStepReportsColumnState = (await tx.execute(sql`
+      SELECT
+        to_regclass('project.tasks') IS NOT NULL AS tasks_exists,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'project'
+            AND table_name = 'tasks'
+            AND column_name = 'step_reports'
+        ) AS step_reports_exists
+    `)) as unknown as Array<{ tasks_exists: boolean; step_reports_exists: boolean }>;
+    const taskStepReportsColumnMissing = taskStepReportsColumnState[0]?.tasks_exists
+      && !taskStepReportsColumnState[0]?.step_reports_exists;
+    if (!taskStepReportsAlreadyApplied || taskStepReportsColumnMissing) {
+      const migrationSql = await readFile(TASK_STEP_REPORTS_MIGRATION_PATH, "utf8");
+      await tx.execute(sql.raw(migrationSql));
+      await tx.execute(sql`INSERT INTO public.${sql.identifier(MIGRATION_BOOKKEEPING_TABLE)} (version) VALUES (${TASK_STEP_REPORTS_VERSION}) ON CONFLICT (version) DO NOTHING`);
       schemaChanged = true;
     }
     return { applied: schemaChanged, pluginHooksRun: pluginHooks.length };

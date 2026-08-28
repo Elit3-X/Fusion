@@ -2519,7 +2519,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     return EventEmitter.prototype.emit.call(this, event as string, ...args);
   }
 
-  async updateStep( id: string, stepIndex: number, status: import("./types.js").StepStatus, options?: { source?: "graph" }, ): Promise<Task> {
+  async updateStep( id: string, stepIndex: number, status: import("./types.js").StepStatus, options?: { source?: "graph"; summary?: string }, ): Promise<Task> {
     return updateStepImpl(this, id, stepIndex, status, options);
   }
   // FNXC:StepLifecycle 2026-07-22-10:30: Execution callers need the locked start verdict; updateStep retains its legacy Task-only contract.

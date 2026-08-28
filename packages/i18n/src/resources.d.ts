@@ -8556,6 +8556,7 @@ export default interface Resources {
         "dependencies": "Dependencies",
         "details": "Details",
         "documents": "Artifacts",
+        "history": "History",
         "logs": "Logs",
         "model": "Model",
         "pullRequest": "Pull Request",
@@ -8759,6 +8760,51 @@ export default interface Resources {
     },
     "taskHandlers": {
       "githubImported": "Imported {{id}} from GitHub"
+    },
+    "taskHistory": {
+      "empty": {
+        "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
+        "merge": "No merge reports recorded.",
+        "plan": "No planning reports recorded.",
+        "review": "No review reports recorded."
+      },
+      "entry": {
+        "completionSummary": "Completion summary",
+        "merged": "Merged",
+        "noBody": "No report body was recorded.",
+        "noOpMerge": "No-op merge",
+        "stepReport": "Step {{index}}: {{name}}"
+      },
+      "loading": "Loading history…",
+      "meta": {
+        "commit": "Commit",
+        "deletions": "Deletions",
+        "files": "Files",
+        "insertions": "Insertions",
+        "method": "Method",
+        "noOpReason": "No-op reason",
+        "pr": "Pull request",
+        "strategy": "Strategy",
+        "targetBranch": "Target branch"
+      },
+      "stage": {
+        "code": "Code",
+        "merge": "Merge",
+        "plan": "Plan",
+        "review": "Review"
+      },
+      "stageToggleAria": "{{stage}}, {{count}} reports",
+      "verdict": {
+        "advisory-failure": "Advisory failure",
+        "approve": "Approved",
+        "approve-with-notes": "Approved with notes",
+        "close-no-op": "Closed as no-op",
+        "failed": "Failed",
+        "passed": "Passed",
+        "pending": "Pending",
+        "revise": "Revise",
+        "skipped": "Skipped"
+      }
     },
     "taskReview": {
       "addressPrFeedback": "Address PR feedback",

@@ -39,6 +39,7 @@ import type {
   TaskComment,
   TaskLogEntry,
   TaskStep,
+  TaskStepReport,
   WorkflowTransitionNotificationMarker,
 } from "./task-log.js";
 
@@ -1082,6 +1083,8 @@ export interface Task {
   enabledWorkflowSteps?: string[];
   /** Results from workflow step executions (populated after task implementation) */
   workflowStepResults?: WorkflowStepResult[];
+  /** Append-only implementation summaries retained independently of replannable steps. */
+  stepReports?: TaskStepReport[];
   /** Number of merge retry attempts made for this task (auto-merge conflict recovery) */
   mergeRetries?: number;
   /*

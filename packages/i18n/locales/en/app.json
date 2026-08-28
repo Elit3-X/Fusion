@@ -8326,6 +8326,7 @@
       "model": "Model",
       "pullRequest": "Pull Request",
       "review": "Review",
+      "history": "History",
       "routing": "Routing",
       "stats": "Stats",
       "summary": "Summary",
@@ -8419,6 +8420,51 @@
     },
     "debug": {
       "none": "No debug details available."
+    }
+  },
+  "taskHistory": {
+    "stage": {
+      "plan": "Plan",
+      "code": "Code",
+      "review": "Review",
+      "merge": "Merge"
+    },
+    "stageToggleAria": "{{stage}}, {{count}} reports",
+    "empty": {
+      "plan": "No planning reports recorded.",
+      "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
+      "review": "No review reports recorded.",
+      "merge": "No merge reports recorded."
+    },
+    "entry": {
+      "noBody": "No report body was recorded.",
+      "completionSummary": "Completion summary",
+      "stepReport": "Step {{index}}: {{name}}",
+      "merged": "Merged",
+      "noOpMerge": "No-op merge"
+    },
+    "meta": {
+      "commit": "Commit",
+      "targetBranch": "Target branch",
+      "strategy": "Strategy",
+      "method": "Method",
+      "files": "Files",
+      "insertions": "Insertions",
+      "deletions": "Deletions",
+      "pr": "Pull request",
+      "noOpReason": "No-op reason"
+    },
+    "loading": "Loading history…",
+    "verdict": {
+      "approve": "Approved",
+      "approve-with-notes": "Approved with notes",
+      "revise": "Revise",
+      "close-no-op": "Closed as no-op",
+      "passed": "Passed",
+      "failed": "Failed",
+      "advisory-failure": "Advisory failure",
+      "skipped": "Skipped",
+      "pending": "Pending"
     }
   },
   "taskDocuments": {

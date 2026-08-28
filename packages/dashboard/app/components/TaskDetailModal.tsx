@@ -64,6 +64,7 @@ import { WorkspaceWorktreesSummary, isWorkspaceTask } from "./WorkspaceWorktrees
 import { TaskForm, type PendingImage } from "./TaskForm";
 import { useNodes } from "../hooks/useNodes";
 import { WorkflowResultsTab } from "./WorkflowResultsTab";
+import { TaskHistoryTab } from "./TaskHistoryTab";
 import { RoutingTab } from "./RoutingTab";
 import { TaskDocumentsTab } from "./TaskDocumentsTab";
 import { TaskTokenStatsPanel } from "./TaskTokenStatsPanel";
@@ -279,7 +280,7 @@ function formatDurationCompact(ageMs: number): string {
   return `${minutes}m`;
 }
 
-type TabId = "summary" | "recommendations" | "cost" | "definition" | "dependencies" | "attachments" | "details" | "debug" | "chat" | "planner-chat" | "logs" | "changes" | "review" | "pr" | "comments" | "model" | "workflow" | "documents" | "stats" | "routing" | "retries" | "terminal" | "worktree-terminal" | `plugin-${string}`;
+type TabId = "summary" | "recommendations" | "cost" | "definition" | "dependencies" | "attachments" | "details" | "debug" | "chat" | "planner-chat" | "logs" | "changes" | "review" | "history" | "pr" | "comments" | "model" | "workflow" | "documents" | "stats" | "routing" | "retries" | "terminal" | "worktree-terminal" | `plugin-${string}`;
 type ActivitySegment = "current" | "feed" | "raw-logs" | "interventions";
 
 /*
@@ -1845,6 +1846,10 @@ export function TaskDetailContent({
   const [workflowResults, setWorkflowResults] = useState<WorkflowStepResult[]>([]);
   const [workflowResultsLoading, setWorkflowResultsLoading] = useState(false);
   const [workflowEnabledSteps, setWorkflowEnabledSteps] = useState<string[] | undefined>(task.enabledWorkflowSteps);
+  const needsWorkflowResults = activeTab === "workflow" || activeTab === "history";
+  const historyWorkflowResults = workflowResults.length > 0
+    ? workflowResults
+    : (workingTask.workflowStepResults ?? []);
   const isNodeOverrideLocked = isWipColumn || ACTIVE_STATUSES.has(task.status as string);
 
   // Reset edit state when task changes
@@ -1919,9 +1924,13 @@ export function TaskDetailContent({
     return () => { cancelled = true; };
   }, [projectId, task.id]);
 
-  // Load workflow results when workflow tab is active
+  // Load workflow results when either workflow-report surface is active.
   useEffect(() => {
-    if (activeTab !== "workflow") return;
+    if (!needsWorkflowResults) return;
+    /*
+    FNXC:TaskHistory 2026-08-28-02:23:
+    History is a read-only projection over the modal's workflow result state and issues no request of its own. Admitting it to this shared load/SSE gate prevents Plan, Review, and Merge from showing zero until Workflow has been visited.
+    */
     let cancelled = false;
     /*
     FNXC:TaskWorkflowDetails 2026-06-26-01:43:
@@ -1942,12 +1951,12 @@ export function TaskDetailContent({
         if (!cancelled) setWorkflowResultsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [activeTab, task.id, projectId, addToast]);
+  }, [needsWorkflowResults, task.id, projectId, addToast]);
 
-  // Subscribe to SSE for real-time workflow result updates while workflow tab is active
+  // Subscribe to SSE for real-time workflow result updates while either report surface is active
   useEffect(() => {
     // FNXC:TaskPopupViewGating 2026-07-22-13:15: hidden kept-alive popups close this channel (R8).
-    if (activeTab !== "workflow" || !active) return;
+    if (!needsWorkflowResults || !active) return;
 
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
     let cancelled = false;
@@ -1993,7 +2002,7 @@ export function TaskDetailContent({
       cancelled = true;
       unsubscribe();
     };
-  }, [activeTab, active, task.id, projectId]);
+  }, [needsWorkflowResults, active, task.id, projectId]);
 
   /*
   FNXC:TaskCliSession 2026-07-26-16:36:
@@ -5830,6 +5839,12 @@ export function TaskDetailContent({
             >
               {t("taskDetail.tabs.review", "Review")}
             </button>
+            <button
+              className={`detail-tab${activeTab === "history" ? " detail-tab-active" : ""}`}
+              onClick={() => setActiveTab("history")}
+            >
+              {t("taskDetail.tabs.history", "History")}
+            </button>
             {isReviewColumn && (
               <button
                 className={`detail-tab${activeTab === "pr" ? " detail-tab-active" : ""}`}
@@ -5948,6 +5963,14 @@ export function TaskDetailContent({
                 agentLogEntries={agentLogEntries}
                 assignedAgent={assignedAgent}
                 onEditWorkflow={onOpenWorkflowEditor}
+              />
+            </div>
+          ) : activeTab === "history" ? (
+            <div className="detail-section">
+              <TaskHistoryTab
+                task={workingTask}
+                results={historyWorkflowResults}
+                loading={workflowResultsLoading}
               />
             </div>
           ) : activeTab === "model" ? (

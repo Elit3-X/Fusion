@@ -110,6 +110,7 @@ import {
   REVIEW_CONVERGENCE_STAGE_VERSION,
   CHAT_SESSION_MEMORY_FOCUS_VERSION,
   SESSION_CONTENTION_WAIT_STATE_VERSION,
+  TASK_STEP_REPORTS_VERSION,
 } from "../../postgres/schema-applier.js";
 import { ProjectPartitionRekeyError, rekeyFallbackProjectPartition } from "../../postgres/migration-stamping.js";
 import type { PluginSchemaInitHook } from "../../postgres/plugin-schema-hook.js";
@@ -159,7 +160,9 @@ describe("schema-applier: immutable migration identities", () => {
     expect(REVIEW_CONVERGENCE_STAGE_VERSION).toBe("0065");
     expect(CHAT_SESSION_MEMORY_FOCUS_VERSION).toBe("0066");
     expect(SESSION_CONTENTION_WAIT_STATE_VERSION).toBe("0067");
-    expect(SCHEMA_BASELINE_VERSION).toBe("0067");
+    expect(TASK_STEP_REPORTS_VERSION).toBe("0068");
+    expect(Number(SCHEMA_BASELINE_VERSION)).toBeGreaterThanOrEqual(Number(TASK_STEP_REPORTS_VERSION));
+    expect(SCHEMA_BASELINE_VERSION).toBe("0068");
   });
 
   it("keeps monitor and approval isolation assigned to version 0003", () => {
