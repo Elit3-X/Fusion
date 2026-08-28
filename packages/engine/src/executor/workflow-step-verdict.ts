@@ -16,6 +16,26 @@ export const MAX_DERIVED_WORKFLOW_STEP_NOTES_CHARS = 2_000;
 
 export const WORKFLOW_STEP_NOTES_REPAIR_PROMPT = (verdict: WorkflowStepVerdict): string => `Your previous answer carried verdict ${verdict} with an empty notes field. Do not re-review the work and do not change the verdict. Reply with exactly one JSON object of the form {"notes":"..."} containing one to three sentences that name what you checked and why the verdict was reached. Use no tools.`;
 
+export type WorkflowStepVerdictNoNotesReason = "empty" | "timed-out" | "failed-soft" | "unavailable" | "reused-empty";
+
+/*
+FNXC:ReviewVerdictNotes 2026-08-28-22:39:
+FN-240 left the single-repository verdict lane without a terminal backstop when bounded note repair produced no text. Fusion narrates that protocol failure instead of failing the step because missing reviewer notes must not become a merge blocker, and it never fabricates reviewer rationale.
+*/
+export function workflowStepVerdictNoNotesNotice(
+  verdict: WorkflowStepVerdict,
+  reason: WorkflowStepVerdictNoNotesReason,
+): string {
+  const reasonText: Record<WorkflowStepVerdictNoNotesReason, string> = {
+    empty: "the bounded notes follow-up returned no usable text",
+    "timed-out": "the bounded notes follow-up timed out",
+    "failed-soft": "the bounded notes follow-up failed",
+    unavailable: "no bounded notes follow-up was available",
+    "reused-empty": "the unchanged prior review record contained no usable notes",
+  };
+  return `The reviewer returned verdict ${verdict} without a rationale; ${reasonText[reason]}.`;
+}
+
 function boundWorkflowStepNotes(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;

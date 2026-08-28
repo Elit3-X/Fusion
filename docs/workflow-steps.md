@@ -625,7 +625,7 @@ Use a JSON object with this schema:
 ```
 
 - Valid `verdict` values are exactly: `APPROVE`, `APPROVE_WITH_NOTES`, `REVISE`.
-- `notes` is required and must contain a short rationale naming what was checked and why the verdict was reached. When a structured verdict leaves it blank, Fusion first recovers the reviewer's surrounding prose, then a bounded list of its finding titles; if neither exists, the live session receives one bounded, verdict-preserving request for notes.
+- `notes` is required and must contain a short rationale naming what was checked and why the verdict was reached. When a structured verdict leaves it blank, Fusion first recovers the reviewer's surrounding prose, then a bounded list of its finding titles; if neither exists, the live session receives one bounded, verdict-preserving request for notes. If that request also produces nothing, Fusion substitutes deterministic engine narration that states the verdict and why reviewer-authored rationale is unavailable; it never fabricates rationale or changes the verdict. Each repair attempt records the fixed outcome through the bounded `task:review-notes-repaired` run-audit event.
 - The parser checks fenced and inline JSON candidates, and the **last valid candidate wins**. Inline scanning keeps every balanced object (including nested objects) and is string-aware. If that scan detects desynchronization from arbitrary prose (an unpaired brace, quote, or stray close), it also recovers recent full JSON lines and `JSON.parse`-arbitrated brace slices across a generous trailing window. Fairly allocated close/open-anchor budgets preserve payloads with braces or escaped quotes in strings, many findings, and brace-bearing prose after the payload; recovery is based on scanner desync, not whether the payload happens to be near the end.
 
 Accepted shapes:
@@ -889,7 +889,7 @@ Prompt-mode workflow agents should emit a trailing JSON object:
 
 `{"verdict":"APPROVE|APPROVE_WITH_NOTES|REVISE","notes":"..."}`
 
-- `verdict` and a non-empty `notes` rationale are persisted on `WorkflowStepResult`; surrounding reviewer prose or finding titles are recovered before one bounded same-session note request is attempted.
+- `verdict` and non-empty human-readable text are persisted on `WorkflowStepResult`; surrounding reviewer prose or finding titles are recovered before one bounded same-session note request is attempted. If the request remains empty, fails, or times out, deterministic engine narration states the verdict and the fixed failure reason without fabricating reviewer rationale. Repair attempts emit bounded `task:review-notes-repaired` telemetry.
 - Script-mode steps have no live session for note repair; workspace script reviews use deterministic engine narration when they produce no text.
 - Backward compatibility remains for legacy prose-only responses via heuristic fallback (`REQUEST REVISION` and approval keywords).
 - If neither structured JSON nor fallback prose can be interpreted, output is recorded as `malformed` (no inferable verdict). Malformed blocking gates fail closed; advisory gates record `advisory_failure` without blocking.

@@ -7,6 +7,7 @@ import realEnApp from "../../../../i18n/locales/en/app.json";
 import { TaskHistoryTab } from "../TaskHistoryTab";
 
 const originalInnerWidth = window.innerWidth;
+const REVIEW_NO_NOTES_NOTICE = "The reviewer returned verdict APPROVE without a rationale; the bounded notes follow-up returned no usable text.";
 
 function task(overrides: Partial<TaskDetail> = {}): TaskDetail {
   return { id: "FN-208", title: "History", description: "", priority: "normal", column: "todo", currentStep: 0, steps: [], dependencies: [], log: [], prompt: "# History", createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z", ...overrides } as TaskDetail;
@@ -92,6 +93,21 @@ describe("TaskHistoryTab", () => {
       completedAt: "2026-08-28T12:36:00.000Z",
     })]);
     expect(screen.getAllByText(REPORT)).toHaveLength(1);
+    expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-history-entry-no-body")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["desktop", originalInnerWidth],
+    ["mobile", 375],
+  ])("renders post-fix reviewer narration without fallback copy at %s width", async (_viewport, width) => {
+    window.innerWidth = width;
+    await renderHistory(task(), [result({
+      verdict: "APPROVE",
+      output: REVIEW_NO_NOTES_NOTICE,
+      notes: REVIEW_NO_NOTES_NOTICE,
+    })]);
+    expect(screen.getAllByText(REVIEW_NO_NOTES_NOTICE)).toHaveLength(1);
     expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
     expect(screen.queryByTestId("task-history-entry-no-body")).not.toBeInTheDocument();
   });

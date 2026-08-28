@@ -7,6 +7,7 @@ import {
   WorkflowGraphExecutor,
   type WorkflowNodeHandler,
 } from "../workflows/workflow-graph-executor.js";
+import { workflowStepVerdictNoNotesNotice } from "../executor/workflow-step-verdict.js";
 
 /*
 FNXC:WorkflowOptionalGroup 2026-06-21-14:05:
@@ -449,6 +450,31 @@ describe("WorkflowGraphExecutor optional-group", () => {
 
     expect(legacyRecords.at(-1)).not.toHaveProperty("notes");
     expect(legacyLogs).toContainEqual(["[pre-merge] Workflow step completed: Code Review", undefined]);
+
+    const failedRepairNotice = workflowStepVerdictNoNotesNotice("APPROVE", "failed-soft");
+    const failedRepairPatch = { output: failedRepairNotice, notes: failedRepairNotice };
+    const failedRepairRecords: WorkflowStepResult[] = [];
+    const failedRepairLogs: Array<[string, string | undefined]> = [];
+    const failedRepairExecutor = new WorkflowGraphExecutor({
+      handlers: {
+        prompt: async (node) => node.id === "review"
+          ? { outcome: "success", value: "APPROVE", contextPatch: failedRepairPatch }
+          : { outcome: "success" },
+      },
+      recordWorkflowStepResult: async (_taskId, result) => { failedRepairRecords.push(result); },
+      logTaskEntry: (summary, detail) => { failedRepairLogs.push([summary, detail]); },
+    });
+    await failedRepairExecutor.run(taskWith(["group"]), settingsOn(), reviseGroupIr());
+
+    expect(failedRepairPatch).not.toHaveProperty("notesMissing");
+    expect(failedRepairRecords.at(-1)).toMatchObject({
+      status: "passed",
+      verdict: "APPROVE",
+      output: failedRepairNotice,
+      notes: failedRepairNotice,
+    });
+    expect(failedRepairRecords.at(-1)).not.toHaveProperty("notesMissing");
+    expect(failedRepairLogs).toContainEqual(["[pre-merge] Workflow step completed: Code Review", failedRepairNotice]);
   });
 
   it("requests fixes for pre-merge gate REVISE but not post-merge, non-REVISE, or fast-mode skipped outcomes", async () => {

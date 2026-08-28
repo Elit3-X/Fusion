@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { MAX_DERIVED_WORKFLOW_STEP_NOTES_CHARS, inferWorkflowStepVerdictFromProse, parseWorkflowStepOutput, parseWorkflowStepVerdict } from "../executor.js";
+import {
+  MAX_DERIVED_WORKFLOW_STEP_NOTES_CHARS,
+  inferWorkflowStepVerdictFromProse,
+  parseWorkflowStepOutput,
+  parseWorkflowStepVerdict,
+  workflowStepVerdictNoNotesNotice,
+  type WorkflowStepVerdictNoNotesReason,
+} from "../executor.js";
 import { proseSignalsClearApproval, extractJsonObjectCandidates, classifyReviewVerdictToken } from "../execution/reviewer.js";
 
 describe("parseWorkflowStepVerdict", () => {
@@ -17,6 +24,20 @@ describe("parseWorkflowStepVerdict", () => {
 
   it("returns null for invalid verdict", () => {
     expect(parseWorkflowStepVerdict('{"verdict":"PASS"}')).toBeNull();
+  });
+
+  it.each<WorkflowStepVerdictNoNotesReason>([
+    "empty",
+    "timed-out",
+    "failed-soft",
+    "unavailable",
+    "reused-empty",
+  ])("narrates a missing-note %s outcome without fabricating reviewer reasoning", (reason) => {
+    const notice = workflowStepVerdictNoNotesNotice("APPROVE", reason);
+    expect(notice.trim()).not.toBe("");
+    expect(notice).toContain("APPROVE");
+    expect(notice).toMatch(/without a rationale/);
+    expect(notice).not.toMatch(/checked|correct|complete|passed|satisf(?:y|ied)/i);
   });
 
   it("mirrors structured verdict notes into human-readable output", () => {

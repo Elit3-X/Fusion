@@ -12,6 +12,7 @@ import {
 import { qualifyRepositoryFindings, reviewWorkspacePerRepo } from "../executor/workspace-review-per-repo.js";
 import { reviewInputSignature } from "../executor/request-pre-merge-optional-step-fix.js";
 import { deriveWorkspaceReviewRemediation } from "../executor/workspace-review-remediation.js";
+import { workflowStepVerdictNoNotesNotice } from "../executor/workflow-step-verdict.js";
 
 function workspaceTask(): Task {
   return {
@@ -86,16 +87,40 @@ describe("workspace Code Review findings", () => {
     });
   });
 
-  it.each([
-    ["prompt-shaped", { success: true, verdict: "APPROVE" as const }],
-    ["exit-zero script-shaped", { success: true }],
-  ])("uses deterministic narration for a note-less %s outcome", (_shape, outcome) => {
-    expect(toWorkspaceRepoReviewResult(outcome)).toEqual({
+  it("retains the workspace notice for an exit-zero script outcome with no text", () => {
+    expect(toWorkspaceRepoReviewResult({ success: true })).toEqual({
       verdict: "APPROVE",
       review: WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE,
       summary: WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE,
       retryable: false,
     });
+  });
+
+  it("preserves shared prompt-review narration without selecting a second workspace notice", () => {
+    const notice = workflowStepVerdictNoNotesNotice("APPROVE", "empty");
+    const repositoryOutcome = toWorkspaceRepoReviewResult({
+      success: true,
+      verdict: "APPROVE",
+      output: notice,
+      notes: notice,
+      notesMissing: true,
+    });
+    expect(repositoryOutcome).toEqual({
+      verdict: "APPROVE",
+      review: notice,
+      summary: notice,
+      retryable: false,
+    });
+    expect(repositoryOutcome.review).not.toBe(WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE);
+
+    const aggregateOutcome = buildWorkspaceReviewOutcome({
+      verdict: "APPROVE",
+      review: notice,
+      summary: notice,
+      repositoryReviewOutcomes: [],
+    });
+    expect(aggregateOutcome).toMatchObject({ success: true, verdict: "APPROVE", output: notice, notes: notice });
+    expect(aggregateOutcome).not.toHaveProperty("notesMissing");
   });
 
   it("qualifies identifiers, paths, and dispute links without changing other finding fields", () => {

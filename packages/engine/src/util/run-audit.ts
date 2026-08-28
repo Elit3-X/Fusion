@@ -507,6 +507,8 @@ export type DatabaseMutationType =
   */
   | "task:review-finding-disputed"
   | "task:review-convergence-escalation"
+  /** FNXC:ReviewVerdictNotes 2026-08-28-22:45: Records ids and fixed note-repair outcomes only; reviewer prose never enters run-audit. */
+  | "task:review-notes-repaired"
   /** FNXC:ReviewEmptyContent 2026-08-28-13:14: Records the ids-only terminal close for a provably empty Code Review input. */
   | "task:review-empty-content-parked"
   | "task:review-arbitration"

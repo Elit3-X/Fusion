@@ -3,6 +3,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { Task, WorkflowStepResult } from "@fusion/core";
 import { buildTaskHistory, TASK_HISTORY_WORKFLOW_IDS } from "../taskHistory";
+import { workflowResultBodyParts } from "../workflowResultText";
 
 function task(overrides: Partial<Task> = {}): Task {
   return { id: "FN-208", title: "History", description: "", priority: "normal", column: "todo", currentStep: 0, steps: [], dependencies: [], log: [], createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z", ...overrides } as Task;
@@ -72,6 +73,23 @@ describe("buildTaskHistory", () => {
     });
 
     expect(stageEntries(buildTaskHistory(task(), [planReview]), "plan")[0]?.body).toBe(REPORT);
+  });
+
+  it("projects post-fix verdict narration once while retaining legacy blank rows", () => {
+    const notice = "The reviewer returned verdict APPROVE without a rationale; the bounded notes follow-up returned no usable text.";
+    const postFixEntries = stageEntries(buildTaskHistory(task(), [result({
+      workflowStepId: "code-review-step",
+      workflowStepName: "Code Review",
+      reviewKind: "code",
+      verdict: "APPROVE",
+      output: notice,
+      notes: notice,
+    })]), "review");
+    expect(postFixEntries[0]?.body).toBe(notice);
+    expect(workflowResultBodyParts(notice, notice)).toEqual([notice]);
+
+    const legacyEntries = stageEntries(buildTaskHistory(task(), [result({ verdict: "APPROVE", output: " ", notes: " " })]), "review");
+    expect(legacyEntries[0]?.body).toBeUndefined();
   });
 
   it("preserves genuinely different output and notes", () => {

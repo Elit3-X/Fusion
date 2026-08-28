@@ -72,6 +72,7 @@ import {
   formatExternalIntegrationEvidenceDiagnostic,
 } from "../spec-validation/external-integration-evidence.js";
 import { createRunAuditor, type EngineRunContext } from "../util/run-audit.js";
+import { emitBoundedRunAudit } from "../util/emit-bounded-run-audit.js";
 import {
   ReadonlyViolationError,
   filterCustomToolsForReadonly,
@@ -91,8 +92,10 @@ import { createSeenSteeringIds } from "./task-predicates.js";
 import {
   parseWorkflowStepNotesRepair,
   parseWorkflowStepOutput,
+  workflowStepVerdictNoNotesNotice,
   WORKFLOW_STEP_NOTES_REPAIR_PROMPT,
   type WorkflowStepOutcome,
+  type WorkflowStepVerdictNoNotesReason,
 } from "./workflow-step-verdict.js";
 import { resolveDiffBaseRef } from "./worktree-git-refs.js";
 import {
@@ -109,6 +112,8 @@ import { attachAgentUsageTelemetry, emitAgentSessionStart } from "../agents/agen
 const execAsync = promisify(exec);
 
 export const WORKFLOW_STEP_NOTES_REPAIR_TIMEOUT_MS = 120_000;
+
+type WorkflowStepNotesRepairOutcome = "repaired" | Exclude<WorkflowStepVerdictNoNotesReason, "reused-empty">;
 
 /** Find the current reusable review result for one node, scope generation, and exact input fingerprint. */
 export function findReusableReviewResult(
@@ -574,11 +579,13 @@ CRITICAL SCOPING RULES — read before doing anything else:
         task.id,
         `[pre-merge] ${workflowStep.name} reused the recorded result for unchanged review input ${reviewInputFingerprint}`,
       );
-      const reusedNotes = reusableReviewResult.notes?.trim() || reusableReviewResult.output?.trim() || "";
+      const storedReusedNotes = reusableReviewResult.notes?.trim() || reusableReviewResult.output?.trim() || "";
+      const reusedNotes = storedReusedNotes || workflowStepVerdictNoNotesNotice(effectiveVerdict, "reused-empty");
+      const reusedOutput = reusableReviewResult.output?.trim() || reusedNotes;
       return {
         success: effectiveVerdict !== "REVISE",
         revisionRequested: effectiveVerdict === "REVISE",
-        output: reusableReviewResult.output,
+        output: reusedOutput,
         verdict: effectiveVerdict,
         notes: reusedNotes,
         ...(reusableReviewResult.findings ? { findings: reusableReviewResult.findings } : {}),
@@ -1145,11 +1152,11 @@ CRITICAL SCOPING RULES — read before doing anything else:
         and each workspace repository Code Review, so the budget is one prompt per session, not per task.
         Run before the token snapshot so repair usage remains task cost.
         */
+        let repairResult: WorkflowStepNotesRepairOutcome = "unavailable";
         if (parsed.verdict && parsed.notesMissing && parsed.verdict !== "CLOSE_NO_OP") {
           const repairStart = output.length;
           const repairTimeoutMs = Math.min(timeoutMs, WORKFLOW_STEP_NOTES_REPAIR_TIMEOUT_MS);
           let repairTimer: ReturnType<typeof setTimeout> | undefined;
-          let repairResult = "unavailable";
           try {
             const repairTimeout = new Promise<"timeout">((resolve) => {
               repairTimer = setTimeout(() => resolve("timeout"), repairTimeoutMs);
@@ -1184,6 +1191,21 @@ CRITICAL SCOPING RULES — read before doing anything else:
             } catch {
               // FNXC:ReviewVerdictNotes 2026-08-28-21:23: Best-effort repair telemetry cannot fail the review step.
             }
+            const context = deps.getRunContextFor(task.id);
+            if (context && repairResult !== "unavailable") await emitBoundedRunAudit(deps.store, {
+              taskId: task.id,
+              agentId: context.agentId,
+              runId: context.runId,
+              domain: "database",
+              mutationType: "task:review-notes-repaired",
+              target: task.id,
+              metadata: {
+                taskId: task.id,
+                workflowStepId: sameGateStepId,
+                verdict: parsed.verdict,
+                outcome: repairResult,
+              },
+            });
           }
         }
 
@@ -1225,12 +1247,16 @@ CRITICAL SCOPING RULES — read before doing anything else:
           if (workflowStep.requiresBrowser === true) {
             await logBrowserVerificationActivity(`[browser-verification] finished browser verification for task ${task.id}: verdict ${effectiveVerdict}`);
           }
+          const noNotesReason = repairResult === "repaired" ? "unavailable" : repairResult;
+          const noNotesNotice = parsed.notesMissing && parsed.verdict !== "CLOSE_NO_OP"
+            ? workflowStepVerdictNoNotesNotice(effectiveVerdict, noNotesReason)
+            : undefined;
           return {
             success: !revisionRequested,
             revisionRequested,
-            output: parsed.output,
+            output: noNotesNotice ?? parsed.output,
             verdict: effectiveVerdict,
-            notes: parsed.notes,
+            notes: noNotesNotice ?? parsed.notes,
             ...(parsed.notesMissing ? { notesMissing: true } : {}),
             ...(parsed.findings ? { findings: parsed.findings } : {}),
             ...(reviewInputFingerprint ? { reviewInputFingerprint } : {}),

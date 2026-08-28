@@ -7,7 +7,10 @@ import {
   mockedExecSync,
   resetExecutorMocks,
 } from "./executor-test-helpers.js";
-import { WORKFLOW_STEP_NOTES_REPAIR_PROMPT } from "../executor/workflow-step-verdict.js";
+import {
+  WORKFLOW_STEP_NOTES_REPAIR_PROMPT,
+  workflowStepVerdictNoNotesNotice,
+} from "../executor/workflow-step-verdict.js";
 import {
   buildWorkspaceReviewOutcome,
   toWorkspaceRepoReviewResult,
@@ -93,12 +96,18 @@ function installSessions(repliesBySession: Reply[][]) {
   return sessions;
 }
 
-async function runReview(replies: Reply[], overrides: Record<string, unknown> = {}) {
+async function runReview(
+  replies: Reply[],
+  overrides: Record<string, unknown> = {},
+  audit?: { sink?: (input: unknown) => unknown; context?: Record<string, unknown> },
+) {
   const store = createMockStore();
+  if (audit?.sink) (store as any).recordRunAuditEvent = audit.sink;
   const sessions = installSessions([replies]);
   const executor = new TaskExecutor(store as any, "/tmp/test", {
     agentStore: { getAgent: vi.fn().mockResolvedValue(null), createAgent: vi.fn() },
   } as any);
+  if (audit?.context) vi.spyOn(executor as any, "getRunContextFor").mockReturnValue(audit.context);
   const outcome = await (executor as any).executeWorkflowStep(
     baseTask(),
     reviewStep(overrides),
@@ -127,10 +136,42 @@ describe("workflow-step verdict note repair", () => {
     ]);
 
     expect(outcome).toMatchObject({ verdict: "APPROVE", notes: note, output: note });
+    expect(outcome.notes).not.toContain("without a rationale");
     expect(outcome).not.toHaveProperty("notesMissing");
     expect(mockedCreateFnAgent).toHaveBeenCalledOnce();
     expect(sessions[0].prompt).toHaveBeenCalledTimes(2);
     expect(sessions[0].prompt.mock.calls[1][0]).toBe(WORKFLOW_STEP_NOTES_REPAIR_PROMPT("APPROVE"));
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["throwing", vi.fn(() => { throw new Error("audit throw"); })],
+    ["rejecting", vi.fn(() => Promise.reject(new Error("audit reject")))],
+    ["hanging", vi.fn(() => new Promise<void>(() => {}))],
+  ])("keeps repaired review outcomes unchanged with an %s run-audit sink", async (_sinkKind, sink) => {
+    vi.useFakeTimers();
+    const note = "I checked the scoped implementation and its focused tests; both satisfy the task.";
+    const pending = runReview([
+      '{"verdict":"APPROVE","notes":""}',
+      JSON.stringify({ notes: note }),
+    ], {}, {
+      sink,
+      context: { taskId: baseTask().id, agentId: "reviewer", runId: "run-fn-241", phase: "execute" },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const { outcome } = await pending;
+
+    expect(outcome).toMatchObject({ success: true, verdict: "APPROVE", notes: note, output: note });
+    if (sink) expect(sink).toHaveBeenCalledWith(expect.objectContaining({
+      mutationType: "task:review-notes-repaired",
+      metadata: expect.objectContaining({
+        taskId: baseTask().id,
+        workflowStepId: "code-review-step",
+        verdict: "APPROVE",
+        outcome: "repaired",
+      }),
+    }));
   });
 
   it("fails soft when the repair remains empty", async () => {
@@ -138,7 +179,8 @@ describe("workflow-step verdict note repair", () => {
       '{"verdict":"APPROVE","notes":""}',
       '{"verdict":"APPROVE","notes":""}',
     ]);
-    expect(outcome).toMatchObject({ verdict: "APPROVE", notes: "", output: "", notesMissing: true });
+    const notice = workflowStepVerdictNoNotesNotice("APPROVE", "empty");
+    expect(outcome).toMatchObject({ verdict: "APPROVE", notes: notice, output: notice, notesMissing: true });
     expect(sessions[0].prompt).toHaveBeenCalledTimes(2);
   });
 
@@ -147,7 +189,8 @@ describe("workflow-step verdict note repair", () => {
       '{"verdict":"APPROVE","notes":""}',
       new Error("repair unavailable"),
     ]);
-    expect(outcome).toMatchObject({ verdict: "APPROVE", notes: "", output: "", notesMissing: true });
+    const notice = workflowStepVerdictNoNotesNotice("APPROVE", "failed-soft");
+    expect(outcome).toMatchObject({ verdict: "APPROVE", notes: notice, output: notice, notesMissing: true });
     expect(sessions[0].prompt).toHaveBeenCalledTimes(2);
   });
 
@@ -159,7 +202,8 @@ describe("workflow-step verdict note repair", () => {
     ]);
     await vi.advanceTimersByTimeAsync(60_000);
     const { outcome, sessions } = await pending;
-    expect(outcome).toMatchObject({ verdict: "APPROVE", notes: "", output: "", notesMissing: true });
+    const notice = workflowStepVerdictNoNotesNotice("APPROVE", "timed-out");
+    expect(outcome).toMatchObject({ verdict: "APPROVE", notes: notice, output: notice, notesMissing: true });
     expect(sessions[0].prompt).toHaveBeenCalledTimes(2);
   });
 
@@ -167,6 +211,7 @@ describe("workflow-step verdict note repair", () => {
     const prose = "I inspected the implementation and its focused tests; both satisfy the task.";
     const { outcome, sessions } = await runReview([`${prose}\n{"verdict":"APPROVE","notes":""}`]);
     expect(outcome).toMatchObject({ verdict: "APPROVE", notes: prose, output: prose });
+    expect(outcome.notes).not.toContain("without a rationale");
     expect(sessions[0].prompt).toHaveBeenCalledOnce();
   });
 
@@ -176,6 +221,7 @@ describe("workflow-step verdict note repair", () => {
       { id: "graph:plan-review-step", name: "Plan Review", optionalGroupId: "plan-review" },
     );
     expect(outcome).toMatchObject({ verdict: "CLOSE_NO_OP", notes: "", output: "" });
+    expect(outcome.notes).not.toContain("without a rationale");
     expect(sessions[0].prompt).toHaveBeenCalledOnce();
   });
 
@@ -186,6 +232,44 @@ describe("workflow-step verdict note repair", () => {
       JSON.stringify({ verdict: "REVISE", notes: note }),
     ]);
     expect(outcome).toMatchObject({ verdict: "APPROVE", notes: note, output: note, success: true });
+    expect(outcome.notes).not.toContain("without a rationale");
+  });
+
+  it("narrates an unchanged legacy review whose persisted output and notes are empty", async () => {
+    const subject = baseTask() as any;
+    const store = createMockStore();
+    store.getTask.mockResolvedValue(subject);
+    const sessions = installSessions([['{"verdict":"APPROVE","notes":"Reviewed the plan and found it ready."}']]);
+    const executor = new TaskExecutor(store as any, "/tmp/test", {
+      agentStore: { getAgent: vi.fn().mockResolvedValue(null), createAgent: vi.fn() },
+    } as any);
+    vi.spyOn(executor as any, "readTaskArtifact").mockResolvedValue("# Approved plan\n\nImplement the task.\n");
+    const step = reviewStep({
+      id: "graph:plan-review-step",
+      name: "Plan Review",
+      optionalGroupId: "plan-review",
+      reviewKind: "plan",
+    });
+
+    const first = await (executor as any).executeWorkflowStep(subject, step, subject.worktree, {});
+    subject.workflowStepResults = [{
+      workflowStepId: "plan-review-step",
+      workflowStepName: "Plan Review",
+      phase: "pre-merge",
+      status: "passed",
+      verdict: "APPROVE",
+      output: "",
+      notes: "",
+      reviewInputFingerprint: first.reviewInputFingerprint,
+      startedAt: "2026-08-28T22:00:00.000Z",
+      completedAt: "2026-08-28T22:01:00.000Z",
+    }];
+
+    const reused = await (executor as any).executeWorkflowStep(subject, step, subject.worktree, {});
+    const notice = workflowStepVerdictNoNotesNotice("APPROVE", "reused-empty");
+    expect(reused).toMatchObject({ verdict: "APPROVE", notes: notice, output: notice });
+    expect(sessions).toHaveLength(1);
+    expect(mockedCreateFnAgent).toHaveBeenCalledOnce();
   });
 
   it("repairs each workspace repository in its own session and preserves aggregate notes", async () => {
@@ -252,8 +336,11 @@ describe("workflow-step verdict note repair", () => {
       captureModifiedFiles: async () => ["src/changed.ts"],
     });
 
+    const notice = workflowStepVerdictNoNotesNotice("APPROVE", "empty");
     expect(sessions).toHaveLength(2);
-    expect(aggregate.review).toContain(`### [repo-a] APPROVE\n${WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE}`);
+    expect(aggregate.review).toContain(`### [repo-a] APPROVE\n${notice}`);
+    expect(aggregate.review).not.toContain(WORKSPACE_REPO_REVIEW_NO_NOTES_NOTICE);
     expect(aggregate.review).toContain(`### [repo-b] APPROVE\n${peerNote}`);
+    expect(aggregate.review.match(/without a rationale/g)).toHaveLength(1);
   });
 });
