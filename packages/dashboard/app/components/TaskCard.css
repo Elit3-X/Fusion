@@ -22,6 +22,19 @@
   container-type: inline-size;
   container-name: task-card;
 }
+
+/*
+FNXC:TaskCardCursor 2026-08-28-09:42 (FN-220):
+A board task tile is a surface rather than a link, so hovering any part of it—including controls revealed on hover—must show the normal selection arrow instead of the pointing hand. Scope this contract to `.card[data-id]` so shared non-task cards keep their own affordances.
+
+FNXC:TaskCardCursor 2026-08-28-10:03 (FN-220):
+Exclude disabled controls and their descendants from the tile override so icon pixels inherit the control's wait or unavailable cursor rather than resolving independently to the normal arrow. The functional pseudo-class retains (0,3,0) specificity, which still outranks TaskCard and shared button pointer declarations.
+*/
+.card[data-id],
+.card[data-id] *:not(:disabled, :disabled *) {
+  cursor: default;
+}
+
 .card:hover {
   background: var(--card-hover);
   border-color: var(--text-muted);
@@ -225,10 +238,6 @@ The card remains presentation-only: it neither persists a fallback nor restores 
 }
 
 
-.card-retry-badge {
-  cursor: pointer;
-}
-
 .card-retry-badge:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring-strong);
@@ -334,7 +343,6 @@ FN-7780 anchors the created-by-agent badge in its own bottom-left row before wor
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  cursor: pointer;
   background: color-mix(in srgb, var(--text-muted) 14%, transparent);
   border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
   color: var(--text-muted);
@@ -920,7 +928,6 @@ available on cards and list rows without changing the host's footprint or openin
 }
 
 .card-dep-badge.clickable {
-  cursor: pointer;
   transition: color var(--transition-fast), text-decoration var(--transition-fast);
 }
 
@@ -1006,7 +1013,6 @@ at desktop and mobile breakpoints.
   padding: calc(var(--space-xs) / 2) var(--space-sm);
   border: var(--btn-border-width) solid transparent;
   border-radius: var(--radius-pill);
-  cursor: pointer;
   transition: color var(--transition-fast), background var(--transition-fast);
   max-width: 110px;
   overflow: hidden;
@@ -1171,7 +1177,6 @@ on narrow/mobile cards, so added terminal metadata cannot force horizontal scrol
   background: transparent;
   color: var(--text-muted);
   font-size: 0.75rem;
-  cursor: pointer;
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
@@ -1365,7 +1370,6 @@ The execution-time badge is part of the footer's bottom-right chip cluster, so i
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--color-warning) 16%, transparent);
   color: var(--color-warning);
-  cursor: pointer;
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
@@ -1456,7 +1460,6 @@ so the icon needs no rule of its own.
   background: color-mix(in srgb, var(--text-muted) 12%, transparent);
   color: var(--text);
   text-decoration: none;
-  cursor: pointer;
   appearance: none;
   background-image: none;
   transition:
@@ -1527,7 +1530,6 @@ the established compact mobile interaction rhythm while the card remains the pri
   padding: var(--space-xs) 0;
   background: none;
   border: none;
-  cursor: pointer;
   font-size: 0.6875rem;
   color: var(--text-muted);
   transition: color var(--transition-fast);
@@ -1760,7 +1762,6 @@ The trailing actions cluster (Actions/Send-back and ⋯ menu) must share the tas
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   opacity: 0;
   transition: opacity var(--transition-fast), background var(--transition-fast),
     color var(--transition-fast);
@@ -1778,7 +1779,6 @@ The trailing actions cluster (Actions/Send-back and ⋯ menu) must share the tas
   color: var(--bg);
   border: none;
   border-radius: var(--radius-sm);
-  cursor: pointer;
   transition: filter var(--transition-fast);
 }
 
@@ -1826,7 +1826,6 @@ short-landscape variant (FN-5751 lesson: never a desktop-only or portrait-only f
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   opacity: 0;
   transition: opacity var(--transition-fast), background var(--transition-fast),
     color var(--transition-fast);
@@ -1897,7 +1896,6 @@ The mobile/short-landscape 28px ⋯ touch target must not expand .card-header-ac
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   opacity: 0;
   transition: opacity var(--transition-fast), color var(--transition-fast);
 }
@@ -1939,7 +1937,6 @@ too so future divergence doesn't have to rediscover the shared selector group.
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   opacity: 0;
   transition: opacity var(--transition-fast), background var(--transition-fast),
     color var(--transition-fast), border-color var(--transition-fast);
@@ -1986,7 +1983,6 @@ The three-dot menu is the sole card move/action entry point. Keep this shared bu
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   opacity: 0;
   transform: translateY(calc(var(--space-xs) / -4));
   transition: opacity var(--transition-fast), background var(--transition-fast),

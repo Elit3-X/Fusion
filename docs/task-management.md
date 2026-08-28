@@ -375,7 +375,8 @@ Quick Entry and New Task can opt one task into **Wait for my approval before exe
 
 After planning, the card remains at `status: "awaiting-approval"` and shows **Need Your Review**. **Approve** releases the reviewed plan. **Respecify** asks for a revision note, preserves `PROMPT.md`, worktree, branch, and history, invalidates the prior approval and current Plan Review result, and returns the task to Planning. **Reject Plan** remains the destructive option in Task Detail when the plan should be discarded and regenerated.
 
-On desktop and tablet Boards, dragging a task card's noninteractive body or text pans the Board viewport without moving the task. Controls and editing remain native.
+<!-- FNXC:BoardNavigationDocs 2026-08-28-09:42: FN-220 makes cursor feedback deterministic without changing card activation or Board pan eligibility. -->
+On desktop and tablet Boards, a task tile shows the normal arrow on hover, never the pointing hand. Dragging a task card's noninteractive body or text pans the Board viewport without moving the task, and the closed grabbing hand remains visible across the whole Board until the drag ends. Controls and editing remain native.
 
 ### Lifecycle commands
 
