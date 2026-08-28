@@ -101,6 +101,60 @@ describe("FN-8141 fn_task_done honest blocked exit", () => {
     });
   });
 
+  it("freezes the verbatim MRG-058 ENOSPC obstacle without replanning or releasing progress", async () => {
+    const reason = "Les contrôles obligatoires de typecheck (`npm run check`) et de build (`npm run build`) réussissent, mais Vitest ne peut pas démarrer : la commande ciblée complète et une unique spec avec TMPDIR local échouent avant tout test avec `ENOSPC: no space left on device, write`.";
+    const { store, tool, getTask } = await setup({ currentStep: 1, effectiveNodeId: "steps#0:step-execute" });
+
+    const result = await tool.execute("id", { outcome: "blocked", reason, blockedBy: [] });
+    const persisted = getTask();
+
+    expect(persisted).toMatchObject({
+      status: "blocked",
+      paused: true,
+      pausedReason: "external-block",
+      currentStep: 1,
+      worktree: "/repo/.worktrees/swift-falcon",
+      branch: "fusion/fn-8141",
+      externalBlock: {
+        origin: "host-environment",
+        code: "ENOSPC",
+        message: reason,
+        source: "agent-declaration",
+        resume: { nodeId: "steps#0:step-execute", currentStep: 1 },
+      },
+    });
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.updateStep).not.toHaveBeenCalled();
+    expect(store.logEntry.mock.calls.flat().join(" ")).not.toContain("no blocking dependencies recorded");
+    expect(result.content[0].text).toContain("frozen as Blocked");
+  });
+
+  it("keeps an explicit inside-worktree failure on the existing auto-replan path", async () => {
+    const { store, tool, getTask } = await setup();
+    await tool.execute("id", {
+      outcome: "blocked",
+      obstacle: "inside-worktree",
+      reason: "tests mention ENOSPC in an expected fixture but the assertion failed",
+    });
+
+    expect(getTask().status).toBe("needs-replan");
+    expect(getTask().externalBlock).toBeUndefined();
+    expect(store.moveTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps task dependencies distinct even when the reason also contains an external code", async () => {
+    const { tool, getTask } = await setup();
+    await tool.execute("id", {
+      outcome: "blocked",
+      reason: "ENOSPC while waiting for upstream task",
+      blockedBy: ["FN-8145"],
+    });
+
+    expect(getTask().status).toBe("failed");
+    expect(getTask().dependencies).toContain("FN-8145");
+    expect(getTask().externalBlock).toBeUndefined();
+  });
+
   it("parks failed with a BLOCKED: error and does NOT trip the bulk-completion refusal", async () => {
     const { store, tool } = await setup();
 

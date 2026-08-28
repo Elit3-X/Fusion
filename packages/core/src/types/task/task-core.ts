@@ -30,6 +30,7 @@ import type { InReviewStallSignal } from "../../tasks/in-review-stall.js";
 import type { InReviewStalledSignal } from "../../tasks/in-review-stalled.js";
 import type { StalePausedReviewSignal } from "../../tasks/stale-paused-review.js";
 import type { StalePausedTodoSignal } from "../../tasks/stale-paused-todo.js";
+import type { TaskExternalBlock } from "../../tasks/task-external-block.js";
 import type { StalledReviewSignal } from "../../tasks/stalled-review-detector.js";
 import type { TaskAgeStalenessSignal } from "../../tasks/task-age-staleness.js";
 import type { PlannerOverseerRuntimeSnapshot } from "../../planner/planner-overseer-state.js";
@@ -862,6 +863,13 @@ export interface Task {
    */
   customFields?: Record<string, unknown>;
   status?: string;
+  /**
+   * FNXC:ExternalBlock 2026-08-28-03:48:
+   * Only obstacles originating outside the task worktree create this durable freeze. Internal
+   * code, test, planning, and review failures remain AI-repairable, while dependency and file
+   * overlap waits retain their separate queue state.
+   */
+  externalBlock?: TaskExternalBlock;
   /**
    * FNXC:TaskActivity 2026-07-28-12:00:
    * Dashboard-only signal from a fresh planner agent-log SSE entry. It is never

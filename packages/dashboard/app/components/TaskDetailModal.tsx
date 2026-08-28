@@ -7,6 +7,7 @@ import { useViewportMode } from "../hooks/useViewportMode";
 import { mergeTaskSnapshot } from "../hooks/useTasks";
 import { dismissAiMergeReviewFinding } from "../api/tasks/tasks-lifecycle";
 import { FloatingWindow } from "./FloatingWindow";
+import { ExternalBlockNotice } from "./TaskCard";
 import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import { useModalDismissPreference, useOverlayDismiss } from "../hooks/useOverlayDismiss";
 import { useColumnLabel } from "../i18n/labels";
@@ -420,6 +421,7 @@ export interface TaskDetailModalProps {
   onRevertTask?: (id: string, body?: RevertTaskOptions) => Promise<RevertTaskResult>;
   onMergeTask: (id: string) => Promise<MergeResult>;
   onRetryTask?: (id: string) => Promise<Task>;
+  onOpenChatWithPrefill?: (prefillText: string) => void;
   /** Shared lifecycle operations reconcile confirmed rows before detail hosts render their next frame. */
   onPauseTask?: (id: string) => Promise<Task>;
   onUnpauseTask?: (id: string) => Promise<Task>;
@@ -812,6 +814,7 @@ export function TaskDetailContent({
   onRevertTask,
   onMergeTask,
   onRetryTask,
+  onOpenChatWithPrefill,
   onPauseTask,
   onUnpauseTask,
   onBypassReview,
@@ -5685,6 +5688,7 @@ export function TaskDetailContent({
               {isWorkspaceTask(workingTask) && <WorkspaceWorktreesSummary task={workingTask} onScopeChange={handleRepositoryScopeChange} />}
             </>
           )}
+          <ExternalBlockNotice task={task as Task} variant="detail" onOpenChatWithPrefill={onOpenChatWithPrefill} onRetryTask={onRetryTask} addToast={addToast} />
           {shouldShowTaskFailureAlert && (
             <div className="detail-error-alert" role="alert">
               <span className="detail-error-icon">⚠</span>

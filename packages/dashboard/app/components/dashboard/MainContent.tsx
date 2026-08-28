@@ -447,6 +447,7 @@ export function MainContent({
                 taskColumnFlags={columnFlagsByTaskId?.get(task.id)}
                 projectId={currentProject?.id}
                 onOpenDetail={openPluginTaskDetail}
+                onOpenChatWithPrefill={onOpenChatWithPrefill}
                 addToast={addToast}
                 onUpdateTask={updateTask}
                 prAuthAvailable={prAuthAvailable}
@@ -909,6 +910,7 @@ export function MainContent({
             globalPaused={globalPaused}
             onUpdateTask={updateTask}
             onRetryTask={retryTask}
+            onOpenChatWithPrefill={onOpenChatWithPrefill}
             onUnpauseTask={unpauseTask}
             onResetTask={resetTask}
             onDuplicateTask={duplicateTask}
@@ -974,6 +976,7 @@ export function MainContent({
               onReviseTask={(task) => modalManager.openNewTaskWithDescription(task.description)}
               onMergeTask={mergeTask}
               onRetryTask={retryTask}
+              onOpenChatWithPrefill={onOpenChatWithPrefill}
               onPauseTask={pauseTask}
               onUnpauseTask={unpauseTask}
             onResetTask={resetTask}
@@ -1030,6 +1033,7 @@ export function MainContent({
           globalPaused={globalPaused}
           onUpdateTask={updateTask}
           onRetryTask={retryTask}
+          onOpenChatWithPrefill={onOpenChatWithPrefill}
           onUnpauseTask={unpauseTask}
             onResetTask={resetTask}
           onDuplicateTask={duplicateTask}
@@ -1073,6 +1077,7 @@ export function MainContent({
         projectId={currentProject?.id}
         onMoveTask={moveTask}
         onRetryTask={retryTask}
+        onOpenChatWithPrefill={onOpenChatWithPrefill}
         onDeleteTask={deleteTask}
         onReviseTask={(task) => modalManager.openNewTaskWithDescription(task.description)}
         onPauseTask={pauseTask}

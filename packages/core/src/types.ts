@@ -560,6 +560,16 @@ export type {
   GoalCitationFilter,
 };
 
+export {
+  EXTERNAL_BLOCK_STATUS,
+  EXTERNAL_BLOCK_PAUSE_REASON,
+  isTaskExternallyBlocked,
+  buildTaskExternalBlockPatch,
+  buildTaskExternalBlockClearPatch,
+  formatTaskExternalBlockReason,
+} from "./tasks/task-external-block.js";
+export type { TaskExternalBlock, TaskExternalBlockOrigin } from "./tasks/task-external-block.js";
+
 // ── task-core ──────────────────────────────────────────────────────────
 // FNXC:CodeOrganization 2026-07-22-14:00: Peels live in types/task-core.ts
 

@@ -331,6 +331,7 @@ export function AppModals({
             onArchiveTask={taskOperations.archiveTask}
             onRevertTask={taskOperations.revertTask}
             onRetryTask={taskOperations.retryTask}
+            onOpenChatWithPrefill={onOpenChatWithPrefill}
             onPauseTask={taskOperations.pauseTask}
             onUnpauseTask={taskOperations.unpauseTask}
             onBypassReview={taskOperations.bypassReview}

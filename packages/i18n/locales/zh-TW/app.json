@@ -8638,7 +8638,16 @@
     "attachFileFailed": "附加 {{fileName}} 失敗：{{error}}",
     "awaitingApproval": "等待核准",
     "baseBranch": "基礎",
-    "blockedByTooltip": "被 {{taskId}} 阻擋（檔案重疊）",
+    "blockedByTooltip": "正在等待 {{taskId}}（檔案重疊）",
+    "externalBlock": {
+      "title": "已阻擋",
+      "unknownCode": "未分類",
+      "genericMessage": "外部障礙需要操作員處理",
+      "explain": "解釋此錯誤",
+      "explainPrompt": "請解釋錯誤 {{error}} 及其解決方法。",
+      "resuming": "正在恢復…",
+      "retry": "重試"
+    },
     "branch": "分支",
     "branchMetadata": "分支中繼資料",
     "branchProgress": "",

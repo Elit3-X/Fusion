@@ -139,6 +139,7 @@ import { ApiError, badRequest, conflict, notFound } from "../api-error.js";
 // FNXC:TaskLookup404 2026-07-26-11:40: shared task-miss -> 404 mapping seam.
 import { isTaskLookupMiss, rethrowTaskApiError } from "./task-lookup-error.js";
 import { restartTaskStage } from "./task-restart-stage.js";
+import { resumeExternallyBlockedTask } from "./task-external-block-resume.js";
 import type { ApiRoutesContext } from "./types.js";
 import { deriveAutoTaskBranch, derivePerTaskBranch, getBranchSelectionMode, resolveBranchSelection } from "./branch-selection.js";
 import { isDaemonAuthActive } from "../auth-middleware.js";
@@ -3345,6 +3346,14 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
     try {
       const { store: scopedStore, engine } = await getProjectContext(req);
       const task = await scopedStore.getTask(req.params.id);
+      const externalBlockResume = await resumeExternallyBlockedTask({
+        store: scopedStore,
+        taskId: req.params.id,
+      });
+      if (externalBlockResume.kind === "resumed") {
+        res.json(externalBlockResume.task);
+        return;
+      }
       const retrySpecificationStatus =
         task.status === "failed" ||
         task.status === "planning" ||

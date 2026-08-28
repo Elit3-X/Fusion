@@ -48,6 +48,7 @@ import type {
 } from "@fusion/core";
 import {
   ApprovalRequestStore,
+  buildTaskExternalBlockPatch,
   DEFAULT_PROVIDER_INSTANCE_ID,
   RetryStormError,
   columnsWithFlag,
@@ -194,6 +195,7 @@ import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "../h
 import { executorLog, formatError } from "../logger.js";
 import { classifyOrphanOurAdvance, rehomeOrphanOntoIntegration } from "../merge/merger-orphan-rehome.js";
 import { isTaskMergeInFlight } from "../merge/merge-execution-exclusion.js";
+import { classifyExternalObstacle } from "../execution-block-classifier.js";
 import { compactSessionContext, describeModel, formatModelMarkerDetails, promptWithFallback } from "../pi.js";
 import { resolveDedicatedPlannerColumnsForTask } from "../planner-lane-resolution.js";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
@@ -329,6 +331,63 @@ export type RunImplementationDeps = {
   tryBootstrapMisbindingRecovery: AnyFn;
   unregisterConfiguredCommandController: AnyFn;
 };
+
+export async function parkExternalSessionObstacle(
+  deps: Pick<RunImplementationDeps, "store" | "getRunContextFor">,
+  taskId: string,
+  errorMessage: string,
+): Promise<boolean> {
+  const obstacle = classifyExternalObstacle(errorMessage);
+  if (!obstacle) return false;
+  const live = await deps.store.getTask(taskId);
+  const externalBlock = {
+    ...obstacle,
+    message: errorMessage,
+    source: "session-failure" as const,
+    blockedAt: new Date().toISOString(),
+    resume: {
+      column: live.column,
+      nodeId: live.effectiveNodeId,
+      currentStep: live.currentStep,
+      worktree: live.worktree,
+      branch: live.branch,
+    },
+  };
+  /*
+  FNXC:ExternalBlock 2026-08-28-04:14:
+  Session infrastructure errors freeze only after their established retry owner declines another
+  attempt. The shared patch leaves workflow progress and Git pointers untouched; this helper clears
+  only the retry schedule whose budget is already exhausted.
+  */
+  await deps.store.updateTask(taskId, {
+    ...buildTaskExternalBlockPatch(externalBlock),
+    recoveryRetryCount: null,
+    nextRecoveryAt: null,
+  });
+  await deps.store.logEntry(
+    taskId,
+    `External session obstacle frozen (${externalBlock.origin}/${externalBlock.code}); resources and execution progress retained for Retry`,
+    undefined,
+    deps.getRunContextFor(taskId),
+  );
+  await emitBoundedRunAudit(deps.store, {
+    taskId,
+    agentId: "executor",
+    runId: generateSyntheticRunId("external-block", taskId),
+    domain: "database",
+    mutationType: "task:external-block-parked",
+    target: taskId,
+    metadata: {
+      taskId,
+      origin: externalBlock.origin,
+      code: externalBlock.code,
+      source: externalBlock.source,
+      column: live.column,
+      resumeNodeId: externalBlock.resume.nodeId,
+    },
+  });
+  return true;
+}
 
 export async function retryPlanningLifecycleLockTransportFailure(
   deps: Pick<RunImplementationDeps, "store" | "getRunContextFor" | "markGraphExecuteSelfRequeued">,
@@ -1701,12 +1760,14 @@ export async function runImplementation(
             if (errorStack) {
               await deps.store.logEntry(task.id, `Transient error retries exhausted: ${errorMessage}`, errorStack, deps.getRunContextFor(task.id));
             }
-            await deps.store.updateTask(task.id, {
-              status: "failed",
-              error: errorMessage,
-              recoveryRetryCount: null,
-              nextRecoveryAt: null,
-            });
+            if (!(await parkExternalSessionObstacle(deps, task.id, errorMessage))) {
+              await deps.store.updateTask(task.id, {
+                status: "failed",
+                error: errorMessage,
+                recoveryRetryCount: null,
+                nextRecoveryAt: null,
+              });
+            }
             if (accumulatedStepTokenUsage) {
               await deps.persistTaskTokenUsage(task.id, accumulatedStepTokenUsage);
             }
@@ -3886,14 +3947,16 @@ export async function runImplementation(
           // Recovery budget exhausted — escalate to real failure
           executorLog.error(`✗ ${task.id} transient error retries exhausted (${MAX_RECOVERY_RETRIES} attempts): ${errorDetail}`);
           await deps.store.logEntry(task.id, `Transient error retries exhausted after ${MAX_RECOVERY_RETRIES} attempts: ${errorMessage}`, errorStack ?? errorDetail, deps.getRunContextFor(task.id));
-          await deps.store.updateTask(task.id, {
-            status: "failed",
-            error: errorMessage,
-            recoveryRetryCount: null,
-            nextRecoveryAt: null,
-          });
+          if (!(await parkExternalSessionObstacle(deps, task.id, errorMessage))) {
+            await deps.store.updateTask(task.id, {
+              status: "failed",
+              error: errorMessage,
+              recoveryRetryCount: null,
+              nextRecoveryAt: null,
+            });
+          }
           await deps.persistTokenUsage(task.id);
-          executorLog.log(`✗ ${task.id} transient retries exhausted — failed in execution`);
+          executorLog.log(`✗ ${task.id} transient retries exhausted — terminal execution park recorded`);
           deps.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           return;
         }
@@ -3902,7 +3965,9 @@ export async function runImplementation(
           : errorMessage;
         executorLog.error(`✗ ${task.id} execution failed:`, errorDetail);
         await deps.store.logEntry(task.id, `Execution failed: ${terminalError}`, errorStack ?? errorDetail, deps.getRunContextFor(task.id));
-        await deps.store.updateTask(task.id, { status: "failed", error: terminalError });
+        if (!(await parkExternalSessionObstacle(deps, task.id, terminalError))) {
+          await deps.store.updateTask(task.id, { status: "failed", error: terminalError });
+        }
         await deps.persistTokenUsage(task.id);
         executorLog.log(`✗ ${task.id} execution failed`);
         deps.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));

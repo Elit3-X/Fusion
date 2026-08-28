@@ -255,6 +255,11 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       task-row write. Do not route that paired publication through updateTaskRepositoryScope:
       a second transaction would expose a new ## Repository Scope heading with stale intent.
       */
+      if (updates.externalBlock === null) {
+        task.externalBlock = undefined;
+      } else if (updates.externalBlock !== undefined) {
+        task.externalBlock = updates.externalBlock;
+      }
       if (updates.repositoryScope === null) {
         task.repositoryScope = undefined;
       } else if (updates.repositoryScope !== undefined) {

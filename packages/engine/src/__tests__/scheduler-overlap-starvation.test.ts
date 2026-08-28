@@ -305,7 +305,7 @@ describe("scheduler overlap starvation regression (FN-057)", () => {
     });
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-030",
-      "queued — blocked by active file-scope lease FN-039 (column=in-progress)",
+      "queued — waiting for active file-scope lease FN-039 (column=in-progress)",
     );
     expect(store.moveTask).toHaveBeenCalledWith("FN-031", "in-progress", expect.objectContaining({ allocateWorktree: expect.any(Function) }));
   });
@@ -400,7 +400,7 @@ describe("scheduler overlap starvation regression (FN-057)", () => {
     );
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-045",
-      "queued — blocked by active file-scope lease FN-033 (column=in-progress)",
+      "queued — waiting for active file-scope lease FN-033 (column=in-progress)",
     );
     expect(store.moveTask).toHaveBeenCalledWith("FN-078", "in-progress", expect.anything());
     expect(store.logEntry).not.toHaveBeenCalledWith(
@@ -471,7 +471,7 @@ describe("scheduler overlap starvation regression (FN-057)", () => {
     );
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-045",
-      "queued — blocked by active file-scope lease FN-033 (column=in-progress)",
+      "queued — waiting for active file-scope lease FN-033 (column=in-progress)",
     );
     expect(store.moveTask).toHaveBeenCalledWith("FN-078", "in-progress", expect.anything());
     expect(store.logEntry).not.toHaveBeenCalledWith(
@@ -578,7 +578,7 @@ describe("scheduler overlap starvation regression (FN-057)", () => {
     });
     expect(store.logEntry).toHaveBeenCalledWith(
       "FN-900",
-      "queued — blocked by active file-scope lease FN-NEW (column=in-progress)",
+      "queued — waiting for active file-scope lease FN-NEW (column=in-progress)",
     );
     expect(store.moveTask).not.toHaveBeenCalledWith("FN-900", "in-progress", expect.anything());
   });

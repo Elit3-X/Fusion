@@ -8657,7 +8657,16 @@
     "reviewBudgetExhausted": "Orçamento de revisão esgotado",
     "awaitingApprovalTitle": "Este plano precisa da sua aprovação antes que a implementação possa começar.",
     "baseBranch": "Base",
-    "blockedByTooltip": "Bloqueada por {{taskId}} (sobreposição de arquivos)",
+    "blockedByTooltip": "Aguardando {{taskId}} (sobreposição de arquivos)",
+    "externalBlock": {
+      "title": "Bloqueada",
+      "unknownCode": "NÃO_CLASSIFICADO",
+      "genericMessage": "Um obstáculo externo requer ação do operador",
+      "explain": "Explicar este erro",
+      "explainPrompt": "Explique este erro {{error}} e como resolvê-lo.",
+      "resuming": "Retomando…",
+      "retry": "Tentar novamente"
+    },
     "branch": "Branch",
     "branchMetadata": "Metadados do branch",
     "branchProgress": "{{done}}/{{total}} branches",

@@ -80,7 +80,8 @@ function createRestartStore(root: string, row: Task, options: { failAt?: "cancel
     getSettings: vi.fn().mockResolvedValue({}),
     getTask: vi.fn(async () => {
       reads += 1;
-      if (options.moveOnSecondRead && reads === 3) row.column = "building";
+      // FNXC:ExternalBlockResume 2026-08-28-04:56: the retry route now performs a locked external-block preflight read before the stage-restart reads; move after the publication fence to retain this race's production ordering.
+      if (options.moveOnSecondRead && reads === 4) row.column = "building";
       return structuredClone(row);
     }),
     listTasks: vi.fn().mockResolvedValue([structuredClone(row)]),

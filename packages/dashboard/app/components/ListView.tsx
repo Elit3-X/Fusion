@@ -10,6 +10,7 @@ import { useColumnLabel } from "../i18n/labels";
 import { isArchivedColumnRole, isCompleteColumnRole, isIntakeColumnRole, isReviewColumnRole, isWipColumnRole } from "../utils/columnRoles";
 import { batchUpdateTaskModels, fetchNodes, fetchTaskDetail, refreshPrStatus, updateTask } from "../api";
 import { TaskDetailContent } from "./TaskDetailModal";
+import { ExternalBlockNotice } from "./TaskCard";
 import { PrCreateModal } from "./PrCreateModal";
 import type { BoardWorkflowColumn, BoardWorkflowsPayload, ModelInfo, NodeInfo, RevertTaskOptions, RevertTaskResult } from "../api";
 import { QuickEntryBox } from "./QuickEntryBox";
@@ -263,6 +264,7 @@ interface ListViewProps {
   tasks: Task[];
   onMoveTask: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
   onRetryTask?: (id: string) => Promise<Task>;
+  onOpenChatWithPrefill?: (prefillText: string) => void;
   onReviseTask?: (task: Task) => void;
   onDeleteTask: (id: string, options?: {
     removeDependencyReferences?: boolean;
@@ -383,6 +385,7 @@ export function ListView({
   tasks,
   onMoveTask,
   onRetryTask,
+  onOpenChatWithPrefill,
   onDeleteTask,
   onReviseTask,
   onPauseTask,
@@ -3122,6 +3125,8 @@ export function ListView({
                                 <div className="list-card-title">{getTaskTitleDisplay(task).text}</div>
                               </div>
 
+                              <ExternalBlockNotice task={task} variant="list" onOpenChatWithPrefill={onOpenChatWithPrefill} onRetryTask={onRetryTask} addToast={addToast} />
+
                               {(hasDependencies || hasProgress) && (
                                 <div className="list-card-row list-card-meta">
                                   {hasDependencies && (
@@ -3360,6 +3365,7 @@ export function ListView({
                                 )}
                                 {visibleColumns.has("status") && (
                                   <td className="list-cell">
+                                    <ExternalBlockNotice task={task} variant="list" onOpenChatWithPrefill={onOpenChatWithPrefill} onRetryTask={onRetryTask} addToast={addToast} />
                                     {isPaused && task.pausedByAgentId ? (
                                       <span className="list-status-badge paused">{t("listView.pausedByAgent", "paused by agent")}</span>
                                     ) : showStatusBadge ? (
@@ -3523,6 +3529,7 @@ export function ListView({
                       onDeleteTask={onDeleteTask}
                       onMergeTask={onMergeTask}
                       onRetryTask={onRetryTask}
+                      onOpenChatWithPrefill={onOpenChatWithPrefill}
                       onPauseTask={onPauseTask}
                       onUnpauseTask={onUnpauseTask}
                       onResetTask={onResetTask}

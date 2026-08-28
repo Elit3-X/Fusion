@@ -8702,7 +8702,16 @@
     "reviewBudgetExhausted": "Review budget exhausted",
     "awaitingApprovalTitle": "This plan needs your approval before implementation can start.",
     "baseBranch": "Base",
-    "blockedByTooltip": "Blocked by {{taskId}} (file overlap)",
+    "blockedByTooltip": "Waiting for {{taskId}} (file overlap)",
+    "externalBlock": {
+      "title": "Blocked",
+      "unknownCode": "UNCLASSIFIED",
+      "genericMessage": "External obstacle requires operator action",
+      "explain": "Explain this error",
+      "explainPrompt": "Explain this error {{error}} and how to resolve it.",
+      "resuming": "Resuming…",
+      "retry": "Retry"
+    },
     "branch": "Branch",
     "branchMetadata": "Branch metadata",
     "branchProgress": "{{done}}/{{total}} branches",

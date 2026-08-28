@@ -8638,7 +8638,16 @@
     "attachFileFailed": "附加 {{fileName}} 失败：{{error}}",
     "awaitingApproval": "等待审批",
     "baseBranch": "基础",
-    "blockedByTooltip": "被 {{taskId}} 阻塞（文件冲突）",
+    "blockedByTooltip": "正在等待 {{taskId}}（文件冲突）",
+    "externalBlock": {
+      "title": "已阻塞",
+      "unknownCode": "未分类",
+      "genericMessage": "外部障碍需要操作员处理",
+      "explain": "解释此错误",
+      "explainPrompt": "请解释错误 {{error}} 及其解决方法。",
+      "resuming": "正在恢复…",
+      "retry": "重试"
+    },
     "branch": "分支",
     "branchMetadata": "分支元数据",
     "branchProgress": "",

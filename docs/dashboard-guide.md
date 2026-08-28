@@ -2650,3 +2650,7 @@ Cards using the review-gated workflow show implementation progress while work is
 ### Docked conversation sidebar
 
 In the full Chat view on tablet and desktop, use the conversation-list button in the Chat header to show or hide a docked conversation sidebar. Drag its separator or use the arrow keys while focused to resize it from 220 to 480; its width and open state are remembered in the browser. Conversation rows show their name, provider, model, and latest-message snippet. Mobile, compact right dock, Quick Chat, and popped-out chat windows retain one-pane conversation navigation.
+
+## Blocked task display
+
+An externally blocked task uses a Blocked cover on board cards and the same notice in List and Task Detail. The notice shows the durable raw error code and message. Its robot action opens Chat with an explanation prompt, and Retry resumes the interrupted step. Dependency and file-overlap waits continue to use waiting labels rather than the Blocked identity. The cover and actions use the same responsive component contract on desktop and mobile.

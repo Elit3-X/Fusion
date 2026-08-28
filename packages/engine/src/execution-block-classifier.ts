@@ -1,3 +1,10 @@
+import type { TaskExternalBlockOrigin } from "@fusion/core";
+import { isUsageLimitError } from "./errors/usage-limit-detector.js";
+import {
+  isOperatorActionableAgentError,
+  isTransientAuthCredentialError,
+} from "./errors/transient-error-detector.js";
+
 /**
  * Classify honest-blocked exits so the engine does not auto-replan (or thrash
  * re-execute) work that is blocked behind other Fusion board tasks.
@@ -13,6 +20,38 @@
  * classify on task dependencies alone: task deps → durable external park (requeues
  * when the deps complete); no deps → plan defect → auto-replan (FN-8634).
  */
+
+export type ExternalObstacleClassification = {
+  origin: TaskExternalBlockOrigin;
+  code: string;
+};
+
+const HOST_EXTERNAL_CODES = ["ENOSPC", "EDQUOT", "EROFS", "ENOMEM", "EMFILE", "ENFILE"] as const;
+const NETWORK_EXTERNAL_CODES = ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ENOTFOUND"] as const;
+
+/*
+FNXC:ExternalBlock 2026-08-28-04:08:
+Only conservative, operator-actionable signals may freeze a task. Exact host/network codes and the
+existing provider/credential predicates identify causes outside the worktree; ordinary test, lint,
+type, merge, plan, and review failures deliberately fall through to the existing self-repair path.
+Transient credential rotation is excluded because its current retry owner must run first.
+*/
+export function classifyExternalObstacle(message: string): ExternalObstacleClassification | undefined {
+  const normalized = message.trim();
+  if (!normalized) return undefined;
+
+  for (const code of HOST_EXTERNAL_CODES) {
+    if (new RegExp(`\\b${code}\\b`, "i").test(normalized)) return { origin: "host-environment", code };
+  }
+  for (const code of NETWORK_EXTERNAL_CODES) {
+    if (new RegExp(`\\b${code}\\b`, "i").test(normalized)) return { origin: "network", code };
+  }
+  if (/socket hang up/i.test(normalized)) return { origin: "network", code: "SOCKET_HANG_UP" };
+  if (isTransientAuthCredentialError(normalized)) return undefined;
+  if (isUsageLimitError(normalized)) return { origin: "model-provider", code: "USAGE_LIMIT" };
+  if (isOperatorActionableAgentError(normalized)) return { origin: "credentials", code: "CREDENTIALS" };
+  return undefined;
+}
 
 export type BlockedExitClass = "plan-defect" | "external";
 

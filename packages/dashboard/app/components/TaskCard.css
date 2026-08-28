@@ -688,6 +688,72 @@ falling through to an unstyled transparent shell.
   border-left: 3px solid var(--color-error-dark);
 }
 
+/*
+FNXC:ExternalBlockUx 2026-08-28-04:56:
+The card notice covers ordinary card state while preserving the card's footprint and responsive
+layout. Shared notice paint uses semantic tokens; mobile only changes flow and touch sizing.
+*/
+.card.external-blocked {
+  border-color: var(--color-error);
+}
+
+.external-block-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-error) 12%, var(--card));
+  color: var(--text-primary);
+}
+
+.external-block-notice--card {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  flex-direction: column;
+  justify-content: center;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: var(--shadow-md);
+  background: color-mix(in srgb, var(--color-error) 14%, var(--card));
+}
+
+.external-block-notice__title {
+  color: var(--color-error);
+  font-size: var(--font-size-md);
+}
+
+.external-block-notice__reason {
+  max-width: 100%;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.external-block-notice__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.external-block-notice__actions .btn {
+  min-height: var(--space-xl);
+}
+
+.external-block-notice__actions .btn-icon {
+  min-width: var(--space-xl);
+  padding: var(--space-xs);
+}
+
+.external-block-notice__actions svg {
+  width: var(--space-md);
+  height: var(--space-md);
+}
+
 /* Error display on failed task cards */
 .card-error {
   display: flex;
@@ -739,6 +805,16 @@ falling through to an unstyled transparent shell.
 }
 
 @media (max-width: 768px) {
+  .external-block-notice {
+    flex-direction: column;
+  }
+
+  .external-block-notice__actions .btn,
+  .external-block-notice__actions .btn-icon {
+    min-width: var(--touch-target-min-size);
+    min-height: var(--touch-target-min-size);
+  }
+
   .card-error-retry-btn {
     min-height: 36px;
   }

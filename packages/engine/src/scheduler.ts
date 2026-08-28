@@ -44,7 +44,7 @@ import { BacklogPressureReporter } from "./scheduling/backlog-pressure-reporter.
 import { UnlinkedMissionsAdvisoryReporter } from "./missions/unlinked-missions-advisory-reporter.js";
 import { createRunAuditor, generateSyntheticRunId } from "./util/run-audit.js";
 import type { TaskMoveLanes } from "@fusion/core";
-import { resolveProjectColumnsForRoles, resolveWorkflowIrForTask, resolveWorkflowIrById, resolveColumnFlags, resolveWorktreeCapacityLimit, resolveMaxConcurrentSetting, resolveLifecycleColumns, isWipColumnRole, isReviewColumnRole, isCompleteColumnRole, columnsWithFlag } from "@fusion/core";
+import { resolveProjectColumnsForRoles, resolveWorkflowIrForTask, resolveWorkflowIrById, resolveColumnFlags, resolveWorktreeCapacityLimit, resolveMaxConcurrentSetting, resolveLifecycleColumns, isWipColumnRole, isReviewColumnRole, isCompleteColumnRole, columnsWithFlag, isTaskExternallyBlocked } from "@fusion/core";
 import type { WorkflowIr, WorkflowIrV2, WorkflowSelectionCache } from "@fusion/core";
 import type { ColumnRoleTraitFlags } from "@fusion/core";
 
@@ -585,6 +585,15 @@ export function shouldHoldActiveFileScopeLease(
   today's behaviour, so no existing call site changes meaning. Covered by
   scheduler-renamed-wip-file-scope-lease.test.ts.
   */
+  const isWipColumn = options?.isWipColumn ?? task.column === "in-progress";
+  const isReviewColumn = options?.isReviewColumn ?? task.column === "in-review";
+  /*
+  FNXC:ExternalBlock 2026-08-28-04:01:
+  The external-block pause is a freeze, not a lease release. A blocked WIP or review card that still
+  owns a worktree keeps its active file-scope lease so overlapping work cannot enter while the
+  operator repairs the outside obstacle. Other paused and failed cards retain their old behavior.
+  */
+  if (isTaskExternallyBlocked(task) && Boolean(task.worktree) && (isWipColumn || isReviewColumn)) return true;
   if (task.paused || task.userPaused) return false;
   /*
   FNXC:OverlapScheduling 2026-08-01-19:22:
@@ -600,9 +609,6 @@ export function shouldHoldActiveFileScopeLease(
   with. Removing them would silently change those callers' meaning, which is the coupling the
   optional-parameter shape exists to avoid.
   */
-  const isWipColumn = options?.isWipColumn ?? task.column === "in-progress";
-  /* DELIBERATE-LITERAL — the review half of the same shared-caller default. */
-  const isReviewColumn = options?.isReviewColumn ?? task.column === "in-review";
   if (isWipColumn) {
     return getUnmetSchedulingDependencies(task, tasks, options?.schedulingDependencyOptions).length === 0;
   }
@@ -2983,7 +2989,7 @@ export class Scheduler {
                   signature: `file-scope:${overlappingTaskId}`,
                   blockedBy: null,
                   overlapBlockedBy: overlappingTaskId,
-                  action: `queued — blocked by active file-scope lease ${overlappingTaskId} (column=${activeLeaseColumn})`,
+                  action: `queued — waiting for active file-scope lease ${overlappingTaskId} (column=${activeLeaseColumn})`,
                 });
                 await this.rollbackRunningAgentsForQueuedTodoTask(task.id);
                 return null;

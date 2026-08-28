@@ -8638,7 +8638,16 @@
     "attachFileFailed": "{{fileName}} 첨부에 실패했습니다: {{error}}",
     "awaitingApproval": "승인 대기 중",
     "baseBranch": "베이스",
-    "blockedByTooltip": "{{taskId}}에 의해 차단됨 (파일 충돌)",
+    "blockedByTooltip": "{{taskId}} 대기 중 (파일 충돌)",
+    "externalBlock": {
+      "title": "차단됨",
+      "unknownCode": "미분류",
+      "genericMessage": "외부 장애로 운영자 조치가 필요합니다",
+      "explain": "이 오류 설명",
+      "explainPrompt": "이 오류 {{error}}의 원인과 해결 방법을 설명해 주세요.",
+      "resuming": "재개 중…",
+      "retry": "다시 시도"
+    },
     "branch": "브랜치",
     "branchMetadata": "브랜치 메타데이터",
     "branchProgress": "",

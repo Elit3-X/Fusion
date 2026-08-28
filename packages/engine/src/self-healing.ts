@@ -43,6 +43,7 @@ import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_
   resolveEngineIncarnationId,
   resolveEngineNodeId,
   isFusionDeletableBranch,
+  isTaskExternallyBlocked,
 } from "@fusion/core";
 import { finalizePlanningSegment } from "@fusion/core";
 import type { WorkspaceLandIntent } from "@fusion/core";
@@ -368,7 +369,7 @@ export interface SelfHealingOptions {
    * if the executor refused because a live session surface is still registered
    * (the leaked-slot reaper relies on this refusal signal).
    */
-  clearPhantomExecutorBinding?: (taskId: string, options?: { preserveWorktrees?: boolean }) => boolean | void;
+  clearPhantomExecutorBinding?: (taskId: string, options?: { preserveWorktrees?: boolean; externallyBlocked?: boolean }) => boolean | void;
   /*
   FNXC:NodeWorktreeIsolation 2026-07-29-06:05 (FN-6756):
   READ-ONLY liveness probe. Lets a sweep gate on "is an agent working this task?"
@@ -4544,7 +4545,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       const integrationBranch = await resolveIntegrationBranch(this.options.rootDir, settings);
       for (const task of candidates) {
         if (!task.branch || !task.worktree) continue;
-        if (task.userPaused) continue;
+        if (task.userPaused || isTaskExternallyBlocked(task)) continue;
         const liveExecutionSignal = this.getFalsePositiveRequeueSignal(task, {
           executingIds,
           activeHeartbeatTaskIds: activeTaskIds,
@@ -6062,6 +6063,13 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       const worktreeReconcileWipColumns = await resolveProjectColumnsForRoles(this.store, ["countsTowardWip"]);
       const worktreeReconcileReviewColumns = await resolveProjectColumnsForRoles(this.store, REVIEW_ROLES);
       for (const task of allTasks) {
+        /*
+        FNXC:ExternalBlockRecovery 2026-08-28-05:33:
+        A frozen task keeps its exact worktree identity even when Git registration is temporarily
+        unreadable. Retry owns the eventual resume; metadata reconciliation must not clear or rebind
+        any lane while the outside obstacle remains active.
+        */
+        if (isTaskExternallyBlocked(task)) continue;
         if (!task.worktree) continue;
         if (!options?.includeTaskIds?.has(task.id) && worktreeReconcileTerminalColumns.has(task.column)) {
           continue;
@@ -13834,6 +13842,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
       const columnCache = new Map<string, Awaited<ReturnType<typeof resolveWorkflowIrForTask>>>();
       const parked: Task[] = [];
       for (const t of tasks) {
+        if (isTaskExternallyBlocked(t)) continue;
         if (!this.isPauseAbortParkCandidate(t)) continue;
         const columns = await this.resolvePauseAbortColumnsFor(t.id, columnCache);
         if ((await this.classifyPausedAbortWorkflowRecovery(t, settings, executingIds.has(t.id), columns)).kind !== "no-action") {
@@ -13856,7 +13865,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           // applied (coderabbit Major + greptile, PR #1687).
           const fresh = await this.store.getTask(task.id);
           const latestExecutingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
-          if (!fresh) continue;
+          if (!fresh || isTaskExternallyBlocked(fresh)) continue;
           /*
           FNXC:NodeWorktreeIsolation 2026-07-29-06:05 (FN-6756 — gate before mutating, PR #2531 review):
           `latestExecutingIds` is TaskExecutor-owned and blind to a triage PLANNING
@@ -14121,6 +14130,13 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
         if (executingIds.has(taskId)) continue;
 
         const task = await this.store.getTask(taskId).catch(() => null);
+        /*
+        FNXC:ExternalBlock 2026-08-28-04:20:
+        A blocked planning/hold card is intentionally a live resource holder despite its pause. The
+        leaked-slot reaper is the one recovery surface whose candidate filter historically ignored
+        pause state, so it needs this explicit durable-state fence before column/grace checks.
+        */
+        if (task && isTaskExternallyBlocked(task)) continue;
         /*
         FNXC:WorkflowColumns 2026-07-29-09:30 (Phase B): intake-or-hold ROLE, same
         behaviour as the literals it replaces.

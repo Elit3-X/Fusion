@@ -1237,6 +1237,16 @@ export {
   RESTART_STAGE_FENCE_REASON,
   planTaskColumnRestart,
 } from "./tasks/task-column-restart.js";
+export {
+  EXTERNAL_BLOCK_STATUS,
+  EXTERNAL_BLOCK_PAUSE_REASON,
+  isTaskExternallyBlocked,
+  buildTaskExternalBlockPatch,
+  buildTaskExternalBlockClearPatch,
+  formatTaskExternalBlockReason,
+} from "./tasks/task-external-block.js";
+export type { TaskExternalBlock, TaskExternalBlockOrigin } from "./tasks/task-external-block.js";
+export { emitBoundedRunAudit } from "./run-audit/emit-bounded-run-audit.js";
 export type {
   TaskColumnRestartEntryNode,
   TaskColumnRestartPlan,

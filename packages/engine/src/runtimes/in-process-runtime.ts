@@ -1924,7 +1924,7 @@ export class InProcessRuntime
         recoverCompletedTask: (task) => this.executor.recoverCompletedTask(task),
         recoverFailedPreMergeStep: (task) => this.executor.recoverFailedPreMergeWorkflowStep(task),
         getExecutingTaskIds: () => this.executor?.getExecutingTaskIds() ?? new Set<string>(),
-        clearPhantomExecutorBinding: (taskId: string, options?: { preserveWorktrees?: boolean }) => this.executor?.clearPhantomExecutorBinding(taskId, options),
+        clearPhantomExecutorBinding: (taskId: string, options?: { preserveWorktrees?: boolean; externallyBlocked?: boolean }) => this.executor?.clearPhantomExecutorBinding(taskId, options),
         /*
         FNXC:NodeWorktreeIsolation 2026-07-29-06:05 (FN-6756):
         Wire the read-only liveness probe. self-healing.ts's own comment records that

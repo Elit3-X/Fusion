@@ -146,6 +146,7 @@ interface ColumnProps {
     updates: { title?: string; description?: string; dependencies?: string[]; githubTracking?: { enabled?: boolean } }
   ) => Promise<Task>;
   onRetryTask?: (id: string) => Promise<Task>;
+  onOpenChatWithPrefill?: (prefillText: string) => void;
   onArchiveTask?: (id: string, options?: { removeLineageReferences?: boolean }) => Promise<Task>;
   onUnarchiveTask?: (id: string) => Promise<Task>;
   /* FNXC:TaskRevert 2026-07-05-00:00 (FN-7525): threaded alongside onArchiveTask/onUnarchiveTask. */
@@ -236,7 +237,7 @@ interface ColumnProps {
   onPromote?: (taskId: string, options?: { force?: boolean }) => Promise<void>;
 }
 
-function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMaxConcurrent = maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onRevertTask, onReviseTask, onDeleteTask, onArchiveAllDone, sortMode, onSortModeChange, doneSortMode, onDoneSortModeChange, collapsed, onToggleCollapse, archivedHasMore, archivedLoadingMore, onLoadMoreArchived, allTasks, availableModels, onPlanningMode, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, onOpenMission, lastFetchTimeMs, taskCardFieldDefs, taskWorkflowBadges, blockerFanoutMap, prAuthAvailable, holdTaskIds, workflowMode, workflowId, workflowOptions, defaultWorkflowId, columnDisplayName, columnDescription, columnFlags, workflowContextMenuColumns, taskContextMenuColumnsByTaskId, onPromote }: ColumnProps) {
+function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMaxConcurrent = maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onOpenChatWithPrefill, onArchiveTask, onUnarchiveTask, onRevertTask, onReviseTask, onDeleteTask, onArchiveAllDone, sortMode, onSortModeChange, doneSortMode, onDoneSortModeChange, collapsed, onToggleCollapse, archivedHasMore, archivedLoadingMore, onLoadMoreArchived, allTasks, availableModels, onPlanningMode, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, onOpenMission, lastFetchTimeMs, taskCardFieldDefs, taskWorkflowBadges, blockerFanoutMap, prAuthAvailable, holdTaskIds, workflowMode, workflowId, workflowOptions, defaultWorkflowId, columnDisplayName, columnDescription, columnFlags, workflowContextMenuColumns, taskContextMenuColumnsByTaskId, onPromote }: ColumnProps) {
   const { t } = useTranslation("app");
   // Anchor the board.rejection.* catalog keys for the i18next extractor (it
   // scopes `t` to the useTranslation binding, so the shared translateRejection
@@ -951,6 +952,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMax
                   onUpdateTask={onUpdateTask}
                   onPauseTask={onPauseTask}
                   onRetryTask={onRetryTask}
+                  onOpenChatWithPrefill={onOpenChatWithPrefill}
                   onUnpauseTask={onUnpauseTask}
                   onResetTask={onResetTask}
                   onDuplicateTask={onDuplicateTask}
@@ -993,6 +995,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMax
                   onUpdateTask={onUpdateTask}
                   onPauseTask={onPauseTask}
                   onRetryTask={onRetryTask}
+                  onOpenChatWithPrefill={onOpenChatWithPrefill}
                   onUnpauseTask={onUnpauseTask}
                   onResetTask={onResetTask}
                   onDuplicateTask={onDuplicateTask}

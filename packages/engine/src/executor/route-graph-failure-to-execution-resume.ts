@@ -15,7 +15,7 @@
  * FN-8910: completed work + policy-refused remediation stays parked in review.
  */
 import type { TaskDetail, TaskStore } from "@fusion/core";
-import { COMPLETION_SUMMARY_NODE_ID, resolveContainedBackwardTargetForTask } from "@fusion/core";
+import { COMPLETION_SUMMARY_NODE_ID, isTaskExternallyBlocked, resolveContainedBackwardTargetForTask } from "@fusion/core";
 import { isDurableBlockedTask } from "../execution-block-classifier.js";
 import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
@@ -59,6 +59,10 @@ export async function routeGraphFailureToExecutionResume(
      * are left failed in-place by the caller; they must never be handed to review.
      */
     if (live.deletedAt) return false;
+    if (isTaskExternallyBlocked(live)) {
+      executorLog.log(`${live.id}: graph failure resume skipped — external Blocked freeze honored`);
+      return false;
+    }
     if (live.paused || live.userPaused === true) return false;
     if ((await resolveTerminalColumnsFor(deps.store, live.id)).includes(live.column)) return false;
     /*

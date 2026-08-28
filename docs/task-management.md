@@ -964,3 +964,9 @@ Task Detail labels this measure **Total active time**. It sums durable planning 
 ## Generated task language
 
 In **Settings → Models → Project**, choose whether AI-authored task plans, titles, steps, summaries, and recommendations use English, the task input language, or the Fusion interface language. The choice is captured when a planning, title, execution, or workflow generation begins; changing it does not translate or alter existing tasks or active sessions.
+
+## Blocked tasks
+
+**Blocked** means infrastructure outside the task worktree requires operator action, such as exhausted disk, unavailable credentials, a provider outage, or a terminal network failure. The card preserves completed steps and committed work while displaying the raw code and message.
+
+Use the robot action to open Chat with that exact error prefilled. After repairing the external obstacle, use **Retry**. Retry resumes the recorded interrupted workflow node; it does not reset steps, delete `PROMPT.md`, replan, or replace the task worktree and branch. Repeated Retry requests are refused while the resume continuation is already pending.

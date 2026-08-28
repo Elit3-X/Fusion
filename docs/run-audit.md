@@ -103,3 +103,7 @@ All `recordRunAuditEventWithinTransaction(tx, ...)` calls and the `recordRunAudi
 | --- | --- |
 | `review-remediation-appended` | Task id, gate id, wave, and count only. |
 | `review-remediation-parked` | Task id and fixed park outcome only. |
+
+### External block lifecycle
+
+`task:external-block-parked` records a task entering a durable external freeze, and `task:external-block-cleared` records operator Retry publishing its exact resume continuation. Metadata is IDs and fixed classifications only: task id, origin, code, source, column, and resume node id. Raw error prose remains on `Task.externalBlock` and is never copied into run-audit metadata. Both writes use the bounded best-effort emitter and are intentionally outside the curated delivery-pipeline event catalogue.

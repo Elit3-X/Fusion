@@ -495,6 +495,9 @@ export type DatabaseMutationType =
   | "task:steering-comment:add"
   | "task:assign"
   | "task:checkout"
+  /* FNXC:ExternalBlock 2026-08-28-04:08: external-block telemetry contains ids and fixed classifications only; raw obstacle prose stays on the task. */
+  | "task:external-block-parked"
+  | "task:external-block-cleared"
   /** Metadata: { taskId, artifactKeys, owner, source, action, attempt, maxAttempts, nodeId? } */
   | "task:required-artifact-missing"
   /*

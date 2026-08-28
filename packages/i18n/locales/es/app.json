@@ -8638,7 +8638,16 @@
     "attachFileFailed": "Error al adjuntar {{fileName}}: {{error}}",
     "awaitingApproval": "Esperando aprobación",
     "baseBranch": "Base",
-    "blockedByTooltip": "Bloqueado por {{taskId}} (superposición de archivos)",
+    "blockedByTooltip": "Esperando a {{taskId}} (superposición de archivos)",
+    "externalBlock": {
+      "title": "Bloqueada",
+      "unknownCode": "SIN_CLASIFICAR",
+      "genericMessage": "Un obstáculo externo requiere la intervención del operador",
+      "explain": "Explicar este error",
+      "explainPrompt": "Explica este error {{error}} y cómo resolverlo.",
+      "resuming": "Reanudando…",
+      "retry": "Reintentar"
+    },
     "branch": "Rama",
     "branchMetadata": "Metadatos de rama",
     "branchProgress": "",

@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 import { memo, useCallback, useState, useRef, useEffect, useLayoutEffect, useMemo, type CSSProperties, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch, GitPullRequest, AlertTriangle, ArrowUpRight, Eye, MoreHorizontal, Sparkles, X } from "lucide-react";
+import { isTaskExternallyBlocked } from "@fusion/core";
 import type { Task, TaskDetail, Column, ColumnId, PrInfo, IssueInfo, TaskPriority, GithubIssueAction, MergeResult, PlannerOversightLevel } from "@fusion/core";
 import {
   DEFAULT_PLANNER_OVERSIGHT_LEVEL,
@@ -601,6 +602,69 @@ function renderCardFieldBadge(
   );
 }
 
+interface ExternalBlockNoticeProps {
+  task: Task;
+  variant: "card" | "list" | "detail";
+  onOpenChatWithPrefill?: (prefillText: string) => void;
+  onRetryTask?: (id: string) => Promise<Task>;
+  addToast?: (message: string, type?: ToastType) => void;
+}
+
+/*
+FNXC:ExternalBlockUx 2026-08-28-04:56:
+Every task surface uses one external-obstacle notice so Blocked always wins over paused, failure,
+dependency, and file-overlap vocabulary. Action buttons exist only when their real handlers exist;
+the explanation prompt carries the durable raw code/message and Retry resumes without the normal
+destructive stage-restart confirmation.
+*/
+export function ExternalBlockNotice({ task, variant, onOpenChatWithPrefill, onRetryTask, addToast }: ExternalBlockNoticeProps) {
+  const { t } = useTranslation("app");
+  const [isResuming, setIsResuming] = useState(false);
+  const block = task.externalBlock;
+  if (!isTaskExternallyBlocked(task) || !block) return null;
+  const code = block.code.trim() || t("tasks.externalBlock.unknownCode", "UNCLASSIFIED");
+  const message = block.message.trim() || t("tasks.externalBlock.genericMessage", "External obstacle requires operator action");
+  const error = `${code}: ${message}`;
+  const stop = (event: React.SyntheticEvent) => event.stopPropagation();
+  const explain = (event: React.MouseEvent<HTMLButtonElement>) => {
+    stop(event);
+    onOpenChatWithPrefill?.(t("tasks.externalBlock.explainPrompt", "Explain this error {{error}} and how to resolve it.", { error }));
+  };
+  const retry = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    stop(event);
+    if (!onRetryTask || isResuming) return;
+    setIsResuming(true);
+    try {
+      await onRetryTask(task.id);
+    } catch (reason) {
+      addToast?.(t("tasks.retryFailed", "Failed to retry {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(reason) }), "error");
+    } finally {
+      setIsResuming(false);
+    }
+  };
+  return (
+    <div className={`external-block-notice external-block-notice--${variant}`} role="alert" data-testid={`external-block-${variant}-${task.id}`}>
+      <strong className="external-block-notice__title">{t("tasks.externalBlock.title", "Blocked")}</strong>
+      <span className="external-block-notice__reason">{error}</span>
+      {(onOpenChatWithPrefill || onRetryTask) && (
+        <span className="external-block-notice__actions">
+          {onOpenChatWithPrefill && (
+            <button type="button" className="btn btn-icon" onClick={explain} aria-label={t("tasks.externalBlock.explain", "Explain this error")} title={t("tasks.externalBlock.explain", "Explain this error")}>
+              <Bot aria-hidden="true" />
+            </button>
+          )}
+          {onRetryTask && (
+            <button type="button" className="btn" onClick={(event) => void retry(event)} disabled={isResuming}>
+              <RotateCw aria-hidden="true" />
+              {isResuming ? t("tasks.externalBlock.resuming", "Resuming…") : t("tasks.externalBlock.retry", "Retry")}
+            </button>
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
 interface TaskCardProps {
   task: Task;
   projectId?: string;
@@ -640,6 +704,7 @@ interface TaskCardProps {
   }) => Promise<Task>;
   onPauseTask?: (id: string) => Promise<Task>;
   onRetryTask?: (id: string) => Promise<Task>;
+  onOpenChatWithPrefill?: (prefillText: string) => void;
   onUnpauseTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
@@ -865,6 +930,7 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previous.onDeleteTask === next.onDeleteTask &&
     previous.onPauseTask === next.onPauseTask &&
     previous.onRetryTask === next.onRetryTask &&
+    previous.onOpenChatWithPrefill === next.onOpenChatWithPrefill &&
     previous.onUnpauseTask === next.onUnpauseTask &&
     previous.onResetTask === next.onResetTask &&
     previous.onDuplicateTask === next.onDuplicateTask &&
@@ -901,6 +967,9 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previousTask.paused === nextTask.paused &&
     previousTask.userPaused === nextTask.userPaused &&
     previousTask.error === nextTask.error &&
+    previousTask.externalBlock?.blockedAt === nextTask.externalBlock?.blockedAt &&
+    previousTask.externalBlock?.code === nextTask.externalBlock?.code &&
+    previousTask.externalBlock?.message === nextTask.externalBlock?.message &&
     previousTask.size === nextTask.size &&
     previousTask.blockedBy === nextTask.blockedBy &&
     previousTask.overlapBlockedBy === nextTask.overlapBlockedBy &&
@@ -1011,6 +1080,7 @@ function TaskCardComponent({
   onReviseTask,
   onPauseTask,
   onRetryTask,
+  onOpenChatWithPrefill,
   onUnpauseTask,
   onResetTask,
   onDuplicateTask,
@@ -1471,8 +1541,9 @@ function TaskCardComponent({
   const isDoneColumn = isCompleteColumn;
   const visualStatus = isDoneColumn ? "done" : task.status;
   const hasPendingRecovery = hasPendingAutomaticRecovery(task, lastFetchTimeMs);
+  const isExternalBlocked = !isDoneColumn && isTaskExternallyBlocked(task);
   const isFailed = !isDoneColumn && task.status === "failed" && !hasPendingRecovery;
-  const isPaused = !isDoneColumn && (task.paused === true || task.userPaused === true);
+  const isPaused = !isDoneColumn && !isExternalBlocked && (task.paused === true || task.userPaused === true);
   const isTriageDuplicateDecision = isPaused
     && task.pausedReason === "duplicate-decision-required"
     && task.sourceMetadata?.duplicateSource === "triage-marker"
@@ -3014,7 +3085,7 @@ function TaskCardComponent({
     void handleTaskActionRetry();
   }, [handleTaskActionRetry]);
 
-  const cardClass = `card${queued ? " queued" : ""}${isAgentActive ? " agent-active" : ""}${isFailed ? " failed" : ""}${isPaused ? " paused" : ""}${isAwaitingApproval ? " awaiting-approval" : ""}${isAwaitingInput ? " awaiting-input" : ""}${fileDragOver ? " file-drop-target" : ""}${isEditing ? " card-editing" : ""}${isSaving ? " card-saving" : ""}`;
+  const cardClass = `card${queued ? " queued" : ""}${isAgentActive ? " agent-active" : ""}${isFailed ? " failed" : ""}${isPaused ? " paused" : ""}${isExternalBlocked ? " external-blocked" : ""}${isAwaitingApproval ? " awaiting-approval" : ""}${isAwaitingInput ? " awaiting-input" : ""}${fileDragOver ? " file-drop-target" : ""}${isEditing ? " card-editing" : ""}${isSaving ? " card-saving" : ""}`;
 
   const filesChangedButton = (() => {
     if (isWipColumn) {
@@ -3478,6 +3549,15 @@ function TaskCardComponent({
           />
         </div>,
         document.body,
+      )}
+      {isExternalBlocked && (
+        <ExternalBlockNotice
+          task={task}
+          variant="card"
+          onOpenChatWithPrefill={onOpenChatWithPrefill}
+          onRetryTask={onRetryTask}
+          addToast={addToast}
+        />
       )}
       <div className="card-header">
         <span className="card-id">{task.id}</span>
@@ -4151,7 +4231,7 @@ function TaskCardComponent({
             </div>
           )}
           {(task.overlapBlockedBy || task.blockedBy) && (
-            <span className="card-scope-badge" data-tooltip={t("tasks.blockedByTooltip", "Blocked by {{taskId}} (file overlap)", { taskId: task.overlapBlockedBy || task.blockedBy })}>
+            <span className="card-scope-badge" data-tooltip={t("tasks.blockedByTooltip", "Waiting for {{taskId}} (file overlap)", { taskId: task.overlapBlockedBy || task.blockedBy })}>
               <Layers size={12} style={{ verticalAlign: "middle" }} /> {task.overlapBlockedBy || task.blockedBy}
             </span>
           )}

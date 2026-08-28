@@ -2486,3 +2486,9 @@ Automatic review remediation archives rather than erases failure history on the 
 ### Review-gated remediation safety
 
 The review-gated coding workflow preserves implementation steps across review rejection. Its replay authority is appended remediation provenance, not step-name matching. Zero-diff finalization recognizes legacy verification names, structurally marked remediation steps, and required gate results so a missing or failed Verification cannot be finalized as a no-op.
+
+## External task blocks
+
+A task whose obstacle originates outside its worktree persists `status: "blocked"` with structured `externalBlock` metadata. Blocked is a complete freeze: column, steps, current step, worktree, branch, concurrency/worktree capacity, and active file-scope lease remain held. The durable `external-block` pause fences dispatch and every lifecycle-mutating recovery sweep; it is neither `userPaused` nor failure.
+
+Internal implementation, test, planning, merge, and review failures continue through their existing remediation routes. Dependencies and file-scope overlap remain waiting states. Only dashboard Retry clears the external block and installs a runnable continuation at the recorded node before execution can resume.

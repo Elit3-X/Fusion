@@ -266,6 +266,7 @@ Use \`fn_task_create\` for truly separate follow-up work, including unrelated/pr
 Commit at step boundaries: \`git commit -m "feat(${task.id}): complete Step N — <short summary>"${sourceIssueRef ? ` -m "Ref: ${sourceIssueRef}"` : ""}${authorArg}\`
 The \`<short summary>\` is required — replace it with a concrete 5–10 word description of what the step changed.
 When all steps are complete: call \`fn_task_done()\`
+For \`fn_task_done(outcome="blocked")\`, set \`obstacle:"outside-worktree"\` only for host, network, provider, credential, or third-party failures; set \`obstacle:"inside-worktree"\` for code, tests, lint, types, plan, merge, or review failures so AI self-repair remains active.
 
 If a build command is configured, run that exact command in this worktree before calling \`fn_task_done()\`.
 Treat a non-zero exit code as a blocking failure. Do not claim success without a real passing run.

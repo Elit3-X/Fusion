@@ -31,6 +31,7 @@ interface WorktreeGroupProps {
   ) => Promise<Task>;
   onPauseTask?: (id: string) => Promise<Task>;
   onRetryTask?: (id: string) => Promise<Task>;
+  onOpenChatWithPrefill?: (prefillText: string) => void;
   onUnpauseTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
   onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
@@ -85,6 +86,7 @@ function WorktreeGroupComponent({
   onUpdateTask,
   onPauseTask,
   onRetryTask,
+  onOpenChatWithPrefill,
   onUnpauseTask,
   onResetTask,
     onDuplicateTask,
@@ -157,6 +159,7 @@ function WorktreeGroupComponent({
           onUpdateTask={onUpdateTask}
           onPauseTask={onPauseTask}
           onRetryTask={onRetryTask}
+          onOpenChatWithPrefill={onOpenChatWithPrefill}
           onUnpauseTask={onUnpauseTask}
                   onResetTask={onResetTask}
           onDuplicateTask={onDuplicateTask}
@@ -195,6 +198,7 @@ function WorktreeGroupComponent({
           onUpdateTask={onUpdateTask}
           onPauseTask={onPauseTask}
           onRetryTask={onRetryTask}
+          onOpenChatWithPrefill={onOpenChatWithPrefill}
           onUnpauseTask={onUnpauseTask}
                   onResetTask={onResetTask}
           onDuplicateTask={onDuplicateTask}

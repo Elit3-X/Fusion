@@ -856,3 +856,7 @@ If Windows startup reports `unknown error 4551` while loading an embedded Postgr
 ### Bounded task-intake lookups
 
 Recommendation proposal claims use the indexed `findTaskByProposalClaimId` read (`uqTasksProjectProposalClaimId`), and same-agent intake reads only matching source lineage (`idxTasksProjectSourceAgentId` and `idxTasksSourceParentTaskId`). Do not replace either read with a `listTasks()` scan. Workflow terminal flags for intake duplicate checks are derived from workflow definitions, not board rows. Guarded-intake near-duplicate checks must remain bounded to their candidates (the fallback is `limit: 50`) and must not hydrate the full board.
+
+### External-block task metadata
+
+Project task rows persist `external_block` as nullable JSONB. A non-null value records the obstacle origin, code, raw message, source, timestamp, and exact resume coordinates. Legacy/null rows hydrate as `externalBlock: undefined`; lifecycle reset clears the column.

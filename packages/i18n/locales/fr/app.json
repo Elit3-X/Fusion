@@ -8638,7 +8638,16 @@
     "attachFileFailed": "Échec de la pièce jointe {{fileName}} : {{error}}",
     "awaitingApproval": "En attente d'approbation",
     "baseBranch": "Base",
-    "blockedByTooltip": "Bloqué par {{taskId}} (conflit de fichiers)",
+    "blockedByTooltip": "En attente de {{taskId}} (conflit de fichiers)",
+    "externalBlock": {
+      "title": "Bloquée",
+      "unknownCode": "NON_CLASSÉE",
+      "genericMessage": "Un obstacle extérieur nécessite une intervention opérateur",
+      "explain": "Expliquer cette erreur",
+      "explainPrompt": "Explique moi cette erreur {{error}} et comment la résoudre.",
+      "resuming": "Reprise…",
+      "retry": "Réessayer"
+    },
     "branch": "Branche",
     "branchMetadata": "Métadonnées de branche",
     "branchProgress": "",

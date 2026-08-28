@@ -14,6 +14,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { Settings, Task, TaskDetail, TaskRecommendation, TaskStore } from "@fusion/core";
 import {
+  buildTaskExternalBlockPatch,
   isTaskNotFoundError,
   parseNoOpCompletionMarker,
   resolveWipTargetForTask,
@@ -24,6 +25,7 @@ import {
   BLOCKED_THRASH_LIMIT,
   buildExternalBlockMetadataPatch,
   classifyBlockedExit,
+  classifyExternalObstacle,
   countBlockedThrashHits,
   partitionBlockedByRefs,
 } from "../execution-block-classifier.js";
@@ -100,8 +102,7 @@ export function createTaskDoneTool(
         "the project cap of genuine, task-ready out-of-scope recommendations with stable unique ids, or explicitly send " +
         "recommendations: [] when none qualify; when required by project policy, an explicit array is mandatory, but a shorter list or [] is valid when relevance does not support more; at cap 0, omit recommendations. " +
         "Do not use recommendations for required fixes, blockers, secrets, commands, or reasoning. " +
-        "With outcome=\"blocked\": honestly park the task when the work genuinely cannot proceed (upstream API break, " +
-        "missing dependency task, unresolvable external blocker). Blocked is NOT a completion claim — it does not " +
+        "With outcome=\"blocked\": honestly park the task when the work genuinely cannot proceed. Declare obstacle=\"outside-worktree\" only for host, network, provider, credential, or third-party failures; use obstacle=\"inside-worktree\" for code, test, plan, lint, type, merge, or review failures. Blocked is NOT a completion claim — it does not " +
         "trip the review/completion gates, does not auto-complete or auto-skip steps, and preserves your worktree/" +
         "branch/step progress so the task can be requeued once the blocker clears. Prefer blocked over marking steps " +
         "skipped when the task cannot be finished.",
@@ -134,11 +135,16 @@ export function createTaskDoneTool(
         blockedBy: Type.Optional(Type.Array(Type.String(), {
           description: "When outcome=\"blocked\": Fusion task IDs (e.g. [\"FN-8145\"]) that must complete before this task can proceed. Task IDs become real dependency edges. Open GitHub PRs are not valid blockers.",
         })),
+        obstacle: Type.Optional(Type.Union(
+          [Type.Literal("outside-worktree"), Type.Literal("inside-worktree")],
+          { description: "When outcome=\"blocked\": declare whether the obstacle originates outside the worktree (host/network/provider/credentials/service) or inside it (code/tests/plan/review)." },
+        )),
+
         reason: Type.Optional(Type.String({
           description: "Required when outcome=\"blocked\": concrete explanation of what is blocking the work and what is needed to unblock it.",
         })),
       }),
-      execute: async (_id: string, params: { summary?: string; recommendations?: TaskRecommendation[]; outcome?: "completed" | "blocked"; blockedBy?: string[]; reason?: string }) => {
+      execute: async (_id: string, params: { summary?: string; recommendations?: TaskRecommendation[]; outcome?: "completed" | "blocked"; blockedBy?: string[]; obstacle?: "outside-worktree" | "inside-worktree"; reason?: string }) => {
         /*
         FNXC:Lifecycle 2026-07-16-10:20:
         FN-8141 — the blocked exit runs BEFORE every completion gate (completion blocker, verdict providers, worktree
@@ -204,6 +210,63 @@ export function createTaskDoneTool(
           if (selfSpawnedBlockedByIds.length > 0) {
             await store.logEntry(taskId, `Ignored self-spawned blockedBy task(s): ${selfSpawnedBlockedByIds.join(", ")}.`);
           }
+          /*
+          FNXC:ExternalBlock 2026-08-28-04:08:
+          Dependency waits keep their established durable dependency park. With no dependency, an
+          explicit origin wins over prose; conservative text classification is only the fallback.
+          External causes freeze the exact execution location, while inside-worktree causes retain
+          FN-207's contained auto-repair/replan route.
+          */
+          const classifiedObstacle = params.obstacle === "inside-worktree"
+            ? undefined
+            : classifyExternalObstacle(reason)
+              ?? (params.obstacle === "outside-worktree"
+                ? { origin: "third-party-service" as const, code: "UNCLASSIFIED" }
+                : undefined);
+          if (blockedByIds.length === 0 && classifiedObstacle) {
+            const externalBlock = {
+              ...classifiedObstacle,
+              message: reason,
+              source: "agent-declaration" as const,
+              blockedAt: new Date().toISOString(),
+              resume: {
+                column: blockedTask.column,
+                nodeId: blockedTask.effectiveNodeId,
+                currentStep: blockedTask.currentStep,
+                worktree: blockedTask.worktree,
+                branch: blockedTask.branch,
+              },
+            };
+            await store.updateTask(taskId, buildTaskExternalBlockPatch(externalBlock), deps.getRunContextFor(taskId));
+            await store.logEntry(
+              taskId,
+              `External obstacle frozen (${externalBlock.origin}/${externalBlock.code}); resources and execution progress retained for Retry`,
+              undefined,
+              deps.getRunContextFor(taskId),
+            );
+            await emitBoundedRunAudit(deps.store, {
+              taskId,
+              agentId: "executor",
+              runId: generateSyntheticRunId("external-block", taskId),
+              domain: "database",
+              mutationType: "task:external-block-parked",
+              target: taskId,
+              metadata: {
+                taskId,
+                origin: externalBlock.origin,
+                code: externalBlock.code,
+                source: externalBlock.source,
+                column: blockedTask.column,
+                resumeNodeId: externalBlock.resume.nodeId,
+              },
+            });
+            await deps.persistTokenUsage(taskId);
+            return {
+              content: [{ type: "text" as const, text: "Task frozen as Blocked for human action. Column, completed steps, worktree, branch, capacity slot, and file-scope lease are retained; Retry will resume the interrupted workflow node." }],
+              details: {},
+            };
+          }
+
           const classification = classifyBlockedExit(reason, blockedByIds);
           const thrashCount = countBlockedThrashHits(
             blockedTask.log,

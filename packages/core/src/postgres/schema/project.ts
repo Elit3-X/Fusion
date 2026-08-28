@@ -236,6 +236,8 @@ export const tasks = projectSchema.table("tasks", {
   workspaceWorktrees: jsonb("workspace_worktrees"),
   // FNXC:RepositoryScope 2026-08-20-23:07: explicit task intent must survive PostgreSQL reads independently of acquired worktrees.
   repositoryScope: jsonb("repository_scope"),
+  // FNXC:ExternalBlock 2026-08-28-03:48: obstacle origin and exact resume coordinates survive process restarts.
+  externalBlock: jsonb("external_block"),
   noCommitsExpected: integer("no_commits_expected").default(0),
   enabledWorkflowSteps: jsonb("enabled_workflow_steps").default([]),
   modifiedFiles: jsonb("modified_files").default([]),
