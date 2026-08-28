@@ -1353,7 +1353,7 @@ export const AGENT_ACTIVITY_METADATA_SCHEMA: Record<AgentActivityEventType, Read
   "task:completed": { sha: { kind: "sha" }, strategy: activityEnum(strategies, "unlisted") },
   "agent:state-changed": { fromState: activityEnum(states, "unlisted"), toState: activityEnum(states, "unlisted"), source: activityEnum(["update", "reconciliation"] as const, "update") },
   // FNXC:AgentActivityStream 2026-08-09-13:18: An advisory failure may carry an approving verdict and is therefore emitted as a passed gate; retain its closed terminal status instead of sanitizing away the observed outcome.
-  "workflow:gate-passed": { stepId: activityEnum(AGENT_ACTIVITY_WORKFLOW_STEP_IDS, "custom"), status: activityEnum(["passed", "skipped", "advisory_failure", "unlisted"] as const, "unlisted"), attempt: { kind: "count" } },
+  "workflow:gate-passed": { stepId: activityEnum(AGENT_ACTIVITY_WORKFLOW_STEP_IDS, "custom"), status: activityEnum(["passed", "skipped", "advisory_failure", "unlisted"] as const, "unlisted"), attempt: { kind: "count" }, notRun: { kind: "boolean" } },
   "workflow:gate-failed": { stepId: activityEnum(AGENT_ACTIVITY_WORKFLOW_STEP_IDS, "custom"), status: activityEnum(["failed", "advisory_failure", "unlisted"] as const, "unlisted"), attempt: { kind: "count" } },
   "approval:requested": { requestId: { kind: "generatedId" }, category: activityEnum(categories, "unlisted"), toolName: activityEnum(AGENT_ACTIVITY_TOOL_NAMES, "unlisted") },
 };

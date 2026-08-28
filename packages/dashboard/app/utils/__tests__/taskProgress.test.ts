@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { WORKFLOW_STEP_NOT_RUN_REASONS as CORE_WORKFLOW_STEP_NOT_RUN_REASONS } from "@fusion/core";
 import type { Task } from "@fusion/core";
 import {
   getRunningOptionalGateBadge,
   getRunningWorkflowStepLabel,
   getUnifiedTaskProgress,
   isNonPlanningOptionalGateBadge,
+  mapWorkflowStatus,
+  WORKFLOW_STEP_NOT_RUN_REASONS,
   isPlanReviewRunning,
 } from "../taskProgress";
 
@@ -223,6 +226,26 @@ describe("review-gate badge precedence", () => {
 });
 
 describe("getUnifiedTaskProgress", () => {
+  it("maps not-run checks distinctly while preserving completed progress", () => {
+    const notRun = {
+      workflowStepId: "verification",
+      workflowStepName: "Verification",
+      status: "skipped",
+      notRunReason: "not-configured",
+    } as const;
+    expect(mapWorkflowStatus(notRun)).toBe("not_run");
+    expect(mapWorkflowStatus({ ...notRun, notRunReason: undefined })).toBe("skipped");
+    expect(mapWorkflowStatus({ ...notRun, status: "passed", notRunReason: undefined })).toBe("done");
+
+    const progress = getUnifiedTaskProgress(makeTask({
+      enabledWorkflowSteps: ["verification"],
+      workflowStepResults: [notRun],
+    }));
+    expect(progress).toMatchObject({ total: 1, completed: 1 });
+    expect(progress.items[0]?.status).toBe("not_run");
+    expect(WORKFLOW_STEP_NOT_RUN_REASONS).toEqual(CORE_WORKFLOW_STEP_NOT_RUN_REASONS);
+  });
+
   it("resolves workflow step names from result.workflowStepName without a lookup", () => {
     const progress = getUnifiedTaskProgress(
       makeTask({

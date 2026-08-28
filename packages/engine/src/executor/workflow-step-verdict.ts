@@ -7,7 +7,7 @@
  * review groups and prose cannot open a terminal lifecycle path.
  */
 import { proseSignalsClearApproval, extractJsonObjectCandidates, textHasStructuredVerdictKey } from "../execution/reviewer.js";
-import { normalizeSupersededFindingIds, normalizeWorkflowReviewFindings, PLAN_REVIEW_GROUP_ID, type WorkflowReviewFinding, type WorkflowRepositoryReviewOutcome } from "@fusion/core";
+import { normalizeSupersededFindingIds, normalizeWorkflowReviewFindings, PLAN_REVIEW_GROUP_ID, type WorkflowReviewFinding, type WorkflowRepositoryReviewOutcome, type WorkflowStepNotRunReason } from "@fusion/core";
 
 /** Machine-readable workflow-step verdicts, including Plan Review CLOSE_NO_OP. */
 export type WorkflowStepVerdict = "APPROVE" | "APPROVE_WITH_NOTES" | "REVISE" | "CLOSE_NO_OP";
@@ -49,6 +49,8 @@ You are running as a Fusion autonomous workflow step — NOT an interactive Clau
  */
 export interface WorkflowStepOutcome {
   success: boolean;
+  /** Fixed reason when this successful control-flow outcome performed no check. */
+  notRunReason?: WorkflowStepNotRunReason;
   revisionRequested?: boolean;
   output?: string;
   error?: string;

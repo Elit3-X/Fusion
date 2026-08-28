@@ -5,6 +5,7 @@
  * Extracted from types.ts; re-exported from the browser-safe types barrel.
  */
 
+import type { WorkflowStepNotRunReason } from "../../workflows/workflow-step-results.js";
 import type { ThinkingLevel } from "../board/board.js";
 
 /*
@@ -315,6 +316,13 @@ export interface WorkflowStepResult {
    */
   remediationArchivedAt?: string;
   remediationArchivedFromStatus?: WorkflowStepResult["status"];
+  /*
+   * FNXC:WorkflowStepNotRun 2026-08-28-14:13:
+   * A gate that did not execute is persisted as terminal `status: "skipped"` plus a fixed-enum
+   * reason. `passed` is reserved for a check that actually ran and passed, while the closed reason
+   * vocabulary prevents arbitrary prose from entering persisted workflow-step state.
+   */
+  notRunReason?: WorkflowStepNotRunReason;
   /** Durable input identity used to detect a repeated review over unchanged code or plan text. */
   reviewInputFingerprint?: string;
   /**

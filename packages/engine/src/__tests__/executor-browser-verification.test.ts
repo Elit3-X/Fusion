@@ -250,10 +250,10 @@ describe("browser-verification workflow-step browser capability", () => {
     );
   });
 
-  it("logs an actionable warning and continues when agent-browser is missing", async () => {
+  it("records browser verification as not executed without creating a session when agent-browser is missing", async () => {
     const store = createMockStore();
     const executor = makeExecutor(store);
-    captureSession();
+    const cap = captureSession();
     mockedExecSync.mockImplementation((command: string) => {
       if (command === "agent-browser --version") {
         const err = new Error("spawn agent-browser ENOENT") as Error & { code: string };
@@ -272,9 +272,42 @@ describe("browser-verification workflow-step browser capability", () => {
       undefined,
     );
 
-    const warning = "[browser-verification] agent-browser not found on PATH — the step relies on the agent-browser CLI; install the agent-browser plugin/binary. Continuing; the step may fast-bail or fail.";
-    expect(result.success).toBe(true);
+    const warning = "[browser-verification] agent-browser not found on PATH — the step will be recorded as not executed and the task will continue.";
+    expect(result).toMatchObject({ success: true, notRunReason: "tooling-unavailable" });
+    expect(String(result.output)).toContain("NOTHING WAS VERIFIED");
+    expect(cap.last).toBeUndefined();
     expect(formatAgentBrowserAvailabilityLog({ available: false, reason: "not installed" })).toBe(warning);
+    expect(store.logEntry).toHaveBeenCalledWith("FN-7130", warning);
+    expect(store.appendAgentLog).toHaveBeenCalledWith("FN-7130", warning, "status", undefined, "reviewer");
+  });
+
+  it("records browser verification as not executed when the availability probe times out", async () => {
+    const store = createMockStore();
+    const executor = makeExecutor(store);
+    const cap = captureSession();
+    mockedExecSync.mockImplementation((command: string) => {
+      if (command === "agent-browser --version") {
+        const err = new Error("Command timed out") as Error & { code: string; killed: boolean };
+        err.code = "ETIMEDOUT";
+        err.killed = true;
+        throw err;
+      }
+      return Buffer.from("");
+    });
+
+    const result = await (executor as any).executeWorkflowStep(
+      baseTask(),
+      browserVerificationStep(),
+      "/tmp/wt",
+      {},
+      undefined,
+      undefined,
+    );
+
+    const warning = "[browser-verification] agent-browser availability probe timed out — the step will be recorded as not executed and the task will continue.";
+    expect(result).toMatchObject({ success: true, notRunReason: "tooling-unavailable" });
+    expect(String(result.output)).toContain("probe timed out");
+    expect(cap.last).toBeUndefined();
     expect(store.logEntry).toHaveBeenCalledWith("FN-7130", warning);
     expect(store.appendAgentLog).toHaveBeenCalledWith("FN-7130", warning, "status", undefined, "reviewer");
   });
@@ -435,6 +468,7 @@ describe("browser-verification workflow-step browser capability", () => {
       }],
     });
 
+    store.getTask.mockResolvedValue(task);
     const result = await (executor as any).executeWorkflowStep(
       task,
       planReviewStep({ optionalGroupId: "spec-gate" }),
@@ -497,6 +531,7 @@ describe("browser-verification workflow-step browser capability", () => {
       }],
     });
 
+    store.getTask.mockResolvedValue(task);
     const result = await (executor as any).executeWorkflowStep(
       task,
       planReviewStep({ optionalGroupId: "plan-review" }),
@@ -537,6 +572,7 @@ describe("browser-verification workflow-step browser capability", () => {
       }],
     });
 
+    store.getTask.mockResolvedValue(task);
     const result = await (executor as any).executeWorkflowStep(
       task,
       planReviewStep({ optionalGroupId: "plan-review" }),
@@ -573,6 +609,7 @@ describe("browser-verification workflow-step browser capability", () => {
       }],
     });
 
+    store.getTask.mockResolvedValue(task);
     const result = await (executor as any).executeWorkflowStep(
       task,
       planReviewStep({ optionalGroupId: "plan-review" }),

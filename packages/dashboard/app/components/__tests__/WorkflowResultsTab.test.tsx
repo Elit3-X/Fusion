@@ -284,6 +284,41 @@ describe("WorkflowResultsTab", () => {
     expect(screen.getByTestId("workflow-state-summary-count")).toHaveTextContent("3 of 4 steps completed");
   });
 
+  it("labels not-run results and aggregate honestly while counting them separately from skipped", async () => {
+    const results: WorkflowStepResult[] = [
+      {
+        workflowStepId: "verification",
+        workflowStepName: "Verification",
+        phase: "pre-merge",
+        status: "skipped",
+        notRunReason: "not-configured",
+      },
+      {
+        workflowStepId: "documentation",
+        workflowStepName: "Documentation",
+        phase: "pre-merge",
+        status: "skipped",
+      },
+      {
+        workflowStepId: "code-review",
+        workflowStepName: "Code Review",
+        phase: "pre-merge",
+        status: "passed",
+      },
+    ];
+
+    render(<WorkflowResultsTab taskId="FN-001" task={baseTask} settings={mockSettings} results={results} />);
+
+    const badge = screen.getByTestId("workflow-result-badge-verification");
+    expect(badge).toHaveTextContent("Not executed — no test or build command is configured");
+    expect(badge).toHaveClass("workflow-result-badge--not-run");
+    expect(badge).not.toHaveTextContent("Passed");
+    expect(screen.getByTestId("workflow-results-summary")).toHaveTextContent("1 not executed");
+    expect(screen.getByTestId("workflow-results-summary")).toHaveTextContent("1 skipped");
+    expect(screen.getByTestId("workflow-aggregate-badge-not-run")).toHaveTextContent("Not fully executed");
+    expect(screen.queryByText("All passed")).not.toBeInTheDocument();
+  });
+
   it.each([
     { name: "not started", task: { ...baseTask, status: "todo", column: "todo" } as Task, results: [] as WorkflowStepResult[], testId: "workflow-phase-badge-not-started", text: "Not started" },
     { name: "in progress", task: { ...baseTask, status: "in-progress", column: "in-progress" } as Task, results: [{ workflowStepId: "WS-004", workflowStepName: "Performance Check", phase: "pre-merge", status: "pending" }] as WorkflowStepResult[], testId: "workflow-phase-badge-pre-merge", text: "Pre-merge steps running" },

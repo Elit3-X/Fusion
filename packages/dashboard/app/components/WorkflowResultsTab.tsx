@@ -25,6 +25,7 @@ import type { Components } from "react-markdown";
 import { linkifyFilePaths, linkifyReactChildren } from "../utils/filePathLinkify";
 import { workflowResultTextsAreEquivalent } from "../utils/workflowResultText";
 import { resolveEffectiveExecutor, resolveEffectivePlanning, resolveEffectiveValidator } from "./effective-model-resolution";
+import { isWorkflowStepNotRun } from "../utils/taskProgress";
 
 // Markdown rendering components for workflow output
 const markdownComponents: Components = {
@@ -100,8 +101,20 @@ interface WorkflowStepOption {
   icon?: ReactNode;
 }
 
-function getStatusLabel(status: WorkflowStepResult["status"], t: ReturnType<typeof useTranslation>["t"]): string {
-  switch (status) {
+const NOT_RUN_REASON_LABELS = {
+  "not-configured": ["app:workflow.notRunReasonNotConfigured", "no test or build command is configured"],
+  "tooling-unavailable": ["app:workflow.notRunReasonToolingUnavailable", "a required tool was unavailable"],
+  "execution-mode-skip": ["app:workflow.notRunReasonExecutionModeSkip", "fast mode skipped this check"],
+} as const;
+
+function getStatusLabel(result: WorkflowStepResult, t: ReturnType<typeof useTranslation>["t"]): string {
+  if (isWorkflowStepNotRun(result)) {
+    const [reasonKey, reasonFallback] = NOT_RUN_REASON_LABELS[result.notRunReason!];
+    return t("app:workflow.statusNotRunWithReason", "Not executed — {{reason}}", {
+      reason: t(reasonKey, reasonFallback),
+    });
+  }
+  switch (result.status) {
     case "passed":
       return t("app:workflow.statusPassed", "Passed");
     case "failed":
@@ -113,7 +126,7 @@ function getStatusLabel(status: WorkflowStepResult["status"], t: ReturnType<type
     case "pending":
       return t("app:workflow.statusRunning", "Running…");
     default:
-      return status;
+      return result.status;
   }
 }
 
@@ -170,6 +183,9 @@ function getAggregateWorkflowResult(
   }
   if (results.length === 0) {
     return { label: t("app:workflow.aggregateNoResults", "No results"), badgeClass: "workflow-result-badge--skipped", testId: "no-results" };
+  }
+  if (results.some(isWorkflowStepNotRun)) {
+    return { label: t("app:workflow.aggregateNotFullyExecuted", "Not fully executed"), badgeClass: "workflow-result-badge--not-run", testId: "not-run" };
   }
   return { label: t("app:workflow.aggregateAllPassed", "All passed"), badgeClass: "workflow-result-badge--passed", testId: "passed" };
 }
@@ -854,13 +870,15 @@ export function WorkflowResultsTab({
     const passed = results.filter((r) => r.status === "passed").length;
     const failed = results.filter((r) => r.status === "failed").length;
     const advisoryFailures = results.filter((r) => r.status === "advisory_failure");
-    const skipped = results.filter((r) => r.status === "skipped").length;
+    const notExecuted = results.filter(isWorkflowStepNotRun).length;
+    const skipped = results.filter((r) => r.status === "skipped" && !isWorkflowStepNotRun(r)).length;
     const pending = results.filter((r) => r.status === "pending").length;
 
     const summaryParts: string[] = [t("app:workflow.summaryStepCount", { count: results.length, defaultValue_one: "{{count}} step", defaultValue_other: "{{count}} steps" })];
     if (passed > 0) summaryParts.push(t("app:workflow.summaryPassed", "{{count}} passed", { count: passed }));
     if (failed > 0) summaryParts.push(t("app:workflow.summaryFailed", "{{count}} failed", { count: failed }));
     if (advisoryFailures.length > 0) summaryParts.push(t("app:workflow.summaryAdvisory", "{{count}} advisory", { count: advisoryFailures.length }));
+    if (notExecuted > 0) summaryParts.push(t("app:workflow.summaryNotExecuted", "{{count}} not executed", { count: notExecuted }));
     if (skipped > 0) summaryParts.push(t("app:workflow.summarySkipped", "{{count}} skipped", { count: skipped }));
     if (pending > 0) summaryParts.push(t("app:workflow.summaryRunning", "{{count}} running", { count: pending }));
 
@@ -913,10 +931,10 @@ export function WorkflowResultsTab({
                     </span>
                   )}
                   <span
-                    className={`workflow-result-badge workflow-result-badge--${result.status}`}
+                    className={`workflow-result-badge ${isWorkflowStepNotRun(result) ? "workflow-result-badge--not-run" : `workflow-result-badge--${result.status}`}`}
                     data-testid={`workflow-result-badge-${result.workflowStepId}`}
                   >
-                    {getStatusLabel(result.status, t)}
+                    {getStatusLabel(result, t)}
                   </span>
                 </div>
               </div>

@@ -1601,7 +1601,8 @@ the established compact mobile interaction rhythm while the card remains the pri
   background: var(--color-success);
 }
 
-.card-step-dot--skipped {
+.card-step-dot--skipped,
+.card-step-dot--not_run {
   background: var(--text-dim);
 }
 

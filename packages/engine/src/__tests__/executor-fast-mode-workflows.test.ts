@@ -18,6 +18,7 @@ import {
   mockedExistsSync,
   mockedExec,
   mockedStatSync,
+  mockExecuteAll,
   resetExecutorMocks,
 } from "./executor-test-helpers.js";
 
@@ -180,6 +181,60 @@ describe("fast mode workflow/runtime invariants", () => {
       });
     } finally {
       run.mockRestore();
+    }
+  });
+
+  /*
+  FNXC:WorkflowStepNotRun 2026-08-28-14:47:
+  The production implementation completion path must distinguish an absent verification command
+  from a configured command that passed. Both paths remain non-blocking, but only the former writes
+  the durable NOTHING WAS VERIFIED log before handing completion back to the workflow graph.
+  */
+  it.each([
+    { name: "no commands", configured: false },
+    { name: "a passing command", configured: true },
+  ])("keeps production implementation completion honest with $name", async ({ configured }) => {
+    const worktree = "/tmp/test/.worktrees/fn-226";
+    const liveTask = task({
+      id: "FN-226",
+      executionMode: "standard",
+      worktree,
+      branch: "fusion/fn-226",
+      steps: [{ name: "Implement", status: "done" }],
+    });
+    const { store, executor } = makeExecutorForTask(liveTask);
+    store.getSettings.mockResolvedValue({
+      autoMerge: false,
+      runStepsInNewSessions: true,
+      ...(configured ? { testCommand: "pnpm test:focused" } : {}),
+      experimentalFeatures: { workflowGraphExecutor: true },
+    });
+    mockExecuteAll.mockResolvedValue([{ stepIndex: 0, success: true, retries: 0 }]);
+    const verification = vi
+      .spyOn(executor as never as { runExecutorDeterministicVerification: () => unknown }, "runExecutorDeterministicVerification")
+      .mockResolvedValue({ allPassed: true });
+
+    const graphCompletion = vi.fn();
+    const reportImplementationExit = vi.fn();
+    await (executor as any).runImplementation(
+      liveTask,
+      graphCompletion,
+      reportImplementationExit,
+    );
+    const logLines = store.logEntry.mock.calls.map((call: unknown[]) => String(call[1] ?? ""));
+
+    expect(graphCompletion).toHaveBeenCalledOnce();
+    expect(graphCompletion).toHaveBeenCalledWith({ modifiedFiles: [] });
+    expect(reportImplementationExit).toHaveBeenCalledWith("complete-from-live-files");
+    expect(store.moveTask).not.toHaveBeenCalled();
+    if (configured) {
+      expect(verification).toHaveBeenCalledTimes(1);
+      expect(logLines.some((line: string) => line.includes("NOTHING WAS VERIFIED"))).toBe(false);
+    } else {
+      expect(verification).not.toHaveBeenCalled();
+      expect(logLines).toContain(
+        "[verification] Deterministic verification not executed because no test or build command is configured — NOTHING WAS VERIFIED.",
+      );
     }
   });
 
@@ -989,7 +1044,14 @@ describe("fast mode workflow/runtime invariants", () => {
       undefined,
     );
 
-    expect(result).toMatchObject({ outcome: "success", value: "workflow-step-skipped" });
+    expect(result).toMatchObject({
+      outcome: "success",
+      value: "workflow-step-skipped",
+      contextPatch: {
+        notRunReason: "execution-mode-skip",
+        output: expect.stringContaining("NOTHING WAS VERIFIED"),
+      },
+    });
     expect(executeStep).not.toHaveBeenCalled();
     expect(executeScript).not.toHaveBeenCalled();
   });

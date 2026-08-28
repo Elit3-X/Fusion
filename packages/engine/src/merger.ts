@@ -814,7 +814,7 @@ const VERIFICATION_EXTRA_ENV: NodeJS.ProcessEnv = Object.fromEntries(
   ).filter(([key]) => !(key in process.env)),
 );
 
-async function runDeterministicVerification(
+export async function runDeterministicVerification(
   store: TaskStore,
   rootDir: string,
   taskId: string,
@@ -831,6 +831,15 @@ async function runDeterministicVerification(
   // Nothing to verify
   if (!testCommand && !buildCommand) {
     mergerLog.debug(`${taskId}: no verification commands configured — skipping`);
+    /*
+    FNXC:WorkflowStepNotRun 2026-08-28-14:13:
+    Merge verification with no configured command is non-blocking, but it is not a pass. Return the
+    explicit marker and persist an honest log before the success logging path can run.
+    */
+    result.notRun = true;
+    const message = "Deterministic merge verification not executed because no test or build command is configured — NOTHING WAS VERIFIED.";
+    await store.logEntry(taskId, message);
+    await store.appendAgentLog(taskId, message, "status", undefined, "merger");
     return result;
   }
 

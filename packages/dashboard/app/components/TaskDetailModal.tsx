@@ -230,6 +230,8 @@ function getStepStatusColor(status: string): string {
       return "var(--color-error-dark)";
     case "advisory_failure":
       return "var(--ws-warning)";
+    case "not_run":
+      return "var(--text-dim)";
     case "in-progress":
     case "running":
       return "var(--in-progress)";

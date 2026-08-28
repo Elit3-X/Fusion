@@ -9,8 +9,9 @@ import type {
   WorkflowIrNodeKind,
   WorkflowNodeExtensionResult,
   WorkflowStepResult,
+  WorkflowStepNotRunReason,
 } from "@fusion/core";
-import { BUILTIN_CODING_WORKFLOW_IR, PLAN_REVIEW_GROUP_ID, WorkflowIrError, computeWorkflowIrPin, getWorkflowExtensionRegistry, instanceNodeId, resolveMaxReworkCycles, isExperimentalFeatureEnabled, GRAPH_NATIVE_POST_MERGE_FLAG, isCompletionSummaryNode, classifyReviewLease, isWorkflowOptionalGroupEnabled, isPlanReviewSatisfied, parseNoOpCompletionMarker } from "@fusion/core";
+import { BUILTIN_CODING_WORKFLOW_IR, PLAN_REVIEW_GROUP_ID, WORKFLOW_STEP_NOT_RUN_REASONS, WorkflowIrError, computeWorkflowIrPin, getWorkflowExtensionRegistry, instanceNodeId, resolveMaxReworkCycles, isExperimentalFeatureEnabled, GRAPH_NATIVE_POST_MERGE_FLAG, isCompletionSummaryNode, classifyReviewLease, isWorkflowOptionalGroupEnabled, isPlanReviewSatisfied, parseNoOpCompletionMarker } from "@fusion/core";
 import { isNonPlanDefectPlanReviewFailure } from "../errors/transient-error-detector.js";
 import { isSessionContentionError } from "../errors/transient-error-patterns.js";
 import { isRequiredArtifactReadFailedValue, parseRequiredArtifactMissingValue } from "../execution/required-workflow-artifacts.js";
@@ -52,6 +53,14 @@ import { BranchWriteProvenanceError } from "@fusion/core";
 import { WorktreeBaseRefreshError, WorkspacePreparationError } from "../worktree/worktree-acquisition.js";
 
 export type WorkflowNodeOutcome = "success" | "failure";
+
+const WORKFLOW_STEP_NOT_RUN_REASON_SET: ReadonlySet<string> = new Set(WORKFLOW_STEP_NOT_RUN_REASONS);
+
+function parseWorkflowStepNotRunReason(value: unknown): WorkflowStepNotRunReason | undefined {
+  return typeof value === "string" && WORKFLOW_STEP_NOT_RUN_REASON_SET.has(value)
+    ? value as WorkflowStepNotRunReason
+    : undefined;
+}
 
 type WorkflowNodeSettings = Pick<Settings, "experimentalFeatures"> & {
   reviewerInlineFixes?: boolean;
@@ -1089,12 +1098,23 @@ export class WorkflowGraphExecutor {
               || (node.id === PLAN_REVIEW_GROUP_ID && verdictRaw === "CLOSE_NO_OP")
               ? verdictRaw
               : undefined;
+          const exitContextPatch = exitResult?.contextPatch;
+          const notRunReason = node.id === PLAN_REVIEW_GROUP_ID
+            ? undefined
+            : parseWorkflowStepNotRunReason(exitContextPatch?.notRunReason);
+          /*
+          FNXC:WorkflowStepNotRun 2026-08-28-14:13:
+          A successful graph edge can mean no check ran. Persist that outcome as terminal `skipped`
+          plus a fixed reason so `passed` remains proof of execution. Reusing `skipped` keeps existing
+          merge, retry, and status-switch behavior non-blocking. Plan Review is excluded because its
+          fail-closed satisfaction gate would turn this record into an automatic hold with no exit.
+          */
           let stepStatus: WorkflowStepResult["status"];
           if (groupResult.outcome === "failure") stepStatus = "failed";
           else if (groupResult.value === "advisory_failure") stepStatus = "advisory_failure";
           else if (verdict === "REVISE") stepStatus = "advisory_failure";
+          else if (notRunReason) stepStatus = "skipped";
           else stepStatus = "passed";
-          const exitContextPatch = exitResult?.contextPatch;
           let stepOutput = typeof exitContextPatch?.output === "string" ? exitContextPatch.output : undefined;
           const stepNotes = typeof exitContextPatch?.notes === "string" ? exitContextPatch.notes : undefined;
           const closeMarker = verdict === "CLOSE_NO_OP" ? parseNoOpCompletionMarker(stepNotes) : null;
@@ -1153,6 +1173,7 @@ export class WorkflowGraphExecutor {
             phase: stepPhase,
             source: "optional-group",
             status: stepStatus,
+            ...(notRunReason && stepStatus === "skipped" ? { notRunReason } : {}),
             ...(this.workflowReviewKind(node) ? { reviewKind: this.workflowReviewKind(node) } : {}),
             ...(verdict ? { verdict } : {}),
             ...(stepOutput !== undefined ? { output: stepOutput } : {}),
@@ -1175,7 +1196,9 @@ export class WorkflowGraphExecutor {
           // `[pre-merge]`/`[post-merge]` terminal logs at parity with the legacy path
           // (executor.ts runWorkflowSteps: "completed" / "requested revision" /
           // "failed" + the advisory variant).
-          if (stepStatus === "passed") {
+          if (notRunReason && stepStatus === "skipped") {
+            this.deps.logTaskEntry?.(`${logPrefix} Workflow step not executed: ${groupName}`, `${notRunReason}${stepOutput ? `\n${stepOutput}` : ""}`);
+          } else if (stepStatus === "passed") {
             this.deps.logTaskEntry?.(`${logPrefix} Workflow step completed: ${groupName}`);
           } else if (stepStatus === "advisory_failure") {
             this.deps.logTaskEntry?.(`${logPrefix} Workflow step requested revision: ${groupName}`, stepOutput);
@@ -2110,8 +2133,19 @@ export class WorkflowGraphExecutor {
     started: WorkflowStepResult | null,
     nodeResult: WorkflowNodeResult,
   ): Promise<boolean> {
-    const status: WorkflowStepResult["status"] = nodeResult.outcome === "success" ? "passed" : "failed";
     const contextPatch = nodeResult.contextPatch ?? {};
+    const notRunReason = node.id === PLAN_REVIEW_GROUP_ID
+      ? undefined
+      : parseWorkflowStepNotRunReason(contextPatch.notRunReason);
+    /*
+    FNXC:WorkflowStepNotRun 2026-08-28-14:13:
+    Top-level review/skill nodes share the optional-group honesty contract: a successful route that
+    performed no check is terminal `skipped` with a fixed reason, never `passed`. Plan Review stays on
+    its prior status because a skipped plan result is fail-closed and would create a blocking hold.
+    */
+    const status: WorkflowStepResult["status"] = nodeResult.outcome === "success"
+      ? notRunReason ? "skipped" : "passed"
+      : "failed";
     let output = typeof contextPatch.output === "string" ? contextPatch.output : undefined;
     const notes = typeof contextPatch.notes === "string" ? contextPatch.notes : undefined;
     const findings = this.workflowReviewKind(node) && Array.isArray(contextPatch.findings)
@@ -2155,12 +2189,13 @@ export class WorkflowGraphExecutor {
         failureValue: nodeResult.value,
       });
     }
-    return this.recordOptionalGroupStepResult(taskId, {
+    const recorded = await this.recordOptionalGroupStepResult(taskId, {
       workflowStepId: node.id,
       workflowStepName: this.workflowNodeProgressName(node),
       phase: started?.phase ?? (node.config?.phase === "post-merge" ? "post-merge" : "pre-merge"),
       source: "node",
       status,
+      ...(notRunReason && status === "skipped" ? { notRunReason } : {}),
       ...(this.workflowReviewKind(node) ? { reviewKind: this.workflowReviewKind(node) } : {}),
       ...(output !== undefined ? { output } : {}),
       ...(notes !== undefined ? { notes } : {}),
@@ -2173,6 +2208,11 @@ export class WorkflowGraphExecutor {
       startedAt: started?.startedAt ?? new Date().toISOString(),
       completedAt: new Date().toISOString(),
     });
+    if (recorded && notRunReason && status === "skipped") {
+      const phase = started?.phase ?? (node.config?.phase === "post-merge" ? "post-merge" : "pre-merge");
+      this.deps.logTaskEntry?.(`[${phase}] Workflow step not executed: ${this.workflowNodeProgressName(node)}`, `${notRunReason}${output ? `\n${output}` : ""}`);
+    }
+    return recorded;
   }
 
   private async prepareNodeExecution(

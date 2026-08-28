@@ -1,4 +1,6 @@
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { TaskCard, formatElapsedDurationDone, __test_areTaskCardPropsEqual } from "../TaskCard";
@@ -755,13 +757,17 @@ describe("TaskCard", () => {
 
       rerender(
         <TaskCard
-          task={makeTask({ column: "todo" })}
+          task={makeTask({ column: "in-progress" })}
+          taskColumnFlags={{ wip: true }}
           onOpenDetail={noop}
           onPlanningMode={onPlanningMode}
           addToast={noop}
         />,
       );
-      expect(screen.queryByTestId("card-menu-btn-FN-001")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("card-menu-btn-FN-001"));
+      await waitFor(() => expectBoardContextMenuPortaled());
+      expect(screen.queryByRole("menuitem", { name: "Plan" })).not.toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
 
       rerender(
         <TaskCard
@@ -4380,7 +4386,7 @@ describe("TaskCard", () => {
             { name: "Step 0", status: "done" },
             { name: "Step 1", status: "failed" as any },
           ],
-          enabledWorkflowSteps: ["WS-001", "WS-002", "WS-003", "WS-004", "WS-005"],
+          enabledWorkflowSteps: ["WS-001", "WS-002", "WS-003", "WS-004", "WS-005", "WS-006"],
           workflowStepResults: [
             {
               workflowStepId: "WS-001",
@@ -4404,6 +4410,12 @@ describe("TaskCard", () => {
               status: "pending",
               startedAt: "2026-06-25T00:00:00.000Z",
             },
+            {
+              workflowStepId: "WS-006",
+              workflowStepName: "Verification",
+              status: "skipped",
+              notRunReason: "not-configured",
+            },
           ],
         })}
         onOpenDetail={noop}
@@ -4421,6 +4433,7 @@ describe("TaskCard", () => {
       "WS 003",
       "Code Review Gate",
       "Merge Validation",
+      "Verification",
     ]);
 
     const dots = container.querySelectorAll(".card-step-dot");
@@ -4445,12 +4458,25 @@ describe("TaskCard", () => {
     // Started-but-not-finished workflow step → running with the same active badge as implementation steps.
     expect(dots[6]?.className).toContain("card-step-dot--running");
     expect(dots[6]?.className).not.toContain("card-step-dot--pending");
+
+    // A check that never executed is complete but visually distinct from a pass.
+    expect(dots[7]?.className).toContain("card-step-dot--not_run");
+    expect(dots[7]?.className).not.toContain("card-step-dot--done");
     expect(container.querySelector(".card-step-active-badge")?.textContent).toBe("active");
 
     const workflowBadgeElements = container.querySelectorAll(".card-step-workflow-badge");
     expect(workflowBadgeElements).toHaveLength(0);
     expect(container.querySelector('[title="Workflow check"]')).toBeNull();
     expect(Array.from(container.querySelectorAll(".card-step-item")).some((item) => item.textContent === "workflow")).toBe(false);
+  });
+
+  it("keeps not-run card and detail progress styling breakpoint-independent", () => {
+    const cardCss = readFileSync(join(__dirname, "..", "TaskCard.css"), "utf8");
+    const detailSource = readFileSync(join(__dirname, "..", "TaskDetailModal.tsx"), "utf8");
+    const selectorIndex = cardCss.indexOf(".card-step-dot--not_run");
+    expect(selectorIndex).toBeGreaterThanOrEqual(0);
+    expect(cardCss.lastIndexOf("\n}\n", selectorIndex)).toBeGreaterThan(cardCss.lastIndexOf("@media", selectorIndex));
+    expect(detailSource).toContain('case "not_run":\n      return "var(--text-dim)";');
   });
 
   it("renders the running state for a started-but-not-completed workflow step", () => {

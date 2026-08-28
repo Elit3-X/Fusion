@@ -417,7 +417,8 @@
   color: var(--text);
 }
 
-.workflow-result-badge--skipped {
+.workflow-result-badge--skipped,
+.workflow-result-badge--not-run {
   background-color: var(--text-dim);
   color: var(--text-muted);
 }

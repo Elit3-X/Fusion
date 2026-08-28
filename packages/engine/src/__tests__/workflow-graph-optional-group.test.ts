@@ -337,7 +337,7 @@ describe("WorkflowGraphExecutor optional-group", () => {
     group.config = { ...group.config, reviewKind: "code" };
     const result = await executor.run(taskWith(["group"]), settingsOn(), ir);
 
-    expect(requestFix).toHaveBeenCalledWith("FN-OG", {
+    expect(requestFix).toHaveBeenCalledWith("FN-OG", expect.objectContaining({
       stepName: "Code Review",
       feedback: "Fix the review finding",
       phase: "pre-merge",
@@ -345,7 +345,7 @@ describe("WorkflowGraphExecutor optional-group", () => {
       verdict: "REVISE",
       nodeId: "group",
       maxRevisions: undefined,
-    });
+    }));
     expect(calls).not.toContain("after");
     expect(result.context["node:group:fixScheduled"]).toBe(true);
     expect(records).toEqual(expect.arrayContaining([

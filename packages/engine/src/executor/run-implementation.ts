@@ -1146,6 +1146,28 @@ export async function runImplementation(
         await deps.reconcileStepsFromGitHistory(task.id, detail, worktreePath);
       }
 
+      /*
+      FNXC:SessionResume 2026-08-10-17:33:
+      Set when the run ends by handing the COMPLETED implementation to the graph for review, rather than
+      by finishing or failing the task. The distinction matters because a review gate can bounce the card
+      straight back here for remediation in the SAME worktree: before this flag the single-session
+      `finally` below nulled `sessionFile` on every non-paused exit, so pause -> unpause was the only path
+      that ever resumed a conversation and every remediation round restarted cold — re-reading the repo
+      and re-deriving the change it had just written, once per round. Preserving the session across the
+      review round-trip is what makes a bounce a follow-up turn instead of a fresh investigation.
+
+      Scoped deliberately to the handoff exits, NOT to every non-terminal exit: paths that require a fresh
+      session (context overflow, stale assistant continuation, worktree reacquisition, non-continuable
+      session, task-done retry) clear `sessionFile` explicitly and synchronously at their own site, and the
+      resume guard re-validates the persisted worktree before reopening. Those defenses stay authoritative.
+
+      FNXC:WorkflowStepNotRun 2026-08-28-14:47:
+      Step-session completion also sets this handoff flag before returning to the graph. Declare it before
+      execution-path selection so an honest no-command verification handoff cannot hit the temporal dead
+      zone and be requeued as a failed session after recording that verification did not run.
+      */
+      let handedOffForReview = false;
+
       // ── Step-Session vs Single-Session execution path ──
       // When runStepsInNewSessions is enabled, each step runs in its own
       // fresh agent session via StepSessionExecutor. Otherwise, the existing
@@ -1629,6 +1651,18 @@ export async function runImplementation(
                     return;
                   }
                 }
+              } else {
+                /*
+                FNXC:WorkflowStepNotRun 2026-08-28-14:13:
+                No configured command is a non-blocking absence of measurement, not a pass. Keep the
+                executor moving while leaving an explicit durable log that nothing was verified.
+                */
+                await deps.store.logEntry(
+                  task.id,
+                  "[verification] Deterministic verification not executed because no test or build command is configured — NOTHING WAS VERIFIED.",
+                  undefined,
+                  deps.getRunContextFor(task.id),
+                );
               }
             }
 
@@ -1837,22 +1871,6 @@ export async function runImplementation(
       const codeReviewVerdicts = new Map<number, ReviewVerdict>();
 
       let wasPaused = false;
-      /*
-      FNXC:SessionResume 2026-08-10-17:33:
-      Set when the run ends by handing the COMPLETED implementation to the graph for review, rather than
-      by finishing or failing the task. The distinction matters because a review gate can bounce the card
-      straight back here for remediation in the SAME worktree: before this flag the `finally` below nulled
-      `sessionFile` on every non-paused exit, so pause -> unpause was the only path that ever resumed a
-      conversation and every remediation round restarted cold — re-reading the repo and re-deriving the
-      change it had just written, once per round. Preserving the session across the review round-trip is
-      what makes a bounce a follow-up turn instead of a fresh investigation.
-
-      Scoped deliberately to the handoff exits, NOT to every non-terminal exit: paths that require a fresh
-      session (context overflow, stale assistant continuation, worktree reacquisition, non-continuable
-      session, task-done retry) clear `sessionFile` explicitly and synchronously at their own site, and the
-      resume guard re-validates the persisted worktree before reopening. Those defenses stay authoritative.
-      */
-      let handedOffForReview = false;
       // Mutable ref — populated after createFnAgent, tools access lazily via closure
       const sessionRef: { current: AgentSession | null } = { current: null };
       /*

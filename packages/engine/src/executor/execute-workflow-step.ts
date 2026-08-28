@@ -867,6 +867,19 @@ CRITICAL SCOPING RULES — read before doing anything else:
           timeoutMs: 5_000,
         });
         await logBrowserVerificationActivity(formatAgentBrowserAvailabilityLog(browserProbe));
+        /*
+        FNXC:WorkflowStepNotRun 2026-08-28-14:13:
+        A missing or hung agent-browser probe means browser verification never started. Return a
+        successful control-flow outcome with the fixed not-run reason before session creation so the
+        graph advances without allowing a model fast-bail to masquerade as an approval.
+        */
+        if (!browserProbe.available) {
+          return {
+            success: true,
+            notRunReason: "tooling-unavailable",
+            output: `${workflowStep.name} did not run: the agent-browser CLI is unavailable (${browserProbe.reason ?? "unknown reason"}). NOTHING WAS VERIFIED.`,
+          };
+        }
       }
 
       // (U8b) Coding-mode skill steps fan out to ce-<persona> subagents via

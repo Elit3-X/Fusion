@@ -2980,6 +2980,9 @@ export {
   type AsyncKnowledgeQueryOptions,
 } from "./async-stores/async-knowledge.js";
 export {
+  WORKFLOW_STEP_NOT_RUN_REASONS,
+  isWorkflowStepNotRun,
+  type WorkflowStepNotRunReason,
   upsertWorkflowStepResult,
   normalizeWorkflowReviewFindings,
   isWorkflowReviewFindingSeverity,

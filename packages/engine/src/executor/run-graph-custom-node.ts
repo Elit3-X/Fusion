@@ -19,7 +19,7 @@ import type {
   WorkflowStep,
   WorkspaceConfig,
 } from "@fusion/core";
-import { isLegacyWorkspaceWorktreeLayout, resolveEffectiveAgent, resolveWorkspaceTaskWorktreeDir, THINKING_LEVELS } from "@fusion/core";
+import { isLegacyWorkspaceWorktreeLayout, resolveEffectiveAgent, resolveWorkspaceTaskWorktreeDir, THINKING_LEVELS, WORKFLOW_STEP_NOT_RUN_REASONS } from "@fusion/core";
 import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import type { WorkflowNodeResult } from "../workflows/workflow-graph-executor.js";
@@ -43,6 +43,7 @@ import type { SessionBoundaryDescriptor } from "../agents/agent-runtime.js";
 import { runDeterministicVerificationGate } from "../workflow-node-runners/verification-gate.js";
 
 const WORKFLOW_THINKING_LEVEL_SET: ReadonlySet<string> = new Set(THINKING_LEVELS);
+const WORKFLOW_STEP_NOT_RUN_REASON_SET: ReadonlySet<string> = new Set(WORKFLOW_STEP_NOT_RUN_REASONS);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyFn = (...args: any[]) => any;
@@ -240,7 +241,14 @@ export async function runGraphCustomNode(
         undefined,
         deps.getRunContextFor(live.id),
       );
-      return { outcome: "success", value: "workflow-step-skipped" };
+      return {
+        outcome: "success",
+        value: "workflow-step-skipped",
+        contextPatch: {
+          notRunReason: "execution-mode-skip",
+          output: "Fast mode skipped this check — NOTHING WAS VERIFIED.",
+        },
+      };
     }
 
     const scriptName = typeof cfg.scriptName === "string" && cfg.scriptName.trim() ? cfg.scriptName : undefined;
@@ -816,6 +824,9 @@ export async function runGraphCustomNode(
     const stepNotes = (outcome as { notes?: string }).notes;
     const contextPatch: Record<string, unknown> = {};
     if (typeof stepOutput === "string") contextPatch.output = stepOutput;
+    if (typeof outcome.notRunReason === "string" && WORKFLOW_STEP_NOT_RUN_REASON_SET.has(outcome.notRunReason)) {
+      contextPatch.notRunReason = outcome.notRunReason;
+    }
     if (typeof stepNotes === "string" && stepNotes) contextPatch.notes = stepNotes;
     const stepFindings = outcome.findings;
     if (stepFindings?.length) contextPatch.findings = stepFindings;

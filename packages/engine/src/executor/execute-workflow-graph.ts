@@ -32,6 +32,7 @@ import {
   applySupersededPriorAttemptFindingIds,
   closeUnrebuttedDisputedFindings,
   isTerminalStepResult,
+  isWorkflowStepNotRun,
 } from "@fusion/core";
 import { resolveWorkflowGateActivityClaim } from "./workflow-gate-activity.js";
 import type { ImplementationExit } from "./implementation-exit.js";
@@ -43,6 +44,18 @@ import {
   workflowEntryArtifacts,
 } from "../execution/required-workflow-artifacts.js";
 import { getActiveNotificationService } from "../util/notifier.js";
+
+export function buildWorkflowGateActivityMetadata(
+  result: CoreWorkflowStepResult,
+  persistedResult: CoreWorkflowStepResult,
+): { stepId: string; status: CoreWorkflowStepResult["status"]; attempt: number; notRun?: true } {
+  return {
+    stepId: result.workflowStepId,
+    status: result.status,
+    attempt: persistedResult.priorAttempts?.length ?? 0,
+    ...(isWorkflowStepNotRun(result) ? { notRun: true } : {}),
+  };
+}
 import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import { emitBoundedRunAudit } from "./emit-bounded-run-audit.js";
@@ -336,6 +349,10 @@ export async function persistWorkflowStepResult(
     Workflow `skipped` is terminal and non-blocking, so it is a passed gate for activity consumers;
     advisory failures and failures remain failed. Preserve the exact closed status in metadata rather
     than deriving a replacement that loses the gate outcome.
+
+    FNXC:WorkflowStepNotRun 2026-08-28-14:13:
+    A not-run skipped gate remains non-failing for activity routing, but carries `notRun: true` so the
+    presentation layer never labels it as passed. The distinction is metadata, not a new event type.
     */
     if (isTerminalStepResult(result)) {
       const persistedResult = existing.find((entry) => entry.workflowStepId === result.workflowStepId) ?? resultToPersist;
@@ -368,11 +385,7 @@ export async function persistWorkflowStepResult(
           pending→terminal updates keep that value while a new dispatch gets a new one.
           */
           discriminator: `${result.workflowStepId}:${result.startedAt ?? result.completedAt ?? result.status}`,
-          metadata: {
-            stepId: result.workflowStepId,
-            status: result.status,
-            attempt: persistedResult.priorAttempts?.length ?? 0,
-          },
+          metadata: buildWorkflowGateActivityMetadata(result, persistedResult),
         });
         /*
         FNXC:AgentActivityStream 2026-08-09-13:59:
