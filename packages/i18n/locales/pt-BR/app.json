@@ -8421,6 +8421,18 @@
     },
     "debug": {
       "none": ""
+    },
+    "respecify": {
+      "btn": "",
+      "charCount_one": "",
+      "charCount_other": "",
+      "error": "",
+      "help": "",
+      "modalTitle": "",
+      "placeholder": "",
+      "submit": "",
+      "submitting": "",
+      "success": ""
     }
   },
   "taskDocuments": {
@@ -8870,7 +8882,16 @@
     "costBadgeAriaLabel": "Custo estimado {{amount}}",
     "dismissDuplicateFlag": "Mark the duplicate flag for {{id}} as read",
     "nearDuplicateHeldTitle": "Flagged as a duplicate of {{id}}. This task stays paused until you clear this flag or delete it.",
-    "duplicateDismissFailed": "Failed to clear the duplicate flag for {{taskId}}: {{error}}"
+    "duplicateDismissFailed": "Failed to clear the duplicate flag for {{taskId}}: {{error}}",
+    "planApproval": {
+      "approve": "",
+      "approveFailed": "",
+      "approving": "",
+      "copy": "",
+      "replanCapCopy": "",
+      "title": ""
+    },
+    "togglePlanApproval": ""
   },
   "terminal": {
     "arrowKeysLabel": "Teclas de seta do terminal",

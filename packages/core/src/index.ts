@@ -131,7 +131,7 @@ export {
   resolveEffectivePluginSettings,
 } from "./plugins/plugin-prompt-condition.js";
 export type { PromptConditionEvaluationResult } from "./plugins/plugin-prompt-condition.js";
-export { computePlanApprovalFingerprint, isPlanReviewSatisfied, resolvePlanApprovalRequired } from "./planner/plan-approval.js";
+export { buildPreservedPlanRespecifyPatch, computePlanApprovalFingerprint, isPlanReviewSatisfied, resolvePlanApprovalRequired, supersedePlanReviewResults } from "./planner/plan-approval.js";
 export { canonicalizePlan, createCurrentPlanEvidence, diffSpecLocks, isSpecLockActive, SPEC_LOCK_PARSER_VERSION } from "./planner/spec-lock.js";
 export { evaluateSpecDrift, hasPriorLockDivergence, isCurrentSpecDriftReport } from "./planner/drift-report.js";
 export type { CanonicalPlan, CanonicalPlanSection, CurrentPlanEvidence, SpecLock, SpecLockDiff, SpecLockSection } from "./planner/spec-lock.js";

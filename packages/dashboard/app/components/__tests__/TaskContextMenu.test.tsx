@@ -35,6 +35,20 @@ describe("TaskContextMenu shared task action model", () => {
     expect(actionIds(makeTask({ column: "archived" }), { onRetry, onReset: vi.fn() })).toEqual(["delete"]);
   });
 
+  it("offers non-destructive Respecify only for mutable live columns with a handler", () => {
+    const onRespecify = vi.fn();
+    const mutable = buildTaskActionMenuModel({ task: makeTask({ column: "in-review" }), t, onRespecify });
+    expect(mutable.actions.find((action) => action.id === "respecify")).toMatchObject({ tone: "default" });
+    mutable.actions.find((action) => action.id === "respecify")?.onSelect?.();
+    expect(onRespecify).toHaveBeenCalledOnce();
+
+    expect(actionIds(makeTask({ column: "done" }), { onRespecify })).not.toContain("respecify");
+    expect(actionIds(makeTask({ column: "archived" }), { onRespecify })).not.toContain("respecify");
+    expect(actionIds(makeTask({ column: "in-review" }))).not.toContain("respecify");
+    expect(mutable.actions.findIndex((action) => action.id === "respecify"))
+      .toBeLessThan(mutable.actions.findIndex((action) => action.id === "delete"));
+  });
+
   it("offers Retry for every mutable live column, including pending recovery", () => {
     const onRetry = vi.fn();
     const onReset = vi.fn();

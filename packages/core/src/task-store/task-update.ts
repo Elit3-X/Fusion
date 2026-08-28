@@ -1011,6 +1011,15 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       } else if (updates.sessionAdvisorEnabled !== undefined) {
         task.sessionAdvisorEnabled = updates.sessionAdvisorEnabled;
       }
+      /*
+      FNXC:PlanApproval 2026-08-28-06:24:
+      null clears the task override back to inherited policy; booleans preserve explicit operator intent.
+      */
+      if (updates.requirePlanApproval === null) {
+        task.requirePlanApproval = undefined;
+      } else if (updates.requirePlanApproval !== undefined) {
+        task.requirePlanApproval = updates.requirePlanApproval;
+      }
       if (updates.error === null) {
         task.error = undefined;
       } else if (updates.error !== undefined) {

@@ -8,6 +8,7 @@ import { mergeTaskSnapshot } from "../hooks/useTasks";
 import { dismissAiMergeReviewFinding } from "../api/tasks/tasks-lifecycle";
 import { FloatingWindow } from "./FloatingWindow";
 import { ExternalBlockNotice } from "./TaskCard";
+import { RespecifyPlanDialog } from "./RespecifyPlanDialog";
 import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import { useModalDismissPreference, useOverlayDismiss } from "../hooks/useOverlayDismiss";
 import { useColumnLabel } from "../i18n/labels";
@@ -1377,6 +1378,7 @@ export function TaskDetailContent({
   const [specEditContent, setSpecEditContent] = useState(workingTask.prompt || "");
   const [specFeedback, setSpecFeedback] = useState("");
   const [showRefineModal, setShowRefineModal] = useState(false);
+  const [showRespecifyPlanDialog, setShowRespecifyPlanDialog] = useState(false);
 
   /*
   FNXC:TaskDetailPlan 2026-08-05-04:05:
@@ -4302,6 +4304,7 @@ export function TaskDetailContent({
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
     hasResetHandler: Boolean(onResetTask),
+    hasRespecifyHandler: true,
     hasBypassReviewHandler: Boolean(onBypassReview),
     mergeStrategy,
     autoMergeEnabled: effectiveAutoMerge,
@@ -4312,6 +4315,7 @@ export function TaskDetailContent({
     onOpenRefine: handleOpenRefineModal,
     onRetry: handleRetry,
     onReset: handleReset,
+    onRespecify: () => setShowRespecifyPlanDialog(true),
     onTogglePause: handleTogglePause,
     onMerge: handleMergeMenuItemClick,
     onStartPrReview: handleStartPrReviewMenuItemClick,
@@ -5148,6 +5152,9 @@ export function TaskDetailContent({
                     <div className="detail-plan-approval-banner__actions" data-testid="detail-plan-approval-banner-actions">
                       <button className="btn btn-primary btn-sm" data-testid="detail-plan-approval-banner-approve" onClick={handleApprovePlan}>
                         {t("taskDetail.plan.approveBtn", "Approve Plan")}
+                      </button>
+                      <button className="btn btn-sm" data-testid="detail-plan-approval-banner-respecify" onClick={() => setShowRespecifyPlanDialog(true)}>
+                        {t("taskDetail.respecify.btn", "Respecify")}
                       </button>
                       <button className="btn btn-danger btn-sm" data-testid="detail-plan-approval-banner-reject" onClick={handleRejectPlan}>
                         {t("taskDetail.plan.rejectBtn", "Reject Plan")}
@@ -7496,6 +7503,15 @@ export function TaskDetailContent({
             </>
           )}
       </div>
+      {showRespecifyPlanDialog && (
+        <RespecifyPlanDialog
+          taskId={task.id}
+          projectId={projectId}
+          addToast={addToast}
+          onClose={() => setShowRespecifyPlanDialog(false)}
+          onSubmitted={onTaskUpdated}
+        />
+      )}
       {showRefineModal && (
           <div
             className="modal-overlay open detail-refine-overlay"

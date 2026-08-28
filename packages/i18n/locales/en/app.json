@@ -8197,6 +8197,18 @@
       "placeholder": "Enter your feedback here...",
       "taskCreated": "Refinement task created: {{id}}"
     },
+    "respecify": {
+      "btn": "Respecify",
+      "charCount_one": "{{count}}/2000 characters",
+      "charCount_other": "{{count}}/2000 characters",
+      "error": "Failed to request plan revision",
+      "help": "Describe what you want changed in the existing plan.",
+      "modalTitle": "Respecify plan",
+      "placeholder": "Enter your requested changes...",
+      "submit": "Respecify",
+      "submitting": "Submitting...",
+      "success": "Plan sent back for revision"
+    },
     "reset": {
       "btn": "Reset",
       "confirmMessage": "Restart this task from nothing but the original request. Plan, work, and reviews will be discarded.",
@@ -8712,6 +8724,14 @@
       "resuming": "Resuming…",
       "retry": "Retry"
     },
+    "planApproval": {
+      "approve": "Approve",
+      "approveFailed": "Failed to approve plan: {{error}}",
+      "approving": "Approving...",
+      "copy": "Review the plan before implementation starts.",
+      "replanCapCopy": "Review the current plan, then approve it or request specific changes.",
+      "title": "Need Your Review"
+    },
     "branch": "Branch",
     "branchMetadata": "Branch metadata",
     "branchProgress": "{{done}}/{{total}} branches",
@@ -8895,6 +8915,7 @@
     "subtask": "Subtask",
     "subtaskButtonTitle": "Break down into AI-generated subtasks",
     "toggleFastMode": "Toggle fast execution mode",
+    "togglePlanApproval": "Wait for my approval before execution",
     "unarchive": "Unarchive",
     "unarchived": "Unarchived {{taskId}}",
     "unarchiveFailed": "Failed to unarchive {{taskId}}: {{error}}",

@@ -59,6 +59,11 @@ pgTest("VAL-CROSS-001: End-to-end task lifecycle (PostgreSQL)", () => {
     });
     expect(inReview.column).toBe("in-review");
 
+    // FNXC:LifecycleContainment 2026-08-28-06:24: completion fixtures leave review through the sanctioned WIP rebound instead of jumping directly to done.
+    await store.moveTask(task.id, "in-progress", {
+      moveSource: "engine",
+      lifecycleReason: "workflow-graph-node-column",
+    });
     const done = await store.moveTask(task.id, "done", {
       moveSource: "engine",
       skipMergeBlocker: true,
@@ -74,6 +79,11 @@ pgTest("VAL-CROSS-001: End-to-end task lifecycle (PostgreSQL)", () => {
     await store.moveTask(task.id, "in-review", {
       moveSource: "user",
       allowDirectInReviewMove: true,
+    });
+    // FNXC:LifecycleContainment 2026-08-28-06:24: archive setup must obey the same review→WIP completion boundary as production.
+    await store.moveTask(task.id, "in-progress", {
+      moveSource: "engine",
+      lifecycleReason: "workflow-graph-node-column",
     });
     await store.moveTask(task.id, "done", { moveSource: "engine", skipMergeBlocker: true });
 

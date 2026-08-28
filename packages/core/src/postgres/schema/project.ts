@@ -173,6 +173,8 @@ export const tasks = projectSchema.table("tasks", {
   is not enough for Gate boot-smoke before health reconciliation runs.
   */
   sessionAdvisorEnabled: integer("session_advisor_enabled"),
+  // FNXC:PlanApproval 2026-08-28-06:24: nullable three-state per-task manual approval override.
+  requirePlanApproval: integer("require_plan_approval"),
   tokenUsageInputTokens: bigint("token_usage_input_tokens", { mode: "number" }),
   tokenUsageOutputTokens: bigint("token_usage_output_tokens", { mode: "number" }),
   tokenUsageCachedTokens: bigint("token_usage_cached_tokens", { mode: "number" }),

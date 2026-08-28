@@ -367,7 +367,13 @@ Board ordering behavior:
 
 ### Task placement on Board and List
 
-Tasks cannot be relocated manually from Board, List, or Task Detail. The workflow and its automated recovery paths decide placement. Use **Retry** to repeat the current stage in place, **Reset** to restart from the original description, or **Delete** to remove a task. A manual-intake card can still show **Start**, which admits a new idea into its workflow rather than relocating active work.
+Tasks cannot be relocated manually from Board, List, or Task Detail. The workflow and its automated recovery paths decide placement. Use **Retry** to repeat the current stage in place, **Respecify** to revise the preserved plan from an operator note, **Reset** to restart from the original description, or **Delete** to remove a task. A manual-intake card can still show **Start**, which admits a new idea into its workflow rather than relocating active work.
+
+### Per-task plan approval hold
+
+Quick Entry and New Task can opt one task into **Wait for my approval before execution**. This sticky, project-scoped create preference sets the task's `requirePlanApproval` override and remains enabled after submission until clicked again. A task-level `true` escalates the manual approval requirement even under project `planApprovalMode: "auto-approve-all"`; task-level `false` never disables project `require-all`.
+
+After planning, the card remains at `status: "awaiting-approval"` and shows **Need Your Review**. **Approve** releases the reviewed plan. **Respecify** asks for a revision note, preserves `PROMPT.md`, worktree, branch, and history, invalidates the prior approval and current Plan Review result, and returns the task to Planning. **Reject Plan** remains the destructive option in Task Detail when the plan should be discarded and regenerated.
 
 On desktop and tablet Boards, dragging a task card's noninteractive body or text pans the Board viewport without moving the task. Controls and editing remain native.
 

@@ -160,6 +160,10 @@ export function rowToTask(row: TaskRow): Task {
     sessionAdvisorEnabled: row.sessionAdvisorEnabled === null || row.sessionAdvisorEnabled === undefined
       ? undefined
       : row.sessionAdvisorEnabled === 1,
+    // FNXC:PlanApproval 2026-08-28-06:24: null inherits policy while 0/1 preserve the explicit task value.
+    requirePlanApproval: row.requirePlanApproval === null || row.requirePlanApproval === undefined
+      ? undefined
+      : row.requirePlanApproval === 1,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     columnMovedAt: row.columnMovedAt || undefined,

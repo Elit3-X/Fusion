@@ -754,6 +754,54 @@ layout. Shared notice paint uses semantic tokens; mobile only changes flow and t
   height: var(--space-md);
 }
 
+/*
+FNXC:PlanApproval 2026-08-28-06:24:
+The manual approval hold covers the card like Blocked while using warning paint. Its actions remain
+available on cards and list rows without changing the host's footprint or opening task detail.
+*/
+.card.plan-approval-hold {
+  border-color: var(--color-warning);
+}
+
+.plan-approval-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--card));
+  color: var(--text-primary);
+}
+
+.plan-approval-notice--card {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: inherit;
+  box-shadow: var(--shadow-md);
+  background: color-mix(in srgb, var(--color-warning) 16%, var(--card));
+}
+
+.plan-approval-notice__title {
+  color: var(--color-warning);
+  font-size: var(--font-size-md);
+}
+
+.plan-approval-notice__copy {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.plan-approval-notice__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 /* Error display on failed task cards */
 .card-error {
   display: flex;
@@ -810,9 +858,16 @@ layout. Shared notice paint uses semantic tokens; mobile only changes flow and t
   }
 
   .external-block-notice__actions .btn,
-  .external-block-notice__actions .btn-icon {
+  .external-block-notice__actions .btn-icon,
+  .plan-approval-notice__actions .btn {
     min-width: var(--touch-target-min-size);
     min-height: var(--touch-target-min-size);
+  }
+
+  .plan-approval-notice,
+  .plan-approval-notice__actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .card-error-retry-btn {

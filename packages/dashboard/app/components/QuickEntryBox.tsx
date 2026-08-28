@@ -8,7 +8,7 @@ import type { Task, Settings, TaskPriority, ResolvedWorkflowOptionalStep, Thinki
 import type { ModelInfo, Agent, CreateTaskInput, DuplicateMatch, BoardWorkflowDefinition, NodeInfo } from "../api";
 import { checkDuplicateTasks, fetchModels, fetchSettings, updateGlobalSettings, fetchAgents, uploadAttachment, fetchWorkflowOptionalSteps } from "../api";
 import { DuplicateWarningModal } from "./DuplicateWarningModal";
-import { Link, Paperclip, Brain, Lightbulb, Sparkles, Save, ChevronDown, ChevronUp, ChevronRight, Bot, Server, Zap, Eye, EyeOff, Play } from "lucide-react";
+import { Link, Paperclip, Brain, Lightbulb, Sparkles, Save, ChevronDown, ChevronUp, ChevronRight, Bot, Server, Zap, Eye, EyeOff, Play, ShieldCheck } from "lucide-react";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { getScopedItem, MAX_PERSISTED_DRAFT_BYTES, removeScopedItem, setScopedItem } from "../utils/projectStorage";
@@ -25,6 +25,7 @@ import { validateQuickAddStartWorkflow, workflowSupportsQuickAddStart, resolveQu
 import { computeFixedMenuPosition, getLayoutViewportSize } from "../utils/fixedMenuPosition";
 import { isInsidePortaledModelMenu } from "../utils/portalSurfaces";
 import { useQuickAddSubmitOnEnter } from "../hooks/useQuickAddSubmitOnEnter";
+import { readRequirePlanApprovalPreference, writeRequirePlanApprovalPreference } from "../utils/planApprovalPreference";
 
 const STORAGE_KEY = "kb-quick-entry-text";
 const ALLOWED_TASK_ATTACHMENT_TYPES = new Set([
@@ -269,6 +270,7 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
   const [optionalSteps, setOptionalSteps] = useState<ResolvedWorkflowOptionalStep[]>([]);
   const [enabledOptionalStepIds, setEnabledOptionalStepIds] = useState<string[]>([]);
   const [isFastMode, setIsFastMode] = useState(false);
+  const [requirePlanApproval, setRequirePlanApproval] = useState(() => readRequirePlanApprovalPreference(projectId));
   const isFastModeRef = useRef(isFastMode);
   useEffect(() => {
     isFastModeRef.current = isFastMode;
@@ -463,6 +465,14 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
   FNXC:FastOptionalSteps 2026-06-30-10:41:
   A Fast create must submit explicit `[]` even if optional-step metadata has not loaded yet; otherwise the store/engine see `enabledWorkflowSteps` as omitted and re-seed default-on gates.
   */
+  const toggleRequirePlanApproval = useCallback(() => {
+    setRequirePlanApproval((previous) => {
+      const next = !previous;
+      writeRequirePlanApprovalPreference(projectId, next);
+      return next;
+    });
+  }, [projectId]);
+
   const toggleFastMode = useCallback(() => {
     setIsFastMode((prev) => {
       const next = !prev;
@@ -863,6 +873,7 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
         */
         enabledWorkflowSteps: isFastMode || optionalSteps.length > 0 ? enabledOptionalStepIds : undefined,
         ...(isFastMode ? { executionMode: "fast" } : {}),
+        ...(requirePlanApproval ? { requirePlanApproval: true } : {}),
         githubTracking: githubTrackingOverride !== null ? { enabled: githubTrackingOverride } : undefined,
         // FNXC:PlannerOversight 2026-07-14-18:11: only send when user toggled away from project default.
         sessionAdvisorEnabled: sessionAdvisorOverride !== null ? sessionAdvisorOverride : undefined,
@@ -944,6 +955,7 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
     thinkingLevel,
     enabledOptionalStepIds,
     isFastMode,
+    requirePlanApproval,
     settings,
     githubTrackingOverride,
     sessionAdvisorOverride,
@@ -1686,6 +1698,7 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
   const priorityLabel = getPriorityLabel(priority);
   const priorityButtonLabel = t("tasks.quickEntryPriorityLabel", "Priority: {{priority}}", { priority: priorityLabel });
   const fastToggleLabel = t("tasks.toggleFastMode", "Toggle fast execution mode");
+  const planApprovalToggleLabel = t("tasks.togglePlanApproval", "Wait for my approval before execution");
 
   // Show expanded controls based on disclosure state (user preference), not textarea focus
   const showExpandedControls = isDisclosureExpanded;
@@ -2361,6 +2374,19 @@ export function QuickEntryBox({ onCreate, onMoveTask, addToast, tasks = [], avai
                 </div>,
                 portalRoot,
               )}
+
+              <button
+                type="button"
+                className={`btn btn-icon btn-sm ${requirePlanApproval ? "btn-primary" : ""}`}
+                onClick={toggleRequirePlanApproval}
+                onMouseDown={(e) => e.preventDefault()}
+                aria-pressed={requirePlanApproval}
+                data-testid="quick-entry-plan-approval-toggle"
+                title={planApprovalToggleLabel}
+                aria-label={planApprovalToggleLabel}
+              >
+                <ShieldCheck size={14} aria-hidden="true" />
+              </button>
 
               <button
                 type="button"

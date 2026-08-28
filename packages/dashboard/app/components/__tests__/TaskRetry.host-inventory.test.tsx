@@ -13,11 +13,15 @@ describe("Retry host inventory", () => {
     }
   });
 
-  it("removes the retired stage-restart plumbing from the ownership chain", () => {
+  it("keeps stage restart deleted while Respecify stays locally owned by menu hosts", () => {
     for (const name of ["TaskCard.tsx", "ListView.tsx", "TaskDetailModal.tsx", "Board.tsx", "Column.tsx", "WorktreeGroup.tsx", "AppModals.tsx", "dashboard/MainContent.tsx", "useRightDockController.tsx"]) {
-      const source = component(name);
-      expect(source).not.toContain("onRestart" + "Stage");
-      expect(source).not.toContain("onRespecify");
+      expect(component(name)).not.toContain("onRestart" + "Stage");
+    }
+    for (const name of ["TaskCard.tsx", "ListView.tsx", "TaskDetailModal.tsx"]) {
+      expect(component(name)).toContain("onRespecify");
+    }
+    for (const name of ["Board.tsx", "Column.tsx", "WorktreeGroup.tsx", "AppModals.tsx", "dashboard/MainContent.tsx", "useRightDockController.tsx"]) {
+      expect(component(name)).not.toContain("onRespecify");
     }
   });
 });

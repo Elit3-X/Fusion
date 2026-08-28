@@ -10,8 +10,9 @@ import { useColumnLabel } from "../i18n/labels";
 import { isArchivedColumnRole, isCompleteColumnRole, isIntakeColumnRole, isReviewColumnRole, isWipColumnRole } from "../utils/columnRoles";
 import { batchUpdateTaskModels, fetchNodes, fetchTaskDetail, refreshPrStatus, updateTask } from "../api";
 import { TaskDetailContent } from "./TaskDetailModal";
-import { ExternalBlockNotice } from "./TaskCard";
+import { ExternalBlockNotice, PlanApprovalNotice } from "./TaskCard";
 import { PrCreateModal } from "./PrCreateModal";
+import { RespecifyPlanDialog } from "./RespecifyPlanDialog";
 import type { BoardWorkflowColumn, BoardWorkflowsPayload, ModelInfo, NodeInfo, RevertTaskOptions, RevertTaskResult } from "../api";
 import { QuickEntryBox } from "./QuickEntryBox";
 import { CustomModelDropdown } from "./CustomModelDropdown";
@@ -429,6 +430,7 @@ export function ListView({
   const [selectedColumn, setSelectedColumn] = useState<ColumnId | null>(null);
   const [contextMenuState, setContextMenuState] = useState<ListContextMenuState>(null);
   const [prCreateState, setPrCreateState] = useState<ListPrCreateState>(null);
+  const [respecifyTask, setRespecifyTask] = useState<Task | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
@@ -2090,6 +2092,7 @@ export function ListView({
       hasDuplicateHandler: Boolean(onDuplicateTask),
       hasRetryHandler: Boolean(onRetryTask),
       hasResetHandler: Boolean(onResetTask),
+      hasRespecifyHandler: true,
       hasAssignedAgent: Boolean(task.assignedAgentId),
       autoMergeEnabled: effectiveAutoMerge,
       mergeStrategy,
@@ -2128,6 +2131,7 @@ export function ListView({
           addToast(t("tasks.retryFailed", "Failed to retry {{taskId}}: {{error}}", { taskId: task.id, error: getErrorMessage(err) }), "error");
         }
       } : undefined,
+      onRespecify: () => setRespecifyTask(task),
       onReset: onResetTask ? async () => {
         const shouldReset = await confirm({
           title: t("taskDetail.reset.confirmTitle", "Reset this task?"),
@@ -2816,6 +2820,15 @@ export function ListView({
         </div>,
         document.body,
       )}
+      {respecifyTask && (
+        <RespecifyPlanDialog
+          taskId={respecifyTask.id}
+          projectId={projectId}
+          addToast={addToast}
+          onClose={() => setRespecifyTask(null)}
+          onSubmitted={(updated) => onTasksUpdated?.([updated])}
+        />
+      )}
       {prCreateState && (
         <PrCreateModal
           open={true}
@@ -3126,6 +3139,7 @@ export function ListView({
                               </div>
 
                               <ExternalBlockNotice task={task} variant="list" onOpenChatWithPrefill={onOpenChatWithPrefill} onRetryTask={onRetryTask} addToast={addToast} />
+                              <PlanApprovalNotice task={task} variant="list" projectId={projectId} addToast={addToast} isIntakeColumn={isIntakeColumnForTask(task)} />
 
                               {(hasDependencies || hasProgress) && (
                                 <div className="list-card-row list-card-meta">
@@ -3366,6 +3380,7 @@ export function ListView({
                                 {visibleColumns.has("status") && (
                                   <td className="list-cell">
                                     <ExternalBlockNotice task={task} variant="list" onOpenChatWithPrefill={onOpenChatWithPrefill} onRetryTask={onRetryTask} addToast={addToast} />
+                                    <PlanApprovalNotice task={task} variant="list" projectId={projectId} addToast={addToast} isIntakeColumn={isIntakeColumnForTask(task)} />
                                     {isPaused && task.pausedByAgentId ? (
                                       <span className="list-status-badge paused">{t("listView.pausedByAgent", "paused by agent")}</span>
                                     ) : showStatusBadge ? (

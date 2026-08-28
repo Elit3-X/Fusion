@@ -1,0 +1,49 @@
+/*
+FNXC:PlanApproval 2026-08-28-06:24:
+Respecify asks for revision guidance without replacing modal primitives. Mobile actions remain large
+enough for touch while the preserved plan and worktree stay untouched behind this focused dialog.
+*/
+.respecify-plan-overlay {
+  align-items: center;
+}
+
+.respecify-plan-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.respecify-plan-dialog__body p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.respecify-plan-dialog__textarea {
+  inline-size: 100%;
+  min-block-size: calc(var(--space-3xl) * 3);
+  resize: vertical;
+  font-family: var(--font-sans);
+}
+
+.respecify-plan-dialog__count {
+  align-self: flex-end;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.respecify-plan-dialog__actions {
+  gap: var(--space-sm);
+}
+
+@media (max-width: 768px) {
+  .respecify-plan-dialog__actions {
+    flex-direction: column-reverse;
+  }
+
+  .respecify-plan-dialog__actions .btn {
+    min-block-size: var(--touch-target-min-size);
+    inline-size: 100%;
+  }
+}

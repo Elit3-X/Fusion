@@ -76,6 +76,7 @@ import {
   resolveReboundTarget,
   resolveColumnFlags,
   PLAN_REVIEW_GROUP_ID,
+  buildPreservedPlanRespecifyPatch,
   TransitionRejectionError,
   ArchivedTaskDocumentPublicationRejectedError,
   TaskDocumentPreconditionFailedError,
@@ -1666,6 +1667,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         nodeId,
         githubTracking,
         sessionAdvisorEnabled,
+        requirePlanApproval,
         acknowledgedDuplicates,
         bypassDuplicateCheck,
         repositoryScope,
@@ -2157,6 +2159,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         ...(validatedGithubTracking ? { githubTracking: validatedGithubTracking } : {}),
         // FNXC:PlannerOversight 2026-07-14-18:11: only persist when client sent an explicit boolean override.
         ...(typeof sessionAdvisorEnabled === "boolean" ? { sessionAdvisorEnabled } : {}),
+        // FNXC:PlanApproval 2026-08-28-06:24: only explicit create-time booleans become task overrides.
+        ...(typeof requirePlanApproval === "boolean" ? { requirePlanApproval } : {}),
         ...(trusted?.proposalClaimId ? { proposalClaimId: trusted.proposalClaimId } : {}),
       };
 
@@ -5932,12 +5936,15 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
   router.post("/tasks/:id/spec/revise", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
-      const { feedback } = req.body;
+      const { feedback, preservePlan } = req.body;
       if (!feedback || typeof feedback !== "string") {
         throw badRequest("feedback is required and must be a string");
       }
       if (feedback.length === 0 || feedback.length > 2000) {
         throw badRequest("feedback must be between 1 and 2000 characters");
+      }
+      if (preservePlan !== undefined && typeof preservePlan !== "boolean") {
+        throw badRequest("preservePlan must be a boolean");
       }
 
       // Get current task state
@@ -5967,15 +5974,25 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         // Log the revision request
         await scopedStore.logEntry(task.id, "AI spec revision requested", feedback);
 
-        // Remove the existing spec so replanning starts from the task
-        // description and feedback rather than revising stale PROMPT.md content.
-        const { rm } = await import("node:fs/promises");
-        const { join } = await import("node:path");
-        const promptPath = join(scopedStore.getRootDir(), ".fusion", "tasks", task.id, "PROMPT.md");
-        await rm(promptPath, { force: true });
+        /*
+        FNXC:PlanReviewSupersession 2026-08-28-06:24:
+        A preserved plan is revision source, never current approval evidence. Clear the prior
+        approval carriers together so unchanged text cannot bypass re-planning or re-approval.
+        */
+        if (preservePlan === true) {
+          const supersededAt = new Date().toISOString();
+          await scopedStore.updateTask(task.id, buildPreservedPlanRespecifyPatch(task, supersededAt));
+        } else {
+          // Remove the existing spec so replanning starts from the task
+          // description and feedback rather than revising stale PROMPT.md content.
+          const { rm } = await import("node:fs/promises");
+          const { join } = await import("node:path");
+          const promptPath = join(scopedStore.getRootDir(), ".fusion", "tasks", task.id, "PROMPT.md");
+          await rm(promptPath, { force: true });
 
-        // Update status to indicate needs replanning
-        await scopedStore.updateTask(task.id, { status: "needs-replan" });
+          // Update status to indicate needs replanning
+          await scopedStore.updateTask(task.id, { status: "needs-replan" });
+        }
 
         const updated = await scopedStore.getTask(task.id);
         res.json(updated);
@@ -6007,7 +6024,14 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       await scopedStore.logEntry(task.id, "AI spec revision requested", feedback);
 
       // Move to triage for replanning
-      const updated = await scopedStore.moveTask(task.id, respecifyTarget);
+      const moved = await scopedStore.moveTask(task.id, respecifyTarget);
+
+      if (preservePlan === true) {
+        const supersededAt = new Date().toISOString();
+        const updated = await scopedStore.updateTask(task.id, buildPreservedPlanRespecifyPatch(moved, supersededAt));
+        res.json(updated);
+        return;
+      }
 
       // Remove the existing spec so replanning starts from the task
       // description and feedback rather than revising stale PROMPT.md content.
@@ -6019,7 +6043,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       // Update status to indicate needs replanning
       await scopedStore.updateTask(task.id, { status: "needs-replan" });
 
-      res.json(updated);
+      res.json(moved);
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
@@ -6234,7 +6258,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
   router.patch("/tasks/:id", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
-      const { title, description, prompt, priority, dependencies, enabledWorkflowSteps, modelProvider, modelId, validatorModelProvider, validatorModelId, planningModelProvider, planningModelId, mergerModelProvider, mergerModelId, thinkingLevel, validatorThinkingLevel, planningThinkingLevel, mergerThinkingLevel, assigneeUserId, reviewLevel, executionMode, sourceIssue, nodeId, branch, baseBranch, githubTracking, gitlabTracking, noCommitsExpected, autoMerge, overlapBlockedBy, status, dismissNearDuplicate, sessionAdvisorEnabled } = req.body;
+      const { title, description, prompt, priority, dependencies, enabledWorkflowSteps, modelProvider, modelId, validatorModelProvider, validatorModelId, planningModelProvider, planningModelId, mergerModelProvider, mergerModelId, thinkingLevel, validatorThinkingLevel, planningThinkingLevel, mergerThinkingLevel, assigneeUserId, reviewLevel, executionMode, sourceIssue, nodeId, branch, baseBranch, githubTracking, gitlabTracking, noCommitsExpected, autoMerge, overlapBlockedBy, status, dismissNearDuplicate, sessionAdvisorEnabled, requirePlanApproval } = req.body;
       const hasBodyField = (field: string) => Object.prototype.hasOwnProperty.call(req.body, field);
 
       // Validate model fields are strings or undefined/null
@@ -6578,6 +6602,15 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           updates.sessionAdvisorEnabled = sessionAdvisorEnabled;
         } else {
           throw new Error("sessionAdvisorEnabled must be a boolean or null");
+        }
+      }
+      if (hasBodyField("requirePlanApproval")) {
+        if (requirePlanApproval === null) {
+          updates.requirePlanApproval = null;
+        } else if (typeof requirePlanApproval === "boolean") {
+          updates.requirePlanApproval = requirePlanApproval;
+        } else {
+          throw new Error("requirePlanApproval must be a boolean or null");
         }
       }
       if (hasBodyField("sourceIssue")) updates.sourceIssue = validatedSourceIssue === undefined ? undefined : validatedSourceIssue;

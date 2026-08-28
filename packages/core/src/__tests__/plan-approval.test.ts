@@ -22,6 +22,36 @@ describe("resolvePlanApprovalRequired", () => {
     expect(resolvePlanApprovalRequired({ planApprovalMode: "require-all", requirePlanApproval })).toBe(true);
   });
 
+  it("lets a per-task true opt-in force approval under auto-approve-all", () => {
+    expect(resolvePlanApprovalRequired(
+      { planApprovalMode: "auto-approve-all", requirePlanApproval: false },
+      { requirePlanApproval: true },
+    )).toBe(true);
+  });
+
+  it.each(["workflow", undefined] as const)("keeps workflow approval binding when task explicitly stores false and mode is %s", (planApprovalMode) => {
+    expect(resolvePlanApprovalRequired(
+      { planApprovalMode, requirePlanApproval: true },
+      { requirePlanApproval: false },
+    )).toBe(true);
+  });
+
+  it("does not let a per-task false weaken require-all", () => {
+    expect(resolvePlanApprovalRequired(
+      { planApprovalMode: "require-all", requirePlanApproval: false },
+      { requirePlanApproval: false },
+    )).toBe(true);
+  });
+
+  it.each([
+    [{ planApprovalMode: "workflow" as const, requirePlanApproval: true }, true],
+    [{ planApprovalMode: "workflow" as const, requirePlanApproval: false }, false],
+    [{ planApprovalMode: "auto-approve-all" as const, requirePlanApproval: true }, false],
+    [{ planApprovalMode: "require-all" as const, requirePlanApproval: false }, true],
+  ] as const)("preserves legacy resolution when the task override is unset", (settings, expected) => {
+    expect(resolvePlanApprovalRequired(settings, { requirePlanApproval: undefined })).toBe(expected);
+  });
+
   it("falls back to workflow behavior for unknown persisted modes", () => {
     expect(
       resolvePlanApprovalRequired({

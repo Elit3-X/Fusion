@@ -400,7 +400,7 @@ export interface WorkflowStepResult {
    */
   supersededAt?: string;
   /** Machine-readable reason the result stopped being current. */
-  supersededReason?: "dependency-change";
+  supersededReason?: "dependency-change" | "respecify";
   /*
    * FNXC:PlanReviewConvergence 2026-08-04-06:35 (FN-8768):
    * Number of terminal REVISE results recorded in the current Plan Review

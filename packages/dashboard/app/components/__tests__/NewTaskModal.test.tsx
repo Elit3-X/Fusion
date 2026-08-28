@@ -31,6 +31,7 @@ vi.mock("lucide-react", () => ({
   Flag: () => null,
   TriangleAlert: () => null,
   Zap: () => null,
+  ShieldCheck: () => null,
   Brain: () => null,
   Server: () => null,
   Cpu: () => null,
@@ -561,6 +562,32 @@ describe("NewTaskModal", () => {
     expect(advancedSection).toHaveAttribute("hidden");
     expect(select).toHaveValue("standard");
     expect(Array.from(select.options).map((option) => option.value)).toEqual(["standard", "fast"]);
+  });
+
+  it("keeps plan approval sticky across submits and remounts while Fast resets", async () => {
+    const onCreateTask = vi.fn().mockResolvedValue(makeTask("FN-212"));
+    const first = renderNewTaskModal({ onCreateTask, projectId: "project-1" });
+    const approvalToggle = screen.getByTestId("task-form-plan-approval-toggle");
+    const fastToggle = screen.getByTestId("task-form-inline-fast");
+    expect(approvalToggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(approvalToggle);
+    fireEvent.click(fastToggle);
+    fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), { target: { value: "First approval task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(onCreateTask).toHaveBeenCalledWith(expect.objectContaining({ requirePlanApproval: true, executionMode: "fast" })));
+    expect(approvalToggle).toHaveAttribute("aria-pressed", "true");
+    expect(fastToggle).toHaveAttribute("aria-pressed", "false");
+
+    first.unmount();
+    renderNewTaskModal({ onCreateTask, projectId: "project-1" });
+    const remountedToggle = screen.getByTestId("task-form-plan-approval-toggle");
+    expect(remountedToggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(remountedToggle);
+    fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), { target: { value: "Second ordinary task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(onCreateTask).toHaveBeenCalledTimes(2));
+    expect(onCreateTask.mock.calls[1]?.[0]).not.toHaveProperty("requirePlanApproval");
   });
 
   it("includes executionMode fast in the create payload when Fast is selected", async () => {

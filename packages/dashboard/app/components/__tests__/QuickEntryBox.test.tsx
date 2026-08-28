@@ -240,6 +240,7 @@ vi.mock("lucide-react", () => {
     Flag: MockIcon("lucide-flag"),
     TriangleAlert: MockIcon("lucide-triangle-alert"),
     Zap: MockIcon("lucide-zap"),
+    ShieldCheck: MockIcon("lucide-shield-check"),
     Eye: MockIcon("lucide-eye"),
     EyeOff: MockIcon("lucide-eye-off"),
     Github: MockIcon("lucide-github"),
@@ -435,6 +436,7 @@ const QUICK_ENTRY_ACTION_BUTTONS = [
   ["GitHub", "quick-entry-github-toggle"],
   ["Session advisor", "quick-entry-session-advisor-toggle"],
   ["Priority", "quick-entry-priority-button"],
+  ["Approval", "quick-entry-plan-approval-toggle"],
   ["Fast", "quick-entry-fast-toggle"],
   ["Save", "quick-entry-save"],
 ] as const;
@@ -444,6 +446,7 @@ const QUICK_ENTRY_PRIMARY_ICON_BUTTON_IDS = [
   "quick-entry-github-toggle",
   "quick-entry-session-advisor-toggle",
   "quick-entry-priority-button",
+  "quick-entry-plan-approval-toggle",
   "quick-entry-fast-toggle",
 ] as const;
 
@@ -936,17 +939,18 @@ describe("QuickEntryBox", () => {
       expandQuickEntry();
 
       const actionButtonTestIds = getActionButtonTestIdsInDomOrder();
-      expect(actionButtonTestIds.slice(-6)).toEqual([
+      expect(actionButtonTestIds.slice(-7)).toEqual([
         "quick-entry-attach",
         "quick-entry-github-toggle",
         "quick-entry-session-advisor-toggle",
         "quick-entry-priority-button",
+        "quick-entry-plan-approval-toggle",
         "quick-entry-fast-toggle",
         "quick-entry-save",
       ]);
 
       const primaryGroup = screen.getByTestId("quick-entry-primary-group");
-      for (const testId of ["quick-entry-attach", "quick-entry-github-toggle", "quick-entry-session-advisor-toggle", "quick-entry-priority-button", "quick-entry-fast-toggle", "quick-entry-save"]) {
+      for (const testId of ["quick-entry-attach", "quick-entry-github-toggle", "quick-entry-session-advisor-toggle", "quick-entry-priority-button", "quick-entry-plan-approval-toggle", "quick-entry-fast-toggle", "quick-entry-save"]) {
         expect(primaryGroup.contains(screen.getByTestId(testId))).toBe(true);
       }
       const optionsGroup = screen.getByTestId("quick-entry-options-group");
@@ -1290,6 +1294,7 @@ describe("QuickEntryBox", () => {
     ) {
       switch (testId) {
         case "quick-entry-fast-toggle":
+        case "quick-entry-plan-approval-toggle":
           expect(screen.getByTestId(testId)).toHaveAttribute("aria-pressed", "true");
           break;
         case "quick-entry-github-toggle":
@@ -2126,6 +2131,35 @@ describe("QuickEntryBox", () => {
       const payload = props.onCreate.mock.calls[0]?.[0];
       expect(payload).not.toHaveProperty("branch");
       expect(payload).not.toHaveProperty("baseBranch");
+    });
+
+    it("keeps plan approval sticky across submits and remounts until clicked off", async () => {
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      const first = renderQuickEntryBox({ onCreate });
+      expandQuickEntry();
+      const approvalToggle = screen.getByTestId("quick-entry-plan-approval-toggle");
+      const fastToggle = screen.getByTestId("quick-entry-fast-toggle");
+      expect(approvalToggle).toHaveAttribute("aria-pressed", "false");
+
+      fireEvent.click(approvalToggle);
+      fireEvent.click(fastToggle);
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "First approval task" } });
+      fireEvent.click(screen.getByTestId("quick-entry-save"));
+      await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ requirePlanApproval: true, executionMode: "fast" })));
+      await waitFor(() => expect(screen.getByTestId("quick-entry-input")).toHaveValue(""));
+      expect(screen.getByTestId("quick-entry-plan-approval-toggle")).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("quick-entry-fast-toggle")).toHaveAttribute("aria-pressed", "false");
+
+      first.unmount();
+      renderQuickEntryBox({ onCreate });
+      expandQuickEntry();
+      const remountedToggle = screen.getByTestId("quick-entry-plan-approval-toggle");
+      expect(remountedToggle).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(remountedToggle);
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "Second ordinary task" } });
+      fireEvent.click(screen.getByTestId("quick-entry-save"));
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+      expect(onCreate.mock.calls[1]?.[0]).not.toHaveProperty("requirePlanApproval");
     });
 
     it("toggles Fast pressed state", () => {

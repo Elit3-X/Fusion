@@ -1522,7 +1522,7 @@ export class TriageProcessor {
     Recovery finalizes an already-written PROMPT.md and must use the same merged project/workflow settings as fresh triage. The project planApprovalMode value stays project-scoped while workflow requirePlanApproval may overlay, so auto-approve-all still wins for ordinary plan approval.
     */
     const settings = await mergeEffectiveSettings(this.store, task, await this.store.getSettings());
-    const approvalRequired = resolvePlanApprovalRequired(settings);
+    const approvalRequired = resolvePlanApprovalRequired(settings, task);
     const promptPath = join(this.rootDir, ".fusion", "tasks", task.id, "PROMPT.md");
     const written = await readFile(promptPath, "utf-8").catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -5268,7 +5268,7 @@ export class TriageProcessor {
     FNXC:PlanApproval 2026-07-04-12:15:
     FN-7526 re-verified this invariant end to end: every finalizeApprovedTask caller (specifyTask, recoverApprovedTask, retryUnavailablePlanReview, tryFinalizeExplicitDuplicateMarker) already derives `settings` from mergeEffectiveSettings so planApprovalMode (never a MOVED_SETTINGS_KEYS/workflow-owned key) survives any stored workflow requirePlanApproval overlay untouched. No production defect was found; regression tests were added across every surface to lock the invariant so a future bare-settings call site (e.g. `{ requirePlanApproval }` without planApprovalMode) is caught immediately instead of silently reintroducing the reported parking behavior.
     */
-    if (resolvePlanApprovalRequired(settings)) {
+    if (resolvePlanApprovalRequired(settings, latestTransitionTask ?? task)) {
       /*
        * FNXC:PlanApproval 2026-07-04-22:41:
        * FN-7569 — idempotency short-circuit. Compare the freshly written PROMPT.md against

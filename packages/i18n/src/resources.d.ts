@@ -8416,6 +8416,18 @@ export default interface Resources {
         "confirmTitle": "Reset this task?",
         "resetSuccess": "Reset {{id}} — fresh run will be allocated"
       },
+      "respecify": {
+        "btn": "Respecify",
+        "charCount_one": "{{count}}/2000 characters",
+        "charCount_other": "{{count}}/2000 characters",
+        "error": "Failed to request plan revision",
+        "help": "Describe what you want changed in the existing plan.",
+        "modalTitle": "Respecify plan",
+        "placeholder": "Enter your requested changes...",
+        "submit": "Respecify",
+        "submitting": "Submitting...",
+        "success": "Plan sent back for revision"
+      },
       "retries": {
         "branchConflict": "Branch conflict recovery",
         "branchConflictTitle": "FN-4068 branch-conflict recovery retries",
@@ -9015,6 +9027,14 @@ export default interface Resources {
       "paused": "paused",
       "pausedByAgent": "paused by agent",
       "plan": "Plan",
+      "planApproval": {
+        "approve": "Approve",
+        "approveFailed": "Failed to approve plan: {{error}}",
+        "approving": "Approving...",
+        "copy": "Review the plan before implementation starts.",
+        "replanCapCopy": "Review the current plan, then approve it or request specific changes.",
+        "title": "Need Your Review"
+      },
       "planButtonTitle": "Open planning mode with current description",
       "planModel": "Plan Model",
       "prBadgeTitle": "PR #{{number}}: {{title}}",
@@ -9088,6 +9108,7 @@ export default interface Resources {
       "subtask": "Subtask",
       "subtaskButtonTitle": "Break down into AI-generated subtasks",
       "toggleFastMode": "Toggle fast execution mode",
+      "togglePlanApproval": "Wait for my approval before execution",
       "unarchive": "Unarchive",
       "unarchiveFailed": "Failed to unarchive {{taskId}}: {{error}}",
       "unarchiveTask": "Unarchive task",

@@ -95,6 +95,7 @@ export interface BuildTaskActionMenuModelOptions {
   hasDuplicateHandler?: boolean;
   hasRetryHandler?: boolean;
   hasResetHandler?: boolean;
+  hasRespecifyHandler?: boolean;
   hasAssignedAgent?: boolean;
   hasBypassReviewHandler?: boolean;
   mergeStrategy?: string;
@@ -111,6 +112,7 @@ export interface BuildTaskActionMenuModelOptions {
   onOpenRefine?: () => void;
   onRetry?: () => void;
   onReset?: () => void;
+  onRespecify?: () => void;
   onTogglePause?: () => void;
   onMerge?: () => void;
   onStartPrReview?: () => void;
@@ -258,6 +260,7 @@ export function buildTaskActionMenuModel(options: BuildTaskActionMenuModelOption
     hasDuplicateHandler = Boolean(options.onDuplicate),
     hasRetryHandler = Boolean(options.onRetry),
     hasResetHandler = Boolean(options.onReset),
+    hasRespecifyHandler = Boolean(options.onRespecify),
     hasBypassReviewHandler = Boolean(options.onBypassReview),
   } = options;
   const isTaskPaused = Boolean(task.paused || task.userPaused);
@@ -325,6 +328,15 @@ export function buildTaskActionMenuModel(options: BuildTaskActionMenuModelOption
       label: t("taskDetail.githubTracking.enableCheckboxLabel", "Enable GitHub tracking"),
       onSelect: options.onEnableGithubTracking,
     });
+  }
+
+  /*
+  FNXC:TaskRecoveryVocabulary 2026-08-28-06:24:
+  Respecify is Reset's non-destructive counterpart: it preserves the plan and worktree, then
+  re-plans with an operator note. Keep it with ordinary actions, never the destructive group.
+  */
+  if (hasRespecifyHandler && isMutableLiveColumn(task.column, currentColumnFlags)) {
+    actions.push({ id: "respecify", label: t("taskDetail.respecify.btn", "Respecify"), tone: "default", onSelect: options.onRespecify });
   }
 
   if (hasResetHandler && isMutableLiveColumn(task.column, currentColumnFlags)) {

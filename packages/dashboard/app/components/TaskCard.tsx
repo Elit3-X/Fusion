@@ -20,11 +20,12 @@ import { resolveEffectiveAutoMerge } from "../../../core/src/merge/task-merge";
 // resolver — like resolveEffectiveAutoMerge above — must be imported from its source module
 // directly rather than the package barrel.
 import { resolveEffectivePlannerOversightLevel } from "../../../core/src/workflows/workflow-settings-resolver";
-import { addressPrFeedback, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, refreshPrStatus, fetchWorkflowSettingValues, fetchBoardWorkflows, type WorkflowFieldDefinition, type RevertTaskOptions, type RevertTaskResult } from "../api";
+import { addressPrFeedback, approvePlan, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, refreshPrStatus, fetchWorkflowSettingValues, fetchBoardWorkflows, type WorkflowFieldDefinition, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { GitHubBadge } from "./GitHubBadge";
 import { GitLabBadge } from "./GitLabBadge";
 import { RuntimeFallbackBadge } from "./RuntimeFallbackBadge";
 import { PrCreateModal } from "./PrCreateModal";
+import { RespecifyPlanDialog } from "./RespecifyPlanDialog";
 import { ProviderIcon } from "./ProviderIcon";
 import { PluginSlot } from "./PluginSlot";
 import { useBadgeWebSocket } from "../hooks/useBadgeWebSocket";
@@ -665,6 +666,96 @@ export function ExternalBlockNotice({ task, variant, onOpenChatWithPrefill, onRe
   );
 }
 
+interface PlanApprovalNoticeProps {
+  task: Task;
+  variant: "card" | "list" | "detail";
+  projectId?: string;
+  addToast: (message: string, type?: ToastType) => void;
+  onTaskUpdated?: (task: Task) => void;
+  isIntakeColumn?: boolean;
+}
+
+/*
+FNXC:PlanApproval 2026-08-28-06:24:
+Every board surface shares one approval notice. Approve releases the reviewed plan; Respecify keeps
+that plan as revision source, and both controls stop propagation so card navigation never wins.
+*/
+export function PlanApprovalNotice({
+  task,
+  variant,
+  projectId,
+  addToast,
+  onTaskUpdated,
+  isIntakeColumn = true,
+}: PlanApprovalNoticeProps) {
+  const { t } = useTranslation("app");
+  const [isApproving, setIsApproving] = useState(false);
+  const [showRespecify, setShowRespecify] = useState(false);
+  const awaitingApproval = isTaskAwaitingPlanApproval(task, isIntakeColumn);
+  if (isTaskExternallyBlocked(task) || !awaitingApproval) return null;
+
+  const replanCap = isReviewBudgetExhaustedApproval(task);
+  const approve = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!task.prompt || isApproving) return;
+    setIsApproving(true);
+    try {
+      const updated = await approvePlan(task.id, projectId);
+      addToast(t("taskDetail.plan.approved", "Plan approved — {{id}} moved to Todo", { id: task.id }), "success");
+      onTaskUpdated?.(updated);
+    } catch (error) {
+      addToast(t("tasks.planApproval.approveFailed", "Failed to approve plan: {{error}}", { error: getErrorMessage(error) }), "error");
+      setIsApproving(false);
+    }
+  };
+
+  return (
+    <>
+      <div
+        className={`plan-approval-notice plan-approval-notice--${variant}`}
+        role="alert"
+        data-testid={`plan-approval-${variant}-${task.id}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <strong className="plan-approval-notice__title">
+          {replanCap
+            ? t("taskDetail.plan.replanCapHeadline", "Approval needed: Plan Review did not converge")
+            : t("tasks.planApproval.title", "Need Your Review")}
+        </strong>
+        <span className="plan-approval-notice__copy">
+          {replanCap
+            ? t("tasks.planApproval.replanCapCopy", "Review the current plan, then approve it or request specific changes.")
+            : t("tasks.planApproval.copy", "Review the plan before implementation starts.")}
+        </span>
+        <span className="plan-approval-notice__actions">
+          <button type="button" className="btn btn-primary btn-sm" onClick={(event) => void approve(event)} disabled={!task.prompt || isApproving}>
+            {isApproving ? t("tasks.planApproval.approving", "Approving...") : t("tasks.planApproval.approve", "Approve")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowRespecify(true);
+            }}
+          >
+            {t("taskDetail.respecify.btn", "Respecify")}
+          </button>
+        </span>
+      </div>
+      {showRespecify && (
+        <RespecifyPlanDialog
+          taskId={task.id}
+          projectId={projectId}
+          addToast={addToast}
+          onClose={() => setShowRespecify(false)}
+          onSubmitted={onTaskUpdated}
+        />
+      )}
+    </>
+  );
+}
+
 interface TaskCardProps {
   task: Task;
   projectId?: string;
@@ -1108,6 +1199,7 @@ function TaskCardComponent({
   const { locale } = useLocaleFormat();
   const columnLabel = useColumnLabel();
   const [fileDragOver, setFileDragOver] = useState(false);
+  const [showRespecifyPlanDialog, setShowRespecifyPlanDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editDescription, setEditDescription] = useState(task.description || "");
   /*
@@ -2787,6 +2879,7 @@ function TaskCardComponent({
     hasDuplicateHandler: Boolean(onDuplicateTask),
     hasRetryHandler: Boolean(onRetryTask),
     hasResetHandler: Boolean(onResetTask),
+    hasRespecifyHandler: true,
     hasAssignedAgent: Boolean(task.assignedAgentId),
     autoMergeEnabled: effectiveAutoMerge,
     mergeStrategy,
@@ -2797,6 +2890,7 @@ function TaskCardComponent({
     onOpenRefine: onOpenRefine ? () => onOpenRefine(task) : undefined,
     onRetry: onRetryTask ? handleTaskActionRetry : undefined,
     onReset: onResetTask ? handleTaskActionReset : undefined,
+    onRespecify: () => setShowRespecifyPlanDialog(true),
     onTogglePause: (isPaused ? onUnpauseTask : onPauseTask) ? handleTaskActionTogglePause : undefined,
     onMerge: onMergeTask ? handleTaskActionMerge : undefined,
     onStartPrReview: () => setIsPrCreateOpen(true),
@@ -3085,7 +3179,7 @@ function TaskCardComponent({
     void handleTaskActionRetry();
   }, [handleTaskActionRetry]);
 
-  const cardClass = `card${queued ? " queued" : ""}${isAgentActive ? " agent-active" : ""}${isFailed ? " failed" : ""}${isPaused ? " paused" : ""}${isExternalBlocked ? " external-blocked" : ""}${isAwaitingApproval ? " awaiting-approval" : ""}${isAwaitingInput ? " awaiting-input" : ""}${fileDragOver ? " file-drop-target" : ""}${isEditing ? " card-editing" : ""}${isSaving ? " card-saving" : ""}`;
+  const cardClass = `card${queued ? " queued" : ""}${isAgentActive ? " agent-active" : ""}${isFailed ? " failed" : ""}${isPaused ? " paused" : ""}${isExternalBlocked ? " external-blocked" : ""}${isAwaitingApproval ? " awaiting-approval plan-approval-hold" : ""}${isAwaitingInput ? " awaiting-input" : ""}${fileDragOver ? " file-drop-target" : ""}${isEditing ? " card-editing" : ""}${isSaving ? " card-saving" : ""}`;
 
   const filesChangedButton = (() => {
     if (isWipColumn) {
@@ -3557,6 +3651,15 @@ function TaskCardComponent({
           onOpenChatWithPrefill={onOpenChatWithPrefill}
           onRetryTask={onRetryTask}
           addToast={addToast}
+        />
+      )}
+      {!isExternalBlocked && isAwaitingApproval && (
+        <PlanApprovalNotice
+          task={task}
+          variant="card"
+          projectId={projectId}
+          addToast={addToast}
+          isIntakeColumn={isIntakeColumn}
         />
       )}
       <div className="card-header">
@@ -4390,6 +4493,14 @@ function TaskCardComponent({
         </div>
       )}
       <PluginSlot slotId="task-card-badge" projectId={projectId} />
+      {showRespecifyPlanDialog && (
+        <RespecifyPlanDialog
+          taskId={task.id}
+          projectId={projectId}
+          addToast={addToast}
+          onClose={() => setShowRespecifyPlanDialog(false)}
+        />
+      )}
       {(showCreatePrQuickAction || isPrCreateOpen) && (
         <PrCreateModal
           open={isPrCreateOpen}

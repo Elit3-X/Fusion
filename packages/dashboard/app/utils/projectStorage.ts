@@ -52,6 +52,7 @@ export const PROJECT_STORAGE_KEYS: string[] = [
   "kb-files-line-numbers",
   "kb-dashboard-dock-files-current",
   "kb-dashboard-board-workflow-selection",
+  "kb-task-create-require-plan-approval",
   "fusion-plugin-dependency-graph:positions",
 ];
 

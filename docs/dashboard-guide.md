@@ -80,9 +80,15 @@ A stale self-owned session registration is reconciled only under the ordinary li
 
 Reset retains the task ID, title, description, dependencies, workflow selection, comments, attachments, attachment-backed artifacts, operator-authored documents and their revisions, spec-lock history, commit associations, logs, and audit history. It clears agent-only documents and run-produced planning, verification, merge, and artifact projections; held symbol locks are released as history. If cancellation, cleanup, or publication fails, Fusion reports incomplete cleanup and does not expose the task to Planning. Once publication commits, a task-file mirror problem is repaired separately and does not turn the successful reset into a false failure.
 
+### Respecify
+
+**Respecify** is the non-destructive counterpart to Reset. It first opens a note dialog asking what should change, then returns the card to Planning while preserving its current plan file, task worktree, branch, and history. Fusion clears the prior approved-plan fingerprint and supersedes the current Plan Review result, so the preserved plan is revision source rather than an already-approved result. The planner receives both that plan and the operator note and must produce a revised plan before the task can continue.
+
+A task created with **Wait for my approval before execution** stops after planning. The preference is available beside **Fast** in Quick Entry and New Task, is scoped to the current project, and stays enabled across submissions until clicked again. Waiting cards show a full-card **Need Your Review** notice in Board and List. Use **Approve** to continue or **Respecify** to request specific changes; Task Detail keeps **Reject Plan** available for the destructive regenerate-from-scratch path.
+
 ## Task Recovery
 
-Every live card, including an intake or planning card, offers **Retry**, **Reset**, and **Delete**. **Retry** stays in the current column: in planning it rebuilds the plan from the original request; during work it discards in-flight work and starts again on the approved plan; during review it discards review verdicts and reviews the produced work again. **Reset** starts the task over from only its original request, discarding plan, work, and reviews. **Delete** removes the task.
+Every live card, including an intake or planning card, offers **Retry**, **Respecify**, **Reset**, and **Delete**. **Retry** stays in the current column: in planning it rebuilds the plan from the original request; during work it discards in-flight work and starts again on the approved plan; during review it discards review verdicts and reviews the produced work again. **Respecify** preserves the plan and worktree while revising the plan from an operator note. **Reset** starts the task over from only its original request, discarding plan, work, and reviews. **Delete** removes the task.
 
 Retry refuses terminal or archived columns, workspace tasks, active merges, and columns without a workflow entry node of their own. A retry interrupted during publication leaves the card paused with `restart-stage-publishing`; this durable safety fence is retained for compatibility, and selecting **Retry** again safely resumes publication.
 
