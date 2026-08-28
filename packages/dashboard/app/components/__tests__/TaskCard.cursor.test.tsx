@@ -223,6 +223,10 @@ function parseCursorRules(css: string): CursorRule[] {
 }
 
 const cursorRules = parseCursorRules(loadAllAppCss());
+const tileRootSelector = ".card[data-id]:not(.card-editing)";
+const tileDescendantSelector = ".card[data-id] *:not(:disabled, :disabled *, .card-editing *)";
+const tileTextEntrySelector = ".card[data-id] :is(input, textarea, select):not(:disabled)";
+const activePanSelector = ".board.board-workflow-columns.is-mouse-panning :is(*, .card)";
 
 function resolveOwnCursor(element: Element): string | undefined {
   let winner: CursorRule | undefined;
@@ -268,13 +272,22 @@ function makeTask(id: string, overrides: Partial<Task> = {}): Task {
 const noop = () => {};
 const updateTask = async (id: string) => makeTask(id);
 
-function renderCursorFixtures(): { board: HTMLElement; cards: HTMLElement[] } {
+type CursorFixtures = {
+  board: HTMLElement;
+  cards: HTMLElement[];
+  minimalCard: HTMLElement;
+  populatedCard: HTMLElement;
+  pausedCard: HTMLElement;
+  editingCard: HTMLElement;
+};
+
+function renderCursorFixtures(): CursorFixtures {
   const board = document.createElement("main");
   board.className = "board board-workflow-columns";
   document.body.append(board);
 
-  const minimal = makeTask("FN-220-MIN");
-  const populated = makeTask("FN-220-POP", {
+  const minimal = makeTask("FN-229-MIN");
+  const populated = makeTask("FN-229-POP", {
     column: "in-progress",
     steps: [
       { name: "Preflight", status: "done" },
@@ -298,22 +311,23 @@ function renderCursorFixtures(): { board: HTMLElement; cards: HTMLElement[] } {
       reviewerFallback: 0,
       total: 1,
     },
-    prInfo: { number: 220, url: "https://github.com/runfusion/fusion/pull/220", status: "open", title: "Cursor contract" } as Task["prInfo"],
+    prInfo: { number: 229, url: "https://github.com/runfusion/fusion/pull/229", status: "open", title: "Cursor contract" } as Task["prInfo"],
     githubTracking: {
       enabled: true,
-      issue: { number: 220, url: "https://github.com/runfusion/fusion/issues/220", state: "open", title: "Cursor contract" },
+      issue: { number: 229, url: "https://github.com/runfusion/fusion/issues/229", state: "open", title: "Cursor contract" },
     } as Task["githubTracking"],
     sourceMetadata: { nearDuplicateOf: "FN-100" },
   });
-  const editing = makeTask("FN-220-EDIT");
+  const paused = makeTask("FN-229-PAUSED", { paused: true });
+  const editing = makeTask("FN-229-EDIT");
 
   render(
     <>
-      {[minimal, populated, editing].map((task) => (
+      {[minimal, populated, paused, editing].map((task) => (
         <TaskCard
           key={task.id}
           task={task}
-          projectId="project-fn-220"
+          projectId="project-fn-229"
           onOpenDetail={noop}
           onOpenDetailWithTab={noop}
           onOpenMission={noop}
@@ -326,20 +340,30 @@ function renderCursorFixtures(): { board: HTMLElement; cards: HTMLElement[] } {
           onResetTask={updateTask}
           onDuplicateTask={updateTask}
           addToast={noop}
-          prNode={task.id === populated.id ? { id: "PR-220", state: "open", prNumber: 220 } : undefined}
+          prNode={task.id === populated.id ? { id: "PR-229", state: "open", prNumber: 229 } : undefined}
         />
       ))}
     </>,
     { container: board },
   );
 
-  const editingCard = board.querySelector<HTMLElement>('[data-id="FN-220-EDIT"]')!;
-  fireEvent.click(editingCard.querySelector(".card-edit-btn")!);
-
-  const cards = [minimal.id, populated.id, editing.id].map((id) => board.querySelector<HTMLElement>(`.card[data-id="${id}"]`)!);
+  const cards = [minimal.id, populated.id, paused.id, editing.id].map((id) => board.querySelector<HTMLElement>(`.card[data-id="${id}"]`)!);
   expect(cards.every(Boolean)).toBe(true);
-  expect(cards[2].classList.contains("card-editing")).toBe(true);
-  return { board, cards };
+  const [minimalCard, populatedCard, pausedCard, editingCard] = cards;
+  expect(pausedCard.classList.contains("paused")).toBe(true);
+  expect(editingCard.classList.contains("card-editing")).toBe(false);
+  fireEvent.click(editingCard.querySelector(".card-edit-btn")!);
+  expect(editingCard.classList.contains("card-editing")).toBe(true);
+
+  const nonClickableDependencyBadge = document.createElement("span");
+  nonClickableDependencyBadge.className = "card-dep-badge";
+  nonClickableDependencyBadge.textContent = "FN-101";
+  const fanoutBadge = document.createElement("span");
+  fanoutBadge.className = "card-fanout-badge";
+  fanoutBadge.textContent = "Blocks 1";
+  populatedCard.append(nonClickableDependencyBadge, fanoutBadge);
+
+  return { board, cards, minimalCard, populatedCard, pausedCard, editingCard };
 }
 
 function cardSurfaces(card: HTMLElement): Element[] {
@@ -348,10 +372,21 @@ function cardSurfaces(card: HTMLElement): Element[] {
 
 function expectCursorAcrossCard(card: HTMLElement, expected: string, includeDisabled = false): void {
   for (const element of cardSurfaces(card)) {
-    if (!includeDisabled && element.matches(":disabled")) continue;
+    if (!includeDisabled && element.matches(":disabled, :disabled *")) continue;
     expect(resolveCursor(element), element.outerHTML).toBe(expected);
-    expect(resolveCursor(element), element.outerHTML).not.toBe("pointer");
   }
+}
+
+function mediaBlocks(css: string): string[] {
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, (comment) => " ".repeat(comment.length));
+  const blocks: string[] = [];
+  const pattern = /@media\b[^{}]*\{/g;
+  for (const match of source.matchAll(pattern)) {
+    const open = (match.index ?? 0) + match[0].length - 1;
+    const close = findBalancedEnd(source, open, "{", "}");
+    blocks.push(source.slice(open + 1, close));
+  }
+  return blocks;
 }
 
 const taskControlClasses = [
@@ -373,75 +408,102 @@ const taskControlClasses = [
   "card-send-back-btn",
 ] as const;
 
+function appendDisabledControls(card: HTMLElement): {
+  waitElements: Element[];
+  unavailableElements: Element[];
+} {
+  const waitButton = document.createElement("button");
+  waitButton.className = "card-create-pr-action";
+  waitButton.disabled = true;
+  const waitIcon = document.createElement("svg");
+  const waitIconPath = document.createElement("path");
+  waitIcon.append(waitIconPath);
+  waitButton.append(waitIcon);
+
+  const unavailableButton = document.createElement("button");
+  unavailableButton.className = "card-promote-action card-send-back-btn";
+  unavailableButton.disabled = true;
+  const unavailableIcon = document.createElement("svg");
+  const unavailableIconPath = document.createElement("path");
+  unavailableIcon.append(unavailableIconPath);
+  unavailableButton.append(unavailableIcon);
+  card.append(waitButton, unavailableButton);
+
+  return {
+    waitElements: [waitButton, waitIcon, waitIconPath],
+    unavailableElements: [unavailableButton, unavailableIcon, unavailableIconPath],
+  };
+}
+
 /*
-FNXC:TaskCardCursorTest 2026-08-28-09:42 (FN-220):
-Cursor acceptance is desktop/tablet-only because touch mobile has no hover cursor and disables the Board mouse-pan hook. ListView's `.list-row` and `.list-card` remain a separate activation affordance by design, so this Board TaskCard contract must not rewrite them.
+FNXC:TaskCardCursorTest 2026-08-28-13:19 (FN-229):
+Board task tiles are clickable surfaces, so desktop and tablet acceptance requires a uniform pointing hand at rest and a closed grabbing hand throughout active pan. Disabled controls and inline editing retain native state/form cursors until the pan override applies.
+
+Touch mobile has no hover cursor and disables the Board mouse-pan hook; no cursor declaration may introduce a breakpoint-specific branch. ListView cards, the portaled context menu, the unbound skeleton, and shared non-task cards stay outside this selector. The `.card.queued` variant remains unreachable because no production TaskCard host passes `queued`.
 */
-describe("TaskCard shipped cursor cascade (FN-220)", () => {
+describe("TaskCard shipped cursor cascade (FN-229)", () => {
   afterEach(() => {
     cleanup();
     document.body.replaceChildren();
     vi.clearAllMocks();
   });
 
-  it("resolves every minimal, populated, and editing tile surface to default at rest", () => {
-    const { cards } = renderCursorFixtures();
+  it("resolves every minimal, populated, and paused tile surface to pointer at rest", () => {
+    const { minimalCard, populatedCard, pausedCard } = renderCursorFixtures();
 
-    for (const card of cards) expectCursorAcrossCard(card, "default");
-    expect(cards[1].querySelectorAll("button, [role=button], a").length).toBeGreaterThan(5);
-    expect(cards[1].querySelector(".card-session-files")).not.toBeNull();
-    expect(cards[1].querySelector(".card-dep-badge.clickable")).not.toBeNull();
-    expect(cards[1].querySelector(".card-mission-badge")).not.toBeNull();
-    expect(cards[1].querySelector(".card-retry-badge")).not.toBeNull();
-    expect(cards[1].querySelector(".card-github-badge")).not.toBeNull();
+    for (const card of [minimalCard, populatedCard, pausedCard]) {
+      expectCursorAcrossCard(card, "pointer");
+      for (const element of cardSurfaces(card)) {
+        if (element.matches(":disabled, :disabled *")) continue;
+        expect(resolveCursor(element), element.outerHTML).not.toBe("default");
+      }
+    }
+
+    expect(populatedCard.querySelectorAll("button, [role=button], a").length).toBeGreaterThan(5);
+    expect(populatedCard.querySelector(".card-session-files")).not.toBeNull();
+    expect(populatedCard.querySelector(".card-dep-badge.clickable")).not.toBeNull();
+    expect(populatedCard.querySelector(".card-dep-badge:not(.clickable)")).not.toBeNull();
+    expect(populatedCard.querySelector(".card-fanout-badge")).not.toBeNull();
+    expect(populatedCard.querySelector(".card-mission-badge")).not.toBeNull();
+    expect(populatedCard.querySelector(".card-retry-badge")).not.toBeNull();
+    expect(populatedCard.querySelector(".card-github-badge")).not.toBeNull();
   });
 
-  it("preserves disabled state cursors at rest and overrides them while panning", () => {
-    const { board, cards } = renderCursorFixtures();
-    const waitButton = document.createElement("button");
-    waitButton.className = "card-create-pr-action";
-    waitButton.disabled = true;
-    const waitIcon = document.createElement("svg");
-    const waitIconPath = document.createElement("path");
-    waitIcon.append(waitIconPath);
-    waitButton.append(waitIcon);
-    const unavailableButton = document.createElement("button");
-    unavailableButton.className = "card-promote-action card-send-back-btn";
-    unavailableButton.disabled = true;
-    const unavailableIcon = document.createElement("svg");
-    unavailableButton.append(unavailableIcon);
-    cards[0].append(waitButton, unavailableButton);
+  it("keeps a paused tile root and its children on the pointing hand", () => {
+    const { pausedCard } = renderCursorFixtures();
+    const taskCardCss = loadComponentCss("TaskCard.css");
+    const pausedRule = taskCardCss.match(/\.card\.paused\s*\{([^}]*)\}/)?.[1];
 
-    for (const element of [waitButton, waitIcon, waitIconPath]) expect(resolveCursor(element)).toBe("wait");
-    for (const element of [unavailableButton, unavailableIcon]) expect(resolveCursor(element)).toBe("not-allowed");
-
-    board.classList.add("is-mouse-panning");
-    for (const element of [waitButton, waitIcon, waitIconPath, unavailableButton, unavailableIcon]) {
-      expect(resolveCursor(element)).toBe("grabbing");
-    }
+    expect(pausedCard.classList.contains("card")).toBe(true);
+    expect(pausedCard.classList.contains("paused")).toBe(true);
+    expectCursorAcrossCard(pausedCard, "pointer");
+    expect(pausedRule).toContain("opacity: 0.55");
+    expect(pausedRule).toContain("border-left: 3px solid var(--text-muted)");
+    expect(pausedRule).not.toMatch(/\bcursor\s*:/);
   });
 
   it("resolves every tile surface to grabbing for the full active pan", () => {
-    const { board, cards } = renderCursorFixtures();
+    const { board, cards, minimalCard } = renderCursorFixtures();
+    appendDisabledControls(minimalCard);
     board.classList.add("is-mouse-panning");
 
     for (const card of cards) expectCursorAcrossCard(card, "grabbing", true);
   });
 
-  it("covers every TaskCard-only control class at rest and while panning", () => {
-    const { board, cards } = renderCursorFixtures();
-    const source = readAppFile("components/TaskCard.tsx");
-    const controls = taskControlClasses.map((classNames) => {
-      for (const className of classNames.split(" ")) expect(source).toContain(className);
-      const control = document.createElement("button");
-      control.className = classNames;
-      cards[0].append(control);
-      expect(resolveCursor(control), classNames).toBe("default");
-      return control;
-    });
+  it("keeps editing on form cursors until an active pan begins", () => {
+    const { board, editingCard } = renderCursorFixtures();
+    const textarea = editingCard.querySelector<HTMLTextAreaElement>(".card-edit-desc-textarea")!;
+    const content = editingCard.querySelector<HTMLElement>(".card-editing-content")!;
+
+    expect(resolveCursor(editingCard)).toBe("default");
+    expect(resolveCursor(content)).toBe("default");
+    expect(resolveCursor(textarea)).toBe("auto");
+
+    textarea.disabled = true;
+    expect(resolveCursor(textarea)).toBe("not-allowed");
 
     board.classList.add("is-mouse-panning");
-    for (const control of controls) expect(resolveCursor(control), control.className).toBe("grabbing");
+    for (const element of cardSurfaces(editingCard)) expect(resolveCursor(element)).toBe("grabbing");
   });
 
   it("does not change shared cards, the skeleton, ListView, or portaled menus", () => {
@@ -468,27 +530,72 @@ describe("TaskCard shipped cursor cascade (FN-220)", () => {
     document.body.append(sharedCard, skeleton, listCard, portaledMenu);
 
     for (const element of [sharedCard, sharedButton, skeleton, skeletonButton, listCard, portaledMenu, menuItem]) {
-      expect(element.matches(".card[data-id]"), element.outerHTML).toBe(false);
-      expect(element.matches(".card[data-id] *:not(:disabled, :disabled *)"), element.outerHTML).toBe(false);
+      expect(element.matches(tileRootSelector), element.outerHTML).toBe(false);
+      expect(element.matches(tileDescendantSelector), element.outerHTML).toBe(false);
     }
+    expect(resolveCursor(sharedCard)).not.toBe("pointer");
     expect(resolveCursor(sharedButton)).toBe("pointer");
     expect(resolveCursor(skeletonButton)).toBe("pointer");
     expect(resolveCursor(listCard)).toBe("pointer");
     expect(resolveCursor(menuItem)).toBe("pointer");
   });
 
-  it("ratchets the scoped tile and active-pan declarations to rendered TaskCard markup", () => {
+  it("preserves disabled state cursors at rest and overrides nested icons while panning", () => {
+    const { board, minimalCard } = renderCursorFixtures();
+    const { waitElements, unavailableElements } = appendDisabledControls(minimalCard);
+
+    for (const element of waitElements) expect(resolveCursor(element)).toBe("wait");
+    for (const element of unavailableElements) expect(resolveCursor(element)).toBe("not-allowed");
+
+    board.classList.add("is-mouse-panning");
+    for (const element of [...waitElements, ...unavailableElements]) {
+      expect(resolveCursor(element)).toBe("grabbing");
+    }
+  });
+
+  it("covers every TaskCard-only control class at rest and while panning", () => {
+    const { board, minimalCard } = renderCursorFixtures();
+    const source = readAppFile("components/TaskCard.tsx");
+    const controls = taskControlClasses.map((classNames) => {
+      for (const className of classNames.split(" ")) expect(source).toContain(className);
+      const control = document.createElement("button");
+      control.className = classNames;
+      minimalCard.append(control);
+      expect(resolveCursor(control), classNames).toBe("pointer");
+      return control;
+    });
+
+    board.classList.add("is-mouse-panning");
+    for (const control of controls) expect(resolveCursor(control), control.className).toBe("grabbing");
+  });
+
+  it("ratchets tile specificity, pan dominance, responsive scope, and TaskCard markup", () => {
     const taskCardCss = loadComponentCss("TaskCard.css");
     const boardCss = loadComponentCss("Board.css");
+    const stylesCss = readAppFile("styles.css");
     const taskCardSource = readAppFile("components/TaskCard.tsx");
+    const tileSpecificities = [
+      selectorSpecificity(tileRootSelector),
+      selectorSpecificity(tileDescendantSelector),
+      selectorSpecificity(tileTextEntrySelector),
+    ];
+    const panSpecificity = selectorSpecificity(activePanSelector);
 
-    expect(taskCardCss).not.toMatch(/cursor\s*:\s*pointer/);
+    expect(tileSpecificities).toEqual([[0, 3, 0], [0, 3, 0], [0, 3, 1]]);
+    expect(panSpecificity).toEqual([0, 4, 0]);
+    for (const specificity of tileSpecificities) expect(compareSpecificity(panSpecificity, specificity)).toBeGreaterThan(0);
+
+    expect(taskCardCss.match(/cursor\s*:\s*pointer\s*;/g)).toHaveLength(1);
+    expect(taskCardCss).toMatch(/\.card\[data-id\]:not\(\.card-editing\),\s*\.card\[data-id\]\s+\*:not\(:disabled,\s*:disabled\s+\*,\s*\.card-editing\s+\*\)\s*\{[^}]*cursor:\s*pointer;/);
+    expect(taskCardCss).toMatch(/\.card\[data-id\]\s+:is\(input,\s*textarea,\s*select\):not\(:disabled\)\s*\{[^}]*cursor:\s*auto;/);
     expect(taskCardCss.replace(/\/\*[\s\S]*?\*\//g, "")).not.toMatch(/[^{}]+\{\s*\}/);
-    expect(taskCardCss).toMatch(/\.card\[data-id\],\s*\.card\[data-id\]\s+\*:not\(:disabled,\s*:disabled\s+\*\)\s*\{[^}]*cursor:\s*default;/);
-    expect(boardCss).toMatch(/\.board\.board-workflow-columns\.is-mouse-panning\s*\{[^}]*cursor:\s*grabbing;[^}]*user-select:\s*none;/);
-    expect(boardCss).toMatch(/\.board\.board-workflow-columns\.is-mouse-panning\s+:is\(\*,\s*\.card\)\s*\{[^}]*cursor:\s*grabbing;/);
+    expect(taskCardCss).not.toMatch(/cursor\s*:[^;}]*!important/);
+    for (const css of [taskCardCss, boardCss, stylesCss]) {
+      for (const body of mediaBlocks(css)) expect(body).not.toMatch(/\bcursor\s*:/);
+    }
+
+    expect(boardCss).toMatch(/\.board\.board-workflow-columns\.is-mouse-panning\s*\{\s*cursor:\s*grabbing;\s*user-select:\s*none;\s*\}/);
+    expect(boardCss).toMatch(/\.board\.board-workflow-columns\.is-mouse-panning\s+:is\(\*,\s*\.card\)\s*\{\s*cursor:\s*grabbing;\s*\}/);
     expect(taskCardSource.match(/data-id=\{task\.id\}/g)).toHaveLength(2);
-    expect(selectorSpecificity(".card[data-id] *:not(:disabled, :disabled *)")).toEqual([0, 3, 0]);
-    expect(selectorSpecificity(".board.board-workflow-columns.is-mouse-panning :is(*, .card)")).toEqual([0, 4, 0]);
   });
 });

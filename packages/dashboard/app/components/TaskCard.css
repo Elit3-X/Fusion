@@ -24,15 +24,18 @@
 }
 
 /*
-FNXC:TaskCardCursor 2026-08-28-09:42 (FN-220):
-A board task tile is a surface rather than a link, so hovering any part of it—including controls revealed on hover—must show the normal selection arrow instead of the pointing hand. Scope this contract to `.card[data-id]` so shared non-task cards keep their own affordances.
+FNXC:TaskCardCursor 2026-08-28-13:18 (FN-229):
+A board task tile is a clickable surface that opens task detail, so its root and every non-disabled descendant show the pointing hand at rest. Inline editing is form work rather than tile activation: the editing branch inherits its normal form cursor, while enabled text-entry controls retain the native caret and disabled controls retain their busy or unavailable cursor.
 
-FNXC:TaskCardCursor 2026-08-28-10:03 (FN-220):
-Exclude disabled controls and their descendants from the tile override so icon pixels inherit the control's wait or unavailable cursor rather than resolving independently to the normal arrow. The functional pseudo-class retains (0,3,0) specificity, which still outranks TaskCard and shared button pointer declarations.
+The tile selectors remain at (0,3,0), and the text-entry carve-out is (0,3,1), both strictly below Board's active-pan rule at (0,4,0). `.card.paused` deliberately has no cursor declaration so paused tiles share this uniform pointing-hand contract without an equal-specificity source-order conflict.
 */
-.card[data-id],
-.card[data-id] *:not(:disabled, :disabled *) {
-  cursor: default;
+.card[data-id]:not(.card-editing),
+.card[data-id] *:not(:disabled, :disabled *, .card-editing *) {
+  cursor: pointer;
+}
+
+.card[data-id] :is(input, textarea, select):not(:disabled) {
+  cursor: auto;
 }
 
 .card:hover {
@@ -911,7 +914,6 @@ available on cards and list rows without changing the host's footprint or openin
 .card.paused {
   opacity: 0.55;
   border-left: 3px solid var(--text-muted);
-  cursor: default;
 }
 
 @keyframes pulse {
