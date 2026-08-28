@@ -1364,6 +1364,10 @@ export class InProcessRuntime
         // triageProcessor is constructed after the scheduler but exists by the
         // time the first scheduling pass runs.
         getInFlightTopLevelCount: () => this.triageProcessor?.getProcessingTaskIds().size ?? 0,
+        // Planning and execution share project admission capacity; this callback only nudges discovery.
+        onCapacityReleased: () => {
+          this.triageProcessor?.requestImmediatePoll();
+        },
         agentStore: this.agentStore,
         hasActiveAgentExecution: (agentId: string) => this.heartbeatMonitor?.getTrackedAgents().includes(agentId) ?? false,
         missionStore,
@@ -1826,6 +1830,10 @@ export class InProcessRuntime
           },
           onSpecifyError: (t, e) => {
             runtimeLog.error(`Triage failed for ${t.id}: ${e.message}`);
+          },
+          // Planning and execution share project admission capacity; this callback only nudges discovery.
+          onPlanningSlotReleased: () => {
+            void this.scheduler?.schedule();
           },
         },
       );

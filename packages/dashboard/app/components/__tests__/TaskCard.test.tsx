@@ -2860,7 +2860,12 @@ describe("TaskCard", () => {
       />,
     );
 
-    expect(container.querySelector('[data-testid="card-ready-FN-READY-IDLE"]')).toHaveTextContent("Ready");
+    const readyBadge = container.querySelector('[data-testid="card-ready-FN-READY-IDLE"]');
+    expect(readyBadge).toHaveTextContent("Ready");
+    expect(readyBadge).toHaveAttribute(
+      "title",
+      "Planning is done — implementation starts as soon as an implementation slot frees up.",
+    );
     expect(container.querySelector('[data-testid="card-reviewing-FN-READY-IDLE"]')).toBeNull();
   });
 
@@ -2939,6 +2944,14 @@ describe("TaskCard", () => {
     });
     const badge = (container: HTMLElement) =>
       container.querySelector('[data-testid="card-queued-to-plan-FN-QUEUED-PLAN"]');
+    const releaseGate = (reason: NonNullable<Task["releaseGate"]>["reason"]): Task["releaseGate"] => ({
+      promoteBlocked: true,
+      unplannedForExecution: true,
+      blockedOnApproval: false,
+      reason,
+      readyAtCapacityBoundary: false,
+      evaluatedAt: "2026-08-28T21:24:00.000Z",
+    });
 
     it("renders on an idle unplanned Todo card", () => {
       const { container } = render(
@@ -2946,7 +2959,37 @@ describe("TaskCard", () => {
       );
 
       expect(badge(container)).toHaveTextContent("Queued to plan");
+      expect(badge(container)).toHaveAttribute(
+        "title",
+        "Waiting for a planning slot — planning starts when an agent slot frees up",
+      );
       // Mutually exclusive with Ready — a card is never both unplanned and planned.
+      expect(container.querySelector('[data-testid="card-ready-FN-QUEUED-PLAN"]')).toBeNull();
+    });
+
+    it.each([
+      [
+        "plan-review-pending",
+        "Plan Review has not finished yet — implementation starts once the plan passes review.",
+      ],
+      [
+        "needs-replan",
+        "Waiting to revise the plan — the revision starts when a planning slot frees up.",
+      ],
+      [
+        "seed-prompt",
+        "Waiting for a planning slot — planning starts when an agent slot frees up",
+      ],
+    ] as const)("uses the server release-gate reason for %s", (reason, expectedTitle) => {
+      const { container } = render(
+        <TaskCard
+          task={queuedToPlanTask({ releaseGate: releaseGate(reason) })}
+          onOpenDetail={noop}
+          addToast={noop}
+        />,
+      );
+
+      expect(badge(container)).toHaveAttribute("title", expectedTitle);
       expect(container.querySelector('[data-testid="card-ready-FN-QUEUED-PLAN"]')).toBeNull();
     });
 

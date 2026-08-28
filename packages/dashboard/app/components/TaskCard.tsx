@@ -1760,6 +1760,24 @@ function TaskCardComponent({
   */
   const showQueuedToPlanBadge = showIdleTodoBadge && !queued && awaitingPlanning;
   /*
+  FNXC:TaskStatusBadge 2026-08-28-21:24:
+  Idle-hold tooltips must state the release-gate reason the server actually observed rather than asserting capacity for every wait. SSE and enrichment-cap rows can omit the verdict, so the existing generic planning-slot copy remains the fallback.
+  */
+  const queuedToPlanTitle = task.releaseGate?.reason === "plan-review-pending"
+    ? t(
+        "tasks.queuedToPlanPlanReviewTitle",
+        "Plan Review has not finished yet — implementation starts once the plan passes review.",
+      )
+    : task.releaseGate?.reason === "needs-replan"
+      ? t(
+          "tasks.needsReplanQueuedTitle",
+          "Waiting to revise the plan — the revision starts when a planning slot frees up.",
+        )
+      : t(
+          "tasks.queuedToPlanTitle",
+          "Waiting for a planning slot — planning starts when an agent slot frees up",
+        );
+  /*
   FNXC:TaskCardMovement 2026-08-19-18:32:
   Native task movement is intentionally absent from cards. File drops remain below because
   attaching files is a separate card interaction, while task transitions stay in the context menu.
@@ -3680,10 +3698,7 @@ function TaskCardComponent({
                   running revise cycle keeps no misleading "waiting" text.
                   */
                   : showQueuedToPlanBadge
-                    ? t(
-                        "tasks.queuedToPlanTitle",
-                        "Waiting for a planning slot — planning starts when an agent slot frees up",
-                      )
+                    ? queuedToPlanTitle
                   : showQueuedBadge && task.overlapBlockedBy
                     ? t("tasks.queuedFileOverlapTitle", "Queued due to file overlap with {{taskId}}", { taskId: task.overlapBlockedBy })
                   : showQueuedBadge && task.blockedBy
@@ -3742,7 +3757,14 @@ function TaskCardComponent({
         Suppress Ready while Plan Review (or other agent-active work) is live — finalize often clears status before plan-review, which previously stacked Ready + Reviewing on the same Todo card.
         */}
         {showReadyBadge && (
-          <span className="card-status-badge card-status-badge--todo ready" data-testid={`card-ready-${task.id}`}>
+          <span
+            className="card-status-badge card-status-badge--todo ready"
+            data-testid={`card-ready-${task.id}`}
+            title={t(
+              "tasks.readyTitle",
+              "Planning is done — implementation starts as soon as an implementation slot frees up.",
+            )}
+          >
             {t("tasks.ready", "Ready")}
           </span>
         )}

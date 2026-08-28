@@ -291,6 +291,8 @@ export interface TriageProcessorOptions {
   */
   onSpecifyComplete?: (task: Task, report: PlanningHandoffReport) => void;
   onSpecifyError?: (task: Task, error: Error) => void;
+  /** Advisory execution-lane nudge after an admitted planning promise returns its slot. */
+  onPlanningSlotReleased?: () => void;
   onAgentText?: (taskId: string, delta: string) => void;
   /** AgentStore for resolving per-agent custom instructions. */
   agentStore?: import("@fusion/core").AgentStore;
@@ -698,7 +700,7 @@ export class TriageProcessor {
           reserve: () => registerPreHeldExecutorSlot(task.id, this.options.semaphore !== undefined),
           start: async () => {
             this.coordinatorAdmittedTaskIds.add(task.id);
-            void this.specifyTask(task);
+            this.startAdmittedPlanning(task);
           },
         }));
       },
@@ -2140,6 +2142,32 @@ export class TriageProcessor {
     return true;
   }
 
+  /*
+  FNXC:ConcurrencyAdmission 2026-08-28-21:44:
+  Every admitted planning promise, including work selected through the durable coordinator provider, returns shared project capacity when it settles. Attach one common completion chain at both admission surfaces so success, rejection, and every pre-session early return immediately pull queued planning work and nudge execution rather than waiting for a timer.
+  */
+  private startAdmittedPlanning(task: Task): void {
+    void this.specifyTask(task)
+      .catch((error: unknown) => {
+        planLog.error(`${task.id}: admitted planning promise rejected:`, error);
+      })
+      .finally(() => this.notifyPlanningSlotReleased());
+  }
+
+  /*
+  FNXC:ConcurrencyAdmission 2026-08-28-21:24:
+  A settled planning promise returns shared project capacity. Pull the next queued planning card immediately and nudge execution at that event rather than waiting for a timer; this is advisory only, so the next poll still applies pause, seed-prompt, dependency, worktree, and admission-coordinator gates.
+  */
+  private notifyPlanningSlotReleased(): void {
+    if (!this.running) return;
+    this.requestImmediatePoll();
+    try {
+      this.options.onPlanningSlotReleased?.();
+    } catch (error) {
+      planLog.warn(`Planning-slot release listener failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   /** Coalescing window for requestImmediatePoll, so a multi-card drag causes one poll, not N. */
   private static readonly NUDGE_DEBOUNCE_MS = 150;
   /** FNXC:TriagePollWatchdog 2026-08-01-01:25: a poll marked in-flight past this long is treated as hung. */
@@ -2457,7 +2485,7 @@ export class TriageProcessor {
               start: async () => {
                 admittedThisPoll.add(task.id);
                 this.coordinatorAdmittedTaskIds.add(task.id);
-                void this.specifyTask(task);
+                this.startAdmittedPlanning(task);
               },
             })),
         });

@@ -442,9 +442,9 @@ Overlay emitter-resolved lanes onto the fail-soft defaults. Only fields the emit
 are taken, so a partial payload cannot blank a lane back to a wrong answer.
 */
 function mergeParkedColumns(
-  base: { hold: string; intake: string; wip: string; review: string; complete: string; archived: string; terminal: ReadonlySet<string> },
+  base: { hold: string; intake: string; wip: string; wipColumns: ReadonlySet<string>; review: string; complete: string; archived: string; terminal: ReadonlySet<string> },
   lanes: TaskMoveLanes | undefined,
-): { hold: string; intake: string; wip: string; review: string; complete: string; archived: string; terminal: ReadonlySet<string> } {
+): { hold: string; intake: string; wip: string; wipColumns: ReadonlySet<string>; review: string; complete: string; archived: string; terminal: ReadonlySet<string> } {
   if (!lanes) return base;
   const complete = lanes.complete ?? base.complete;
   const archived = lanes.archived ?? base.archived;
@@ -452,6 +452,15 @@ function mergeParkedColumns(
     hold: lanes.hold ?? base.hold,
     intake: lanes.intake ?? base.intake,
     wip: lanes.wip ?? base.wip,
+    /*
+    FNXC:WorkflowScheduling 2026-08-28-21:24:
+    Capacity lanes are a membership question just like terminal lanes. Union the resolved workflow, emitter lane, and legacy fallback so renamed or multi-WIP boards never narrow the set and silently lose the slot-release wake.
+    */
+    wipColumns: new Set([
+      ...base.wipColumns,
+      ...(lanes.wip ? [lanes.wip] : []),
+      ...LEGACY_PARKED_COLUMNS.wipColumns,
+    ]),
     review: lanes.review ?? base.review,
     complete,
     archived,
@@ -488,13 +497,14 @@ const LEGACY_PARKED_COLUMNS = {
   hold: "todo",
   intake: "triage",
   wip: "in-progress",
+  wipColumns: new Set(["in-progress"]),
   review: "in-review",
   complete: "done",
   archived: "archived",
   terminal: new Set(["done", "archived"]),
 };
 
-async function resolveTaskParkedColumns(store: TaskStore, taskId: string, selectionCache?: WorkflowSelectionCache): Promise<{ hold: string; intake: string; wip: string; review: string; complete: string; archived: string; terminal: ReadonlySet<string>; wake: ReadonlySet<string> }> {
+async function resolveTaskParkedColumns(store: TaskStore, taskId: string, selectionCache?: WorkflowSelectionCache): Promise<{ hold: string; intake: string; wip: string; wipColumns: ReadonlySet<string>; review: string; complete: string; archived: string; terminal: ReadonlySet<string>; wake: ReadonlySet<string> }> {
   try {
     /*
     FNXC:WorkflowScheduling 2026-08-12-20:00 (RUFU-073):
@@ -518,6 +528,11 @@ async function resolveTaskParkedColumns(store: TaskStore, taskId: string, select
       hold: l?.hold ?? LEGACY_PARKED_COLUMNS.hold,
       intake: l?.intake ?? LEGACY_PARKED_COLUMNS.intake,
       wip: l?.wip ?? LEGACY_PARKED_COLUMNS.wip,
+      wipColumns: new Set([
+        ...columnsWithFlag(ir, "countsTowardWip"),
+        l?.wip ?? LEGACY_PARKED_COLUMNS.wip,
+        ...LEGACY_PARKED_COLUMNS.wipColumns,
+      ]),
       review: l?.review ?? LEGACY_PARKED_COLUMNS.review,
       complete,
       archived,
@@ -544,6 +559,7 @@ async function resolveTaskParkedColumns(store: TaskStore, taskId: string, select
   } catch {
     return {
       ...LEGACY_PARKED_COLUMNS,
+      wipColumns: new Set(LEGACY_PARKED_COLUMNS.wipColumns),
       terminal: new Set(LEGACY_PARKED_COLUMNS.terminal),
       wake: new Set([LEGACY_PARKED_COLUMNS.hold, LEGACY_PARKED_COLUMNS.intake]),
     };
@@ -865,6 +881,8 @@ export interface SchedulerOptions {
   hasActiveAgentExecution?: (agentId: string) => boolean;
   /** Called when scheduler starts a task */
   onSchedule?: (task: Task) => void;
+  /** Advisory sibling-lane nudge when a card leaves the WIP membership set. */
+  onCapacityReleased?: (source: "wip-column") => void;
   /** Called when a task is blocked by deps */
   onBlocked?: (task: Task, blockedBy: string[]) => void;
   /** Called when a mission-linked task fails and is queued for retry handling. */
@@ -1295,10 +1313,22 @@ export class Scheduler {
         }
       }
 
-      // Event-driven scheduling: when a task moves to "done" (completion) or "todo" (retry/manual move),
-      // trigger scheduling immediately so waiting tasks can start without waiting
-      // for the next poll interval (up to 15 seconds).
-      if (resolvedParked.terminal.has(to) || to === resolvedParked.hold) {
+      /*
+      FNXC:WorkflowScheduling 2026-08-28-21:24:
+      A card leaving the resolved capacity-column membership frees a project slot. Wake the execution lane and nudge the planning sibling at that event rather than waiting for the timer backstop; the normal admission coordinator and lifecycle gates still decide whether any card can start.
+      */
+      const vacatedCapacitySlot = resolvedParked.wipColumns.has(from) && !resolvedParked.wipColumns.has(to);
+      if (vacatedCapacitySlot && this.running) {
+        try {
+          this.options.onCapacityReleased?.("wip-column");
+        } catch (error) {
+          schedulerLog.warn(`Capacity-release wake listener failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Event-driven scheduling: terminal, hold, or capacity-vacating moves trigger one pass.
+      const shouldWakeForCapacity = vacatedCapacitySlot && this.running;
+      if (resolvedParked.terminal.has(to) || to === resolvedParked.hold || shouldWakeForCapacity) {
         /*
         FNXC:EngineDiagnostics 2026-08-03-05:54:
         Duplicate of the column-move lifecycle line; schedule side-effect is not operator-facing.

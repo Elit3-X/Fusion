@@ -273,6 +273,75 @@ export async function isUnplannedForExecution(store: TaskStore, task: Task, ir: 
   return (await evaluateUnplannedForExecution(store, task, ir)).unplanned;
 }
 
+export type CapacityHoldReadiness =
+  | { releasable: true }
+  | { releasable: false; kind: "awaiting-planning" | "awaiting-approval"; reason: string };
+
+/*
+FNXC:WorkflowScheduling 2026-08-28-21:24:
+A background hold-release pass must classify an unplanned or approval-held card as a non-candidate rather than manufacture a refusal for work nobody requested. Durable refusal recording belongs to explicit operator and external-event release requests inside `issueRelease`; this helper never records one and accepts no force or waiver input. The FN-7648 execution-entry invariant remains enforced at `issueRelease` for every release surface.
+*/
+export async function evaluateCapacityHoldReadiness(
+  store: TaskStore,
+  deps: HoldReleaseDeps,
+  task: Task,
+  ir: WorkflowIr,
+  targetColumnId: string,
+): Promise<CapacityHoldReadiness> {
+  const targetColumn = findColumn(ir, targetColumnId);
+  const targetIsProcessing = targetColumn ? resolveColumnFlags(targetColumn).countsTowardWip === true : false;
+  if (!targetIsProcessing) return { releasable: true };
+  if (isTaskBlockedOnApproval(task)) {
+    return { releasable: false, kind: "awaiting-approval", reason: "awaiting-approval" };
+  }
+
+  const evaluation = await evaluateUnplannedForExecution(store, task, ir);
+  if (!evaluation.unplanned) return { releasable: true };
+
+  /*
+  FNXC:StrandedHoldContinuation 2026-07-26-14:15:
+  Before FN-8592 this was an undeduplicated `schedulerLog.log`, not debug.
+  A real-spec card with no continuation is a repairable fault, so warn only
+  when the exact shared predicate confirms every guard; ordinary unplanned
+  and capacity-held cards remain quiet. Global/Engine pause participates in
+  the predicate and suppresses this warning.
+  */
+  try {
+    const column = findColumn(ir, task.column);
+    const tasksDir = typeof store.getTasksDir === "function" ? store.getTasksDir() : undefined;
+    if (column && tasksDir) {
+      let promptContent: string | null = null;
+      try { promptContent = await readFile(getPromptPath(tasksDir, task.id), "utf8"); } catch { /* missing prompt is a quiet non-candidate */ }
+      const settings = await store.getSettings();
+      const continuations = await store.listWorkflowWorkItemsForTask(task.id);
+      const live = activeSessionRegistry.pathsForTask(task.id).some((path) => activeSessionRegistry.isPathActive(path)) || executingTaskLock.has(task.id) || deps.isTaskActive?.(task.id) === true;
+      const stranded = evaluateStrandedHoldContinuation({
+        task,
+        columnFlags: resolveColumnFlags(column),
+        ir,
+        continuations,
+        stepResults: task.workflowStepResults,
+        effectiveSettings: { autoMerge: resolveEffectiveAutoMerge(task, settings) },
+        enginePaused: settings.globalPause === true || settings.enginePaused === true,
+        promptContent,
+        live,
+        stalenessMs: deps.now() - new Date(task.columnMovedAt ?? task.updatedAt).getTime(),
+        graceMs: 60_000,
+        now: deps.now(),
+      });
+      const key = `${task.id}:${task.column}`;
+      if (stranded.stranded && !strandedHoldWarningMemo.has(key)) {
+        strandedHoldWarningMemo.add(key);
+        schedulerLog.warn(`Stranded hold continuation for ${task.id} in ${task.column}; self-healing reconciliation will re-seed Plan Review`);
+      }
+    }
+  } catch {
+    // Diagnostics must never widen the release gate or prevent its normal refusal.
+  }
+
+  return { releasable: false, kind: "awaiting-planning", reason: evaluation.reason ?? "unplanned" };
+}
+
 /**
  * Resolve the release target column for a held card.
  *
@@ -717,6 +786,20 @@ export async function runHoldReleaseSweep(
       if (!shouldRelease) { evaluatedTaskIds.add(task.id); continue; }
       const target = resolveReleaseTarget(ir, task.column, release === "capacity");
       if (!target) { trackHeld(task.id, "no-release-target", deps.now()); result.held.push({ taskId: task.id, reason: "no-release-target" }); evaluatedTaskIds.add(task.id); continue; }
+      /*
+      FNXC:WorkflowScheduling 2026-08-28-21:24:
+      The automatic sweep records readiness as a held reason and never calls the refusal-producing release path for a card nobody requested to start. Explicit promote and external-event requests still reach `issueRelease`, where FN-7648 records their durable refusal.
+      */
+      const readiness = await evaluateCapacityHoldReadiness(store, deps, task, ir, target);
+      if (!readiness.releasable) {
+        const reason = readiness.kind === "awaiting-planning"
+          ? `awaiting-planning:${readiness.reason}`
+          : "awaiting-approval";
+        trackHeld(task.id, reason, deps.now());
+        result.held.push({ taskId: task.id, reason });
+        evaluatedTaskIds.add(task.id);
+        continue;
+      }
       // Once issueRelease starts it must complete: it may own a reservation and move transaction.
       if (expired()) { breakIndex = index; break; }
       const released = await issueRelease(store, deps, task, target, ir);
@@ -800,57 +883,23 @@ async function issueRelease(
   explicit operator force-promote IS a human decision about this card, so it
   waives the human-decision gate, while no automatic surface can.
   */
-  if (targetIsProcessing && !options.allowUnplanned && isTaskBlockedOnApproval(task)) {
-    schedulerLog.debug(
-      `Hold release for ${task.id} blocked — awaiting a human approval decision (status=${task.status ?? "null"}, pausedReason=${task.pausedReason ?? "null"})`,
-    );
-    return false;
-  }
-
-  if (targetIsProcessing && !options.allowUnplanned && (await isUnplannedForExecution(store, task, ir))) {
-    await checkAndRecordUnplannedExecutionBlock(store, task, ir);
-    /*
-    FNXC:StrandedHoldContinuation 2026-07-26-14:15:
-    Before FN-8592 this was an undeduplicated `schedulerLog.log`, not debug.
-    A real-spec card with no continuation is a repairable fault, so warn only
-    when the exact shared predicate confirms every guard; ordinary unplanned
-    and capacity-held cards remain quiet. Global/Engine pause participates in
-    the predicate and suppresses this warning.
-    */
-    try {
-      const column = findColumn(ir, task.column);
-      const tasksDir = typeof store.getTasksDir === "function" ? store.getTasksDir() : undefined;
-      if (column && tasksDir) {
-        let promptContent: string | null = null;
-        try { promptContent = await readFile(getPromptPath(tasksDir, task.id), "utf8"); } catch { /* missing prompt is a quiet non-candidate */ }
-        const settings = await store.getSettings();
-        const continuations = await store.listWorkflowWorkItemsForTask(task.id);
-        const live = activeSessionRegistry.pathsForTask(task.id).some((path) => activeSessionRegistry.isPathActive(path)) || executingTaskLock.has(task.id) || deps.isTaskActive?.(task.id) === true;
-        const stranded = evaluateStrandedHoldContinuation({
-          task,
-          columnFlags: resolveColumnFlags(column),
-          ir,
-          continuations,
-          stepResults: task.workflowStepResults,
-          effectiveSettings: { autoMerge: resolveEffectiveAutoMerge(task, settings) },
-          enginePaused: settings.globalPause === true || settings.enginePaused === true,
-          promptContent,
-          live,
-          stalenessMs: deps.now() - new Date(task.columnMovedAt ?? task.updatedAt).getTime(),
-          graceMs: 60_000,
-          now: deps.now(),
-        });
-        const key = `${task.id}:${task.column}`;
-        if (stranded.stranded && !strandedHoldWarningMemo.has(key)) {
-          strandedHoldWarningMemo.add(key);
-          schedulerLog.warn(`Stranded hold continuation for ${task.id} in ${task.column}; self-healing reconciliation will re-seed Plan Review`);
-        }
-      }
-    } catch {
-      // Diagnostics must never widen the release gate or prevent its normal refusal.
+  /*
+  FNXC:WorkflowScheduling 2026-08-28-21:24:
+  `allowUnplanned` remains the operator-only plan-gate waiver derived from the card's unplanned state, never from `force` alone. It short-circuits candidacy evaluation exactly as the prior paired guards did; automatic and external-event releases cannot set it, while explicit non-forced requests still receive the durable FN-7648 refusal they requested.
+  */
+  if (targetIsProcessing && !options.allowUnplanned) {
+    const readiness = await evaluateCapacityHoldReadiness(store, deps, task, ir, target);
+    if (!readiness.releasable && readiness.kind === "awaiting-approval") {
+      schedulerLog.debug(
+        `Hold release for ${task.id} blocked — awaiting a human approval decision (status=${task.status ?? "null"}, pausedReason=${task.pausedReason ?? "null"})`,
+      );
+      return false;
     }
-    schedulerLog.debug(`Hold release for ${task.id} blocked — card is unplanned and cannot enter processing column ${target}`);
-    return false;
+    if (!readiness.releasable) {
+      await checkAndRecordUnplannedExecutionBlock(store, task, ir);
+      schedulerLog.debug(`Hold release for ${task.id} blocked — card is unplanned and cannot enter processing column ${target}`);
+      return false;
+    }
   }
 
   let reservation: SlotReservation | null = null;
