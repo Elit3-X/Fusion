@@ -683,6 +683,9 @@ When an active Planning AI generation appears stuck, Planning Mode automatically
 <!-- FNXC:PlanningMode 2026-07-19-15:55: FN-8400 replaces the duplicate prompt-recovery controls with a focused three-pane interview; restarting remains a deliberate New session action. -->
 Use **New session** to restart planning with a different idea.
 
+<!-- FNXC:PlanningHistory 2026-08-28-03:34: FN-210 requires every Planning Mode Q&A history surface to preserve the initiating request as visible, read-only session context. -->
+The **History** panel, the error panel, and plan review's **Show user Q&A** section show the original request that started the session in a read-only box above the questions and answers. Reading, scrolling, selecting, or copying this text does not edit it or change the session. When an older or incomplete session has no saved starting text, Planning Mode omits the box entirely.
+
 <!-- FNXC:PlanningMode 2026-07-23-11:50: Planning Mode must preserve a collaborative discovery identity instead of inheriting triage/workflow execution specifications. -->
 Planning Mode uses a dedicated collaborative system prompt. It investigates relevant repository and board context, explores assumptions and tradeoffs, considers decomposition choices without automatically creating child tasks, and sharpens concrete deliverables with observable acceptance criteria. This is separate from task triage and the executor-ready **PROMPT.md** generated after task creation. An explicitly configured nonblank `planning-system` prompt override replaces the complete dedicated system prompt; blank or absent values retain the default interview.
 

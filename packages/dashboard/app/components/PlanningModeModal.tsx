@@ -56,6 +56,7 @@ import { getRelativeTimeBucket } from "../utils/relativeTimeAgo";
 import { Lightbulb, X, Loader2, CheckCircle, ArrowLeft, ArrowRight, Sparkles, Trash2, RefreshCw, ChevronLeft, MessageSquarePlus, AlertCircle, Clock, HelpCircle, StopCircle, Archive, ArchiveRestore, Pencil, History } from "lucide-react";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { ConversationHistory } from "./ConversationHistory";
+import { PlanningSessionPrompt } from "./PlanningSessionPrompt";
 import { ThinkingTrace } from "./ThinkingTrace";
 import { MailboxMessageContent } from "./MailboxMessageContent";
 import { OnboardingDisclosure } from "./OnboardingDisclosure";
@@ -445,8 +446,11 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
   /*
   FNXC:Planning 2026-07-15-00:00:
   FN-8003 keeps the started prompt separate from the editable composer so users can recover the original idea when an interview errors or drifts off track. The composer may be reset or reused, but this value belongs only to the active session.
+
+  FNXC:PlanningHistory 2026-08-28-03:34:
+  FN-210 renders the active session's initiating prompt read-only wherever Planning Mode presents its question-and-answer history.
   */
-  const [_activePlanPrompt, setActivePlanPrompt] = useState("");
+  const [activePlanPrompt, setActivePlanPrompt] = useState("");
   const [view, setView] = useState<ViewState>({ type: "initial" });
   const [error, setError] = useState<string | null>(null);
   // FNXC:PlanningMultiTask 2026-08-03-18:32: Latest task created from this plan. Passing its id with the next explicit Proceed action
@@ -2003,12 +2007,20 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
       typed or selected local answer before its enabled Next action can submit it. A different
       session still takes the neutral loader so its prior turn never remains visible.
       */
-      const preservesActiveWorkspace = currentSessionIdRef.current === sessionId
+      const isDifferentSession = currentSessionIdRef.current !== sessionId;
+      const preservesActiveWorkspace = !isDifferentSession
         && (viewRef.current.type === "question" || viewRef.current.type === "plan_review");
       streamConnectionRef.current?.close();
       streamConnectionRef.current = null;
       currentSessionIdRef.current = sessionId;
 
+      /*
+      FNXC:PlanningHistory 2026-08-28-03:47:
+      The History overlay remains mounted while an externally selected session loads. Clear the
+      initiating prompt at a different-session load boundary so the prior session's prompt cannot
+      appear under the new selection, while same-session refreshes retain their visible prompt.
+      */
+      if (isDifferentSession) setActivePlanPrompt("");
       setError(null);
       /*
       FNXC:PlanningMultiTask 2026-07-24-01:40:
@@ -2988,10 +3000,10 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
       });
     } else {
       draftSessionIdRef.current = sessionId;
-      setInitialPlan(_activePlanPrompt);
+      setInitialPlan(activePlanPrompt);
       setView({ type: "initial" });
     }
-  }, [_activePlanPrompt, projectId, workspaceQuestion]);
+  }, [activePlanPrompt, projectId, workspaceQuestion]);
 
   const handleRetryFromError = useCallback(async () => {
     if (view.type !== "error") {
@@ -3685,6 +3697,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
                   </button>
                 </div>
                 <div className="planning-history-scroll">
+                  <PlanningSessionPrompt prompt={activePlanPrompt} testId="planning-history-initial-prompt" />
                   {historyPanelEntries.length > 0 ? (
                     // FNXC:PlanningHistory 2026-07-20-23:24: FN-8449 keeps history thinking collapsed so operators can scan Q&A first; the existing toggle remains available to expand it, matching the FN-7974 chat default.
                     <ConversationHistory entries={historyPanelEntries} />
@@ -3979,6 +3992,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
           {view.type === "error" && (
             <div className="planning-summary">
               <div className="planning-view-scroll planning-summary-scroll">
+                <PlanningSessionPrompt prompt={activePlanPrompt} testId="planning-error-initial-prompt" />
                 {conversationHistory.length > 0 && (
                   <>
                     <ConversationHistory entries={conversationHistory} />
@@ -4225,6 +4239,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
               projectId={projectId}
               summary={editedSummary}
               historyEntries={conversationHistory}
+              initialPrompt={activePlanPrompt}
               onSummaryChange={setEditedSummary}
               tasks={tasks}
               branchMode={branchMode}
@@ -4664,6 +4679,7 @@ interface SummaryViewProps {
   projectId?: string;
   summary: PlanningSummary;
   historyEntries: ConversationHistoryEntry[];
+  initialPrompt?: string;
   onSummaryChange: (summary: PlanningSummary) => void;
   tasks: Task[];
   branchMode: "project-default" | "auto-new" | "existing" | "custom-new";
@@ -4684,6 +4700,7 @@ export function SummaryView({
   projectId,
   summary: rawSummary,
   historyEntries,
+  initialPrompt,
   onSummaryChange,
   tasks,
   branchMode,
@@ -4743,6 +4760,7 @@ export function SummaryView({
       <div className="planning-view-scroll planning-summary-scroll">
         {historyEntries.length > 0 && (
           <OnboardingDisclosure summary={t("planning.showQA", "Show user Q&A")} className="planning-summary-qa-disclosure">
+            <PlanningSessionPrompt prompt={initialPrompt} testId="planning-summary-initial-prompt" />
             <ConversationHistory entries={historyEntries} />
             <div className="conversation-separator" />
           </OnboardingDisclosure>
