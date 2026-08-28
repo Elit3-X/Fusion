@@ -261,7 +261,7 @@ export interface MainContentProps {
   setMainPanelDetailTask: Dispatch<SetStateAction<Task | TaskDetail | null>>;
   mergeTask: (id: string) => Promise<MergeResult>;
   resetTask: (id: string) => Promise<Task>;
-  duplicateTask: (id: string) => Promise<Task>;
+  duplicateTask: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   unpauseTask: (id: string) => Promise<Task>;
   capacityRiskBannerEnabled: boolean;
   capacityRiskDismissed: boolean;

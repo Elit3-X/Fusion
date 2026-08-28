@@ -176,8 +176,18 @@ export function resetTask(id: string, projectId?: string): Promise<Task> {
   });
 }
 
-export function duplicateTask(id: string, projectId?: string): Promise<Task> {
-  return api<Task>(withProjectId(`/tasks/${id}/duplicate`, projectId), { method: "POST" });
+export function duplicateTask(
+  id: string,
+  options?: { workflowId?: string },
+  projectId?: string,
+): Promise<Task> {
+  const workflowId = options?.workflowId;
+  return api<Task>(withProjectId(`/tasks/${id}/duplicate`, projectId), {
+    method: "POST",
+    ...(workflowId
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workflowId }) }
+      : {}),
+  });
 }
 
 export function pauseTask(id: string, projectId?: string): Promise<Task> {

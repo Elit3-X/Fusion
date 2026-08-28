@@ -7955,7 +7955,8 @@
       "btn": "Duplicar",
       "message": "Duplicar {{id}}? Isso criará uma nova tarefa em Triagem com a mesma descrição e o mesmo prompt.",
       "success": "{{id}} duplicada → {{newId}}",
-      "title": "Duplicar tarefa"
+      "title": "Duplicar tarefa",
+      "workflowLabel": ""
     },
     "edit": {
       "autosaveHint": "As alterações são salvas automaticamente enquanto você edita",

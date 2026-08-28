@@ -42,6 +42,7 @@ import { TaskContextMenu, buildTaskActionMenuModel, getTaskPrAutomationLabel, ty
 import type { DetailTaskOpenOptions, DetailTaskTab } from "../hooks/useModalManager";
 import { isTaskReverted } from "../utils/taskRevert";
 import { getTaskTitleDisplay } from "../utils/taskTitleDisplay";
+import { runDuplicateTaskAction } from "../utils/duplicateTaskAction";
 
 const COLUMN_COLOR_MAP: Record<Column, string> = {
   triage: "var(--triage)",
@@ -275,7 +276,7 @@ interface ListViewProps {
   onRevertTask?: (id: string, body?: RevertTaskOptions) => Promise<RevertTaskResult>;
   onMergeTask: (id: string) => Promise<MergeResult>;
   onResetTask?: (id: string) => Promise<Task>;
-  onDuplicateTask?: (id: string) => Promise<Task>;
+  onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   /** App-owned ingestion seam for successful split-detail refinements. */
   onRefinementCreated?: (task: Task) => void;
   onOpenDetail: (task: Task | TaskDetail, options?: DetailTaskOpenOptions) => void;
@@ -466,7 +467,7 @@ export function ListView({
       ? canUseListSplitLayout(listContainerWidth)
       : viewportMode === "desktop");
   const useSinglePaneList = !canRenderSplitLayout;
-  const { confirm, confirmWithChoice } = useConfirm();
+  const { confirm, confirmWithChoice, confirmWithSelect } = useConfirm();
 
   useEffect(() => {
     if (!workflowControlsInHeader || typeof document === "undefined") {
@@ -2096,17 +2097,15 @@ export function ListView({
         onPlanningMode(seed, getTaskPlanningWorkflowId(task));
       } : undefined,
       onDuplicate: onDuplicateTask ? async () => {
-        const shouldDuplicate = await confirm({
-          title: t("taskDetail.duplicate.title", "Duplicate Task"),
-          message: t("taskDetail.duplicate.message", "Duplicate {{id}}? This will create a new task in Triage with the same description and prompt.", { id: task.id }),
+        await runDuplicateTaskAction({
+          taskId: task.id,
+          t,
+          addToast,
+          confirmWithSelect,
+          confirm,
+          duplicateTask: onDuplicateTask,
+          loadBoardWorkflows: () => boardWorkflows,
         });
-        if (!shouldDuplicate) return;
-        try {
-          const newTask = await onDuplicateTask(task.id);
-          addToast(t("taskDetail.duplicate.success", "Duplicated {{id}} → {{newId}}", { id: task.id, newId: newTask.id }), "success");
-        } catch (err) {
-          addToast(getErrorMessage(err), "error");
-        }
       } : undefined,
       onOpenRefine: () => onOpenDetail(task, { origin: useSinglePaneList ? "list-mobile" : undefined, initialAction: "refine" }),
       onRetry: onRetryTask ? async () => {
@@ -2207,7 +2206,7 @@ export function ListView({
       actions.push({ id: model.reviewAction.id, label: model.reviewAction.label, disabled: model.reviewAction.disabled, onSelect: model.reviewAction.onSelect });
     }
     return actions.filter((action) => "items" in action || action.tone === "note" || action.disabled === true || Boolean(action.onSelect));
-  }, [addToast, autoMerge, getTaskColumnFlags, confirm, getTaskPlanningWorkflowId, handleListContextCheckPrStatus, handleListContextEnableGithubTracking, handleListTaskArchive, handleListTaskDelete, handleListTaskRevert, isMobile, lastFetchTimeMs, mergeStrategy, onDuplicateTask, onMergeTask, onOpenDetail, onPlanningMode, onPauseTask, onResetTask, onRetryTask, onUnpauseTask, onArchiveTask, onRevertTask, onReviseTask, onTasksUpdated, projectId, t, useSinglePaneList]);
+  }, [addToast, autoMerge, boardWorkflows, getTaskColumnFlags, confirm, confirmWithSelect, getTaskPlanningWorkflowId, handleListContextCheckPrStatus, handleListContextEnableGithubTracking, handleListTaskArchive, handleListTaskDelete, handleListTaskRevert, isMobile, lastFetchTimeMs, mergeStrategy, onDuplicateTask, onMergeTask, onOpenDetail, onPlanningMode, onPauseTask, onResetTask, onRetryTask, onUnpauseTask, onArchiveTask, onRevertTask, onReviseTask, onTasksUpdated, projectId, t, useSinglePaneList]);
 
   const contextMenuActions = useMemo(
     () => (contextMenuState ? buildListContextMenuActions(contextMenuState.task) : []),

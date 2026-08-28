@@ -68,6 +68,7 @@ import { useAutosizeTextarea } from "../hooks/useAutosizeTextarea";
 import { useToast } from "../hooks/useToast";
 import { useComposerDictation } from "../hooks/useComposerDictation";
 import { MicButton } from "./MicButton";
+import { ALL_WORKFLOWS_BOARD_VIEW_ID } from "../utils/boardWorkflowSelection";
 
 const WARNING_ICON = "⚠️";
 
@@ -438,6 +439,16 @@ function parseModelSelection(value: string): { provider?: string; modelId?: stri
 
 export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreated: _onTasksCreated, onViewTask, tasks, initialPlan: initialPlanProp, sourceIssue, onInitialPlanConsumed, projectId, workflowId, resumeSessionId, initialSessions, presentation = "modal", active = true }: PlanningModeModalProps) {
   const { t } = useTranslation("app");
+  /*
+  FNXC:PlanningMode 2026-08-28-04:16:
+  PlanningKeepAlive supplies `planningWorkflowId ?? planningHeaderWorkflowId`, which is null when no
+  lane is selected. Forwarding that null invokes the store's explicit No Workflow opt-out instead of
+  the intended project default, so create requests omit null, blank, and aggregate board selections.
+  */
+  const createTaskWorkflowId = useMemo(() => {
+    const normalized = workflowId?.trim();
+    return normalized && normalized !== ALL_WORKFLOWS_BOARD_VIEW_ID ? normalized : undefined;
+  }, [workflowId]);
   // FNXC:EmbeddedPresentation 2026-06-22-12:00: shared hook supplies isEmbedded (DOM branching) plus the modal-only gates.
   // Note: the Escape handler intentionally does NOT gate on embedded here — embedded planning preserves its historical
   // Escape-to-close behavior (the back-stack/onClose path), so escapeEnabled is deliberately not wired below.
@@ -3226,7 +3237,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     setView({ type: "creating_task", session, summary });
     try {
       const task = await createTaskAfterActiveClaim(() => createTaskFromPlanning(sessionId, summary, projectId, {
-        ...(workflowId !== undefined ? { workflowId } : {}),
+        ...(createTaskWorkflowId ? { workflowId: createTaskWorkflowId } : {}),
         ...(linkedTaskId ? { previousTaskId: linkedTaskId } : {}),
       }));
       clearPlanningActiveSession(projectId);
@@ -3239,7 +3250,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     } finally {
       validateCreateInFlightRef.current = false;
     }
-  }, [linkedTaskId, projectId, t, workflowId, workspaceQuestion]);
+  }, [createTaskWorkflowId, linkedTaskId, projectId, t, workspaceQuestion]);
 
   const handleMobileKeyboardActionPointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     /*
@@ -3274,7 +3285,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     setView({ type: "creating_task", session: view.session, summary: view.summary });
     try {
       const task = await createTaskAfterActiveClaim(() => createTaskFromPlanning(view.session.sessionId, view.summary, projectId, {
-        ...(workflowId !== undefined ? { workflowId } : {}),
+        ...(createTaskWorkflowId ? { workflowId: createTaskWorkflowId } : {}),
         ...(linkedTaskId ? { previousTaskId: linkedTaskId } : {}),
       }));
       clearPlanningActiveSession(projectId);
@@ -3286,7 +3297,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     } finally {
       validateCreateInFlightRef.current = false;
     }
-  }, [linkedTaskId, projectId, t, view, workflowId]);
+  }, [createTaskWorkflowId, linkedTaskId, projectId, t, view]);
 
   const handleCreateTask = useCallback(async () => {
     if (view.type !== "summary") return;
@@ -3309,7 +3320,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
         FNXC:WorkflowSelection 2026-06-20-16:48:
         Planning Mode saves must carry the workflow lane that opened the modal so created tasks do not land on the main board before appearing on the selected sub-board.
         */
-        ...(workflowId !== undefined ? { workflowId } : {}),
+        ...(createTaskWorkflowId ? { workflowId: createTaskWorkflowId } : {}),
         ...(linkedTaskId ? { previousTaskId: linkedTaskId } : {}),
       });
       onTaskCreated(task);
@@ -3324,7 +3335,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     } finally {
       setIsCreatingTask(false);
     }
-  }, [baseBranch, branchMode, branchName, editedSummary, view, projectId, workflowId, linkedTaskId, onTaskCreated, handleClose]);
+  }, [baseBranch, branchMode, branchName, createTaskWorkflowId, editedSummary, view, projectId, linkedTaskId, onTaskCreated, handleClose]);
 
   const _handleSelectAnsweredQuestion = useCallback(async (entry: ConversationHistoryEntry) => {
     const questionId = entry.question?.id;

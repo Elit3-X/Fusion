@@ -7945,7 +7945,8 @@
       "btn": "Duplicar",
       "message": "¿Duplicar {{id}}? Esto creará una nueva tarea en Triage con la misma descripción e indicación.",
       "success": "{{id}} duplicado → {{newId}}",
-      "title": "Duplicar tarea"
+      "title": "Duplicar tarea",
+      "workflowLabel": ""
     },
     "edit": {
       "autosaveHint": "Los cambios se guardan automáticamente al editar",

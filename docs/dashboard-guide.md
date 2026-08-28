@@ -562,6 +562,8 @@ When creating a task from the full **New Task** dialog, the **Workflow** advance
 
 Manual-intake workflows also expose **Start** beside **Create** only when the server-provided workflow metadata proves a safe working destination. Coding (Ideas) creates directly in its validated working lane; other manual workflows create in intake and then perform one validated move. Start reports tasks as queued for planning, not as already planning, and a failed follow-up move reports the created-but-not-started partial outcome without deleting the task.
 
+The **Duplicate** action on Task Cards, List rows, and Task Detail shows a workflow picker when at least two enabled workflows are available. It lists only selectable workflows, preselects the task's current workflow, and routes the copy to the chosen workflow. With fewer than two enabled workflows, the dialog remains a plain confirmation and the copy inherits the source task's workflow automatically.
+
 <!-- FNXC:WorkflowOptionalSteps 2026-07-10-08:00: Operators can now toggle optional workflow steps from the task Edit form as well as the Workflow tab. Edit mode must load the task's resolved workflow catalog without re-seeding from defaultOn, preserving the task's persisted enabledWorkflowSteps until the operator explicitly toggles a step. -->
 Optional workflow steps can be toggled from the task **Edit** form's **More options → Workflow Steps** control or from the task's **Workflow** tab. The edit form uses the task's resolved workflow and preserves the task's current stored selection when it opens; workflow-authored `defaultOn` values remain a create-time/runtime default, not an edit-form re-seed.
 

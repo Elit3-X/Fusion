@@ -27,6 +27,7 @@ Dashboard `POST /tasks` now performs a pre-create duplicate gate using token-ove
   - `task.source.sourceMetadata.acknowledgedDuplicateIds = [...]`
 - Override creates emit activity type `task:duplicate-warning-overridden` with acknowledged IDs and scored candidate metadata.
 - Duplicate lineage is persisted on the task row via canonical source fields (`sourceType: "task_duplicate"`, `sourceParentTaskId`) plus `sourceMetadata.duplicateOfTaskIds` when available, so `fn task show <id>` and Task Detail views can render duplicate-of linkage directly from task provenance.
+- A duplicated task inherits the source task's workflow by default, including that workflow's intake column and default-on optional groups. `POST /api/tasks/:id/duplicate` accepts an optional `{ "workflowId": "..." }` body to choose another enabled workflow; disabled, retired, or unknown workflow ids are rejected.
 
 #### Deterministic duplicate guard (FN-4918, extended by FN-5060)
 

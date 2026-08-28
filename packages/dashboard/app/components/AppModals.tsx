@@ -78,7 +78,7 @@ interface AppModalsProps {
     bypassReview?: (taskId: string, reason: string) => Promise<Task>;
 
     resetTask: (taskId: string) => Promise<Task>;
-    duplicateTask: (taskId: string) => Promise<Task>;
+    duplicateTask: (taskId: string, options?: { workflowId?: string }) => Promise<Task>;
   };
   deepLink: {
     handleDetailClose: () => void;

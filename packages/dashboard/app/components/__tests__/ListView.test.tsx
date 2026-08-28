@@ -223,8 +223,9 @@ import { readAppFile } from "../../test/cssFixture";
 
 const mockConfirm = vi.fn();
 const mockConfirmWithChoice = vi.fn();
+const mockConfirmWithSelect = vi.fn();
 vi.mock("../../hooks/useConfirm", () => ({
-  useConfirm: () => ({ confirm: mockConfirm, confirmWithChoice: mockConfirmWithChoice }),
+  useConfirm: () => ({ confirm: mockConfirm, confirmWithChoice: mockConfirmWithChoice, confirmWithSelect: mockConfirmWithSelect }),
 }));
 
 const mockAddToast = vi.fn();
@@ -771,6 +772,8 @@ describe("ListView", () => {
     vi.mocked(refreshPrStatus).mockResolvedValue({} as any);
     mockConfirm.mockReset();
     mockConfirmWithChoice.mockReset();
+    mockConfirmWithSelect.mockReset();
+    mockConfirmWithSelect.mockResolvedValue({ choice: "primary", checkboxValue: false, selectValue: "builtin:coding" });
     subscribeSseMock.mockClear();
     for (const key of Object.keys(listViewSseHandlers)) delete listViewSseHandlers[key];
     localStorage.clear();
@@ -1249,8 +1252,36 @@ describe("ListView", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
 
     await waitFor(() => expect(onResetTask).toHaveBeenCalledWith("FN-901"));
-    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset" }));
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, title: "Reset this task?" }));
     expect(document.querySelector(".confirm-dialog-overlay")).toBeNull();
+  });
+
+  it("forwards the selected workflow from the desktop row duplicate action", async () => {
+    const workflowPayload = {
+      ...DEFAULT_LANE_PAYLOAD,
+      workflows: [
+        DEFAULT_LANE_PAYLOAD.workflows[0],
+        { ...DEFAULT_LANE_PAYLOAD.workflows[0], id: "wf-b", name: "Workflow B" },
+      ],
+      taskWorkflowIds: { "FN-DUP": "builtin:coding" },
+    };
+    writeBoardWorkflowsCache(TEST_PROJECT_ID, workflowPayload);
+    vi.mocked(fetchBoardWorkflows).mockResolvedValue(workflowPayload);
+    mockConfirmWithSelect.mockResolvedValueOnce({ choice: "primary", checkboxValue: false, selectValue: "wf-b" });
+    const onDuplicateTask = vi.fn(async () => createMockTask({ id: "FN-COPY" }));
+    renderListView({
+      tasks: [createMockTask({ id: "FN-DUP", column: "todo" })],
+      onDuplicateTask,
+    });
+
+    const row = document.querySelector('.list-row[data-id="FN-DUP"]') as HTMLElement;
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 50 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
+
+    await waitFor(() => expect(onDuplicateTask).toHaveBeenCalledWith("FN-DUP", { workflowId: "wf-b" }));
+    expect(mockConfirmWithSelect).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ defaultValue: "builtin:coding" }),
+    }));
   });
 
   it("opens Planning Mode from eligible list row menus and omits it for executing rows", async () => {
@@ -2690,7 +2721,7 @@ describe("ListView", () => {
     expect(statusBadge.className).toContain("failed");
   });
 
-  it("suppresses failed table styling and Retry for a stale failed task with automatic recovery pending", () => {
+  it("suppresses failed table styling but keeps stage-aware Retry while automatic recovery is pending", () => {
     const viewportSpy = mockDesktopViewport();
     const task = createMockTask({
       id: "FN-RECOVERY",
@@ -2706,7 +2737,7 @@ describe("ListView", () => {
     expect(row).not.toHaveClass("failed");
     expect(screen.getByText("failed")).not.toHaveClass("failed");
     fireEvent.contextMenu(row, { clientX: 40, clientY: 50 });
-    expect(screen.queryByRole("menuitem", { name: "Retry" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Retry" })).toBeInTheDocument();
     viewportSpy.mockRestore();
   });
 

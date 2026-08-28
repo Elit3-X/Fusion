@@ -115,6 +115,7 @@ vi.mock("../../api", () => ({
   fetchAgents: vi.fn(),
   rebuildTaskSpec: vi.fn(),
   refreshPrStatus: vi.fn(),
+  fetchBoardWorkflows: vi.fn().mockResolvedValue({ flagEnabled: true, defaultWorkflowId: "wf-a", workflows: [], taskWorkflowIds: {} }),
   // FNXC:PlannerOversight 2026-07-04-13:00: tests that pass a `workflowBadge`
   // prop trigger the FN-7516 workflow-effective-oversight fetch effect; mock
   // it so those tests don't hit an unmocked API export. Resolves an empty
@@ -124,11 +125,12 @@ vi.mock("../../api", () => ({
 
 const mockConfirm = vi.fn<(options: ConfirmOptions) => Promise<boolean>>();
 const mockConfirmWithChoice = vi.fn<(options: ConfirmOptions) => Promise<"primary" | "tertiary" | "cancel">>();
+const mockConfirmWithSelect = vi.fn();
 vi.mock("../../hooks/useConfirm", () => ({
-  useConfirm: () => ({ confirm: mockConfirm, confirmWithChoice: mockConfirmWithChoice }),
+  useConfirm: () => ({ confirm: mockConfirm, confirmWithChoice: mockConfirmWithChoice, confirmWithSelect: mockConfirmWithSelect }),
 }));
 
-import { addressPrFeedback, uploadAttachment, fetchMission, fetchAgent, fetchAgents, refreshPrStatus } from "../../api";
+import { addressPrFeedback, uploadAttachment, fetchMission, fetchAgent, fetchAgents, fetchBoardWorkflows, refreshPrStatus } from "../../api";
 import { loadAllAppCss, loadAllAppCssBaseOnly } from "../../test/cssFixture";
 import { writeCache, SWR_CACHE_KEYS } from "../../utils/swrCache";
 
@@ -283,6 +285,7 @@ afterEach(() => {
   unsubscribeFromBadgeMock.mockReset();
   mockConfirm.mockReset();
   mockConfirmWithChoice.mockReset();
+  mockConfirmWithSelect.mockReset();
   vi.mocked(addressPrFeedback).mockReset();
   vi.mocked(refreshPrStatus).mockReset();
 });
@@ -1202,8 +1205,17 @@ describe("TaskCard", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("dispatches portaled board menu actions for the interacted duplicate card", async () => {
-    mockConfirm.mockResolvedValueOnce(true);
+  it("dispatches the selected workflow from the portaled duplicate-card menu", async () => {
+    vi.mocked(fetchBoardWorkflows).mockResolvedValueOnce({
+      flagEnabled: true,
+      defaultWorkflowId: "wf-a",
+      workflows: [
+        { id: "wf-a", name: "Workflow A", columns: [] },
+        { id: "wf-b", name: "Workflow B", columns: [] },
+      ],
+      taskWorkflowIds: { "FN-002": "wf-a" },
+    });
+    mockConfirmWithSelect.mockResolvedValueOnce({ choice: "primary", checkboxValue: false, selectValue: "wf-b" });
     const onDuplicateTask = vi.fn(async () => makeTask({ id: "FN-002-copy" }));
     render(
       <div className="column" style={{ overflow: "hidden" }}>
@@ -1229,7 +1241,10 @@ describe("TaskCard", () => {
     expectBoardContextMenuPortaled();
     fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
 
-    await waitFor(() => expect(onDuplicateTask).toHaveBeenCalledWith("FN-002"));
+    await waitFor(() => expect(onDuplicateTask).toHaveBeenCalledWith("FN-002", { workflowId: "wf-b" }));
+    expect(mockConfirmWithSelect).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ defaultValue: "wf-a" }),
+    }));
     expect(onDuplicateTask).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });

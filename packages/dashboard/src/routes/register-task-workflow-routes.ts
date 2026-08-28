@@ -1,4 +1,4 @@
-import { createIngestedCheckResolver, createLogger, isCurrentSpecDriftReport, resolveRequiredCheckNames } from "@fusion/core";
+import { createIngestedCheckResolver, createLogger, DuplicateWorkflowSelectionError, isCurrentSpecDriftReport, resolveRequiredCheckNames } from "@fusion/core";
 import type { Request, Response } from "express";
 
 const severityAuditLog = createLogger("dashboard-register-task-workflow-routes");
@@ -3995,12 +3995,26 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
   // Duplicate task
   router.post("/tasks/:id/duplicate", async (req, res) => {
     try {
+      const { workflowId } = (req.body ?? {}) as { workflowId?: unknown };
+      if (workflowId !== undefined && workflowId !== null && typeof workflowId !== "string") {
+        throw badRequest("workflowId must be a string or null");
+      }
+      const normalizedWorkflowId = typeof workflowId === "string" ? workflowId.trim() : undefined;
+      const targetWorkflowId = normalizedWorkflowId && normalizedWorkflowId !== "__all_workflows__"
+        ? normalizedWorkflowId
+        : undefined;
       const { store: scopedStore } = await getProjectContext(req);
-      const newTask = await scopedStore.duplicateTask(req.params.id);
+      const newTask = await scopedStore.duplicateTask(
+        req.params.id,
+        targetWorkflowId ? { workflowId: targetWorkflowId } : undefined,
+      );
       res.status(201).json(newTask);
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
+      }
+      if (err instanceof DuplicateWorkflowSelectionError) {
+        throw badRequest(`Workflow "${err.requestedWorkflowId}" is not available for task duplication`);
       }
       const errorWithCode = err as NodeJS.ErrnoException;
       const status = isTaskLookupMiss(errorWithCode) ? 404 : 500;

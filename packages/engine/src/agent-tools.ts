@@ -3413,7 +3413,7 @@ export function createTaskDuplicateTool(store: TaskStore): ToolDefinition {
   return {
     name: "fn_task_duplicate",
     label: "Duplicate Task",
-    description: "Duplicate an existing task, preserving its description, workflow, and dependencies.",
+    description: "Duplicate an existing task, preserving its description and workflow (dependencies are not copied).",
     parameters: taskDuplicateParams,
     execute: async (_id: string, params: Static<typeof taskDuplicateParams>) => {
       try {

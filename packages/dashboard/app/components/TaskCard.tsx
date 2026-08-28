@@ -19,7 +19,7 @@ import { resolveEffectiveAutoMerge } from "../../../core/src/merge/task-merge";
 // resolver — like resolveEffectiveAutoMerge above — must be imported from its source module
 // directly rather than the package barrel.
 import { resolveEffectivePlannerOversightLevel } from "../../../core/src/workflows/workflow-settings-resolver";
-import { addressPrFeedback, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, refreshPrStatus, fetchWorkflowSettingValues, type WorkflowFieldDefinition, type RevertTaskOptions, type RevertTaskResult } from "../api";
+import { addressPrFeedback, fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent, refreshPrStatus, fetchWorkflowSettingValues, fetchBoardWorkflows, type WorkflowFieldDefinition, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { GitHubBadge } from "./GitHubBadge";
 import { GitLabBadge } from "./GitLabBadge";
 import { RuntimeFallbackBadge } from "./RuntimeFallbackBadge";
@@ -67,6 +67,7 @@ import {
 import { canStartPrFeedbackAddressing, getTaskPrimaryPrInfo } from "../utils/prFeedback";
 import type { ToastType } from "../hooks/useToast";
 import { useConfirm } from "../hooks/useConfirm";
+import { runDuplicateTaskAction } from "../utils/duplicateTaskAction";
 import { extractDependencyDeleteConflict, extractLineageDeleteConflict } from "../utils/taskDelete";
 import { MAX_AUTO_MERGE_RETRIES, type BlockerFanoutEntry } from "../hooks/useBlockerFanout";
 import { useRetryWarning } from "../context/RetryWarningContext";
@@ -641,7 +642,7 @@ interface TaskCardProps {
   onRetryTask?: (id: string) => Promise<Task>;
   onUnpauseTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
-  onDuplicateTask?: (id: string) => Promise<Task>;
+  onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   onMergeTask?: (id: string) => Promise<MergeResult>;
   onOpenDetailWithTab?: (task: Task | TaskDetail, initialTab: "changes" | "retries" | "workflow") => void;
   /*
@@ -1163,7 +1164,7 @@ function TaskCardComponent({
   const [isInViewport, setIsInViewport] = useState(false);
   const { badgeUpdates, subscribeToBadge, unsubscribeFromBadge } = useBadgeWebSocket(projectId);
   const { agentsMap } = useAgentsMapCache(projectId);
-  const { confirm } = useConfirm();
+  const { confirm, confirmWithSelect } = useConfirm();
   const retryWarningThreshold = useRetryWarning();
   const costBadge = useCostBadge();
   /*
@@ -2632,18 +2633,16 @@ function TaskCardComponent({
 
   const handleTaskActionDuplicate = useCallback(async () => {
     if (!onDuplicateTask) return;
-    const shouldDuplicate = await confirm({
-      title: t("taskDetail.duplicate.title", "Duplicate Task"),
-      message: t("taskDetail.duplicate.message", "Duplicate {{id}}? This will create a new task in Triage with the same description and prompt.", { id: task.id }),
+    await runDuplicateTaskAction({
+      taskId: task.id,
+      t,
+      addToast,
+      confirmWithSelect,
+      confirm,
+      duplicateTask: onDuplicateTask,
+      loadBoardWorkflows: () => fetchBoardWorkflows(projectId),
     });
-    if (!shouldDuplicate) return;
-    try {
-      const newTask = await onDuplicateTask(task.id);
-      addToast(t("taskDetail.duplicate.success", "Duplicated {{id}} → {{newId}}", { id: task.id, newId: newTask.id }), "success");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [addToast, confirm, onDuplicateTask, task.id, t]);
+  }, [addToast, confirm, confirmWithSelect, onDuplicateTask, projectId, task.id, t]);
 
   const handleTaskActionMerge = useCallback(async () => {
     if (!onMergeTask) return;

@@ -638,6 +638,14 @@ export type {
   OrphanedSettingValue,
 } from "./workflows/workflow-settings.js";
 export {
+  DuplicateWorkflowSelectionError,
+  resolveDuplicateTargetWorkflowId,
+} from "./task-store/duplicate-workflow-selection.js";
+export type {
+  DuplicateWorkflowSelectionRejection,
+  DuplicateWorkflowSelectionResolution,
+} from "./task-store/duplicate-workflow-selection.js";
+export {
   readTransitionPending,
   writeTransitionPending,
   clearTransitionPending,

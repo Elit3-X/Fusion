@@ -7945,7 +7945,8 @@
       "btn": "複製",
       "message": "複製 {{id}}？這將在 Triage 中建立一個具有相同描述和提示詞的新任務。",
       "success": "已複製 {{id}} → {{newId}}",
-      "title": "複製任務"
+      "title": "複製任務",
+      "workflowLabel": ""
     },
     "edit": {
       "autosaveHint": "編輯時自動儲存更改",

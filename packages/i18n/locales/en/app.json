@@ -7953,9 +7953,10 @@
     },
     "duplicate": {
       "btn": "Duplicate",
-      "message": "Duplicate {{id}}? This will create a new task in Triage with the same description and prompt.",
+      "message": "Duplicate {{id}}? This will create a new task with the same description and prompt.",
       "success": "Duplicated {{id}} → {{newId}}",
-      "title": "Duplicate Task"
+      "title": "Duplicate Task",
+      "workflowLabel": "Workflow for the copy"
     },
     "edit": {
       "autosaveHint": "Changes autosave as you edit",

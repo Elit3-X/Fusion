@@ -1234,8 +1234,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   public async invokeTaskCreatedHook(task: Task): Promise<void> {
     return invokeTaskCreatedHookImpl(this, task);
   }
-  async duplicateTask(id: string): Promise<Task> {
-    return duplicateTaskImpl(this, id);
+  async duplicateTask(id: string, options?: { workflowId?: string | null }): Promise<Task> {
+    return duplicateTaskImpl(this, id, options);
   }
   async refineTask(id: string, feedback: string): Promise<Task> {
     return refineTaskImpl(this, id, feedback);

@@ -7945,7 +7945,8 @@
       "btn": "복제",
       "message": "{{id}}를 복제하시겠습니까? 같은 설명과 프롬프트로 Triage에 새 작업이 생성됩니다.",
       "success": "{{id}} 복제됨 → {{newId}}",
-      "title": "작업 복제"
+      "title": "작업 복제",
+      "workflowLabel": ""
     },
     "edit": {
       "autosaveHint": "편집 시 변경 사항이 자동 저장됩니다",

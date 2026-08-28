@@ -1696,8 +1696,8 @@ export function useTasks(options?: UseTasksOptions) {
     return normalizeNonBoardTask(await api.resetTask(id, projectId));
   }, [projectId]);
 
-  const duplicateTask = useCallback(async (id: string): Promise<Task> => {
-    const task = normalizeNonBoardTask(await api.duplicateTask(id, projectId));
+  const duplicateTask = useCallback(async (id: string, options?: { workflowId?: string }): Promise<Task> => {
+    const task = normalizeNonBoardTask(await api.duplicateTask(id, options, projectId));
     setTasks((prev) => {
       if (prev.some((t) => t.id === task.id)) return prev;
       return [...prev, task];

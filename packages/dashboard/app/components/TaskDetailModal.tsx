@@ -47,6 +47,7 @@ import { TaskVerificationStatus } from "./TaskVerificationStatus";
 import type { ToastType } from "../hooks/useToast";
 import { useAgentLogs } from "../hooks/useAgentLogs";
 import { useConfirm } from "../hooks/useConfirm";
+import { runDuplicateTaskAction } from "../utils/duplicateTaskAction";
 import { AgentLogViewer } from "./AgentLogViewer";
 import { ModelSelectorTab } from "./ModelSelectorTab";
 import { PrPanel } from "./PrPanel";
@@ -430,7 +431,7 @@ export interface TaskDetailModalProps {
   */
   onBypassReview?: (id: string, reason: string) => Promise<Task>;
   onResetTask?: (id: string) => Promise<Task>;
-  onDuplicateTask?: (id: string) => Promise<Task>;
+  onDuplicateTask?: (id: string, options?: { workflowId?: string }) => Promise<Task>;
   onTaskUpdated?: (task: Task) => void;
   /** Publishes a successfully created refinement child to shared board state. */
   onRefinementCreated?: (task: Task) => void;
@@ -1719,7 +1720,7 @@ export function TaskDetailContent({
   const [showOversightMenu, setShowOversightMenu] = useState(false);
   const oversightMenuRef = useRef<HTMLDivElement>(null);
   const oversightMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const { confirm, confirmWithChoice, confirmWithCheckbox } = useConfirm();
+  const { confirm, confirmWithChoice, confirmWithCheckbox, confirmWithSelect } = useConfirm();
   const requestClose = useCallback(() => {
     onRequestClose?.();
   }, [onRequestClose]);
@@ -3479,19 +3480,17 @@ export function TaskDetailContent({
 
   const handleDuplicate = useCallback(async () => {
     if (!onDuplicateTask) return;
-    const shouldDuplicate = await confirm({
-      title: t("taskDetail.duplicate.title", "Duplicate Task"),
-      message: t("taskDetail.duplicate.message", "Duplicate {{id}}? This will create a new task in Triage with the same description and prompt.", { id: task.id }),
+    const duplicated = await runDuplicateTaskAction({
+      taskId: task.id,
+      t,
+      addToast,
+      confirmWithSelect,
+      confirm,
+      duplicateTask: onDuplicateTask,
+      loadBoardWorkflows: () => fetchBoardWorkflows(projectId),
     });
-    if (!shouldDuplicate) return;
-    try {
-      const newTask = await onDuplicateTask(task.id);
-      requestClose();
-      addToast(t("taskDetail.duplicate.success", "Duplicated {{id}} → {{newId}}", { id: task.id, newId: newTask.id }), "success");
-    } catch (err) {
-      addToast(getErrorMessage(err), "error");
-    }
-  }, [task.id, onDuplicateTask, requestClose, addToast, confirm]);
+    if (duplicated) requestClose();
+  }, [task.id, t, onDuplicateTask, requestClose, addToast, confirm, confirmWithSelect, projectId]);
 
   const handleDismissNearDuplicate = useCallback(async () => {
     try {

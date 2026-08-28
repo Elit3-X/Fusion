@@ -7945,7 +7945,8 @@
       "btn": "Dupliquer",
       "message": "Dupliquer {{id}} ? Cela créera une nouvelle tâche dans Triage avec la même description et invite.",
       "success": "{{id}} dupliqué → {{newId}}",
-      "title": "Dupliquer la tâche"
+      "title": "Dupliquer la tâche",
+      "workflowLabel": ""
     },
     "edit": {
       "autosaveHint": "Les modifications sont enregistrées automatiquement",
