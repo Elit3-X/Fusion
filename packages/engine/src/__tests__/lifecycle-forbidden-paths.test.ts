@@ -133,6 +133,16 @@ describe("forbidden lifecycle rebound paths", () => {
     expect(rejection?.detail).toContain("'todo' (hold)");
   });
 
+  it("permits the normal engine-sourced review-to-complete boundary", () => {
+    expect(evaluateLifecycleDirectionPostcondition({
+      taskId: "FN-221",
+      from: { columnId: "in-review", flags: { mergeBlocker: true, humanReview: true } },
+      to: { columnId: "done", flags: { complete: true } },
+      mergeBlockerReason: null,
+      moveSource: "engine",
+    })).toBeNull();
+  });
+
   it("drives the production review-remediation bounce directly to WIP", async () => {
     const row = {
       id: "FN-207-bounce",

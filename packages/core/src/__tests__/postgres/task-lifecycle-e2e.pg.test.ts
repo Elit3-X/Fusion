@@ -59,10 +59,6 @@ pgTest("VAL-CROSS-001: End-to-end task lifecycle (PostgreSQL)", () => {
     });
     expect(inReview.column).toBe("in-review");
 
-    await store.moveTask(task.id, "in-progress", {
-      moveSource: "engine",
-      lifecycleReason: "code-review-revise-remediation",
-    });
     const done = await store.moveTask(task.id, "done", {
       moveSource: "engine",
       skipMergeBlocker: true,
@@ -79,11 +75,8 @@ pgTest("VAL-CROSS-001: End-to-end task lifecycle (PostgreSQL)", () => {
       moveSource: "user",
       allowDirectInReviewMove: true,
     });
-    await store.moveTask(task.id, "in-progress", {
-      moveSource: "engine",
-      lifecycleReason: "code-review-revise-remediation",
-    });
-    await store.moveTask(task.id, "done", { moveSource: "engine", skipMergeBlocker: true });
+    const done = await store.moveTask(task.id, "done", { moveSource: "engine", skipMergeBlocker: true });
+    expect(done.column).toBe("done");
 
     const archived = await store.archiveTask(task.id, { cleanup: false });
     expect(archived.id).toBe(task.id);

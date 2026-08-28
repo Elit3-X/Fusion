@@ -16,13 +16,15 @@ export const LIFECYCLE_ROLE_RANK: Readonly<Record<LifecycleRole, number>> = Obje
 export type LifecycleDirection = "forward" | "backward" | "lateral" | "unknown";
 
 /*
-FNXC:LifecycleContainment 2026-08-28-07:48:
+FNXC:LifecycleContainment 2026-08-28-11:02:
 Only a revision may move a card backward. Plan Review REVISE is the sole WIP-to-hold path; Code
 Review, verification, or merge-fix REVISE may return review to WIP only with pending remediation.
-Cleanup, timeout, dependency, contamination, branch, capacity, merge failure, and graph retry paths
-repair in their current lifecycle role. Graph node-column routing therefore has no blanket backward
-authority. Roles come from each column's own trait flags so renamed and duplicate WIP/review lanes
-obey the same rule.
+Forward advancement from review through completion is explicitly permitted; F3 contains only the
+rank-skipping review-to-archive departure, while F1 and F2 contain backward departures. Cleanup,
+timeout, dependency, contamination, branch, capacity, merge failure, and graph retry paths repair in
+their current lifecycle role. Graph node-column routing therefore has no blanket backward authority.
+Roles come from each column's own trait flags so renamed and duplicate WIP/review lanes obey the same
+rule.
 */
 /**
  * Classify one column from its own effective flags. Higher lifecycle roles win
@@ -78,8 +80,8 @@ export function evaluateForbiddenLifecyclePath(
   if (from === "wip" && to === "hold" && reason !== "plan-review-revise-replan") {
     return { rule: "F5", detail: "A WIP card may return to planning only for Plan Review REVISE" };
   }
-  if (from === "review" && to !== "review" && to !== "wip") {
-    return { rule: "F3", detail: "A review-lane card may leave review only for a WIP lane" };
+  if (from === "review" && to === "archived") {
+    return { rule: "F3", detail: "A review-lane card may not skip completion and move directly to archive" };
   }
   /* DELIBERATE-LITERAL: LifecycleRole values are policy roles, not column ids. */
   if ((from === "complete" || from === "archived") && direction === "backward") {

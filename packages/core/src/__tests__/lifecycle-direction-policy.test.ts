@@ -6,7 +6,8 @@ import {
   classifyLifecycleDirection,
   classifyLifecycleRole,
   evaluateForbiddenLifecyclePath,
-  isSanctionedEngineBackwardMove
+  isSanctionedEngineBackwardMove,
+  type LifecycleRole,
 } from "../workflows/workflow-lifecycle-direction.js";
 import { evaluateLifecycleDirectionPostcondition } from "../workflows/workflow-transition-policy.js";
 
@@ -44,15 +45,27 @@ describe("workflow lifecycle direction", () => {
     expect(classifyLifecycleDirection(undefined, "wip")).toBe("unknown");
   });
 
-  it("forbids every structural path while retaining revision-derived repairs", () => {
-    expect(evaluateForbiddenLifecyclePath("wip", "intake")?.rule).toBe("F1");
-    expect(evaluateForbiddenLifecyclePath("review", "hold")?.rule).toBe("F2");
-    expect(evaluateForbiddenLifecyclePath("review", "complete")?.rule).toBe("F3");
-    expect(evaluateForbiddenLifecyclePath("archived", "complete")?.rule).toBe("F4");
-    expect(evaluateForbiddenLifecyclePath("review", "wip")).toBeNull();
-    expect(evaluateForbiddenLifecyclePath("wip", "hold")?.rule).toBe("F5");
+  it("asserts the deny-list verdict for every ordered lifecycle role pair", () => {
+    const roles: LifecycleRole[] = ["intake", "hold", "wip", "review", "complete", "archived"];
+    const expectedRules: Record<LifecycleRole, Array<"F1" | "F2" | "F3" | "F4" | "F5" | null>> = {
+      intake: ["F1", null, null, null, null, null],
+      hold: ["F1", null, null, null, null, null],
+      wip: ["F1", "F5", null, null, null, null],
+      review: ["F1", "F2", null, null, null, "F3"],
+      complete: ["F1", "F2", "F2", "F4", null, null],
+      archived: ["F1", "F2", "F2", "F2", "F4", null],
+    };
+
+    for (const from of roles) {
+      for (const [toIndex, to] of roles.entries()) {
+        expect(evaluateForbiddenLifecyclePath(from, to)?.rule ?? null, `${from} → ${to}`)
+          .toBe(expectedRules[from][toIndex]);
+      }
+    }
+
     expect(evaluateForbiddenLifecyclePath("wip", "hold", "plan-review-revise-replan")).toBeNull();
     expect(evaluateForbiddenLifecyclePath(undefined, "hold")).toBeNull();
+    expect(evaluateForbiddenLifecyclePath("hold", undefined)).toBeNull();
   });
 
   it("requires a known reason whose declared role sets include the actual pair", () => {
@@ -126,6 +139,18 @@ describe("workflow lifecycle direction", () => {
       { mergeBlocker: true },
       { countsTowardWip: true },
       { moveSource: "engine", lifecycleReason: "code-review-revise-remediation" },
+    ))).toBeNull();
+  });
+
+  it.each([
+    ["merge-blocker", { mergeBlocker: true }],
+    ["human-review", { humanReview: true }],
+    ["merge-orchestration", { mergeOrchestration: true }],
+  ])("permits a renamed %s review lane to advance to a trait-derived complete lane", (_trait, reviewFlags) => {
+    expect(evaluateLifecycleDirectionPostcondition(policyInput(
+      reviewFlags,
+      { complete: true },
+      { moveSource: "engine" },
     ))).toBeNull();
   });
 });
