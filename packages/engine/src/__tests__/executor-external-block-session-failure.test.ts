@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "@fusion/core";
-import { classifyExternalObstacle } from "../execution-block-classifier.js";
+import {
+  classifyExternalObstacle,
+  detectRepairableObstacleHint,
+} from "../execution-block-classifier.js";
 import { parkExternalSessionObstacle } from "../executor/run-implementation.js";
 
 function liveTask(): Task {
@@ -62,6 +65,27 @@ describe("executor external session failure parking", () => {
       metadata: expect.objectContaining({ origin: "host-environment", code: "ENOSPC", source: "session-failure" }),
     }));
     expect(JSON.stringify(store.recordRunAuditEvent.mock.calls)).not.toContain("no space left on device");
+  });
+
+  it("leaves the FN-243 missing-interpreter failure for AI self-repair", async () => {
+    const reason = "Implementation is committed in 1fc8057. JavaScript tests, typecheck, and build pass, but the required Python regression command cannot run because neither python nor python3 is installed in the execution host.";
+    const store = {
+      getTask: vi.fn(async () => liveTask()),
+      updateTask: vi.fn(),
+      logEntry: vi.fn(),
+      recordRunAuditEvent: vi.fn(),
+    };
+
+    expect(classifyExternalObstacle(reason)).toBeUndefined();
+    expect(detectRepairableObstacleHint(reason)).toBe("missing-tooling");
+    await expect(parkExternalSessionObstacle(
+      { store: store as never, getRunContextFor: () => undefined },
+      "FN-209",
+      reason,
+    )).resolves.toBe(false);
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(store.logEntry).not.toHaveBeenCalled();
+    expect(store.recordRunAuditEvent).not.toHaveBeenCalled();
   });
 
   it("leaves internal failures for the existing terminal self-repair path", async () => {

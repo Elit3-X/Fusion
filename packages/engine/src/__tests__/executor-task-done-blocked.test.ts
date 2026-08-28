@@ -50,7 +50,7 @@ async function setup(overrides: Record<string, unknown> = {}) {
   const store = createMockStore();
   store.recordRunAuditEvent = vi.fn().mockResolvedValue(undefined);
   store.getAgentLogCount = vi.fn().mockResolvedValue(0);
-  const blockerTargets = (overrides.blockerTargets ?? {}) as Record<string, { deletedAt?: string } | null>;
+  const blockerTargets = (overrides.blockerTargets ?? {}) as Record<string, { deletedAt?: string; sourceParentTaskId?: string } | null>;
   let task: any = baseTask(overrides);
   let tool: any;
 
@@ -128,6 +128,138 @@ describe("FN-8141 fn_task_done honest blocked exit", () => {
     expect(store.updateStep).not.toHaveBeenCalled();
     expect(store.logEntry.mock.calls.flat().join(" ")).not.toContain("no blocking dependencies recorded");
     expect(result.content[0].text).toContain("frozen as Blocked");
+  });
+
+  it("refuses the FN-243 missing-interpreter declaration without mutating lifecycle state", async () => {
+    const reason = "Implementation is committed in 1fc8057. JavaScript tests, typecheck, and build pass, but the required Python regression command cannot run because neither python nor python3 is installed in the execution host.";
+    const { store, tool, getTask } = await setup();
+    const before = getTask();
+
+    const result = await tool.execute("id", {
+      outcome: "blocked",
+      obstacle: "outside-worktree",
+      blockedBy: [],
+      reason,
+    });
+
+    expect(getTask()).toEqual(before);
+    expect(getTask().externalBlock).toBeUndefined();
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(store.recordRunAuditEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ mutationType: "task:external-block-parked" }),
+    );
+    expect(result.content[0].text).toContain("missing-tooling");
+    expect(result.content[0].text).toContain("Resolve it");
+    expect(result.content[0].text).toContain("Substitute");
+    expect(result.content[0].text).toContain("Degrade and record");
+    expect(result.content[0].text).toContain("recommendations");
+    expect(result.details.error).toBe(result.content[0].text);
+  });
+
+  it("never produces a third-party-service freeze for an unclassified outside-worktree reason", async () => {
+    const { store, tool, getTask } = await setup();
+    const before = getTask();
+
+    const result = await tool.execute("id", {
+      outcome: "blocked",
+      obstacle: "outside-worktree",
+      reason: "An optional local helper is unavailable",
+      blockedBy: [],
+    });
+
+    expect(getTask()).toEqual(before);
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(JSON.stringify(getTask())).not.toContain("third-party-service");
+    expect(result.content[0].text).toContain("not authorized to freeze");
+  });
+
+  it.each([
+    ["ECONNRESET from provider", "network", "ECONNRESET"],
+    ["quota exceeded for this billing period", "model-provider", "USAGE_LIMIT"],
+    ["invalid api key for provider", "credentials", "CREDENTIALS"],
+  ])("keeps classified %s failures freezable", async (reason, origin, code) => {
+    const { tool, getTask } = await setup();
+
+    await tool.execute("id", { outcome: "blocked", obstacle: "outside-worktree", reason, blockedBy: [] });
+
+    expect(getTask()).toMatchObject({
+      status: "blocked",
+      paused: true,
+      externalBlock: { origin, code, source: "agent-declaration" },
+    });
+  });
+
+  it("refuses transient credential rotation rather than freezing it", async () => {
+    const { store, tool, getTask } = await setup();
+    const before = getTask();
+
+    const result = await tool.execute("id", {
+      outcome: "blocked",
+      obstacle: "outside-worktree",
+      reason: '401 {"type":"authentication_error","message":"Invalid authentication credentials"}',
+      blockedBy: [],
+    });
+
+    expect(getTask()).toEqual(before);
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(result.content[0].text).toContain("Continue repairing in place");
+  });
+
+  it("keeps a real dependency park for an unclassified outside-worktree reason", async () => {
+    const { tool, getTask } = await setup();
+
+    await tool.execute("id", {
+      outcome: "blocked",
+      obstacle: "outside-worktree",
+      reason: "optional helper is unavailable",
+      blockedBy: ["FN-8145"],
+    });
+
+    expect(getTask()).toMatchObject({ status: "failed", dependencies: ["FN-8145"] });
+    expect(getTask().externalBlock).toBeUndefined();
+  });
+
+  it.each([
+    ["missing", null],
+    ["soft-deleted", { deletedAt: "2026-08-28T22:00:00.000Z" }],
+  ])("refuses a classified host failure after discarding a %s dependency", async (_kind, blockerTarget) => {
+    const { store, tool, getTask } = await setup({
+      blockerTargets: { "FN-8145": blockerTarget },
+    });
+    const before = getTask();
+
+    const result = await tool.execute("id", {
+      outcome: "blocked",
+      obstacle: "outside-worktree",
+      reason: "ENOSPC: no space left on device, write",
+      blockedBy: ["FN-8145"],
+    });
+
+    expect(getTask()).toEqual(before);
+    expect(getTask().externalBlock).toBeUndefined();
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(store.recordRunAuditEvent).not.toHaveBeenCalled();
+    expect(result.content[0].text).toContain("Continue repairing in place");
+  });
+
+  it("refuses a classified host failure after discarding an all-self-spawned dependency list", async () => {
+    const { store, tool, getTask } = await setup({
+      blockerTargets: { "FN-8145": { sourceParentTaskId: "FN-8141" } },
+    });
+    const before = getTask();
+
+    const result = await tool.execute("id", {
+      outcome: "blocked",
+      obstacle: "outside-worktree",
+      reason: "ENOSPC: no space left on device, write",
+      blockedBy: ["FN-8145"],
+    });
+
+    expect(getTask()).toEqual(before);
+    expect(getTask().externalBlock).toBeUndefined();
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(store.recordRunAuditEvent).not.toHaveBeenCalled();
+    expect(result.content[0].text).toContain("Continue repairing in place");
   });
 
   it("refuses an explicit inside-worktree failure and preserves execution state", async () => {

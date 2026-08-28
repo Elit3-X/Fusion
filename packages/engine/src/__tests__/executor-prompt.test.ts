@@ -189,6 +189,18 @@ describe("buildExecutionPrompt", () => {
     expect(result).not.toContain("fn_review_step");
   });
 
+  it("routes missing capabilities through the non-blocking repair ladder", () => {
+    const result = buildExecutionPrompt(createMockTaskDetail(), "/home/user/project");
+
+    expect(result).toContain("unavailable command, interpreter, optional service, or unrunnable test is never a blocked exit");
+    expect(result).toContain("resolve it");
+    expect(result).toContain("substitute a runnable automated check");
+    expect(result).toContain("complete the achievable work and record the deferred verification");
+    expect(result).toContain("## Environment Constraints");
+    expect(result).toContain("host-resource, network, model-provider, and credential failures");
+    expect(result).not.toContain("provider, credential, or third-party failures");
+  });
+
   it("includes Custom fields section listing id/name/type, enum options, required, and current value", () => {
     const task = createMockTaskDetail({ customFields: { severity: "high" } });
     const result = buildExecutionPrompt(task, "/home/user/project", undefined, undefined, undefined, [

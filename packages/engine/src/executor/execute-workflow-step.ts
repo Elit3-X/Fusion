@@ -53,6 +53,12 @@ import {
   selectUserCommentsForAgentContext,
 } from "../agents/agent-user-comments.js";
 import { buildSessionSkillContext } from "../cli-runtime/session-skill-context.js";
+import {
+  extractCommandBinaries,
+  formatEnvironmentCapabilitiesSection,
+  probeEnvironmentCapabilities,
+  type EnvironmentCapabilityProbe,
+} from "../environment/environment-capabilities.js";
 import { checkSessionError } from "../errors/usage-limit-detector.js";
 import {
   requiredArtifactMissingValue,
@@ -298,6 +304,17 @@ export async function executeWorkflowStep(
     const planReviewConvergenceContext = isPlanReviewStep
       ? buildGraphPlanReviewConvergenceContext(latestTaskForUserComments, planReviewRevisionKey)
       : "";
+    const planReviewEnvironmentCapabilities = isPlanReviewStep
+      ? await probeEnvironmentCapabilities({
+        extraCommands: [
+          ...extractCommandBinaries(settings.testCommand),
+          ...extractCommandBinaries(settings.buildCommand),
+        ],
+      }).catch((): EnvironmentCapabilityProbe => ({ capabilities: [], degraded: true }))
+      : undefined;
+    const planReviewEnvironmentCapabilitiesBlock = planReviewEnvironmentCapabilities
+      ? formatEnvironmentCapabilitiesSection(planReviewEnvironmentCapabilities)
+      : "";
 
     /*
     FNXC:PlanReview 2026-07-21-16:30:
@@ -425,7 +442,7 @@ ${workflowReviewSpecText}
 
 --- BEGIN PROMPT.md ---
 ${planReviewSpecText}
---- END PROMPT.md ---${planReviewConvergenceContext ? `\n\n${planReviewConvergenceContext}` : ""}`
+--- END PROMPT.md ---${planReviewConvergenceContext ? `\n\n${planReviewConvergenceContext}` : ""}${planReviewEnvironmentCapabilitiesBlock ? `\n\n${planReviewEnvironmentCapabilitiesBlock}` : ""}`
       : `Diff Scope (files changed by THIS task vs base):
 ${scopeFileBlock}${diffShortstat ? `\nDiff stat: ${diffShortstat}` : ""}
 

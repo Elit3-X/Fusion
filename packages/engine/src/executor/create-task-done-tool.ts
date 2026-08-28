@@ -29,6 +29,7 @@ import {
   classifyBlockedExit,
   classifyExternalObstacle,
   countBlockedThrashHits,
+  detectRepairableObstacleHint,
   partitionBlockedByRefs,
 } from "../execution-block-classifier.js";
 import { mergeEffectiveSettings } from "../project/effective-settings.js";
@@ -103,7 +104,7 @@ export function createTaskDoneTool(
         "the project cap of genuine, task-ready out-of-scope recommendations with stable unique ids, or explicitly send " +
         "recommendations: [] when none qualify; when required by project policy, an explicit array is mandatory, but a shorter list or [] is valid when relevance does not support more; at cap 0, omit recommendations. " +
         "Do not use recommendations for required fixes, blockers, secrets, commands, or reasoning. " +
-        "With outcome=\"blocked\": declare obstacle=\"outside-worktree\" only for host, network, provider, credential, or third-party failures; Fusion freezes those at the current execution point. Use obstacle=\"inside-worktree\" for code, test, plan, lint, type, merge, or review failures; Fusion refuses that exit so the agent continues repairing in place. Blocked is NOT a completion claim — it does not " +
+        "With outcome=\"blocked\": obstacle=\"outside-worktree\" freezes only when the cause is classified as a host-resource, network, model-provider, or credential failure. Missing tooling, missing optional services, and unrunnable commands are AI-repairable and are refused back to the session to resolve, substitute, or complete-and-recommend. Use obstacle=\"inside-worktree\" for code, test, plan, lint, type, merge, or review failures; Fusion also refuses that exit so the agent continues repairing in place. Blocked is NOT a completion claim — it does not " +
         "trip the review/completion gates, auto-complete steps, or move implementation back into planning. Task-dependency blocks preserve worktree/" +
         "branch/step progress and park behind real dependency edges.",
       parameters: Type.Object({
@@ -137,7 +138,7 @@ export function createTaskDoneTool(
         })),
         obstacle: Type.Optional(Type.Union(
           [Type.Literal("outside-worktree"), Type.Literal("inside-worktree")],
-          { description: "Required when outcome=\"blocked\": declare whether the obstacle originates outside the worktree (host/network/provider/credentials/service) or inside it (code/tests/plan/review)." },
+          { description: "Required when outcome=\"blocked\": outside-worktree freezes only classified host-resource, network, model-provider, or credential failures. Missing tooling, optional services, and unrunnable commands are repairable and refused back to the session; use inside-worktree for code/tests/plan/review." },
         )),
 
         reason: Type.Optional(Type.String({
@@ -214,21 +215,24 @@ export function createTaskDoneTool(
           const blockedByIds = hasMissingTaskBlocker
             ? []
             : requestedBlockedByIds.filter((blockerId) => !selfSpawnedBlockedByIds.includes(blockerId));
+          const hasDiscardedTaskBlocker = hasMissingTaskBlocker || selfSpawnedBlockedByIds.length > 0;
           if (selfSpawnedBlockedByIds.length > 0) {
             await store.logEntry(taskId, `Ignored self-spawned blockedBy task(s): ${selfSpawnedBlockedByIds.join(", ")}.`);
           }
           /*
-          FNXC:ExternalBlock 2026-08-28-07:48:
-          Dependency waits keep their established durable dependency park. With no dependency, the
-          required obstacle enum owns routing: declared external causes freeze the exact execution
-          location, while declared inside-worktree causes are refused back to the executor for repair.
-          Prose refines an external diagnostic code but never chooses the lifecycle route.
+          FNXC:ExternalBlock 2026-08-28-22:15:
+          Dependency waits keep their established durable dependency park. With no dependency,
+          classifyExternalObstacle is the sole freeze authority: an outside-worktree declaration
+          cannot turn missing tooling or another unclassified, AI-repairable cause into durable state.
+
+          FNXC:ExternalBlock 2026-08-28-22:39:
+          A discarded stale or self-spawned dependency proves the blocked declaration itself is invalid.
+          Refuse it into self-repair even when its reason separately matches a freezable host failure.
           */
           const classifiedObstacle = params.obstacle === "outside-worktree"
             ? classifyExternalObstacle(reason)
-              ?? { origin: "third-party-service" as const, code: "UNCLASSIFIED" }
             : undefined;
-          if (blockedByIds.length === 0 && classifiedObstacle) {
+          if (blockedByIds.length === 0 && !hasDiscardedTaskBlocker && classifiedObstacle) {
             const externalBlock = {
               ...classifiedObstacle,
               message: reason,
@@ -273,7 +277,9 @@ export function createTaskDoneTool(
           }
 
           if (blockedByIds.length === 0) {
-            const message = "Inside-worktree obstacles are repairable by the executor. Continue repairing in place; fn_task_done(outcome=\"blocked\") did not change the task.";
+            const hint = detectRepairableObstacleHint(reason);
+            const hintText = hint ? ` Detected AI-repairable obstacle hint: ${hint}.` : "";
+            const message = `This obstacle is not authorized to freeze the card.${hintText} Continue repairing in place; fn_task_done(outcome="blocked") did not change the task. Repair ladder: (1) Resolve it — use an equivalent already available in this environment or install it with the project's own tooling. (2) Substitute — write the verification as an automated check in a runtime that is present and note the substitution in the completion summary. (3) Degrade and record — when the missing capability does not prevent the task objective, finish the achievable work, run checks that actually work, and record the deferred verification as a plain-prose recommendations entry at accepted fn_task_done(outcome="completed"); when recommendation capture is disabled, record it in the completion summary and fn_task_log. Only host-resource, network, model-provider, and credential failures freeze a card.`;
             return {
               content: [{ type: "text" as const, text: message }],
               details: { error: message },

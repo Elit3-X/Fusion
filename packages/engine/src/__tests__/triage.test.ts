@@ -377,6 +377,46 @@ describe("buildSpecificationPrompt", () => {
     expect(prompt).toContain("pnpm build");
   });
 
+  it("includes a healthy environment capability inventory for planning", () => {
+    const prompt = buildSpecificationPrompt(
+      baseTask,
+      ".fusion/tasks/KB-001/PROMPT.md",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        environmentCapabilities: {
+          capabilities: [
+            { name: "node", available: true },
+            { name: "python3", available: false },
+          ],
+          degraded: false,
+        },
+      },
+    );
+
+    expect(prompt).toContain("## Environment Capabilities");
+    expect(prompt).toContain("Unavailable commands: python3");
+    expect(prompt).toContain("## Environment Constraints");
+  });
+
+  it("omits environment capabilities when the probe is degraded or absent", () => {
+    const degraded = buildSpecificationPrompt(
+      baseTask,
+      ".fusion/tasks/KB-001/PROMPT.md",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { environmentCapabilities: { capabilities: [], degraded: true } },
+    );
+    const absent = buildSpecificationPrompt(baseTask, ".fusion/tasks/KB-001/PROMPT.md");
+
+    expect(degraded).not.toContain("## Environment Capabilities");
+    expect(absent).not.toContain("## Environment Capabilities");
+  });
+
   describe("completionDocumentationMode setting", () => {
     it("omits completion documentation guidance when mode is off", () => {
       const settings: Settings = {

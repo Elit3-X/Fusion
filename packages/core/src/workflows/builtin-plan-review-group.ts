@@ -35,6 +35,9 @@ const PLAN_REVIEW_PROMPT = `You are a senior plan reviewer. Review the task's PR
 4. **Verification quality** — absent or weak tests/checks for the behavior being changed.
 5. **Risk callouts** — migrations, data-loss paths, external integrations, secrets, or plugin/runtime dependencies that need explicit handling.
 
+## Environment feasibility
+When the supplied \`## Environment Capabilities\` block lists a runtime as unavailable, REVISE only if a blocking acceptance/completion criterion requires that runtime and the plan provides no runnable substitute. APPROVE when the plan specifies a runnable substitute or records the ideal check under an explicitly non-blocking \`## Environment Constraints\` section (use APPROVE_WITH_NOTES only for a genuine P2 note). Never REVISE merely because a desirable check is unavailable when the plan already marks it non-blocking.
+
 ${PLAN_REVIEW_COMPLETENESS_POLICY}
 
 ${REVIEW_SEVERITY_POLICY}

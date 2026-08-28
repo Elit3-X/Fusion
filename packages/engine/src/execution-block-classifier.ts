@@ -38,6 +38,11 @@ Only conservative, operator-actionable signals may freeze a task. Exact host/net
 existing provider/credential predicates identify causes outside the worktree; ordinary test, lint,
 type, merge, plan, and review failures deliberately fall through to the existing self-repair path.
 Transient credential rotation is excluded because its current retry owner must run first.
+
+FNXC:ExternalBlock 2026-08-28-22:15:
+FN-243 makes this classifier the single freeze authority for both agent declarations and session failures.
+An unrecognized cause remains AI-repairable; only host-resource, network, model-provider, and credential
+failures may freeze a card, while advisory tooling/service hints tailor the non-mutating repair refusal.
 */
 export function classifyExternalObstacle(message: string): ExternalObstacleClassification | undefined {
   const normalized = message.trim();
@@ -54,6 +59,22 @@ export function classifyExternalObstacle(message: string): ExternalObstacleClass
   if (isUsageLimitError(normalized)) return { origin: "model-provider", code: "USAGE_LIMIT" };
   if (isOperatorActionableAgentError(normalized)) return { origin: "credentials", code: "CREDENTIALS" };
   return undefined;
+}
+
+export type RepairableObstacleHint = "missing-tooling" | "missing-service";
+
+/**
+ * Identify an AI-repairable missing capability without granting lifecycle authority.
+ */
+export function detectRepairableObstacleHint(message: string): RepairableObstacleHint | undefined {
+  const normalized = message.trim();
+  if (!normalized) return undefined;
+
+  const missingSignal = /\b(?:command not found|not installed|is not recognized as an internal or external command)\b|\bneither\b.{0,80}\binstalled\b/i;
+  const missingFileSignal = /(?:\b(?:spawn|exec(?:ute)?|binary|executable|interpreter|command)\b.{0,80}\b(?:ENOENT|no such file or directory)\b|\bENOENT\b.{0,80}\b(?:binary|executable|interpreter|command)\b)/i;
+  if (!missingSignal.test(normalized) && !missingFileSignal.test(normalized)) return undefined;
+
+  return /\b(?:service|daemon)\b/i.test(normalized) ? "missing-service" : "missing-tooling";
 }
 
 export type BlockedExitClass = "plan-defect" | "external";

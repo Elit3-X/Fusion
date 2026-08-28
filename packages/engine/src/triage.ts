@@ -171,6 +171,12 @@ import { mergeEffectiveSettings } from "./project/effective-settings.js";
 import { detectDanglingTaskDocReferences, formatDanglingDiagnostic } from "./spec-validation/task-document-references.js";
 import { buildSessionSkillContext } from "./cli-runtime/session-skill-context.js";
 import {
+  extractCommandBinaries,
+  formatEnvironmentCapabilitiesSection,
+  probeEnvironmentCapabilities,
+  type EnvironmentCapabilityProbe,
+} from "./environment/environment-capabilities.js";
+import {
   PRIORITY_SPECIFY,
   computeTopLevelConcurrencyClaimedFromStore,
   formatAdmissionCapacityQueuedReason,
@@ -3472,6 +3478,12 @@ export class TriageProcessor {
           const [planDocument, originalDescriptionDocument] = typeof getTaskDocument === "function"
             ? await Promise.all([getTaskDocument.call(this.store, task.id, "plan"), getTaskDocument.call(this.store, task.id, "original-description")])
             : [null, null];
+          const environmentCapabilities = await probeEnvironmentCapabilities({
+            extraCommands: [
+              ...extractCommandBinaries(settings?.testCommand),
+              ...extractCommandBinaries(settings?.buildCommand),
+            ],
+          }).catch((): EnvironmentCapabilityProbe => ({ capabilities: [], degraded: true }));
           const agentPrompt = buildSpecificationPrompt(
             detail,
             promptPath,
@@ -3483,6 +3495,7 @@ export class TriageProcessor {
               plan: typeof planDocument?.content === "string" ? planDocument.content : undefined,
               originalDescription: typeof originalDescriptionDocument?.content === "string" ? originalDescriptionDocument.content : undefined,
               planReviewFeedbackHistory,
+              environmentCapabilities,
             },
             assignedAgent,
           );
@@ -5686,7 +5699,12 @@ export function buildSpecificationPrompt(
   attachmentContents?: AttachmentContent[],
   existingPrompt?: string,
   feedback?: string,
-  planningContext?: { plan?: string; originalDescription?: string; planReviewFeedbackHistory?: string[] },
+  planningContext?: {
+    plan?: string;
+    originalDescription?: string;
+    planReviewFeedbackHistory?: string[];
+    environmentCapabilities?: EnvironmentCapabilityProbe;
+  },
   memoryAgent?: Agent | null,
 ): string {
   const hasFeedback = Boolean(feedback?.trim());
@@ -5708,6 +5726,10 @@ export function buildSpecificationPrompt(
     lines.push("Use these exact commands in testing/verification steps.");
     commandsSection = "\n\n" + lines.join("\n");
   }
+
+  const environmentCapabilitiesSection = planningContext?.environmentCapabilities
+    ? formatEnvironmentCapabilitiesSection(planningContext.environmentCapabilities)
+    : "";
 
   const completionDocumentationMode = settings?.completionDocumentationMode ?? "off";
   let completionDocumentationSection = "";
@@ -5873,5 +5895,5 @@ ${task.dependencies.length > 0 ? `- **Dependencies:** ${task.dependencies.join("
 ## Instructions
 ${isRevision ? "1. Read the existing specification and revision feedback carefully\n2. Apply surgical PROMPT.md edits that fully resolve every blocking feedback item — do not rewrite from title/description alone\n3. Keep structure stable unless feedback requires rethink; preserve uncriticized content\n4. Keep `## Original Description` at the top (after title/metadata) with the operator description **verbatim**\n5. Ensure the revised specification is still detailed enough for an AI agent to execute" : isFreshRespecification ? "1. Read the project structure to understand context (package.json, source files, etc.)\n2. Treat the current task title and description as mandatory primary inputs for a new spec\n3. Produce a fresh complete PROMPT.md specification following the format in your system prompt\n4. Include `## Original Description` near the top with the exact Original Request text above (verbatim, never plan.md)\n5. Address the revision feedback without inventing extra scope\n6. Name actual files, functions, and patterns from the codebase — be specific" : "1. Read the project structure to understand context (package.json, source files, etc.)\n2. Produce a complete PROMPT.md specification following the format in your system prompt\n3. Include `## Original Description` immediately after title/`Created`/`Size` with the exact Original Request text above (verbatim — do not paraphrase; never use plan.md)\n4. The specification must be detailed enough for an autonomous AI agent to implement without asking questions\n5. Name actual files, functions, and patterns from the codebase — be specific"}
 
-Call \`fn_task_prompt_write\` after the complete final specification is ready. If it returns an error, correct the problem and retry; do not finish planning until the tool confirms the authoritative PROMPT.md read-back. Do not use the generic filesystem write tool for PROMPT.md.${commandsSection}${completionDocumentationSection}${memorySection}${taskDefinitionLanguageSection}${attachmentsSection}${userCommentsSection}`;
+Call \`fn_task_prompt_write\` after the complete final specification is ready. If it returns an error, correct the problem and retry; do not finish planning until the tool confirms the authoritative PROMPT.md read-back. Do not use the generic filesystem write tool for PROMPT.md.${commandsSection}${environmentCapabilitiesSection ? `\n\n${environmentCapabilitiesSection}` : ""}${completionDocumentationSection}${memorySection}${taskDefinitionLanguageSection}${attachmentsSection}${userCommentsSection}`;
 }
