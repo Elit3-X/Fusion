@@ -6675,10 +6675,13 @@ async function tryEarlyEmptyOwnDiffFinalize(input: {
   }
   if (worktreeRemoved || branchDeleted) {
     try {
+      /*
+      FNXC:BranchNaming 2026-08-28-06:41:
+      FN-213 couples each cleared pointer to its own predicate. In particular, omitting the branch key when the branch survives prevents a branch write whose provenance was conditionally absent from failing after the worktree was already removed.
+      */
       await store.updateTask(taskId, {
-        worktree: worktreeRemoved ? null : task.worktree,
-        branch: branchDeleted ? null : task.branch,
-        ...(branchDeleted ? { branchWriteOrigin: "engine" as const } : {}),
+        ...(worktreeRemoved ? { worktree: null } : {}),
+        ...(branchDeleted ? { branch: null, branchWriteOrigin: "engine" as const } : {}),
       });
       // Keep the in-memory task in sync with the DB so the returned
       // MergeResult.task does not advertise a removed path / deleted branch.

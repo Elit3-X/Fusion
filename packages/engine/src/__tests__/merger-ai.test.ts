@@ -35,6 +35,7 @@ import {
   AiMergeBlockedError,
 } from "../merge/merger-ai.js";
 import { EXECUTOR_FAILED_INCOMPLETE_REASON } from "../overseer/planner-overseer.js";
+import { withBranchWriteProvenance } from "./branch-write-provenance-store-stub.js";
 
 const RM = { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as const;
 const tracked = new Set<string>();
@@ -107,7 +108,7 @@ function makeStore(
   const store: any = {
     getTask: vi.fn(async () => task),
     getSettings: vi.fn(async () => ({ merger: { mode: "ai", maxReviewPasses: 1 }, ...settingsOverrides })),
-    updateTask: vi.fn(async (_id: string, patch: Record<string, unknown>) => { Object.assign(task, patch); return task; }),
+    updateTask: vi.fn(withBranchWriteProvenance(async (_id: string, patch: Record<string, unknown>) => { Object.assign(task, patch); return task; })),
     updateTaskAtomic: vi.fn(async (_id: string, updater: (current: typeof task) => Record<string, unknown> | undefined) => {
       const patch = await updater(task);
       if (patch) Object.assign(task, patch);
@@ -652,6 +653,38 @@ describe("runAiMerge", () => {
       }),
     );
     expect(store.moveTask).toHaveBeenCalledWith("FN-1", "done", expect.objectContaining({ moveSource: "engine", preserveProgress: true }));
+  });
+
+  it("clears only a removed worktree pointer when an operator branch survives early no-op finalization", async () => {
+    const { dir } = initRepoWithBranch({ branch: "operator/fn-213" });
+    git(dir, "merge -q operator/fn-213");
+    const worktree = mkdtempSync(join(tmpdir(), "fusion-fn-213-operator-worktree-"));
+    rmSync(worktree, RM);
+    tracked.add(worktree);
+    git(dir, `worktree add -q ${JSON.stringify(worktree)} operator/fn-213`);
+    const branchOverride = { by: "operator", at: "2026-08-28T06:41:00.000Z", branch: "operator/fn-213" };
+    const { store, task } = makeStore(dir, {
+      branch: "operator/fn-213",
+      branchContext: { branchOverride },
+      worktree,
+    });
+
+    const result = await runAiMerge(store, dir, "FN-1", { manual: true }, {
+      mergeAgent: vi.fn(async () => undefined),
+      reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
+    });
+
+    expect(result.noOp).toBe(true);
+    expect(result.worktreeRemoved).toBe(true);
+    expect(result.branchDeleted).toBe(false);
+    const pointerClear = (store.updateTask as any).mock.calls.find((call: any[]) => call[1]?.worktree === null);
+    expect(pointerClear?.[1]).toEqual({ worktree: null });
+    expect(pointerClear?.[1]).not.toHaveProperty("branch");
+    expect(task.worktree).toBeNull();
+    expect(result.task.worktree).toBeNull();
+    expect(task.branch).toBe("operator/fn-213");
+    expect(result.task.branch).toBe("operator/fn-213");
+    expect(task.branchContext?.branchOverride).toEqual(branchOverride);
   });
 
   it("short-circuits a zero-commits-ahead branch before the clean-room/merge-agent churn (empty-branch wedge)", async () => {

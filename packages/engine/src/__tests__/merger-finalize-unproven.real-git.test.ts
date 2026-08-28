@@ -20,6 +20,7 @@ vi.mock("../pi.js", () => ({
 }));
 
 import { aiMergeTask, classifyOwnedLandedEvidence } from "../merger.js";
+import { withBranchWriteProvenance } from "./branch-write-provenance-store-stub.js";
 
 const hasGit = spawnSync("git", ["--version"], { stdio: "pipe" }).status === 0;
 const describeIfGit = hasGit ? describe : describe.skip;
@@ -50,10 +51,10 @@ function createStore(
     getTask: vi.fn(async () => currentTask),
     getSettings: vi.fn(async () => mergedSettings),
     listTasks: vi.fn(async () => [currentTask]),
-    updateTask: vi.fn(async (_id: string, updates: Partial<Task>) => {
+    updateTask: vi.fn(withBranchWriteProvenance(async (_id: string, updates: Partial<Task>) => {
       currentTask = { ...currentTask, ...updates, updatedAt: new Date().toISOString() } as Task;
       return currentTask;
-    }),
+    })),
     moveTask: vi.fn(async (_id: string, column: Task["column"]) => {
       currentTask = {
         ...currentTask,
@@ -307,6 +308,54 @@ describeIfGit("aiMergeTask finalize no-op unproven reproduction (real git)", () 
     expect(result.merged).toBe(true);
     expect(result.noOp).toBe(true);
     expect(store.moveTask).toHaveBeenCalledWith("FN-NO-COMMITS-DONE", "done");
+  }, 20_000);
+
+  it("FN-213: clears a removed worktree pointer while retaining an operator branch", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "fusion-merger-operator-empty-own-"));
+    repos.push(repo);
+    git(repo, "git init -b main");
+    git(repo, 'git config user.email "test@example.com"');
+    git(repo, 'git config user.name "Test User"');
+    git(repo, "git commit --allow-empty -m 'init'");
+    const baseSha = git(repo, "git rev-parse HEAD");
+    git(repo, "git checkout -b operator/fn-213");
+    git(repo, "git commit --allow-empty -m 'test(FN-213): no content change'");
+    git(repo, "git checkout main");
+    const worktree = join(repo, ".operator-worktree");
+    git(repo, `git worktree add -q ${JSON.stringify(worktree)} operator/fn-213`);
+    const branchOverride = { by: "operator" as const, at: "2026-08-28T06:41:00.000Z", branch: "operator/fn-213" };
+    const task = {
+      id: "FN-213",
+      title: "FN-213",
+      description: "FN-213",
+      column: "in-review",
+      branch: "operator/fn-213",
+      branchContext: { branchOverride },
+      worktree,
+      baseBranch: "main",
+      baseCommitSha: baseSha,
+      dependencies: [],
+      steps: [{ name: "Verify", status: "done" }],
+      currentStep: 0,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      prompt: "# FN-213",
+    } as unknown as Task;
+    const store = createStore(task, { mergeIntegrationWorktree: "reuse-task-worktree" as any });
+
+    const result = await aiMergeTask(store, repo, task.id);
+
+    expect(result.merged).toBe(true);
+    expect(result.noOp).toBe(true);
+    expect(result.worktreeRemoved).toBe(true);
+    expect(result.branchDeleted).toBe(false);
+    const pointerClear = (store.updateTask as ReturnType<typeof vi.fn>).mock.calls.find(([, patch]) => patch?.worktree === null);
+    expect(pointerClear?.[1]).toEqual({ worktree: null });
+    expect(pointerClear?.[1]).not.toHaveProperty("branch");
+    expect(result.task.worktree).toBeNull();
+    expect(result.task.branch).toBe("operator/fn-213");
+    expect(result.task.branchContext?.branchOverride).toEqual(branchOverride);
   }, 20_000);
 
   it("FN-6461: demotes no-commits empty-own-diff fast-path before cleanup", async () => {

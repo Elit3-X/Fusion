@@ -42,6 +42,7 @@ import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_
   resolveAgentActivityAttribution,
   resolveEngineIncarnationId,
   resolveEngineNodeId,
+  classifyTaskBranchOrigin,
   isFusionDeletableBranch,
   isTaskExternallyBlocked,
 } from "@fusion/core";
@@ -70,6 +71,7 @@ import {
   MERGE_ACTIVE_MISSING_WORKTREE_STATUSES,
 } from "./healing/restart-recovery-coordinator.js";
 import { extractMissingModulePath, isNonContinuableSessionError, isStaleWorktreeModuleResolutionError } from "./errors/transient-error-detector.js";
+import { classifyTaskError } from "./errors/error-classifier.js";
 import {
   buildHeartbeatErrorRecoveryMetadata,
   HEARTBEAT_ERROR_RETRY_EXHAUSTED_PAUSE_REASON,
@@ -4313,9 +4315,14 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           await this.emitBackwardMoveNoAction(task, "reclaim-pr-conflict", "task:reclaim-pr-conflict-no-action", proof);
           return withPerPr({ outcome: "skipped", reason: "triple-proof-not-satisfied" });
         } else {
+          /*
+          FNXC:BranchNaming 2026-08-28-06:41:
+          FN-213 re-persists an existing task branch during PR-conflict reclaim, so its durable operator or engine ownership must accompany the branch write. Omitting it caused the provenance boundary to masquerade as an unrecoverable branch conflict.
+          */
           await this.store.updateTask(task.id, {
             worktree: inspection.livePath,
             branch: task.branch,
+            branchWriteOrigin: classifyTaskBranchOrigin(task, task.branch) === "operator-supplied" ? "operator" : "engine",
             paused: false,
             pausedReason: undefined,
             status: null,
@@ -4329,9 +4336,14 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           });
         }
       } else {
+        /*
+        FNXC:BranchNaming 2026-08-28-06:41:
+        FN-213 requires non-review PR reclaim to preserve the existing branch's derived ownership. A branch write without this provenance was rejected and then misreported as an unrecoverable conflict.
+        */
         await this.store.updateTask(task.id, {
           worktree: inspection.livePath,
           branch: task.branch,
+          branchWriteOrigin: classifyTaskBranchOrigin(task, task.branch) === "operator-supplied" ? "operator" : "engine",
           paused: false,
           pausedReason: undefined,
           status: null,
@@ -4344,6 +4356,17 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       const message = err instanceof Error ? err.message : String(err);
       if (await this.tryReanchorForeignOnlyContamination(task)) {
         return withPerPr({ outcome: "reclaimed" });
+      }
+      const classification = classifyTaskError(err);
+      /*
+      FNXC:SelfHealingReclaim 2026-08-28-06:41:
+      FN-213 permits destructive branch-conflict recovery only for a genuine BranchConflictError verdict. Validation, store, Git, and filesystem failures defer with lifecycle state intact; treating branchWriteOrigin validation as a conflict detached FN-207 from its checkout.
+      */
+      if (!classification.class.startsWith("branch-conflict-")) {
+        const reason = `reclaim deferred — non-conflict error, retrying next sweep: ${message}`;
+        log.warn(`[self-healing] ${task.id} PR ${reason}`);
+        await this.store.logEntry(task.id, `Auto-recovery warning: PR ${reason}`).catch(() => undefined);
+        return withPerPr({ outcome: "skipped", reason: message });
       }
       const patchPath = await preserveWorktreeChanges(this.options.rootDir, task.worktree, task.id);
       if (patchPath) {
@@ -4656,6 +4679,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
             reason: "reclaim-self-owned-candidate",
           })
           : null;
+        let relocatedWorktreePath: string | null = null;
 
         try {
           const inspection = await inspectBranchConflict({
@@ -4992,6 +5016,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           }
           const reclaimedWorktreePath = placement.path;
           if (placement.relocated) {
+            relocatedWorktreePath = reclaimedWorktreePath;
             await this.store.logEntry(
               task.id,
               `[recovery] relocated preserved worktree from ${inspection.livePath} to ${reclaimedWorktreePath}`,
@@ -5059,9 +5084,14 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
             continue;
           }
 
+          /*
+          FNXC:BranchNaming 2026-08-28-06:41:
+          FN-213 keeps the reclaim persist as the single commit point while declaring the existing branch's derived ownership. Hardcoding engine ownership would strip an operator override and make its branch eligible for Fusion deletion.
+          */
           await this.store.updateTask(task.id, {
             worktree: reclaimedWorktreePath,
             branch: task.branch,
+            branchWriteOrigin: classifyTaskBranchOrigin(task, task.branch) === "operator-supplied" ? "operator" : "engine",
             paused: false,
             pausedReason: undefined,
             status: null,
@@ -5120,6 +5150,31 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           const message = err instanceof Error ? err.message : String(err);
           if (await this.tryReanchorForeignOnlyContamination(task)) {
             recovered++;
+            continue;
+          }
+          const classification = classifyTaskError(err);
+          /*
+          FNXC:SelfHealingReclaim 2026-08-28-06:41:
+          FN-213 reserves destructive discard-and-recreate recovery for genuine BranchConflictError verdicts. Validation, store, Git, and filesystem failures leave lifecycle state untouched and retry on a later sweep instead of reporting a false branch conflict.
+          */
+          if (!classification.class.startsWith("branch-conflict-")) {
+            if (relocatedWorktreePath && relocatedWorktreePath !== task.worktree) {
+              /*
+              FNXC:SelfHealingReclaim 2026-08-28-06:41:
+              A successful git worktree move and its task-row persist are not transactional. FN-213 keeps one reclaim commit point, then best-effort re-points only the worktree and relies on the immediately following registry-sourced metadata reconcile if that write also fails; a crash inside git worktree move remains git prune/repair territory.
+              */
+              try {
+                await this.store.updateTask(task.id, { worktree: relocatedWorktreePath });
+                await this.store.logEntry(task.id, `[recovery] re-pointed relocated worktree after deferred reclaim: ${relocatedWorktreePath}`);
+              } catch (repointErr: unknown) {
+                const repointMessage = repointErr instanceof Error ? repointErr.message : String(repointErr);
+                log.warn(`[self-healing] failed to re-point relocated worktree for ${task.id}; registry reconcile will retry: ${repointMessage}`);
+                await this.store.logEntry(task.id, `Auto-recovery warning: relocated worktree re-point failed; registry reconcile will retry — ${repointMessage}`).catch(() => undefined);
+              }
+            }
+            const reason = `reclaim deferred — non-conflict error, retrying next sweep: ${message}`;
+            log.warn(`[self-healing] ${task.id} ${reason}`);
+            await this.store.logEntry(task.id, `Auto-recovery warning: ${reason}`).catch(() => undefined);
             continue;
           }
           const patchPath = await preserveWorktreeChanges(this.options.rootDir, task.worktree, task.id);
