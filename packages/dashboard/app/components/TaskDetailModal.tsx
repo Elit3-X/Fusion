@@ -285,7 +285,8 @@ function formatDurationCompact(ageMs: number): string {
 }
 
 type TabId = "summary" | "recommendations" | "cost" | "definition" | "dependencies" | "attachments" | "details" | "debug" | "chat" | "planner-chat" | "logs" | "changes" | "review" | "history" | "pr" | "comments" | "model" | "workflow" | "documents" | "stats" | "routing" | "retries" | "terminal" | "worktree-terminal" | `plugin-${string}`;
-type ActivitySegment = "current" | "feed" | "raw-logs" | "interventions";
+type ActivitySegment = "current" | "feed" | "raw-logs" | "interventions" | "summaries";
+type WorkflowResultsLoadState = "idle" | "loading" | "succeeded" | "failed";
 
 /*
 FNXC:TaskDetailActivityTab 2026-06-30-00:00:
@@ -308,12 +309,15 @@ The first Activity segment is user-facing Live while legacy internals remain `cu
 
 FNXC:TaskDetailActivity 2026-06-30-23:59:
 Activity view switching lives in the top-level Activity tab dropdown for Live, Feed, and Raw while retaining the internal `current`, `feed`, and `raw-logs` segment ids. Legacy `chat` and `logs` initial-tab routing remains compatible so older links still open Activity → Live or Activity → Feed.
+
+FNXC:TaskHistory 2026-08-28-13:46:
+Task History is now the final Activity view, named Summaries, rather than a separate top-level tab. Keep the legacy `history` TabId as a routing-only compatibility value that opens Activity → Summaries, mirroring the existing `logs` → Activity → Feed mapping.
 */
 function resolveDefaultTab(initialTab: TabId | undefined, column: ColumnId, taskDetailChatFirst = false): TabId {
   if (initialTab === "retries") {
     return "details";
   }
-  if (initialTab === "logs") {
+  if (initialTab === "logs" || initialTab === "history") {
     return "chat";
   }
   if (initialTab) {
@@ -332,6 +336,7 @@ function resolveDefaultTab(initialTab: TabId | undefined, column: ColumnId, task
 }
 
 function resolveDefaultActivitySegment(initialTab: TabId | undefined): ActivitySegment {
+  if (initialTab === "history") return "summaries";
   return initialTab === "logs" ? "feed" : "current";
 }
 
@@ -1852,11 +1857,16 @@ export function TaskDetailContent({
   // Workflow results state
   const [workflowResults, setWorkflowResults] = useState<WorkflowStepResult[]>([]);
   const [workflowResultsLoading, setWorkflowResultsLoading] = useState(false);
+  const [workflowResultsLoadState, setWorkflowResultsLoadState] = useState<WorkflowResultsLoadState>("idle");
   const [workflowEnabledSteps, setWorkflowEnabledSteps] = useState<string[] | undefined>(task.enabledWorkflowSteps);
-  const needsWorkflowResults = activeTab === "workflow" || activeTab === "history";
-  const historyWorkflowResults = workflowResults.length > 0
-    ? workflowResults
-    : (workingTask.workflowStepResults ?? []);
+  const needsWorkflowResults = activeTab === "workflow" || (activeTab === "chat" && activitySegment === "summaries");
+  /*
+  FNXC:TaskHistory 2026-08-28-14:11:
+  A successful workflow-results response is authoritative even when it is empty, because the task snapshot can contain reports that were subsequently removed. Activity → Summaries uses the snapshot only after a request failure; loading, SSE, reconnect, and successful fetch states render the authoritative result list as-is.
+  */
+  const historyWorkflowResults = workflowResultsLoadState === "failed"
+    ? (workingTask.workflowStepResults ?? [])
+    : workflowResults;
   const isNodeOverrideLocked = isWipColumn || ACTIVE_STATUSES.has(task.status as string);
 
   // Reset edit state when task changes
@@ -1936,7 +1946,7 @@ export function TaskDetailContent({
     if (!needsWorkflowResults) return;
     /*
     FNXC:TaskHistory 2026-08-28-02:23:
-    History is a read-only projection over the modal's workflow result state and issues no request of its own. Admitting it to this shared load/SSE gate prevents Plan, Review, and Merge from showing zero until Workflow has been visited.
+    Activity → Summaries is a read-only projection over the modal's workflow result state and issues no request of its own. Admitting it to this shared load/SSE gate prevents Plan, Review, and Merge from showing zero until Workflow has been visited.
     */
     let cancelled = false;
     /*
@@ -1945,12 +1955,17 @@ export function TaskDetailContent({
     */
     setWorkflowResults([]);
     setWorkflowResultsLoading(true);
+    setWorkflowResultsLoadState("loading");
     fetchWorkflowResults(task.id, projectId)
       .then((results) => {
-        if (!cancelled) setWorkflowResults(results);
+        if (!cancelled) {
+          setWorkflowResults(results);
+          setWorkflowResultsLoadState("succeeded");
+        }
       })
       .catch((err) => {
         if (!cancelled) {
+          setWorkflowResultsLoadState((current) => current === "succeeded" ? current : "failed");
           addToast(t("taskDetail.workflow.loadFailed", "Failed to load workflow results: {{error}}", { error: getErrorMessage(err) }), "error");
         }
       })
@@ -1974,6 +1989,7 @@ export function TaskDetailContent({
         // Only update if this is for our task and has workflow step results
         if (updatedTask.id === task.id && Array.isArray(updatedTask.workflowStepResults)) {
           setWorkflowResults(updatedTask.workflowStepResults);
+          setWorkflowResultsLoadState("succeeded");
         }
       } catch {
         // Skip malformed events
@@ -1994,7 +2010,10 @@ export function TaskDetailContent({
     const resyncWorkflowResults = () => {
       void fetchWorkflowResults(task.id, projectId)
         .then((results) => {
-          if (!cancelled) setWorkflowResults(results);
+          if (!cancelled) {
+            setWorkflowResults(results);
+            setWorkflowResultsLoadState("succeeded");
+          }
         })
         .catch(() => {
           // Non-fatal: the tab keeps its last known rows and the next task:updated event corrects them.
@@ -4451,6 +4470,7 @@ export function TaskDetailContent({
     { value: "feed", label: t("taskDetail.activity.feed", "Feed") },
     { value: "raw-logs", label: t("taskDetail.activity.raw", "Raw") },
     ...(oversightActive ? [{ value: "interventions" as const, label: t("taskDetail.activity.interventions", "Interventions") }] : []),
+    { value: "summaries", label: t("taskDetail.activity.summaries", "Summaries") },
   ], [t, oversightActive]);
   const selectedActivityViewLabel = activityViewOptions.find((option) => option.value === activitySegment)?.label ?? activityViewOptions[0]?.label ?? "Live";
 
@@ -4771,7 +4791,8 @@ export function TaskDetailContent({
         className={`detail-tab detail-tab--activity${activeTab === "chat" ? " detail-tab-active" : ""}`}
         onClick={() => {
           const shouldOpen = !showActivityViewMenu;
-          setActiveTab("chat");
+          /* FNXC:TaskHistory 2026-08-28-13:46: Keep Workflow mounted until the operator chooses an Activity view so selecting Summaries preserves the shared workflow-results load/SSE gate without a refetch. */
+          if (activeTab !== "workflow") setActiveTab("chat");
           if (shouldOpen) {
             markActivityViewMenuOpening();
           } else {
@@ -5842,12 +5863,6 @@ export function TaskDetailContent({
             >
               {t("taskDetail.tabs.review", "Review")}
             </button>
-            <button
-              className={`detail-tab${activeTab === "history" ? " detail-tab-active" : ""}`}
-              onClick={() => setActiveTab("history")}
-            >
-              {t("taskDetail.tabs.history", "History")}
-            </button>
             {isReviewColumn && (
               <button
                 className={`detail-tab${activeTab === "pr" ? " detail-tab-active" : ""}`}
@@ -5968,14 +5983,6 @@ export function TaskDetailContent({
                 onEditWorkflow={onOpenWorkflowEditor}
               />
             </div>
-          ) : activeTab === "history" ? (
-            <div className="detail-section">
-              <TaskHistoryTab
-                task={workingTask}
-                results={historyWorkflowResults}
-                loading={workflowResultsLoading}
-              />
-            </div>
           ) : activeTab === "model" ? (
             <div className="detail-section">
               <ModelSelectorTab
@@ -6020,7 +6027,7 @@ export function TaskDetailContent({
             <div className={`detail-section detail-section--activity${activitySegment === "feed" && !isActivityExpanded ? " detail-section--feed" : ""}${activitySegment === "current" || isActivityExpanded ? " detail-section--chat" : ""}${activitySegment === "raw-logs" ? " detail-section--agent-log" : ""}`}>
               {/*
                 FNXC:TaskDetailPlannerChat 2026-06-30-22:30:
-                Activity owns the existing steering/current view, Feed, and raw agent logs inside one compact selector. The stable Activity tab id remains `chat`, legacy `logs` callers land on Feed, and Raw is the only selector option that enables raw agent-log fetching. Planner-model conversation belongs to the separate `planner-chat` tab and must not route into steering comments.
+                Activity owns the existing steering/current view, Feed, raw agent logs, Interventions, and Summaries inside one compact selector. The stable Activity tab id remains `chat`, legacy `logs` callers land on Feed, legacy `history` callers land on Summaries, and Raw is the only selector option that enables raw agent-log fetching. Planner-model conversation belongs to the separate `planner-chat` tab and must not route into steering comments.
 
                 FNXC:TaskDetailActivity 2026-06-30-23:55:
                 The first Activity segment is user-facing Live but keeps the legacy `current` segment id. Activity expansion is segment-wide, so the same reachable toggle must remain present on Live, Feed, and Raw without fetching Raw outside the Raw segment.
@@ -6069,6 +6076,14 @@ export function TaskDetailContent({
                 // on oversightActive, so no `hidden` prop is needed here.
                 <div className="detail-activity detail-activity--interventions" role="tabpanel">
                   <PlannerInterventionTimeline taskId={task.id} projectId={projectId} />
+                </div>
+              ) : activitySegment === "summaries" ? (
+                <div className="detail-activity detail-activity--summaries" role="tabpanel">
+                  <TaskHistoryTab
+                    task={workingTask}
+                    results={historyWorkflowResults}
+                    loading={workflowResultsLoading}
+                  />
                 </div>
               ) : (
                 <div className="detail-activity" role="tabpanel">

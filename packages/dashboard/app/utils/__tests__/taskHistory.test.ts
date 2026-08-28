@@ -55,10 +55,43 @@ describe("buildTaskHistory", () => {
     expect(entries[0]?.body).toBe("Fix it");
   });
 
+  it("renders a mirrored structured Plan Review report exactly once", () => {
+    const REPORT = "The plan is internally consistent, scoped to both repositories, accounts for the observed no-op state, preserves fixture bytes, and defines adequate repository-specific verification.";
+    const planReview = result({
+      workflowStepId: "plan-review",
+      workflowStepName: "Plan Review",
+      phase: "pre-merge",
+      reviewKind: "plan",
+      source: "optional-group",
+      status: "passed",
+      verdict: "APPROVE",
+      output: REPORT,
+      notes: REPORT,
+      startedAt: "2026-08-28T12:35:00.000Z",
+      completedAt: "2026-08-28T12:36:00.000Z",
+    });
+
+    expect(stageEntries(buildTaskHistory(task(), [planReview]), "plan")[0]?.body).toBe(REPORT);
+  });
+
+  it("preserves genuinely different output and notes", () => {
+    const entries = stageEntries(buildTaskHistory(task(), [result({ output: "Execution output", notes: "Reviewer notes" })]), "code");
+    expect(entries[0]?.body).toBe("Execution output\n\nReviewer notes");
+  });
+
   it("retains bodyless workflow results with their status", () => {
     const entries = stageEntries(buildTaskHistory(task(), [result({ output: " ", notes: " " })]), "code");
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ status: "passed", body: undefined });
+  });
+
+  it("uses findings when output and notes are blank", () => {
+    const entries = stageEntries(buildTaskHistory(task(), [result({
+      output: " ",
+      notes: " ",
+      findings: [{ id: "finding-1", title: "Scope gap", body: "Add the missing case." }],
+    })]), "review");
+    expect(entries[0]?.body).toBe("**Scope gap**\n\nAdd the missing case.");
   });
 
   it("does not duplicate task summary when its workflow result exists", () => {

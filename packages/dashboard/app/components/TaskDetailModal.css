@@ -3315,6 +3315,11 @@ this generalizes FN-8166's mobile-only correction to desktop and tablet.
   padding-inline-end: 0;
 }
 
+/* FNXC:TaskHistory 2026-08-28-13:46: Activity Summaries has no overlay controls, so its flat report list uses the full symmetric panel width at every breakpoint. */
+.detail-activity--summaries {
+  padding-inline-end: 0;
+}
+
 /*
 FNXC:TaskDetailActivity 2026-07-01-00:00:
 Live and Feed Activity expansion overlays the content instead of reserving a toolbar row. Feed keeps enough tokenized inline padding that the fixed affordance does not cover log text; Raw uses AgentLogViewer's fullscreen button and does not render this Activity toggle.

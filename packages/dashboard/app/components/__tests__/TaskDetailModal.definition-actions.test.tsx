@@ -309,7 +309,7 @@ describe("TaskDetailModal", () => {
       // Activity, Chat, Plan, Changes, Review, Comments, Terminal, Cost, Artifacts, Model, Workflow, Stats, Routing
       const tabs = document.querySelectorAll(".detail-tab");
       expect(Array.from(tabs).map(t => t.textContent)).toEqual([
-        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
+        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
       ]);
       // Commits tab should NOT be present for non-done tasks
       expect(screen.queryByText("Commits")).toBeNull();
@@ -332,7 +332,7 @@ describe("TaskDetailModal", () => {
       // In-progress task with workflow steps: 13 tabs (Review after Changes, Workflow after Model)
       const tabs = document.querySelectorAll(".detail-tab");
       expect(Array.from(tabs).map(t => t.textContent)).toEqual([
-        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
+        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
       ]);
     });
 
@@ -356,7 +356,7 @@ describe("TaskDetailModal", () => {
       // Done task with commit SHA: Activity, Chat, Summary, Plan, Changes, Review, Comments, Terminal, Cost, Artifacts, Model, Workflow, Stats, Routing (14 tabs, no Commits)
       const tabs = document.querySelectorAll(".detail-tab");
       expect(Array.from(tabs).map(t => t.textContent)).toEqual([
-        "Activity", "Chat", "Summary", "Plan", "Dependencies", "Attachments", "Changes", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
+        "Activity", "Chat", "Summary", "Plan", "Dependencies", "Attachments", "Changes", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
       ]);
       // Commits tab should NOT be present
       expect(screen.queryByText("Commits")).toBeNull();
@@ -383,7 +383,7 @@ describe("TaskDetailModal", () => {
       // Done task with workflow steps and commit SHA: 14 tabs including Summary, Terminal, Cost and Review (no Commits)
       const tabs = document.querySelectorAll(".detail-tab");
       expect(Array.from(tabs).map(t => t.textContent)).toEqual([
-        "Activity", "Chat", "Summary", "Plan", "Dependencies", "Attachments", "Changes", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
+        "Activity", "Chat", "Summary", "Plan", "Dependencies", "Attachments", "Changes", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
       ]);
       // Commits tab should NOT be present
       expect(screen.queryByText("Commits")).toBeNull();
@@ -418,7 +418,7 @@ describe("TaskDetailModal", () => {
       const triageTabs = document.querySelectorAll(".detail-tab");
       // FNXC:CostAndTerminalTabs see note above. Triage has no Changes tab; Terminal then Cost between Comments and Artifacts.
       expect(Array.from(triageTabs).map(t => t.textContent)).toEqual([
-        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
+        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
       ]);
 
       triageRender.unmount();
@@ -438,7 +438,7 @@ describe("TaskDetailModal", () => {
       const todoTabs = document.querySelectorAll(".detail-tab");
       // FNXC:CostAndTerminalTabs see FN-7820/FN-7826 note above (todo, same as triage).
       expect(Array.from(todoTabs).map(t => t.textContent)).toEqual([
-        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
+        "Activity", "Chat", "Plan", "Dependencies", "Attachments", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug",
       ]);
     });
 

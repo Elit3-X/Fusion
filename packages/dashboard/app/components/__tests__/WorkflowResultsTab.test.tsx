@@ -2178,20 +2178,62 @@ describe("WorkflowResultsTab", () => {
       expect(notesEl).toHaveTextContent("No relevant changes in scope — approved.");
     });
 
-    it("hides notes when status is pending", () => {
+    it("renders a mirrored structured review report once without an Output surface", () => {
+      const REPORT = "The plan is internally consistent, scoped to both repositories, accounts for the observed no-op state, preserves fixture bytes, and defines adequate repository-specific verification.";
+      const results: WorkflowStepResult[] = [{
+        workflowStepId: "plan-review",
+        workflowStepName: "Plan Review",
+        phase: "pre-merge",
+        reviewKind: "plan",
+        source: "optional-group",
+        status: "passed",
+        verdict: "APPROVE",
+        output: REPORT,
+        notes: REPORT,
+        startedAt: "2026-08-28T12:35:00.000Z",
+        completedAt: "2026-08-28T12:36:00.000Z",
+      }];
+
+      const { container } = render(<WorkflowResultsTab taskId="FN-230" results={results} />);
+
+      expect(screen.getByTestId("workflow-result-notes-plan-review")).toHaveTextContent(REPORT);
+      expect(screen.getAllByText(REPORT)).toHaveLength(1);
+      expect(container.querySelector(".workflow-result-output-section")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("workflow-result-toggle-plan-review")).not.toBeInTheDocument();
+    });
+
+    it("keeps Output available when it genuinely differs from visible notes", () => {
+      const results: WorkflowStepResult[] = [{
+        workflowStepId: "WS-different",
+        workflowStepName: "Review",
+        status: "passed",
+        notes: "Reviewer summary.",
+        output: "Additional execution detail.",
+      }];
+
+      const { container } = render(<WorkflowResultsTab taskId="FN-230" results={results} />);
+
+      expect(screen.getByTestId("workflow-result-notes-WS-different")).toHaveTextContent("Reviewer summary.");
+      expect(container.querySelector(".workflow-result-output-section")).toBeInTheDocument();
+      expect(screen.getByTestId("workflow-result-toggle-WS-different")).toBeInTheDocument();
+    });
+
+    it("hides notes when status is pending without changing the live-output surface", () => {
       const results: WorkflowStepResult[] = [
         {
           workflowStepId: "WS-001",
           workflowStepName: "QA Check",
           status: "pending",
           notes: "Should not show.",
+          output: "Should not become static output.",
           startedAt: "2026-03-31T10:00:00Z",
         },
       ];
 
-      render(<WorkflowResultsTab taskId="FN-001" results={results} />);
+      const { container } = render(<WorkflowResultsTab taskId="FN-001" results={results} />);
 
       expect(screen.queryByTestId("workflow-result-notes-WS-001")).not.toBeInTheDocument();
+      expect(container.querySelector(".workflow-result-output-section")).not.toBeInTheDocument();
     });
 
     it("renders both verdict badge and notes together", () => {

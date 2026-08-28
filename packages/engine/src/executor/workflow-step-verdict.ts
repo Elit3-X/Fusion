@@ -210,6 +210,10 @@ export function parseWorkflowStepOutput(rawOutput: string, options: { requireVer
   const trimmed = rawOutput.trim();
   const parsed = parseWorkflowStepVerdict(trimmed, options);
   if (parsed) {
+    /*
+    FNXC:WorkflowResultText 2026-08-28-13:46:
+    Structured verdict output deliberately mirrors parsed notes so downstream task logs and result consumers receive human-readable text instead of raw JSON. This makes output and notes identical by contract; presentation surfaces must collapse that pair rather than changing the persisted producer shape.
+    */
     return {
       output: parsed.notes || "",
       verdict: parsed.verdict,

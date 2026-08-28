@@ -122,7 +122,7 @@ describe("TaskDetailModal Activity and planner Chat tab integration", () => {
     expect(screen.getAllByRole("button", { name: "Chat" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Activity" })).toHaveClass("detail-tab-active");
     expect(screen.queryByTestId("task-planner-chat-panel")).not.toBeInTheDocument();
-    expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw"]);
+    expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw", "Summaries"]);
     expectActivityView("current");
     expect(document.querySelector(".activity-view-select")).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Activity view" })).not.toBeInTheDocument();
@@ -286,7 +286,7 @@ describe("TaskDetailModal Activity and planner Chat tab integration", () => {
       expect(menu).toHaveStyle({ position: "fixed" });
       expect(menu.style.top).not.toBe("");
       expect(menu.style.left).not.toBe("");
-      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw"]);
+      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw", "Summaries"]);
       expect(topLevelTabLabels()).toEqual(expect.arrayContaining(["Activity", "Chat", "Plan", "Changes", "Review"]));
       expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Plan" })).toBeInTheDocument();
@@ -802,7 +802,7 @@ describe("TaskDetailModal Activity and planner Chat tab integration", () => {
       expect(screen.queryByRole("combobox", { name: "Activity view" })).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Activity" }));
-      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw"]);
+      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw", "Summaries"]);
       expect(screen.queryByRole("tablist", { name: "Activity views" })).not.toBeInTheDocument();
       expect(screen.getByText("No agent output yet. Live messages from Planner, Executor, Reviewer, and Merger agents will appear here.")).toBeInTheDocument();
       expect(screen.getAllByRole("form", { name: "Task refinement composer" })).toHaveLength(1);

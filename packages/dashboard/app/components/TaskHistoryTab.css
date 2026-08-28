@@ -11,42 +11,20 @@
   overflow: hidden;
 }
 
-.task-history-stage-header {
+.task-history-stage-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  width: 100%;
   padding: var(--space-sm) var(--space-md);
-  border: 0;
-  background: transparent;
   color: var(--text);
-  font: inherit;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.task-history-stage-header:hover {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
-.task-history-stage-header:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .task-history-stage-title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
   min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
-}
-
-.task-history-stage-title svg {
-  flex: 0 0 auto;
-  width: var(--space-md);
-  height: var(--space-md);
 }
 
 .task-history-count {
@@ -141,7 +119,7 @@
 }
 
 @media (max-width: 48rem) {
-  .task-history-stage-header {
+  .task-history-stage-heading {
     flex-wrap: nowrap;
     padding: var(--space-sm);
   }

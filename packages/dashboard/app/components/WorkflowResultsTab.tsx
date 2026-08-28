@@ -23,6 +23,7 @@ import { irToFlow } from "./workflow-flow-mapping";
 import { workflowNodeTypes } from "./nodes/WorkflowNodeTypes";
 import type { Components } from "react-markdown";
 import { linkifyFilePaths, linkifyReactChildren } from "../utils/filePathLinkify";
+import { workflowResultTextsAreEquivalent } from "../utils/workflowResultText";
 import { resolveEffectiveExecutor, resolveEffectivePlanning, resolveEffectiveValidator } from "./effective-model-resolution";
 
 // Markdown rendering components for workflow output
@@ -884,6 +885,13 @@ export function WorkflowResultsTab({
         {results.map((result, index) => {
           const phase = (result.phase || "pre-merge") as "pre-merge" | "post-merge";
           const isExpanded = expandedOutputs[result.workflowStepId] ?? false;
+          const notesVisible = Boolean(result.notes) && result.status !== "pending";
+          /*
+          FNXC:WorkflowResultText 2026-08-28-13:46:
+          Structured-verdict reviews deliberately persist one report in both output and notes. When the visible notes are strictly equivalent after whitespace normalization, omit the redundant Output surface; containment is not enough because output-only detail must remain accessible.
+          */
+          const outputDuplicatesVisibleNotes = notesVisible
+            && workflowResultTextsAreEquivalent(result.output, result.notes);
           return (
             <div
               key={`${result.workflowStepId}-${index}`}
@@ -913,7 +921,7 @@ export function WorkflowResultsTab({
                 </div>
               </div>
 
-              {result.notes && result.status !== "pending" && (
+              {notesVisible && (
                 <div className="workflow-result-notes" data-testid={`workflow-result-notes-${result.workflowStepId}`}>
                   <span className="workflow-result-notes-label">{t("app:workflow.notes", "Notes:")} </span>
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -939,7 +947,7 @@ export function WorkflowResultsTab({
                   stepId={result.workflowStepId}
                   t={t}
                 />
-              ) : result.output ? (
+              ) : result.output && !outputDuplicatesVisibleNotes ? (
                 <div className="workflow-result-output-section">
                   <div className="workflow-result-output-header">
                     <span className="workflow-result-output-label">{t("app:workflow.output", "Output:")} </span>

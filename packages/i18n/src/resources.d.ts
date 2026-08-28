@@ -8013,6 +8013,9 @@ export default interface Resources {
       "actions": {
         "menuBtn": "Actions"
       },
+      "activity": {
+        "summaries": "Summaries"
+      },
       "ageStaleness": {
         "active": "Active",
         "age": "Age",
@@ -8570,7 +8573,6 @@ export default interface Resources {
         "dependencies": "Dependencies",
         "details": "Details",
         "documents": "Artifacts",
-        "history": "History",
         "logs": "Logs",
         "model": "Model",
         "pullRequest": "Pull Request",
@@ -8807,7 +8809,6 @@ export default interface Resources {
         "plan": "Plan",
         "review": "Review"
       },
-      "stageToggleAria": "{{stage}}, {{count}} reports",
       "verdict": {
         "advisory-failure": "Advisory failure",
         "approve": "Approved",

@@ -27,7 +27,7 @@ function renderDetail({
   embedded = false,
 }: {
   task: Task | TaskDetail;
-  initialTab?: "definition" | "documents" | "stats" | "workflow" | "logs" | "retries" | "pr" | "summary" | "terminal";
+  initialTab?: "definition" | "documents" | "stats" | "workflow" | "logs" | "history" | "retries" | "pr" | "summary" | "terminal";
   embedded?: boolean;
 }) {
   if (embedded) {
@@ -59,7 +59,7 @@ function rerenderDetail(
     embedded = false,
   }: {
     task: Task | TaskDetail;
-    initialTab?: "definition" | "documents" | "stats" | "workflow" | "logs" | "retries" | "pr" | "summary" | "terminal";
+    initialTab?: "definition" | "documents" | "stats" | "workflow" | "logs" | "history" | "retries" | "pr" | "summary" | "terminal";
     embedded?: boolean;
   },
 ) {
@@ -85,7 +85,7 @@ function rerenderDetail(
   );
 }
 
-function expectActivitySegment(name: "Live" | "Feed" | "Raw") {
+function expectActivitySegment(name: "Live" | "Feed" | "Raw" | "Summaries") {
   if (!screen.queryByRole("menu", { name: "Activity views" })) {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
   }
@@ -164,6 +164,20 @@ describe("TaskDetailModal tab persistence", () => {
 
     expect(screen.getByRole("button", { name: "Activity" })).toHaveClass("detail-tab-active");
     expectActivitySegment("Feed");
+  });
+
+  it("maps legacy History to Activity Summaries while Logs still maps to Feed", () => {
+    const task = makeTask({ column: "todo", prompt: "# Full task" });
+    const view = renderDetail({ task, initialTab: "history", embedded: true });
+
+    expect(screen.getByRole("button", { name: "Activity" })).toHaveClass("detail-tab-active");
+    expectActivitySegment("Summaries");
+    expect(screen.getByTestId("task-history-tab")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "History" })).not.toBeInTheDocument();
+
+    rerenderDetail(view.rerender, { task, initialTab: "logs", embedded: true });
+    expectActivitySegment("Feed");
+    expect(screen.queryByTestId("task-history-tab")).not.toBeInTheDocument();
   });
 
   it("does not collapse expanded retries on a column-only update", () => {

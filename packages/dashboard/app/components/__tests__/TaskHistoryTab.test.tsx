@@ -1,10 +1,12 @@
 import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import type { TaskDetail, WorkflowStepResult } from "@fusion/core";
 import realEnApp from "../../../../i18n/locales/en/app.json";
 import { TaskHistoryTab } from "../TaskHistoryTab";
+
+const originalInnerWidth = window.innerWidth;
 
 function task(overrides: Partial<TaskDetail> = {}): TaskDetail {
   return { id: "FN-208", title: "History", description: "", priority: "normal", column: "todo", currentStep: 0, steps: [], dependencies: [], log: [], prompt: "# History", createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z", ...overrides } as TaskDetail;
@@ -20,23 +22,30 @@ async function renderHistory(taskValue = task(), results: WorkflowStepResult[] =
   return render(<I18nextProvider i18n={i18n}><TaskHistoryTab task={taskValue} results={results} /></I18nextProvider>);
 }
 
+afterEach(() => {
+  window.innerWidth = originalInnerWidth;
+});
+
 describe("TaskHistoryTab", () => {
-  it("renders four collapsed stage accordions", async () => {
+  it("renders all four stage sections and counts immediately", async () => {
     await renderHistory();
-    for (const id of ["plan", "code", "review", "merge"]) expect(screen.getByTestId(`task-history-stage-${id}`)).toHaveAttribute("aria-expanded", "false");
+    for (const id of ["plan", "code", "review", "merge"]) {
+      expect(screen.getByTestId(`task-history-stage-${id}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`task-history-count-${id}`)).toHaveTextContent("0");
+    }
   });
 
-  it("shows zero counts and stage-specific empty states", async () => {
+  it("shows every stage-specific empty state without interaction", async () => {
     await renderHistory();
-    for (const id of ["plan", "code", "review", "merge"]) expect(screen.getByTestId(`task-history-count-${id}`)).toHaveTextContent("0");
-    fireEvent.click(screen.getByTestId("task-history-stage-code"));
+    expect(screen.getByText(/No planning reports recorded/)).toBeInTheDocument();
     expect(screen.getByText(/No implementation summaries recorded/)).toBeInTheDocument();
+    expect(screen.getByText(/No review reports recorded/)).toBeInTheDocument();
+    expect(screen.getByText(/No merge reports recorded/)).toBeInTheDocument();
   });
 
   it("shows review attempts chronologically with dates and markdown", async () => {
     await renderHistory(task(), [result({ verdict: "APPROVE", output: "**Approved** body", completedAt: "2026-08-28T03:00:00.000Z", priorAttempts: [result({ status: "failed", verdict: "REVISE", output: "Revise body", completedAt: "2026-08-28T01:00:00.000Z" })] })]);
     expect(screen.getByTestId("task-history-count-review")).toHaveTextContent("2");
-    fireEvent.click(screen.getByTestId("task-history-stage-review"));
     expect(screen.getByText("Revise body")).toBeInTheDocument();
     expect(screen.getByText("Approved", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getAllByRole("time")).toHaveLength(2);
@@ -49,27 +58,40 @@ describe("TaskHistoryTab", () => {
     expect(screen.getByTestId("task-history-count-code")).toHaveTextContent("1");
   });
 
-  it("toggles a panel without disabling zero-count rows", async () => {
-    await renderHistory();
-    const button = screen.getByTestId("task-history-stage-plan");
-    fireEvent.click(button);
-    expect(button).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(button);
-    expect(button).toHaveAttribute("aria-expanded", "false");
-  });
-
   it("uses the Code empty state when no step summary exists", async () => {
     await renderHistory(task({ steps: [{ name: "Completed without report", status: "done" }] }));
-    fireEvent.click(screen.getByTestId("task-history-stage-code"));
     expect(screen.getByText(/Summaries appear when implementation steps report/)).toBeInTheDocument();
   });
 
-  it("keeps narrow stage headers accessible and single-row scaffolded", async () => {
+  it("keeps narrow static stage headings and counts visible", async () => {
     window.innerWidth = 375;
     await renderHistory();
-    const button = screen.getByRole("button", { name: /Plan, 0 reports/ });
-    expect(button).toHaveClass("task-history-stage-header");
-    expect(button.querySelector(".task-history-count")).toHaveTextContent("0");
+    const section = screen.getByTestId("task-history-stage-plan");
+    expect(within(section).getByRole("heading", { name: "Plan" })).toHaveClass("task-history-stage-title");
+    expect(within(section).getByTestId("task-history-count-plan")).toHaveTextContent("0");
+  });
+
+  it("has no accordion button or aria-expanded affordance", async () => {
+    await renderHistory();
+    const panel = screen.getByTestId("task-history-tab");
+    expect(within(panel).queryByRole("button")).not.toBeInTheDocument();
+    expect(panel.querySelector("[aria-expanded]")).not.toBeInTheDocument();
+  });
+
+  it("renders a mirrored structured Plan Review report exactly once", async () => {
+    const REPORT = "The plan is internally consistent, scoped to both repositories, accounts for the observed no-op state, preserves fixture bytes, and defines adequate repository-specific verification.";
+    await renderHistory(task(), [result({
+      workflowStepId: "plan-review",
+      workflowStepName: "Plan Review",
+      reviewKind: "plan",
+      source: "optional-group",
+      verdict: "APPROVE",
+      output: REPORT,
+      notes: REPORT,
+      startedAt: "2026-08-28T12:35:00.000Z",
+      completedAt: "2026-08-28T12:36:00.000Z",
+    })]);
+    expect(screen.getAllByText(REPORT)).toHaveLength(1);
   });
 
   it("renders stage and merge titles through localization keys", async () => {
@@ -78,7 +100,6 @@ describe("TaskHistoryTab", () => {
     resources.taskHistory.entry.merged = "MERGED_SENTINEL";
     await renderHistory(task({ mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" } }), [], resources);
     expect(screen.getByText("PLAN_SENTINEL")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("task-history-stage-merge"));
     expect(screen.getByText("MERGED_SENTINEL")).toBeInTheDocument();
   });
 });

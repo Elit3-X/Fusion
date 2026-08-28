@@ -1,12 +1,11 @@
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import { useTranslation } from "react-i18next";
 import type { TaskDetail, WorkflowStepResult } from "@fusion/core";
 import { linkifyReactChildren } from "../utils/filePathLinkify";
-import { buildTaskHistory, type TaskHistoryLabel, type TaskHistoryStageId } from "../utils/taskHistory";
+import { buildTaskHistory, type TaskHistoryLabel } from "../utils/taskHistory";
 import "./TaskHistoryTab.css";
 
 const markdownComponents: Components = {
@@ -32,10 +31,13 @@ function normalizeToken(token: string): string {
   return token.toLowerCase().replaceAll("_", "-");
 }
 
+/*
+FNXC:TaskHistory 2026-08-28-13:46:
+Operators need planning, implementation, review, and merge summaries visible in sequence rather than hidden in an accordion. Every stage therefore renders a static heading followed immediately by its reports or stage-specific empty state, with no toggle shell or collapsed state.
+*/
 export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTabProps) {
   const { t } = useTranslation("app");
   const stages = useMemo(() => buildTaskHistory(task, results), [task, results]);
-  const [expanded, setExpanded] = useState<Set<TaskHistoryStageId>>(() => new Set());
   const renderLabel = (label: TaskHistoryLabel): string => label.kind === "text"
     ? label.text
     : t(label.key, label.defaultValue, label.params);
@@ -46,71 +48,51 @@ export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTa
         <div className="task-history-loading">{t("taskHistory.loading", "Loading history…")}</div>
       )}
       {stages.map((stage) => {
-        const isExpanded = expanded.has(stage.id);
         const stageName = t(`taskHistory.stage.${stage.id}`, stage.id);
-        const panelId = `task-history-panel-${stage.id}`;
         return (
-          <section className="task-history-stage" key={stage.id}>
-            <button
-              type="button"
-              className="task-history-stage-header"
-              data-testid={`task-history-stage-${stage.id}`}
-              aria-expanded={isExpanded}
-              aria-controls={panelId}
-              aria-label={t("taskHistory.stageToggleAria", "{{stage}}, {{count}} reports", { stage: stageName, count: stage.entries.length })}
-              onClick={() => setExpanded((current) => {
-                const next = new Set(current);
-                if (next.has(stage.id)) next.delete(stage.id);
-                else next.add(stage.id);
-                return next;
-              })}
-            >
-              <span className="task-history-stage-title">
-                {isExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-                <span>{stageName}</span>
-              </span>
+          <section className="task-history-stage" key={stage.id} data-testid={`task-history-stage-${stage.id}`}>
+            <div className="task-history-stage-heading">
+              <h2 className="task-history-stage-title">{stageName}</h2>
               <span className="task-history-count" data-testid={`task-history-count-${stage.id}`}>{stage.entries.length}</span>
-            </button>
-            {isExpanded && (
-              <div className="task-history-panel" id={panelId}>
-                {stage.entries.length === 0 ? (
-                  <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, "No reports recorded.")}</p>
-                ) : (
-                  <div className="task-history-entries">
-                    {stage.entries.map((entry) => {
-                      const token = entry.verdict ?? entry.status;
-                      return (
-                        <article className="task-history-entry" key={entry.id}>
-                          <header className="task-history-entry-header">
-                            <h3>{renderLabel(entry.title)}</h3>
-                            {token && (
-                              <span className={`workflow-result-badge workflow-result-badge--${normalizeToken(token)}`}>
-                                {t(`taskHistory.verdict.${normalizeToken(token)}`, token)}
-                              </span>
-                            )}
-                          </header>
-                          {entry.timestamp && <time dateTime={entry.timestamp}>{formatTimestamp(entry.timestamp)}</time>}
-                          {entry.meta && entry.meta.length > 0 && (
-                            <dl className="task-history-meta">
-                              {entry.meta.map((item, index) => (
-                                <div key={`${entry.id}:meta:${index}`}><dt>{renderLabel(item.label)}</dt><dd>{item.value}</dd></div>
-                              ))}
-                            </dl>
+            </div>
+            <div className="task-history-panel">
+              {stage.entries.length === 0 ? (
+                <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, "No reports recorded.")}</p>
+              ) : (
+                <div className="task-history-entries">
+                  {stage.entries.map((entry) => {
+                    const token = entry.verdict ?? entry.status;
+                    return (
+                      <article className="task-history-entry" key={entry.id}>
+                        <header className="task-history-entry-header">
+                          <h3>{renderLabel(entry.title)}</h3>
+                          {token && (
+                            <span className={`workflow-result-badge workflow-result-badge--${normalizeToken(token)}`}>
+                              {t(`taskHistory.verdict.${normalizeToken(token)}`, token)}
+                            </span>
                           )}
-                          <div className="task-history-body markdown-body">
-                            {entry.body?.trim() ? (
-                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{entry.body}</ReactMarkdown>
-                            ) : (
-                              <p>{t("taskHistory.entry.noBody", "No report body was recorded.")}</p>
-                            )}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+                        </header>
+                        {entry.timestamp && <time dateTime={entry.timestamp}>{formatTimestamp(entry.timestamp)}</time>}
+                        {entry.meta && entry.meta.length > 0 && (
+                          <dl className="task-history-meta">
+                            {entry.meta.map((item, index) => (
+                              <div key={`${entry.id}:meta:${index}`}><dt>{renderLabel(item.label)}</dt><dd>{item.value}</dd></div>
+                            ))}
+                          </dl>
+                        )}
+                        <div className="task-history-body markdown-body">
+                          {entry.body?.trim() ? (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{entry.body}</ReactMarkdown>
+                          ) : (
+                            <p>{t("taskHistory.entry.noBody", "No report body was recorded.")}</p>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </section>
         );
       })}

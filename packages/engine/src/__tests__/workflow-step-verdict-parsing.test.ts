@@ -19,6 +19,24 @@ describe("parseWorkflowStepVerdict", () => {
     expect(parseWorkflowStepVerdict('{"verdict":"PASS"}')).toBeNull();
   });
 
+  it("mirrors structured verdict notes into human-readable output", () => {
+    const parsed = parseWorkflowStepOutput('{"verdict":"APPROVE","notes":"The plan is internally consistent."}');
+    expect(parsed.output).toBe("The plan is internally consistent.");
+    expect(parsed.notes).toBe(parsed.output);
+  });
+
+  it("mirrors inferred REQUEST REVISION notes into output", () => {
+    const parsed = parseWorkflowStepOutput("REQUEST REVISION\nPlease add the missing verification.");
+    expect(parsed).toMatchObject({ verdict: "REVISE", notes: "Please add the missing verification." });
+    expect(parsed.output).toBe(parsed.notes);
+  });
+
+  it("keeps explicit approval prose in output when inferred notes are empty", () => {
+    const prose = "Verdict: APPROVE\n\nThe plan is ready.";
+    const parsed = parseWorkflowStepOutput(prose);
+    expect(parsed).toMatchObject({ verdict: "APPROVE", notes: "", output: prose });
+  });
+
   it("preserves normalized supersession claims with resolved finding receipts", () => {
     const parsed = parseWorkflowStepOutput('{"verdict":"REVISE","notes":"reviewed","findings":[{"id":"r1","title":"Receipt","body":"Fixed in this review","resolution":"resolved-in-review"},{"id":"o1","title":"Open","body":"Still needs work"}],"supersededFindingSourceWorkflowStepId":"cleanup-review","supersededFindingIds":[" c1 ",42,"c1","c2"]}');
     expect(parsed).toMatchObject({

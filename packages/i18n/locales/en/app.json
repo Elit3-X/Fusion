@@ -8340,7 +8340,6 @@
       "model": "Model",
       "pullRequest": "Pull Request",
       "review": "Review",
-      "history": "History",
       "routing": "Routing",
       "stats": "Stats",
       "summary": "Summary",
@@ -8434,6 +8433,9 @@
     },
     "debug": {
       "none": "No debug details available."
+    },
+    "activity": {
+      "summaries": "Summaries"
     }
   },
   "taskHistory": {
@@ -8443,7 +8445,6 @@
       "review": "Review",
       "merge": "Merge"
     },
-    "stageToggleAria": "{{stage}}, {{count}} reports",
     "empty": {
       "plan": "No planning reports recorded.",
       "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",

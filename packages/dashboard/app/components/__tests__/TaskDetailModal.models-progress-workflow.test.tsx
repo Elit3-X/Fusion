@@ -23,12 +23,13 @@ import { TaskDetailModal, TaskDetailContent } from "../TaskDetailModal";
 
 setupTaskDetailModalHooks();
 
-type ActivitySegmentTestValue = "current" | "feed" | "raw-logs";
+type ActivitySegmentTestValue = "current" | "feed" | "raw-logs" | "summaries";
 
 const ACTIVITY_VIEW_LABELS: Record<ActivitySegmentTestValue, string> = {
   current: "Live",
   feed: "Feed",
   "raw-logs": "Raw",
+  summaries: "Summaries",
 };
 
 function selectActivityView(value: ActivitySegmentTestValue) {
@@ -1184,7 +1185,7 @@ describe("TaskDetailModal", () => {
       expect(await screen.findByText("QA Check", {}, { timeout: 15_000 })).toBeTruthy();
     });
 
-    it("loads workflow reports when History opens first", async () => {
+    it("loads workflow reports when Activity Summaries opens first", async () => {
       const { fetchWorkflowResults } = await import("../../api");
       const mockFetch = vi.mocked(fetchWorkflowResults);
       mockFetch.mockResolvedValueOnce([
@@ -1195,13 +1196,43 @@ describe("TaskDetailModal", () => {
       render(
         <TaskDetailModal initialTab="definition" task={makeTask()} onClose={noop} onDeleteTask={noopDelete} onMergeTask={noopMerge} onOpenDetail={noopOpenDetail} addToast={noop} />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "History" }));
+      fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+      selectActivityView("summaries");
       await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("FN-099", undefined));
       expect(await screen.findByTestId("task-history-count-plan")).toHaveTextContent("1");
       expect(screen.getByTestId("task-history-count-review")).toHaveTextContent("1");
     });
 
-    it("uses task workflow results while the History fetch is unavailable", async () => {
+    it("keeps a successful empty Summaries response authoritative over cached task results", async () => {
+      const { fetchWorkflowResults } = await import("../../api");
+      const mockFetch = vi.mocked(fetchWorkflowResults);
+      let resolveFetch!: (results: any[]) => void;
+      const response = new Promise<any[]>((resolve) => {
+        resolveFetch = resolve;
+      });
+      mockFetch.mockReturnValueOnce(response);
+
+      render(
+        <TaskDetailModal
+          initialTab="definition"
+          task={makeTask({ workflowStepResults: [{ workflowStepId: "stale-plan-review", workflowStepName: "Stale Plan Review", reviewKind: "plan", status: "passed", verdict: "APPROVE", output: "Cached stale approval" }] as any })}
+          onClose={noop} onDeleteTask={noopDelete} onMergeTask={noopMerge} onOpenDetail={noopOpenDetail} addToast={noop}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+      selectActivityView("summaries");
+      await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("FN-099", undefined));
+
+      await act(async () => {
+        resolveFetch([]);
+        await response;
+      });
+
+      expect(screen.getByTestId("task-history-count-plan")).toHaveTextContent("0");
+      expect(screen.queryByText("Cached stale approval")).not.toBeInTheDocument();
+    });
+
+    it("uses task workflow results while the Summaries fetch is unavailable", async () => {
       const { fetchWorkflowResults } = await import("../../api");
       vi.mocked(fetchWorkflowResults).mockRejectedValueOnce(new Error("offline"));
       render(
@@ -1211,11 +1242,12 @@ describe("TaskDetailModal", () => {
           onClose={noop} onDeleteTask={noopDelete} onMergeTask={noopMerge} onOpenDetail={noopOpenDetail} addToast={noop}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "History" }));
-      expect(screen.getByTestId("task-history-count-plan")).toHaveTextContent("1");
+      fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+      selectActivityView("summaries");
+      await waitFor(() => expect(screen.getByTestId("task-history-count-plan")).toHaveTextContent("1"));
     });
 
-    it("reuses fetched results when switching Workflow to History", async () => {
+    it("reuses fetched results when switching Workflow to Activity Summaries", async () => {
       const { fetchWorkflowResults } = await import("../../api");
       const mockFetch = vi.mocked(fetchWorkflowResults);
       mockFetch.mockResolvedValueOnce([{ workflowStepId: "plan-review-step", workflowStepName: "Plan Review", reviewKind: "plan", status: "passed", verdict: "APPROVE", output: "Approved" }] as any);
@@ -1225,7 +1257,8 @@ describe("TaskDetailModal", () => {
       fireEvent.click(screen.getByRole("button", { name: "Workflow" }));
       expect(await screen.findByText("Plan Review")).toBeInTheDocument();
       const fetchCountBeforeSwitch = mockFetch.mock.calls.length;
-      fireEvent.click(screen.getByRole("button", { name: "History" }));
+      fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+      selectActivityView("summaries");
       expect(screen.getByTestId("task-history-count-plan")).toHaveTextContent("1");
       expect(mockFetch).toHaveBeenCalledTimes(fetchCountBeforeSwitch);
     });

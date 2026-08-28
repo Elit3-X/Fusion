@@ -8339,8 +8339,7 @@
       "dependencies": "",
       "attachments": "",
       "details": "",
-      "debug": "",
-      "history": ""
+      "debug": ""
     },
     "terminal": {
       "loading": "Carregando terminal…"
@@ -8434,6 +8433,9 @@
       "submit": "",
       "submitting": "",
       "success": ""
+    },
+    "activity": {
+      "summaries": ""
     }
   },
   "taskDocuments": {
@@ -9772,7 +9774,6 @@
       "review": "",
       "merge": ""
     },
-    "stageToggleAria": "",
     "empty": {
       "plan": "",
       "code": "",

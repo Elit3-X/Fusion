@@ -1,4 +1,5 @@
 import type { Task, WorkflowStepResult } from "@fusion/core";
+import { workflowResultBodyParts } from "./workflowResultText";
 
 export type TaskHistoryStageId = "plan" | "code" | "review" | "merge";
 export type TaskHistoryLabel =
@@ -38,7 +39,7 @@ function i18n(key: string, defaultValue: string, params?: Record<string, string 
 }
 
 function resultBody(result: WorkflowStepResult): string | undefined {
-  const parts = [result.output?.trim(), result.notes?.trim()].filter((part): part is string => Boolean(part));
+  const parts = workflowResultBodyParts(result.output, result.notes);
   if (parts.length > 0) return parts.join("\n\n");
   if (!result.findings?.length) return undefined;
   return result.findings.map((finding) => `**${finding.title}**\n\n${finding.body}`).join("\n\n");

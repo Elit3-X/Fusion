@@ -37,12 +37,13 @@ Omitted non-done TaskDetailModal renders open the top-level planner Chat first/d
 */
 setupTaskDetailModalHooks();
 
-type ActivitySegmentTestValue = "current" | "feed" | "raw-logs";
+type ActivitySegmentTestValue = "current" | "feed" | "raw-logs" | "summaries";
 
 const ACTIVITY_VIEW_LABELS: Record<ActivitySegmentTestValue, string> = {
   current: "Live",
   feed: "Feed",
   "raw-logs": "Raw",
+  summaries: "Summaries",
 };
 
 function openActivityViewMenu() {
@@ -516,7 +517,7 @@ describe("TaskDetailModal", () => {
       fireEvent.click(screen.getByRole("button", { name: "Activity" }));
       expect(container.querySelector(".activity-segmented-control")).toBeNull();
       expect(container.querySelector(".activity-segment")).toBeNull();
-      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw"]);
+      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw", "Summaries"]);
       expectActivityView("current");
       selectActivityView("feed");
       expect(container.querySelector(".detail-activity")).toBeTruthy();
@@ -836,10 +837,9 @@ describe("TaskDetailModal", () => {
         />,
       );
 
-      // For an in-progress task (no workflow steps, no merge commit), the
-      // top-level tabs are: Activity, Chat, Plan, Dependencies, Attachments, Changes, Review,
-      // History, Comments, Terminal, Cost, Artifacts, Model, Workflow, Stats, Routing, Details, Debug.
-      const tabTexts = ["Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "History", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug"];
+      // For an in-progress task (no workflow steps, no merge commit), History is
+      // available only through Activity → Summaries rather than as a top-level tab.
+      const tabTexts = ["Activity", "Chat", "Plan", "Dependencies", "Attachments", "Changes", "Review", "Comments", "Terminal", "Cost", "Artifacts", "Model", "Workflow", "Stats", "Routing", "Details", "Debug"];
       const tabs = screen.getAllByRole("button").filter((b) =>
         tabTexts.includes(b.textContent || "")
       );
@@ -847,14 +847,15 @@ describe("TaskDetailModal", () => {
       expect(tabs[0].textContent).toBe("Activity");
       expect(tabs[1].textContent).toBe("Chat");
       expect(tabs[2].textContent).toBe("Plan");
-      expect(tabs[7].textContent).toBe("History");
-      expect(tabs[8].textContent).toBe("Comments");
-      expect(tabs[9].textContent).toBe("Terminal");
-      expect(tabs[10].textContent).toBe("Cost");
+      expect(tabs[7].textContent).toBe("Comments");
+      expect(tabs[8].textContent).toBe("Terminal");
+      expect(tabs[9].textContent).toBe("Cost");
       expect(screen.queryByRole("button", { name: "Logs" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "History" })).toBeNull();
 
-      expect(container.querySelectorAll(".detail-tab").length).toBe(18);
-      fireEvent.click(screen.getByRole("button", { name: "History" }));
+      expect(container.querySelectorAll(".detail-tab").length).toBe(17);
+      fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+      selectActivityView("summaries");
       expect(screen.getByTestId("task-history-stage-plan")).toBeInTheDocument();
       expect(screen.getByTestId("task-history-stage-code")).toBeInTheDocument();
       expect(screen.getByTestId("task-history-stage-review")).toBeInTheDocument();
