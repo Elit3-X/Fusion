@@ -8159,7 +8159,7 @@
       "createBtn": "创建细化任务",
       "creating": "正在创建...",
       "feedbackRequired": "请输入描述需要细化内容的反馈",
-      "feedbackTooLong": "反馈不能超过 2000 字符",
+      "feedbackTooLong": "",
       "help": "描述需要细化或改进的内容...",
       "modalTitle": "细化",
       "placeholder": "在此输入您的反馈...",

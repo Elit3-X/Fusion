@@ -22,7 +22,7 @@ vi.mock("../commands/task.js", () => ({
 }));
 
 import { __setCachedStoreForTesting, closeCachedStores, resolveTaskListFormatter } from "../extension.js";
-import { TaskStore, AgentStore, MANUAL_RETRY_RESET_COUNTER_KEYS, MAX_TASK_LIST_TEXT_CHARS, MissionBlockedClearConflictError, formatTaskListText, COLUMN_LABELS, drizzleSql } from "@fusion/core";
+import { TaskStore, AgentStore, MANUAL_RETRY_RESET_COUNTER_KEYS, MAX_TASK_LIST_TEXT_CHARS, MAX_TASK_MESSAGE_LENGTH, MissionBlockedClearConflictError, formatTaskListText, COLUMN_LABELS, drizzleSql } from "@fusion/core";
 import type { WorkflowIr } from "@fusion/core";
 import { isGhAvailable, isGhAuthenticated, runGhJsonAsync } from "@fusion/core/gh-cli";
 import { runTaskPlan } from "../commands/task.js";
@@ -87,6 +87,20 @@ describe("fn pi extension session lifecycle", () => {
     await expect(shutdownPromise).resolves.toBeUndefined();
   });
 });
+describe("fn_task_refine extension schema", () => {
+  afterEach(async () => {
+    await closeCachedStores();
+  });
+
+  it("uses the shared task-message maxLength", () => {
+    const api = createMockApi();
+    registerExtension(api);
+
+    const tool = requireTool(api, "fn_task_refine") as ToolWithParameters;
+    expect(tool.parameters?.properties?.feedback?.maxLength).toBe(MAX_TASK_MESSAGE_LENGTH);
+  });
+});
+
 describe("fn_task_logs_read extension payload bounds", () => {
   afterEach(async () => {
     await closeCachedStores();
@@ -123,6 +137,7 @@ interface ToolMeta {
   promptGuidelines?: string[];
 }
 interface ToolParameterSchema {
+  maxLength?: number;
   enum?: unknown[];
   anyOf?: { const?: string; enum?: unknown[] }[];
 }

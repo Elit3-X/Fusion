@@ -258,7 +258,7 @@ vi.mock("../../project-context.js", () => {
 });
 
 import { createInterface } from "node:readline/promises";
-import { TaskStore, CentralCore, extractIntentSignature, findNearDuplicates, runDeterministicDuplicateGuard, reconcileDeterministicDuplicate, TaskIsLiveError } from "@fusion/core";
+import { TaskStore, CentralCore, extractIntentSignature, findNearDuplicates, MAX_TASK_MESSAGE_LENGTH, runDeterministicDuplicateGuard, reconcileDeterministicDuplicate, TaskIsLiveError } from "@fusion/core";
 import { watchFile, unwatchFile, statSync, existsSync, readFileSync } from "node:fs";
 import { exec } from "node:child_process";
 import { runTaskShow, runTaskCreate, runTaskList, runTaskDuplicate, runTaskRefine, runTaskDelete, runTaskRetry, runTaskLogs, runTaskComment, runTaskComments, runTaskPrCreate, runTaskPlan, runTaskMove, runTaskAttach, runTaskPause, runTaskUnpause, runTaskArchive, runTaskUnarchive, runTaskSteer, runTaskSetNode, runTaskClearNode, runTaskImportFromGitHub, runTaskImportGitHubInteractive, runTaskUpdate, runTaskLog, runTaskMerge, type LogsOptions } from "../task.js";
@@ -2766,24 +2766,26 @@ describe("runTaskRefine", () => {
     exitSpy.mockRestore();
   });
 
-  it("exits when feedback exceeds 2000 characters", async () => {
+  it("exits when feedback exceeds the shared task-message limit", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as (code?: number) => never);
 
-    await runTaskRefine("FN-001", "A".repeat(2001));
+    await runTaskRefine("FN-001", "A".repeat(MAX_TASK_MESSAGE_LENGTH + 1));
 
-    expect(errorSpy).toHaveBeenCalledWith("Feedback must be 2000 characters or less");
+    expect(errorSpy).toHaveBeenCalledWith(`Feedback must be ${MAX_TASK_MESSAGE_LENGTH} characters or less`);
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();
   });
 
-  it("allows feedback at exactly 2000 characters", async () => {
-    const longFeedback = "A".repeat(2000);
+  it("allows feedback above the former limit and at the shared boundary", async () => {
+    const overFormerLimit = "A".repeat(2001);
+    const atSharedLimit = "B".repeat(MAX_TASK_MESSAGE_LENGTH);
 
-    await runTaskRefine("FN-001", longFeedback);
+    await runTaskRefine("FN-001", overFormerLimit);
+    await runTaskRefine("FN-001", atSharedLimit);
 
-    expect(mockRefineTask).toHaveBeenCalledOnce();
-    expect(mockRefineTask).toHaveBeenCalledWith("FN-001", longFeedback);
+    expect(mockRefineTask).toHaveBeenNthCalledWith(1, "FN-001", overFormerLimit);
+    expect(mockRefineTask).toHaveBeenNthCalledWith(2, "FN-001", atSharedLimit);
   });
 
   it("throws when task not in done or in-review", async () => {
@@ -2984,6 +2986,21 @@ describe("runTaskComment", () => {
     const store = (TaskStore as unknown as ReturnType<typeof vi.fn>).mock.results.at(-1)?.value;
     expect(store.addTaskComment).toHaveBeenCalledWith("FN-001", "Hello", "alice");
     expect(logSpy).toHaveBeenCalledWith("  ✓ Comment added to FN-001");
+  });
+
+  it("forwards comments above the former limit without truncation", async () => {
+    const longComment = "A".repeat(5_000);
+    const addTaskComment = vi.fn().mockResolvedValue(makeTask({
+      comments: [{ id: "c1", text: longComment, author: "alice", createdAt: new Date().toISOString() }],
+    }));
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      addTaskComment,
+    }));
+
+    await runTaskComment("FN-001", longComment, "alice");
+
+    expect(addTaskComment).toHaveBeenCalledWith("FN-001", longComment, "alice");
   });
 
   it("lists task comments", async () => {

@@ -20,6 +20,7 @@ import { sharedRehypePlugins, createMermaidCodeComponent } from "./markdownPipel
 import type { Task, TaskDetail, TaskAttachment, ColumnId, MergeResult, Settings, GlobalSettings, Agent, TaskPriority, TaskSourceIssue, WorkflowStepResult, GithubIssueAction, TaskGitLabTrackedItem, PlannerOversightLevel, PlannerOverseerRuntimeSnapshot, TaskVerificationRequest, ThinkingLevel } from "@fusion/core";
 import {
   DEFAULT_TASK_PRIORITY,
+  MAX_TASK_MESSAGE_LENGTH,
   REPO_OVERRIDE_RE,
   TASK_PRIORITIES,
   PLANNER_OVERSIGHT_LEVELS,
@@ -109,6 +110,12 @@ import { FLOATING_WINDOW_GEOMETRY_CHANGE_EVENT } from "./FloatingWindow";
 import { useFileBrowser } from "../context/FileBrowserContext";
 import type { DetailTaskInitialActionRequest } from "../hooks/useModalManager";
 
+/*
+FNXC:TaskMessageLength 2026-08-29-08:02:
+Task-detail refinement and spec-revision composers retain their counters and browser maxLength
+attributes, but source their ceiling from the same server constant so operator text is never refused
+locally below the task-message route contract.
+*/
 const STALE_PAUSED_REVIEW_LOG_REGEX = /^Stale paused review surfaced \[([^\]]+)\]/;
 const EMPTY_MARKDOWN_CHILD_SEPARATOR = "";
 const STRING_OBJECT_TAG = "[object String]";
@@ -3796,8 +3803,8 @@ export function TaskDetailContent({
       addToast(t("taskDetail.refine.feedbackRequired", "Please enter feedback describing what needs refinement"), "error");
       return;
     }
-    if (refineFeedback.length > 2000) {
-      addToast(t("taskDetail.refine.feedbackTooLong", "Feedback must be 2000 characters or less"), "error");
+    if (refineFeedback.length > MAX_TASK_MESSAGE_LENGTH) {
+      addToast(t("taskDetail.refine.feedbackTooLong", "Feedback must be {{max}} characters or less", { max: MAX_TASK_MESSAGE_LENGTH }), "error");
       return;
     }
     setIsRefining(true);
@@ -7246,11 +7253,11 @@ export function TaskDetailContent({
                     placeholder={t("taskDetail.spec.feedbackPlaceholder", "e.g., 'Add more details about error handling', 'Split this into smaller steps', 'Include tests for the API endpoints'...")}
                     disabled={isRequestingRevision}
                     rows={4}
-                    maxLength={2000}
+                    maxLength={MAX_TASK_MESSAGE_LENGTH}
                   />
                   <div className="spec-editor-revision-actions">
                     <span className="spec-editor-char-count">
-                      {specFeedback.length}/2000
+                      {specFeedback.length}/{MAX_TASK_MESSAGE_LENGTH}
                     </span>
                     <button
                       className="btn btn-primary btn-sm"
@@ -7586,12 +7593,12 @@ export function TaskDetailContent({
                     onChange={(e) => setRefineFeedback(e.target.value)}
                     placeholder={t("taskDetail.refine.placeholder", "Enter your feedback here...")}
                     rows={6}
-                    maxLength={2000}
+                    maxLength={MAX_TASK_MESSAGE_LENGTH}
                     autoFocus
                   />
                   <div className="detail-refine-input-group">
                     <div className="detail-refine-char-count">
-                      {t("taskDetail.refine.charCount", "{{count}}/2000 characters", { count: refineFeedback.length })}
+                      {t("taskDetail.refine.charCount", "{{count}}/{{max}} characters", { count: refineFeedback.length, max: MAX_TASK_MESSAGE_LENGTH })}
                     </div>
                     <button
                       className="btn btn-primary btn-sm"

@@ -1,4 +1,4 @@
-import { TaskStore, COLUMNS, COLUMN_LABELS, resolveProjectColumnsForRoles, TERMINAL_ROLES, resolveReviewColumns, resolveTaskLifecycleColumns, resolveWorkflowIrForTask, CentralCore, buildAutoPauseClearPatch, buildManualRetryResetPatch, extractIntentSignature, findNearDuplicates, getTaskDuplicateLineage, isValidRepoSlug, isWorkspaceTask, reconcileDeterministicDuplicate, resolveTaskGithubTracking, runDeterministicDuplicateGuard, evaluateArchiveTaskLiveness, describeArchiveLiveness, TaskIsLiveError, type Settings, type Column, type ColumnId, type StepStatus, type AgentLogType, type AgentLogEntry, type IntentSignature, type NearDuplicateCandidate, type NearDuplicateMatch, type TaskDependencyMutation } from "@fusion/core";
+import { TaskStore, COLUMNS, COLUMN_LABELS, MAX_TASK_MESSAGE_LENGTH, resolveProjectColumnsForRoles, TERMINAL_ROLES, resolveReviewColumns, resolveTaskLifecycleColumns, resolveWorkflowIrForTask, CentralCore, buildAutoPauseClearPatch, buildManualRetryResetPatch, extractIntentSignature, findNearDuplicates, getTaskDuplicateLineage, isValidRepoSlug, isWorkspaceTask, reconcileDeterministicDuplicate, resolveTaskGithubTracking, runDeterministicDuplicateGuard, evaluateArchiveTaskLiveness, describeArchiveLiveness, TaskIsLiveError, type Settings, type Column, type ColumnId, type StepStatus, type AgentLogType, type AgentLogEntry, type IntentSignature, type NearDuplicateCandidate, type NearDuplicateMatch, type TaskDependencyMutation } from "@fusion/core";
 import { isInReviewMissingWorktreeSessionStartFailure, runAiMerge, landWorkspaceTask, withWorkspaceMergeDispatchLease, installBaselineArchiveWorktreeDisposer, clearOwnedMergeStamp, reconcileUnownedStaleMergeStamp } from "@fusion/engine";
 import { createInterface } from "node:readline/promises";
 import type { PlanningQuestion, PlanningSummary } from "@fusion/core";
@@ -19,6 +19,12 @@ import { retryOnLock, LockRetryExhaustedError } from "../lock-retry.js";
 
 const STEP_STATUSES: StepStatus[] = ["pending", "in-progress", "done", "skipped"];
 let archiveForceOverride = false;
+
+/*
+FNXC:TaskMessageLength 2026-08-29-08:02:
+CLI refine, comment, and steer commands must use the same shared upper bound as dashboard routes and
+composers, so pasted operator instructions are admitted consistently on every task-text surface.
+*/
 
 /** #1403: display a column's label, falling back to the raw id for
  *  workflow-defined custom columns that have no legacy label. */
@@ -1540,13 +1546,11 @@ export async function runTaskRefine(id: string, feedbackArg?: string, projectNam
     process.exit(1);
   }
 
-  // Validate length (matches API validation)
-  if (feedback.length > 2000) {
-    console.error("Feedback must be 2000 characters or less");
+  const trimmedFeedback = feedback.trim();
+  if (trimmedFeedback.length > MAX_TASK_MESSAGE_LENGTH) {
+    console.error(`Feedback must be ${MAX_TASK_MESSAGE_LENGTH} characters or less`);
     process.exit(1);
   }
-
-  const trimmedFeedback = feedback.trim();
 
   // FNXC:CliBoardMutation 2026-07-09-00:00 (FN-7734): single board write.
   await withBoardWrite(projectName, { id, action: "refine task" }, async (context) => {
@@ -2293,8 +2297,8 @@ export async function runTaskComment(id: string, message?: string, author = "use
   }
 
   const trimmed = text.trim();
-  if (trimmed.length > 2000) {
-    console.error("Error: Comment must be between 1 and 2000 characters");
+  if (trimmed.length > MAX_TASK_MESSAGE_LENGTH) {
+    console.error(`Error: Comment must be between 1 and ${MAX_TASK_MESSAGE_LENGTH} characters`);
     process.exit(1);
   }
 
@@ -2351,8 +2355,8 @@ export async function runTaskSteer(id: string, message?: string, projectName?: s
   }
 
   const trimmed = text.trim();
-  if (trimmed.length > 2000) {
-    console.error("Error: Message must be between 1 and 2000 characters");
+  if (trimmed.length > MAX_TASK_MESSAGE_LENGTH) {
+    console.error(`Error: Message must be between 1 and ${MAX_TASK_MESSAGE_LENGTH} characters`);
     process.exit(1);
   }
 

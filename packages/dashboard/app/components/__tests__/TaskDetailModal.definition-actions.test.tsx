@@ -27,7 +27,7 @@ import {
 import { TaskDetailModal, TaskDetailContent } from "../TaskDetailModal";
 import { FileBrowserProvider } from "../../context/FileBrowserContext";
 import { readBoardWorkflowSelection, removeBoardWorkflowSelection, writeBoardWorkflowSelection } from "../../utils/boardWorkflowSelection";
-import type { Task } from "@fusion/core";
+import { MAX_TASK_MESSAGE_LENGTH, type Task } from "@fusion/core";
 
 function PauseDetailHarness({ mobileHeaderMode }: { mobileHeaderMode?: "back" }) {
   const [task, setTask] = useState(() => makeTask({ id: "FN-UNPAUSE", column: "todo", paused: true, userPaused: true }));
@@ -1384,7 +1384,7 @@ describe("TaskDetailModal", () => {
 
       fireEvent.click(screen.getByRole("menuitem", { name: "Refine" }));
 
-      expect(screen.getByText("0/2000 characters")).toBeTruthy();
+      expect(screen.getByText(`0/${MAX_TASK_MESSAGE_LENGTH} characters`)).toBeTruthy();
     });
 
     it("character counter updates when typing feedback", async () => {
@@ -1411,7 +1411,7 @@ describe("TaskDetailModal", () => {
         fireEvent.change(textarea, { target: { value: "Need to fix the error handling" } });
       });
 
-      expect(screen.getByText("30/2000 characters")).toBeTruthy();
+      expect(screen.getByText(`30/${MAX_TASK_MESSAGE_LENGTH} characters`)).toBeTruthy();
     });
 
     it("submit button is disabled when feedback is empty", () => {

@@ -8159,7 +8159,7 @@
       "createBtn": "개선 작업 생성",
       "creating": "생성 중...",
       "feedbackRequired": "개선이 필요한 내용을 설명하는 피드백을 입력하세요",
-      "feedbackTooLong": "피드백은 2000자 이하여야 합니다",
+      "feedbackTooLong": "",
       "help": "개선하거나 향상시킬 내용을 설명하세요...",
       "modalTitle": "개선",
       "placeholder": "피드백을 입력하세요...",

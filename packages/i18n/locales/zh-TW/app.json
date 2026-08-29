@@ -8159,7 +8159,7 @@
       "createBtn": "建立精化任務",
       "creating": "正在建立...",
       "feedbackRequired": "請輸入描述需要精化內容的反饋",
-      "feedbackTooLong": "反饋不能超過 2000 字元",
+      "feedbackTooLong": "",
       "help": "描述需要精化或改善的內容...",
       "modalTitle": "精化",
       "placeholder": "在此輸入您的反饋...",

@@ -1130,6 +1130,12 @@ Dashboard source-checkout builds alias @fusion/core to this frontend-safe module
 */
 export const AUTOMATION_SELECTABLE_TOOLS = ["Read", "Bash", "Edit", "Write", "Grep", "Find", "Ls"] as const;
 
+/*
+FNXC:TaskMessageLength 2026-08-29-08:02:
+Operator-authored task text for steering comments, task comments, refinement, and spec-revision feedback must not be capped below direct chat, which has no character limit and is bounded by its 2 MiB JSON envelope. This 100,000-character limit matches the task-document content cap and stays inside that envelope even for worst-case multibyte, JSON-escaped input.
+*/
+export const MAX_TASK_MESSAGE_LENGTH = 100_000;
+
 /** Snapshot of the last blocked state for a task, used for dedup comparison. */
 export interface BlockedStateSnapshot {
   /** The task ID that was blocked */

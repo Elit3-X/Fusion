@@ -8159,7 +8159,7 @@
       "createBtn": "Crear tarea de refinamiento",
       "creating": "Creando...",
       "feedbackRequired": "Por favor ingresa comentarios que describan qué necesita refinamiento",
-      "feedbackTooLong": "Los comentarios deben tener 2000 caracteres o menos",
+      "feedbackTooLong": "",
       "help": "Describe qué necesita ser refinado o mejorado...",
       "modalTitle": "Refinar",
       "placeholder": "Ingresa tus comentarios aquí...",

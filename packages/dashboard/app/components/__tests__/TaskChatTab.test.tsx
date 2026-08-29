@@ -1881,6 +1881,38 @@ describe("TaskChatTab", () => {
     expect(input).toHaveValue("");
   });
 
+  it("submits a long Activity steering draft without the former message-length error", async () => {
+    const user = userEvent.setup();
+    const longText = "a".repeat(5_000);
+    const addToast = vi.fn();
+    mockedAddSteeringComment.mockResolvedValue(makeTask());
+    render(<TaskChatTab task={makeTask()} projectId="project-1" active addToast={addToast} />);
+
+    fireEvent.change(screen.getByLabelText("Message active agent session"), { target: { value: longText } });
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(mockedAddSteeringComment).toHaveBeenCalledWith("FN-001", longText, "project-1");
+    });
+    expect(addToast.mock.calls.some(([message]) => typeof message === "string" && message.includes("Unable to send message"))).toBe(false);
+  });
+
+  it("submits a long done-task refinement draft without the former message-length error", async () => {
+    const user = userEvent.setup();
+    const longText = "a".repeat(5_000);
+    const addToast = vi.fn();
+    mockedRefineTask.mockResolvedValue(makeTask({ id: "FN-257-refinement", column: "todo" }));
+    render(<TaskChatTab task={makeTask({ column: "done" })} projectId="project-1" active addToast={addToast} />);
+
+    fireEvent.change(screen.getByLabelText("Message active agent session"), { target: { value: longText } });
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(mockedRefineTask).toHaveBeenCalledWith("FN-001", longText, "project-1");
+    });
+    expect(addToast.mock.calls.some(([message]) => typeof message === "string" && message.includes("Unable to send message"))).toBe(false);
+  });
+
   it("sends Activity steering exactly once on the first mobile tap while the textarea is focused", async () => {
     const updatedTask = makeTask();
     mockedAddSteeringComment.mockResolvedValue(updatedTask);

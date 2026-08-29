@@ -8159,7 +8159,7 @@
       "createBtn": "Créer une tâche de raffinement",
       "creating": "Création...",
       "feedbackRequired": "Veuillez saisir des commentaires décrivant ce qui doit être affiné",
-      "feedbackTooLong": "Le commentaire ne peut pas dépasser 2000 caractères",
+      "feedbackTooLong": "",
       "help": "Décrivez ce qui doit être affiné ou amélioré...",
       "modalTitle": "Affiner",
       "placeholder": "Saisissez votre commentaire ici...",

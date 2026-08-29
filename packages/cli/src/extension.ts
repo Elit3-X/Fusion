@@ -32,6 +32,7 @@ import {
   resolveAgentProvisioningPolicy,
   TASK_PRIORITIES,
   MAX_TASK_LIST_TEXT_CHARS,
+  MAX_TASK_MESSAGE_LENGTH,
   resolveSecretAccessPolicy,
   getProjectRootFromWorktree,
   resolveWorktreesDirLayout,
@@ -2898,7 +2899,7 @@ export default function kbExtension(pi: ExtensionAPI) {
       feedback: Type.String({ 
         description: "Description of what needs to be refined or improved",
         minLength: 1,
-        maxLength: 2000,
+        maxLength: MAX_TASK_MESSAGE_LENGTH,
       }),
     }),
 

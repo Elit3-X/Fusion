@@ -1,7 +1,14 @@
-import { createIngestedCheckResolver, createLogger, DuplicateWorkflowSelectionError, isCurrentSpecDriftReport, resolveRequiredCheckNames } from "@fusion/core";
+import { createIngestedCheckResolver, createLogger, DuplicateWorkflowSelectionError, isCurrentSpecDriftReport, MAX_TASK_MESSAGE_LENGTH, resolveRequiredCheckNames } from "@fusion/core";
 import type { Request, Response } from "express";
 
 const severityAuditLog = createLogger("dashboard-register-task-workflow-routes");
+
+/*
+FNXC:TaskMessageLength 2026-08-29-08:02:
+Operator-authored steering, task-comment, refinement, and spec-revision text share one generous
+limit with their dashboard composers. Keep these route validators on MAX_TASK_MESSAGE_LENGTH so no
+entry path drifts below direct chat's finite transport envelope.
+*/
 
 /**
  * FNXC:CodingIdeasWorkflow 2026-07-26-15:30:
@@ -151,6 +158,16 @@ import { resumeExternallyBlockedTask } from "./task-external-block-resume.js";
 import type { ApiRoutesContext } from "./types.js";
 import { deriveAutoTaskBranch, derivePerTaskBranch, getBranchSelectionMode, resolveBranchSelection } from "./branch-selection.js";
 import { isDaemonAuthActive } from "../auth-middleware.js";
+
+/**
+ * FNXC:TaskMessageValidation 2026-08-29-08:48:
+ * Task-directed text must contain a non-whitespace character at the HTTP trust boundary. Check a
+ * trimmed view for the lower bound while retaining the raw shared upper bound, so empty durable
+ * comments cannot be created without altering accepted routes' existing message normalization.
+ */
+function isTaskMessageWithinBounds(value: string): boolean {
+  return value.length <= MAX_TASK_MESSAGE_LENGTH && value.trim().length > 0;
+}
 
 /*
 FNXC:WorkflowResolvedColumns 2026-07-31-13:45 (fleet — inline fallback arms):
@@ -4251,10 +4268,10 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       if (!feedback || typeof feedback !== "string") {
         throw badRequest("feedback is required and must be a string");
       }
-      // Trim before checking length to catch whitespace-only input
+      // Trim before persisting to preserve refinement's existing normalization behavior.
       const trimmedFeedback = feedback.trim();
-      if (trimmedFeedback.length === 0 || trimmedFeedback.length > 2000) {
-        throw badRequest("feedback must be between 1 and 2000 characters");
+      if (!isTaskMessageWithinBounds(feedback)) {
+        throw badRequest(`feedback must be between 1 and ${MAX_TASK_MESSAGE_LENGTH} characters`);
       }
 
       const refinedTask = await scopedStore.refineTask(req.params.id, trimmedFeedback);
@@ -5523,8 +5540,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       if (!text || typeof text !== "string") {
         throw badRequest("text is required and must be a string");
       }
-      if (text.length === 0 || text.length > 2000) {
-        throw badRequest("text must be between 1 and 2000 characters");
+      if (!isTaskMessageWithinBounds(text)) {
+        throw badRequest(`text must be between 1 and ${MAX_TASK_MESSAGE_LENGTH} characters`);
       }
       if (author !== undefined && typeof author !== "string") {
         throw badRequest("author must be a string");
@@ -5571,8 +5588,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       if (!text || typeof text !== "string") {
         throw badRequest("text is required and must be a string");
       }
-      if (text.length === 0 || text.length > 2000) {
-        throw badRequest("text must be between 1 and 2000 characters");
+      if (!isTaskMessageWithinBounds(text)) {
+        throw badRequest(`text must be between 1 and ${MAX_TASK_MESSAGE_LENGTH} characters`);
       }
       const task = await scopedStore.updateTaskComment(req.params.id, req.params.commentId, text);
       res.json(task);
@@ -6096,8 +6113,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       if (!text || typeof text !== "string") {
         throw badRequest("text is required and must be a string");
       }
-      if (text.length === 0 || text.length > 2000) {
-        throw badRequest("text must be between 1 and 2000 characters");
+      if (!isTaskMessageWithinBounds(text)) {
+        throw badRequest(`text must be between 1 and ${MAX_TASK_MESSAGE_LENGTH} characters`);
       }
       const task = await scopedStore.addSteeringComment(req.params.id, text, "user");
 
@@ -6139,8 +6156,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       if (!feedback || typeof feedback !== "string") {
         throw badRequest("feedback is required and must be a string");
       }
-      if (feedback.length === 0 || feedback.length > 2000) {
-        throw badRequest("feedback must be between 1 and 2000 characters");
+      if (!isTaskMessageWithinBounds(feedback)) {
+        throw badRequest(`feedback must be between 1 and ${MAX_TASK_MESSAGE_LENGTH} characters`);
       }
       if (preservePlan !== undefined && typeof preservePlan !== "boolean") {
         throw badRequest("preservePlan must be a boolean");
