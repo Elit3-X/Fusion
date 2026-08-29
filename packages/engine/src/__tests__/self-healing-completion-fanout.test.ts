@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { Settings, Task, TaskStore } from "@fusion/core";
 
-const { execMock, existsSyncMock } = vi.hoisted(() => ({
-  execMock: vi.fn(),
-  existsSyncMock: vi.fn(() => false),
-}));
-vi.mock("node:child_process", () => ({ exec: execMock, execSync: vi.fn(), execFile: vi.fn() }));
+const { execMock, execFileMock, existsSyncMock } = vi.hoisted(() => {
+  const execFileMock = vi.fn();
+  (execFileMock as any)[Symbol.for("nodejs.util.promisify.custom")] = execFileMock;
+  return {
+    execMock: vi.fn(),
+    execFileMock,
+    existsSyncMock: vi.fn(() => false),
+  };
+});
+vi.mock("node:child_process", () => ({ exec: execMock, execSync: vi.fn(), execFile: execFileMock }));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -101,6 +106,7 @@ function createStore(tasks: Task[], settings?: Partial<Settings>): TaskStore & E
 describe("self-healing completion fan-out", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    execFileMock.mockResolvedValue({ stdout: "", stderr: "" });
     execMock.mockImplementation((cmd: string, _opts: unknown, cb: (err: unknown, stdout: string, stderr: string) => void) => {
       cb(null, "", "");
     });
@@ -158,12 +164,12 @@ describe("self-healing completion fan-out", () => {
 
     const first = await mgr.reconcileCompletedTask("FN-B", { worktreeHint: "/wt/fn-b" });
     expect(first.worktreeRemoved).toBe(true);
-    expect(execMock.mock.calls.some((c) => String(c[0]).includes("git worktree remove --force") && String(c[0]).includes("/wt/fn-b"))).toBe(true);
+    expect(execMock.mock.calls.some((c) => String(c[0]).includes('git worktree remove "/wt/fn-b"'))).toBe(true);
 
     existsSyncMock.mockReturnValue(false);
     const second = await mgr.reconcileCompletedTask("FN-B");
     expect(second.worktreeRemoved).toBe(false);
-    const rmCalls = execMock.mock.calls.filter((c) => String(c[0]).includes("git worktree remove --force") && String(c[0]).includes("/wt/fn-b"));
+    const rmCalls = execMock.mock.calls.filter((c) => String(c[0]).includes('git worktree remove "/wt/fn-b"'));
     expect(rmCalls).toHaveLength(1);
   });
 
@@ -179,7 +185,7 @@ describe("self-healing completion fan-out", () => {
     const out = await mgr.reconcileCompletedTask("FN-C");
     expect(out.worktreeRemoved).toBe(true);
     expect(findSpy).not.toHaveBeenCalled();
-    expect(execMock.mock.calls.some((c) => String(c[0]).includes("git worktree remove --force") && String(c[0]).includes("/wt/fn-c"))).toBe(true);
+    expect(execMock.mock.calls.some((c) => String(c[0]).includes('git worktree remove "/wt/fn-c"'))).toBe(true);
     expect((await store.getTask("FN-C"))?.worktree).toBeNull();
     expect((await store.getTask("FN-C"))?.branch).toBeNull();
     /*

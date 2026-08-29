@@ -50,13 +50,14 @@ function git(cwd: string, args: string): string {
 }
 
 /** A repo on `main` with one base commit + a task branch carrying one change. */
-function initRepoWithBranch(opts: { branch: string; conflict?: boolean } = { branch: "fusion/fn-1" }): { dir: string } {
+function initRepoWithBranch(opts: { branch: string; conflict?: boolean; gitignore?: string } = { branch: "fusion/fn-1" }): { dir: string } {
   const dir = mkdtempSync(join(tmpdir(), "fusion-ai-merge-test-"));
   tracked.add(dir);
   git(dir, "init -q -b main");
   git(dir, "config user.email t@t.t");
   git(dir, "config user.name t");
   writeFileSync(join(dir, "base.txt"), "base\n");
+  if (opts.gitignore) writeFileSync(join(dir, ".gitignore"), opts.gitignore);
   git(dir, "add -A");
   git(dir, "commit -q -m base");
 
@@ -73,6 +74,28 @@ function initRepoWithBranch(opts: { branch: string; conflict?: boolean } = { bra
     git(dir, "commit -q -m 'main: divergent'");
   }
   return { dir };
+}
+
+function createTaskWorktreeWithIgnoredContent(dir: string, branch: string): string {
+  const worktree = mkdtempSync(join(tmpdir(), "fusion-fn-251-worktree-"));
+  rmSync(worktree, RM);
+  tracked.add(worktree);
+  git(dir, `worktree add -q ${JSON.stringify(worktree)} ${branch}`);
+  mkdirSync(join(worktree, "node_modules", "pkg"), { recursive: true });
+  mkdirSync(join(worktree, "dist"), { recursive: true });
+  writeFileSync(join(worktree, "node_modules", "pkg", "index.js"), "module.exports = {};\n");
+  writeFileSync(join(worktree, "dist", "bundle.js"), "generated\n");
+  writeFileSync(join(worktree, ".env"), "TOKEN=ignored\n");
+  return worktree;
+}
+
+function branchExists(dir: string, branch: string): boolean {
+  try {
+    git(dir, `show-ref --verify --quiet refs/heads/${branch}`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function makeStore(
@@ -833,6 +856,127 @@ describe("runAiMerge", () => {
     expect(task.branch).toBe("operator/fn-213");
     expect(result.task.branch).toBe("operator/fn-213");
     expect(task.branchContext?.branchOverride).toEqual(branchOverride);
+  });
+
+  it("removes ignored-only worktree content before done and deletes the Fusion branch after a landing", async () => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({
+      branch,
+      gitignore: "node_modules/\ndist/\n.env\n",
+    });
+    const worktree = createTaskWorktreeWithIgnoredContent(dir, branch);
+    const { store, task, logs } = makeStore(dir, { branch, worktree });
+    const callOrder: string[] = [];
+    const updateTask = store.updateTask.getMockImplementation();
+    const moveTask = store.moveTask.getMockImplementation();
+    store.updateTask.mockImplementation(async (id: string, patch: Record<string, unknown>) => {
+      if (patch.worktree === null) callOrder.push("cleanup");
+      return await updateTask(id, patch);
+    });
+    store.moveTask.mockImplementation(async (id: string, column: string, options?: unknown) => {
+      callOrder.push("move");
+      return await moveTask(id, column, options);
+    });
+
+    const result = await runAiMerge(store, dir, "FN-1", { manual: true }, {
+      mergeAgent: realMergeAgent(branch),
+      reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
+    });
+
+    expect(result.merged).toBe(true);
+    expect(result.worktreeRemoved).toBe(true);
+    expect(existsSync(worktree)).toBe(false);
+    expect(branchExists(dir, branch)).toBe(false);
+    const pointerPatches = store.updateTask.mock.calls
+      .map(([, patch]: [string, Record<string, unknown>]) => patch)
+      .filter((patch: Record<string, unknown>) => patch.worktree === null);
+    expect(pointerPatches).toEqual([{ worktree: null }]);
+    expect(store.recordRunAuditEvent.mock.calls.filter(([event]: [{ mutationType?: string }]) => event?.mutationType === "worktree:remove")).toHaveLength(1);
+    expect(task.column).toBe("done");
+    expect(callOrder.indexOf("cleanup")).toBeGreaterThanOrEqual(0);
+    expect(callOrder.indexOf("cleanup")).toBeLessThan(callOrder.indexOf("move"));
+    expect(logs.some((line) => /post-landing finalization failed|preserving .*uncommitted or ignored content present/i.test(line))).toBe(false);
+  });
+
+  it("removes ignored-only worktree content on an intentional no-op finalize", async () => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({
+      branch,
+      gitignore: "node_modules/\ndist/\n.env\n",
+    });
+    const worktree = createTaskWorktreeWithIgnoredContent(dir, branch);
+    git(dir, `merge -q ${branch}`);
+    const { store, task } = makeStore(dir, { branch, worktree });
+
+    const result = await runAiMerge(store, dir, "FN-1", { manual: true }, {
+      mergeAgent: vi.fn(async () => undefined),
+      reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
+    });
+
+    expect(result.noOp).toBe(true);
+    expect(result.worktreeRemoved).toBe(true);
+    expect(existsSync(worktree)).toBe(false);
+    expect(branchExists(dir, branch)).toBe(false);
+    expect(task.column).toBe("done");
+  });
+
+  it("cleans the recorded-landing short circuit before deleting its pinned branch", async () => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({
+      branch,
+      gitignore: "node_modules/\ndist/\n.env\n",
+    });
+    const worktree = createTaskWorktreeWithIgnoredContent(dir, branch);
+    git(dir, `merge -q ${branch}`);
+    const branchTip = git(dir, `rev-parse ${branch}`);
+    const landedSha = git(dir, "rev-parse main");
+    const { store, task } = makeStore(dir, {
+      branch,
+      worktree,
+      mergeDetails: {
+        mergeConfirmed: true,
+        commitSha: landedSha,
+        landedBranchTipSha: branchTip,
+        mergeTargetBranch: "main",
+      },
+    });
+    const mergeAgent = vi.fn(async () => undefined);
+    const reviewAgent = vi.fn(async () => "REVIEW_VERDICT: approve");
+
+    const result = await runAiMerge(store, dir, "FN-1", { manual: true }, { mergeAgent, reviewAgent });
+
+    expect(result.merged).toBe(true);
+    expect(result.worktreeRemoved).toBe(true);
+    expect(existsSync(worktree)).toBe(false);
+    expect(branchExists(dir, branch)).toBe(false);
+    expect(mergeAgent).not.toHaveBeenCalled();
+    expect(reviewAgent).not.toHaveBeenCalled();
+    expect(task.column).toBe("done");
+  });
+
+  it("preserves real unmerged content without preventing durable-landing finalization", async () => {
+    const branch = "fusion/fn-1";
+    const { dir } = initRepoWithBranch({ branch });
+    const worktree = mkdtempSync(join(tmpdir(), "fusion-fn-251-deliverable-"));
+    rmSync(worktree, RM);
+    tracked.add(worktree);
+    git(dir, `worktree add -q ${JSON.stringify(worktree)} ${branch}`);
+    writeFileSync(join(worktree, "wip.txt"), "must survive\n");
+    const { store, task, logs } = makeStore(dir, { branch, worktree });
+
+    const result = await runAiMerge(store, dir, "FN-1", { manual: true }, {
+      mergeAgent: realMergeAgent(branch),
+      reviewAgent: vi.fn(async () => "REVIEW_VERDICT: approve"),
+    });
+
+    expect(result.merged).toBe(true);
+    expect(result.worktreeRemoved).toBe(false);
+    expect(task.column).toBe("done");
+    expect(task.worktree).toBe(worktree);
+    expect(existsSync(worktree)).toBe(true);
+    expect(readFileSync(join(worktree, "wip.txt"), "utf-8")).toBe("must survive\n");
+    expect(logs.some((line) => line.includes(`Post-landing worktree cleanup preserved ${worktree}: deliverable`))).toBe(true);
+    expect(logs.some((line) => /post-landing finalization failed/i.test(line))).toBe(false);
   });
 
   it("short-circuits a zero-commits-ahead branch before the clean-room/merge-agent churn (empty-branch wedge)", async () => {

@@ -94,6 +94,7 @@ vi.mock("../worktree/worktree-pool.js", async () => {
     SelfHealingBranchConflict: "self-healing-branch-conflict",
     SelfHealingIdleSweep: "self-healing-idle-sweep",
     PoolPrune: "pool-prune",
+    CompletionLandedCleanup: "completion-landed-cleanup",
   },
   scanIdleWorktrees: vi.fn().mockResolvedValue([]),
   scanOrphanedBranches: vi.fn().mockResolvedValue([]),
@@ -141,7 +142,15 @@ vi.mock("../merger.js", () => ({
   classifyOwnedLandedEvidence: vi.fn(),
 }));
 
+vi.mock("../merge/post-landing-worktree-cleanup.js", () => ({
+  cleanupLandedTaskWorktree: vi.fn(async (input: { store: { updateTask: (taskId: string, patch: { worktree: null }) => Promise<unknown> }; taskId: string }) => {
+    await input.store.updateTask(input.taskId, { worktree: null });
+    return { outcome: "removed", removed: true };
+  }),
+}));
+
 import { SelfHealingManager, isBranchAheadOfBase, MAX_AUTO_MERGE_RETRIES, MAX_TASK_DONE_RETRIES } from "../self-healing.js";
+import { cleanupLandedTaskWorktree } from "../merge/post-landing-worktree-cleanup.js";
 import { HEARTBEAT_ERROR_RECOVERY_METADATA_KEY, HEARTBEAT_ERROR_RETRY_EXHAUSTED_PAUSE_REASON, HEARTBEAT_ERROR_UNRECOVERABLE_PAUSE_REASON, readHeartbeatErrorRetryCount } from "../agent-heartbeat.js";
 import { PlanningLifecycleLockTransportError, TaskDeletedError, TaskNotFoundError, TransitionRejectionError, type TaskStore, type Settings, type Task, type AgentStore, type Agent, type NotificationProvider } from "@fusion/core";
 import { EventEmitter } from "node:events";
@@ -164,6 +173,7 @@ const mockedClassifyTaskWorktree = vi.mocked(classifyTaskWorktree);
 const mockedGetRegisteredWorktreePaths = vi.mocked(getRegisteredWorktreePaths);
 const mockedGetRegisteredWorktreeBranchMap = vi.mocked(getRegisteredWorktreeBranchMap);
 const mockedRemoveWorktree = vi.mocked(removeWorktree);
+const mockedCleanupLandedTaskWorktree = vi.mocked(cleanupLandedTaskWorktree);
 const mockedResolveWorktreeBackend = vi.mocked(resolveWorktreeBackend);
 const mockedScanIdleWorktrees = vi.mocked(scanIdleWorktrees);
 const mockedScanOrphanedBranches = vi.mocked(scanOrphanedBranches);
@@ -254,6 +264,7 @@ describe("SelfHealingManager", () => {
     store = createMockStore();
     manager = new SelfHealingManager(store, { rootDir: "/tmp/test-project" });
     mockedRemoveWorktree.mockResolvedValue(undefined);
+    mockedCleanupLandedTaskWorktree.mockClear();
     mockedClassifyTaskWorktree.mockResolvedValue({ ok: false, classification: "missing", reason: "test-default" });
     mockedGetRegisteredWorktreePaths.mockResolvedValue(new Set<string>());
     mockedGetRegisteredWorktreeBranchMap.mockResolvedValue(new Map<string, string>());
@@ -5916,14 +5927,15 @@ describe("SelfHealingManager", () => {
         status: null,
         error: null,
         mergeRetries: 0,
-        worktree: null,
         branch: null,
         mergeDetails: expect.objectContaining({ commitSha: "abc12345", mergeConfirmed: true }),
       }));
+      expect(store.updateTask).toHaveBeenCalledWith("FN-stuck", { worktree: null });
       expect(store.updateTask).toHaveBeenCalledWith("FN-dep", { blockedBy: null });
-      expect(mockedRemoveWorktree).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockedCleanupLandedTaskWorktree).toHaveBeenCalledWith(expect.objectContaining({
         rootDir: "/tmp/test-project",
         worktreePath: "/tmp/wt",
+        source: "recover-stuck-merge-deadlocks",
       }));
       expect(getSelfHealingLogger().log).toHaveBeenCalledWith(expect.stringContaining("self-heal:deadlock-recovered"));
 

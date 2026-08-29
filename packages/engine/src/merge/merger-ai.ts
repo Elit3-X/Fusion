@@ -49,6 +49,7 @@ import {
   getPlannerInterventionTimeline,
   getPrimaryPrInfo,
   getTaskMergeBlocker,
+  isFusionDeletableBranch,
   isPreMergeStepsNotRunBlocker,
   PreMergeStepsNotRunError,
   normalizeMergeAdvanceAutoSyncMode,
@@ -118,7 +119,7 @@ import { DEFAULT_COMMIT_AUTHOR_EMAIL, DEFAULT_COMMIT_AUTHOR_NAME } from "../work
 import { installWorktreeDependencies, LOCKFILE_CANDIDATES} from "./merge-dependency-sync.js";
 import { activeSessionRegistry } from "../agents/active-session-registry.js";
 import { MergeGateRevokedError } from "./merger-errors.js";
-import { ActiveSessionWorktreeRemovalError, RemovalReason, removeWorktree } from "../worktree/worktree-backend.js";
+import { cleanupLandedTaskWorktree } from "./post-landing-worktree-cleanup.js";
 import { resolveMcpServersForStore } from "../mcp/mcp-resolution.js";
 /*
 FNXC:Workspace 2026-06-22-14:10 (Phase D review G — cycle dissolved):
@@ -3787,49 +3788,43 @@ async function finalizeMerged(
   }
   let branchDeleted = false;
   const deleteBranchNormally = async (): Promise<void> => {
-    // NEVER delete the integration branch itself — a task whose branch name
-    // coincides with the target (or merges into its own branch) must not have the
-    // just-advanced integration ref force-deleted out from under it.
+    /*
+    FNXC:WorktreeCleanup 2026-08-29-00:59:
+    FN-251 fixes deletion ordering for Fusion-managed task branches only. An operator-supplied branch
+    remains operator-owned even after its now-safe worktree cleanup, while the integration branch is
+    never a deletion target.
+    */
     fence?.assertOwned("finalization");
-    if (branch !== integrationBranch && await gitOk(["branch", "-D", branch], projectRootDir)) {
+    if (branch !== integrationBranch && isFusionDeletableBranch(task, branch) && await gitOk(["branch", "-D", branch], projectRootDir)) {
       branchDeleted = true;
       await audit.git({ type: "branch:delete", target: branch, metadata: { taskId, force: true } }).catch(() => undefined);
     }
   };
+  /*
+  FNXC:MergeExecutionExclusion 2026-08-29-00:59:
+  FN-251 requires a proven landing to attempt non-fatal worktree cleanup before branch deletion.
+  Re-reporting a durable landing as a merge failure caused duplicate merge attempts and graph-backstop
+  completion; a preserved checkout therefore records its reason and never stops finalization. Git
+  cannot delete a branch checked out by a worktree, so cleanup must resolve before the branch delete.
+  */
+  const cleanup = await cleanupLandedTaskWorktree({
+    store,
+    taskId,
+    worktreePath: task.worktree,
+    rootDir: projectRootDir,
+    landedSha,
+    source: "ai-merge-finalize",
+    audit,
+    log,
+    fence,
+  });
+  const worktreeRemoved = cleanup.removed;
+
   if (!opts.expectedBranchTipSha) await deleteBranchNormally();
 
-  // Remove the task's own worktree if it still exists.
-  let worktreeRemoved = false;
-  if (task.worktree) {
-    /*
-    FNXC:MergeExecutionExclusion 2026-08-23-06:52:
-    FN-180 found that this raw forced git removal bypassed the established
-    active-session refusal. Route cleanup through the canonical primitive; a
-    live executor retains its worktree and a landed merge still finalizes.
-    */
-    try {
-      fence?.assertOwned("finalization");
-      const removal = await removeWorktree({
-        rootDir: projectRootDir,
-        worktreePath: task.worktree,
-        settings: await store.getSettings(),
-        taskId,
-        audit,
-        reason: RemovalReason.MergerCleanup,
-      });
-      worktreeRemoved = removal.removed;
-      if (removal.removed) {
-        fence?.assertOwned("finalization");
-        await store.updateTask(taskId, { worktree: null }).catch(() => undefined);
-      }
-    } catch (error) {
-      if (!(error instanceof ActiveSessionWorktreeRemovalError)) throw error;
-    }
-  }
-
-  if (opts.expectedBranchTipSha) {
+  if (opts.expectedBranchTipSha && branch !== integrationBranch && isFusionDeletableBranch(task, branch)) {
     fence?.assertOwned("finalization");
-    const deletedAtExpectedTip = branch !== integrationBranch && await gitOk([
+    const deletedAtExpectedTip = await gitOk([
       "update-ref",
       "-d",
       `refs/heads/${branch}`,

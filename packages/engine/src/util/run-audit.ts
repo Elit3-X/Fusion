@@ -180,6 +180,13 @@ export type GitMutationType =
   | "worktree:admin-entry-pruned"
   | "worktree:removal-refused-active-session"
   | "worktree:removal-forced-over-active-session"
+  /*
+  FNXC:WorktreeCleanup 2026-08-29-00:54:
+  FN-251 records only the proof-gated discard and defensive preservation classifications so a
+  post-landing cleanup outcome is observable without making audit persistence a lifecycle gate.
+  */
+  | "worktree:post-landing-ignored-content-discarded"
+  | "worktree:removal-preserved"
   | "worktree:active-session-reconciled"
   | "worktree:stale-lock-detected"
   | "worktree:stale-lock-recovered"

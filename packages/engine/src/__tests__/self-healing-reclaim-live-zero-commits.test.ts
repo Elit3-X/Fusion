@@ -51,7 +51,12 @@ vi.mock("../worktree/worktree-pool.js", () => ({
     SelfHealingBranchConflict: "self-healing-branch-conflict",
     SelfHealingIdleSweep: "self-healing-idle-sweep",
     PoolPrune: "pool-prune",
+    CompletionLandedCleanup: "completion-landed-cleanup",
   },
+}));
+
+vi.mock("../merge/post-landing-worktree-cleanup.js", () => ({
+  cleanupLandedTaskWorktree: vi.fn().mockResolvedValue({ outcome: "nothing-to-remove", removed: false }),
 }));
 
 import { SelfHealingManager } from "../self-healing.js";
@@ -120,7 +125,8 @@ describe("self-healing reclaim live zero commits", () => {
     expect(execMock).toHaveBeenCalledWith("git worktree prune", expect.anything());
     expect(execMock).toHaveBeenCalledWith(expect.stringContaining("git branch -D"), expect.anything());
     expect(store.updateTask).toHaveBeenCalledWith("FN-9001", expect.objectContaining({ worktree: null, branch: null, paused: false }));
-    expect(store.moveTask).toHaveBeenCalledWith("FN-9001", "in-progress", expect.objectContaining({ moveSource: "engine", preserveProgress: true, preserveResumeState: true }));
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.logEntry).toHaveBeenCalledWith("FN-9001", expect.stringContaining("has no backward-move authority"));
     expect(store.logEntry).toHaveBeenCalledWith("FN-9001", expect.stringContaining("[recovery] reclaim-live-zero-commits"));
     expect((store as any).recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
       mutationType: "branch:auto-reclaim",

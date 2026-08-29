@@ -84,6 +84,7 @@ import {
 import { classifyForeignOnlyContamination, deriveTaskIdFromFusionBranch, inspectBranchConflict, listUniqueBranchCommits } from "./execution/branch-conflicts.js";
 import { createRunAuditor, generateSyntheticRunId, type DatabaseMutationType, type RunAuditor } from "./util/run-audit.js";
 import { finalizeProvenAutoMergeTask, validateWorkflowDoneMergeProof } from "./merge/auto-merge-finalization.js";
+import { cleanupLandedTaskWorktree } from "./merge/post-landing-worktree-cleanup.js";
 import { AutoRecoveryDispatcher } from "./healing/auto-recovery.js";
 import { activeSessionRegistry, executingTaskLock } from "./agents/active-session-registry.js";
 import { isTaskStillInPlanningStage } from "./execution/replan-target.js";
@@ -2582,6 +2583,43 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       );
       // Non-fatal; branch may be gone or still checked out.
     }
+  }
+
+  /*
+  FNXC:WorktreeCleanup 2026-08-29-01:16:
+  FN-251 makes every direct self-healing complete-lane finalizer resolve proof-gated cleanup before
+  moving a single-repository landed task. Preserved content remains logged and completes normally;
+  only the shared helper may clear the singular worktree pointer.
+  */
+  private async moveToCompleteLaneAfterLandedCleanup(
+    task: Task,
+    completeLane: string,
+    source: string,
+    mergeDetails?: MergeDetails,
+  ): Promise<Task> {
+    const landedMergeDetails = mergeDetails ?? task.mergeDetails;
+    if (landedMergeDetails?.mergeConfirmed === true) {
+      const audit = createRunAuditor(this.store, {
+        runId: generateSyntheticRunId("self-heal", task.id),
+        agentId: "self-healing",
+        taskId: task.id,
+        taskLineageId: task.lineageId,
+        phase: source,
+      });
+      await cleanupLandedTaskWorktree({
+        store: this.store,
+        taskId: task.id,
+        worktreePath: task.worktree,
+        rootDir: this.options.rootDir,
+        landedSha: landedMergeDetails.commitSha,
+        source,
+        audit,
+        log: async (message) => {
+          await this.store.logEntry(task.id, message).catch(() => undefined);
+        },
+      });
+    }
+    return await this.store.moveTask(task.id, completeLane);
   }
 
   /*
@@ -5457,27 +5495,67 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       if (!worktreePath || !existsSync(worktreePath)) {
         worktreePath = await this.findWorktreePathForBranch(branchName);
       }
-      if (worktreePath && existsSync(worktreePath)) {
+      const hasLiveWorktree = Boolean(worktreePath && existsSync(worktreePath));
+      const completionCleanupPath = hasLiveWorktree
+        ? worktreePath
+        : task?.mergeDetails?.mergeConfirmed === true
+          ? task.worktree
+          : undefined;
+      if (completionCleanupPath) {
         try {
-          const settings = await this.store.getSettings();
-          await removeWorktree({
-            rootDir: this.options.rootDir,
-            worktreePath,
-            settings,
-            taskId,
-            reason: RemovalReason.SelfHealingStaleActiveBranch,
-          });
-          result.worktreeRemoved = true;
-          if (task) {
-            const patch = {
-              worktree: null as string | null,
-              ...(task.branch === branchName ? { branch: null as string | null, branchWriteOrigin: "engine" as const } : {}),
-            };
-            await this.store.updateTask(task.id, patch as Partial<Task>);
+          if (task?.mergeDetails?.mergeConfirmed === true) {
+            /*
+            FNXC:WorktreeCleanup 2026-08-29-01:19:
+            This post-move fan-out is the convergence backstop for worktrees leaked before FN-251,
+            not the ordering gate. Only durable landing proof permits ignored-only content removal;
+            preserved outcomes retain the pointer and are retried on later terminal transitions.
+
+            FNXC:WorktreeCleanup 2026-08-29-01:50:
+            A removed directory can retain a stale task pointer when its initial persistence write
+            fails. Pass that absent path to the shared helper so convergence retries only the durable
+            pointer clear without invoking Git or falsely reporting another filesystem removal.
+            */
+            const audit = createRunAuditor(this.store, {
+              runId: generateSyntheticRunId("self-heal", taskId),
+              agentId: "self-healing",
+              taskId,
+              taskLineageId: task.lineageId,
+              phase: "completion-fanout",
+            });
+            const cleanup = await cleanupLandedTaskWorktree({
+              store: this.store,
+              taskId,
+              worktreePath: completionCleanupPath,
+              rootDir: this.options.rootDir,
+              landedSha: task.mergeDetails.commitSha,
+              source: "self-healing-completion-convergence",
+              audit,
+              log: async (message) => {
+                await this.store.logEntry(taskId, message).catch(() => undefined);
+              },
+            });
+            result.worktreeRemoved = cleanup.removed;
+          } else {
+            const settings = await this.store.getSettings();
+            const removal = await removeWorktree({
+              rootDir: this.options.rootDir,
+              worktreePath: completionCleanupPath,
+              settings,
+              taskId,
+              reason: RemovalReason.SelfHealingStaleActiveBranch,
+            });
+            result.worktreeRemoved = removal.removed;
+            if (task) {
+              const patch = {
+                worktree: null as string | null,
+                ...(task.branch === branchName ? { branch: null as string | null, branchWriteOrigin: "engine" as const } : {}),
+              };
+              await this.store.updateTask(task.id, patch as Partial<Task>);
+            }
           }
         } catch (err: unknown) {
           const errorMessage = err instanceof Error ? err.message : String(err);
-          log.warn(`${prefix} failed to remove worktree ${worktreePath}: ${errorMessage}`);
+          log.warn(`${prefix} failed to remove worktree ${completionCleanupPath}: ${errorMessage}`);
         }
       } else {
         log.debug(`${prefix} no live worktree found for branch ${branchName}`);
@@ -8552,6 +8630,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         }
 
         const mergedAt = new Date().toISOString();
+        let confirmedMergeDetails: MergeDetails | undefined;
         if (classification.kind === "owned-commit") {
           const mergeCommitMessage = await regenerateBareMergeSubject({
             subject: classification.commit.subject,
@@ -8572,6 +8651,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
             mergedAt,
             mergeTargetBranch: ahead.baseRef,
           };
+          confirmedMergeDetails = mergeDetails;
           await this.store.updateTask(task.id, { mergeDetails });
           await this.store.logEntry(task.id, `Auto-finalized: recovered owned landed commit ${classification.commit.sha.slice(0, 8)}`);
         } else {
@@ -8649,6 +8729,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           // FN-5092 hotfix: clear transient merger-queue status alongside mergeDetails
           // patch so a leaked `mergeActive` slot from a prior merge attempt cannot survive
           // this auto-finalize path. Same bug class as recoverBranchMisboundInReviewTasks().
+          confirmedMergeDetails = mergeDetails;
           await this.store.updateTask(task.id, { mergeDetails, modifiedFiles: [], status: null, error: null, paused: false });
           await this.recordIntegrityAudit(task.id, "task:integrity-reconcile-modified-files", {
             reason: "proven-no-op-finalize",
@@ -8658,7 +8739,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         }
 
         const completeLane = (await resolveTaskLifecycleColumns(this.store, task.id))?.complete ?? "done";
-const movedTask = await this.store.moveTask(task.id, completeLane);
+        const movedTask = await this.moveToCompleteLaneAfterLandedCleanup(task, completeLane, "self-healing-finalize-no-op-review", confirmedMergeDetails);
         this.emitTaskMerged(movedTask, { mergeConfirmed: true });
         recovered++;
       }
@@ -10123,7 +10204,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             });
             await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-interrupted-merging");
             const completeLane = (await resolveTaskLifecycleColumns(this.store, task.id))?.complete ?? "done";
-const movedTask = await this.store.moveTask(task.id, completeLane);
+            const movedTask = await this.moveToCompleteLaneAfterLandedCleanup(task, completeLane, "recover-interrupted-merging", mergeDetails);
             this.emitTaskMerged(movedTask, { mergeConfirmed: true });
             await this.cleanupInterruptedMergeArtifacts(task);
             await this.store.logEntry(
@@ -11406,6 +11487,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
             auditAgentId: "self-healing",
             auditPhase: "recover-merged-review",
             source: "self-healing",
+            rootDir: this.options.rootDir,
             log: (message) => log.warn(message),
           });
           if (finalization.outcome === "blocked") {
@@ -11640,13 +11722,12 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
               status: null,
               error: null,
               mergeRetries: 0,
-              worktree: null,
               branch: null, branchWriteOrigin: "engine" as const,
               mergeDetails,
             });
             await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-stuck-merge-deadlocks");
             const completeLane = (await resolveTaskLifecycleColumns(this.store, task.id))?.complete ?? "done";
-const movedTask = await this.store.moveTask(task.id, completeLane);
+            const movedTask = await this.moveToCompleteLaneAfterLandedCleanup(task, completeLane, "recover-stuck-merge-deadlocks", mergeDetails);
             this.emitTaskMerged(movedTask, { mergeConfirmed: true });
             await this.cleanupInterruptedMergeArtifacts(task);
 
@@ -11894,7 +11975,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           });
           await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-orphan-only-scope-violations");
           const completeLane = (await resolveTaskLifecycleColumns(this.store, task.id))?.complete ?? "done";
-const movedTask = await this.store.moveTask(task.id, completeLane);
+          const movedTask = await this.moveToCompleteLaneAfterLandedCleanup(task, completeLane, "recover-orphan-only-scope-violations", mergeDetails);
           this.emitTaskMerged(movedTask, { mergeConfirmed: true });
           await this.store.logEntry(
             task.id,
@@ -12160,7 +12241,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           const worktreeHint = task.worktree;
           await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-already-merged-review");
           const completeLane = (await resolveTaskLifecycleColumns(this.store, task.id))?.complete ?? "done";
-const movedTask = await this.store.moveTask(task.id, completeLane);
+          const movedTask = await this.moveToCompleteLaneAfterLandedCleanup(task, completeLane, "recover-already-merged-review", mergeDetails);
           this.emitTaskMerged(movedTask, { mergeConfirmed: true });
           await this.store.logEntry(
             task.id,
@@ -12537,6 +12618,7 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
       auditAgentId: "self-healing",
       auditPhase: "recover-stranded-ai-merge-commit",
       source: "self-healing",
+      rootDir: this.options.rootDir,
       log: async (message) => {
         await this.store.logEntry(task.id, message).catch(() => undefined);
       },
@@ -12786,22 +12868,9 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           await this.store.updateTask(task.id, {
             mergeDetails,
             branch: null, branchWriteOrigin: "engine" as const,
-            worktree: null,
             status: null,
             error: null,
           });
-
-          if (task.worktree && existsSync(task.worktree)) {
-            await removeWorktree({
-              rootDir: this.options.rootDir,
-              worktreePath: task.worktree,
-              settings,
-              taskId: task.id,
-              reason: RemovalReason.SelfHealingReclaim,
-            }).catch(() => undefined);
-          }
-
-          await this.clearCompletionBranchIfSubsumed(task, branch).catch(() => false);
 
           // FN-5092 hotfix: clear transient merger-queue status (`status: "merging"` set
           // by the original merger attempt) before transitioning to done. Without this,
@@ -12811,8 +12880,9 @@ const movedTask = await this.store.moveTask(task.id, completeLane);
           await this.store.updateTask(task.id, { status: null, error: null, paused: false });
           await this.recordSelfHealingBranchGroupMemberLanding(task, mergeTarget, "recover-branch-misbound-in-review");
           const completeLane = (await resolveTaskLifecycleColumns(this.store, task.id))?.complete ?? "done";
-const movedTask = await this.store.moveTask(task.id, completeLane);
+          const movedTask = await this.moveToCompleteLaneAfterLandedCleanup(task, completeLane, "recover-branch-misbound-in-review", mergeDetails);
           this.emitTaskMerged(movedTask, { mergeConfirmed: true });
+          await this.clearCompletionBranchIfSubsumed(task, branch).catch(() => false);
           await this.store.logEntry(
             task.id,
             `Auto-recovered: branch tip misbound but content found on ${baseBranch} at ${check.landed.sha.slice(0, 8)} via ${check.landed.strategy}`,
