@@ -117,7 +117,7 @@ export type GitMutationType =
   | "worktree:base-refresh-reconciled"
   /*
    * FNXC:TaskPinnedWorktrees 2026-07-16-00:00:
-   * Emitted when task-pinned acquisition (`worktreeNaming: "task-id"`) corrects a `task.worktree` cache that
+   * Emitted when task-ID worktree acquisition corrects a `task.worktree` cache that
    * disagrees with the derived `<worktreesDir>/<task-id>` path (the FN-7996 stale/foreign-pointer shape).
    * Metadata is ids/paths-only: `{ taskId, previous, derived, source }`.
    */

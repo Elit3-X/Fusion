@@ -41,6 +41,11 @@ import { isApprovalFamilyVerdict, reviewWorkspacePerRepo } from "./workspace-rev
 import type { ReviewResult } from "../execution/reviewer.js";
 import type { SessionBoundaryDescriptor } from "../agents/agent-runtime.js";
 import { runDeterministicVerificationGate } from "../workflow-node-runners/verification-gate.js";
+import {
+  ensureWorktreeDependencies,
+  type DependencyCommandRunner,
+  type WorktreeDependencyReadiness,
+} from "../worktree/worktree-dependency-install.js";
 
 const WORKFLOW_THINKING_LEVEL_SET: ReadonlySet<string> = new Set(THINKING_LEVELS);
 const WORKFLOW_STEP_NOT_RUN_REASON_SET: ReadonlySet<string> = new Set(WORKFLOW_STEP_NOT_RUN_REASONS);
@@ -66,6 +71,8 @@ export type RunGraphCustomNodeDeps = {
   runAwaitInputNode: AnyFn;
   runCliAgentNode: AnyFn;
   runRawCliCommand: AnyFn;
+  /** Shared sandbox-routed command seam used by the Plan Review dependency catch-up. */
+  runConfiguredCommand: DependencyCommandRunner;
 };
 
 /*
@@ -86,7 +93,7 @@ export function resolveGraphNodeSessionBoundary(input: {
   worktreePath: string;
   confirmedRepositories?: readonly string[];
 }): SessionBoundaryDescriptor | undefined {
-  if (!input.isWorkspace || input.isPlanReview || input.legacyWorkspaceLayout) return undefined;
+  if (!input.isWorkspace || input.legacyWorkspaceLayout) return undefined;
   const repoRoots = (input.confirmedRepositories ?? []).map((repoRelPath) => ({
     repoRelPath,
     repoRootDir: join(input.rootDir, repoRelPath),
@@ -149,6 +156,113 @@ export function resolveWorkspaceReadOnlyGateRepositoryContext(input: {
         output: `Workspace repository context is unresolved: ${missing.join("; ")}. This check was not run.`,
       }
     : { resolved: true };
+}
+
+export interface PlanReviewDependencyGateInput {
+  task: TaskDetail;
+  settings: Settings;
+  workspaceConfig: WorkspaceConfig | null | undefined;
+  worktreePath: string;
+  store: TaskStore;
+  getRunContextFor: (taskId: string) => EngineRunContext | undefined;
+  runConfiguredCommand: DependencyCommandRunner;
+}
+
+interface DependencyGateTarget {
+  repository: string;
+  worktreePath: string;
+}
+
+function dependencyGateDetails(target: DependencyGateTarget, readiness: WorktreeDependencyReadiness): string {
+  if (readiness.readiness === "unrecognized") {
+    return `${target.repository}: unrecognized dependency evidence (${readiness.evidence.join(", ")}); resolve it with fn_install_worktree_dependencies.`;
+  }
+  const rows = readiness.unresolvedRepos.map((row) => {
+    const entry = readiness.entries.find((candidate) => candidate.ecosystem === row.ecosystem);
+    return `${row.manifests.join(", ") || row.ecosystem}; command \`${row.command}\`; ${entry?.reason ?? entry?.outcome ?? "not installed"}`;
+  });
+  return `${target.repository}: ${rows.join("; ")}`;
+}
+
+/**
+ * Pre-dispatch Plan Review gate for worktree dependency readiness. This is deliberately a node
+ * result, rather than a side-channel pause, so the established Plan Review REVISE/replan cap remains
+ * the sole lifecycle authority. A probe that cannot determine readiness is logged and falls through.
+ */
+export async function runPlanReviewDependencyGate(
+  input: PlanReviewDependencyGateInput,
+): Promise<WorkflowNodeResult | null> {
+  const targets: DependencyGateTarget[] = [];
+  if (input.workspaceConfig?.repos.length) {
+    for (const repository of input.workspaceConfig.repos) {
+      const path = input.task.workspaceWorktrees?.[repository]?.worktreePath;
+      if (!path || !existsSync(path)) {
+        await input.store.logEntry(
+          input.task.id,
+          `Dependency readiness not determined for ${repository}; Plan Review dispatch continues`,
+          path ? `Task worktree is missing: ${path}` : "No recorded task worktree",
+          input.getRunContextFor(input.task.id),
+        );
+        continue;
+      }
+      targets.push({ repository, worktreePath: path });
+    }
+  } else if (input.worktreePath && existsSync(input.worktreePath)) {
+    targets.push({ repository: "task worktree", worktreePath: input.worktreePath });
+  } else {
+    await input.store.logEntry(
+      input.task.id,
+      "Dependency readiness not determined; Plan Review dispatch continues",
+      "No readable task worktree is available",
+      input.getRunContextFor(input.task.id),
+    );
+  }
+
+  const blocking: Array<{ target: DependencyGateTarget; readiness: WorktreeDependencyReadiness }> = [];
+  for (const target of targets) {
+    try {
+      const readiness = await ensureWorktreeDependencies({
+        worktreePath: target.worktreePath,
+        settings: input.settings,
+        taskId: input.task.id,
+        store: input.store,
+        runContext: input.getRunContextFor(input.task.id),
+        runConfiguredCommand: input.runConfiguredCommand,
+        taskEnv: process.env,
+        logger: executorLog,
+      });
+      if (readiness.readiness === "unresolved" || readiness.readiness === "unrecognized") {
+        blocking.push({ target, readiness });
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      await input.store.logEntry(
+        input.task.id,
+        `Dependency readiness not determined for ${target.repository}; Plan Review dispatch continues`,
+        error instanceof Error ? error.message : String(error),
+        input.getRunContextFor(input.task.id),
+      );
+    }
+  }
+  if (blocking.length === 0) return null;
+
+  const lines = ["Dependencies are not installed.", ...blocking.map(({ target, readiness }) => `- ${dependencyGateDetails(target, readiness)}`)];
+  const output = lines.join("\n");
+  const findings = blocking.map(({ target, readiness }) => ({
+    severity: "high",
+    title: "Dependencies are not installed",
+    body: dependencyGateDetails(target, readiness),
+  }));
+  await input.store.logEntry(input.task.id, "Plan Review blocked by worktree dependency readiness", output, input.getRunContextFor(input.task.id));
+  return {
+    outcome: "failure",
+    value: "REVISE",
+    contextPatch: {
+      output,
+      notes: "Plan Review cannot approve until dependency-bearing worktrees have durable readiness.",
+      findings,
+    },
+  };
 }
 
 /*
@@ -372,66 +486,31 @@ export async function runGraphCustomNode(
       return { outcome: "failure", value: "workspace-plan-review-script-readonly-required" };
     }
 
-    const isWorkspaceReadOnlyGate = Boolean(workspaceConfig && !writeCapable && !isPlanReviewNode);
-    if (isWorkspaceReadOnlyGate) {
-      // Read the authoritative task before validating child worktrees. A graph snapshot can predate
-      // scope confirmation or a checkout recovery, and must not decide which tree a gate inspects.
+    if (workspaceConfig?.repos.length) {
+      // Always re-read and acquire from the configured set. Repository scope remains durable review
+      // evidence, but is no longer an admission request or a way to narrow task provisioning.
       executionTarget = await deps.store.getTask(live.id);
-    }
-
-    if (workspaceConfig && writeCapable) {
-      if (executionTarget.repositoryScope?.state !== "confirmed") {
-        return { outcome: "failure", value: "workspace-acquisition-requires-confirmed-repository-scope" };
-      }
-      const scopedRepositories = executionTarget.repositoryScope.repositories;
-      const recordedMissing = scopedRepositories.find((repoRelPath) => {
-        const path = executionTarget.workspaceWorktrees?.[repoRelPath]?.worktreePath;
-        return typeof path === "string" && path.length > 0 && !existsSync(path);
+      const missingRepository = workspaceConfig.repos.find((repository) => {
+        const path = executionTarget.workspaceWorktrees?.[repository]?.worktreePath;
+        return typeof path !== "string" || !existsSync(path);
       });
-      const unrecorded = scopedRepositories.some((repoRelPath) => {
-        const path = executionTarget.workspaceWorktrees?.[repoRelPath]?.worktreePath;
-        return typeof path !== "string" || path.length === 0;
-      });
-      if (recordedMissing && !isPlanReviewNode) {
+      if (missingRepository) {
         await deps.store.logEntry(
           live.id,
-          `Workflow node '${node.id}' cannot review a missing workspace checkout for '${recordedMissing}'`,
+          `Workflow node '${node.id}' is acquiring configured workspace checkout '${missingRepository}'`,
           undefined,
           deps.getRunContextFor(live.id),
         );
-        return { outcome: "failure", value: "workspace-worktree-missing" };
-      }
-      if (recordedMissing || unrecorded) {
-        if (recordedMissing) {
-          await deps.store.logEntry(
-            live.id,
-            `Plan Review workspace checkout for '${recordedMissing}' is missing on disk — re-acquiring declared scoped checkouts`,
-            undefined,
-            deps.getRunContextFor(live.id),
-          );
-        }
         executionTarget = await deps.ensureGraphCustomNodeWorktree(executionTarget, settings, node.id);
       }
     } else if (!workspaceConfig) {
       const recordedWorktreeMissing = Boolean(executionTarget.worktree) && !existsSync(executionTarget.worktree!);
       /*
-      A node with NO recorded worktree is pre-execution (planning / Plan Review): acquire one.
-      A node whose RECORDED worktree vanished is a different situation — for gates that review
-      implementation output, the work is gone with it, and handing them a fresh empty worktree would
-      let them review the wrong tree and pass. Those keep failing fast into the unusable-worktree
-      recovery (FN-7996). Plan Review is the exception: it reviews the store-injected PROMPT.md, so it
-      re-acquires rather than parking — this replaces its old "run from the repo root" degrade.
+      A node with no recorded worktree is pre-execution. A vanished implementation checkout is
+      not silently replaced for ordinary review, while Plan Review can re-acquire its plan tree.
       */
       const shouldAcquire = !executionTarget.worktree || (recordedWorktreeMissing && isPlanReviewNode);
       if (shouldAcquire) {
-        if (recordedWorktreeMissing) {
-          await deps.store.logEntry(
-            live.id,
-            `Plan Review worktree ${executionTarget.worktree} is missing on disk — re-acquiring a task worktree instead of running in the shared checkout`,
-            undefined,
-            deps.getRunContextFor(live.id),
-          );
-        }
         const acquisitionTask = recordedWorktreeMissing
           ? ({ ...executionTarget, worktree: undefined, sessionFile: undefined } as TaskDetail)
           : executionTarget;
@@ -439,12 +518,13 @@ export async function runGraphCustomNode(
       }
     }
 
-    const workspaceTaskDir = workspaceConfig
+    const isWorkspaceTask = Boolean(workspaceConfig?.repos.length);
+    const workspaceTaskDir = isWorkspaceTask
       ? resolveWorkspaceTaskWorktreeDir(deps.rootDir, settings, executionTarget.id)
       : undefined;
-    const legacyWorkspacePath = workspaceConfig && workspaceTaskDir
+    const legacyWorkspacePath = isWorkspaceTask && workspaceTaskDir
       && isLegacyWorkspaceWorktreeLayout(executionTarget, workspaceTaskDir)
-      ? workspaceConfig.repos
+      ? workspaceConfig!.repos
         .map((repoRelPath) => executionTarget.workspaceWorktrees?.[repoRelPath]?.worktreePath)
         .find((path): path is string => typeof path === "string" && path.length > 0)
       : undefined;
@@ -456,47 +536,43 @@ export async function runGraphCustomNode(
       return { outcome: "failure", value: "no-worktree-for-write-node" };
     }
 
-    if (isWorkspaceReadOnlyGate && !legacyWorkspacePath) {
-      const repositoryContext = resolveWorkspaceReadOnlyGateRepositoryContext({
-        task: executionTarget,
-        workspaceTaskDir: workspaceTaskDir!,
-      });
-      if (!repositoryContext.resolved) {
-        return {
-          outcome: "success",
-          value: "repository-context-unresolved",
-          contextPatch: {
-            notRunReason: "repository-context-unresolved",
-            output: repositoryContext.output,
-          },
-        };
-      }
-    }
-
     /*
-    FNXC:WorkspaceGateContext 2026-08-29-06:36:
-    Reporting gates on mult-038 inspected the shared workspace root while Code Review inspected
-    task-owned child worktrees, so one gate could deny files another had just approved. A non-Plan
-    read-only workspace gate now runs from the validated task directory; unresolved child context is
-    terminally not-run rather than a fabricated absence claim. Plan Review keeps the shared root,
-    and legacy layouts retain their recorded child-worktree path.
+    FNXC:WorkspaceGateContext 2026-08-29-06:59:
+    Every workspace graph node, including Plan Review and read-only reporting gates, runs from the
+    task directory under a workspace-task-dir boundary. The configured repository list determines
+    the child roots; a legacy layout remains on its recorded checkout until it completes.
     */
-    const worktreePath = workspaceConfig && !writeCapable
-      ? isPlanReviewNode
-        ? deps.rootDir
-        : legacyWorkspacePath ?? workspaceTaskDir!
-      : executionTarget.worktree || legacyWorkspacePath || workspaceTaskDir!;
+    const worktreePath = isWorkspaceTask
+      ? legacyWorkspacePath ?? workspaceTaskDir!
+      : executionTarget.worktree!;
     const nodeSessionBoundary = resolveGraphNodeSessionBoundary({
-      isWorkspace: Boolean(workspaceConfig),
+      isWorkspace: isWorkspaceTask,
       writeCapable,
-      isPlanReview: isPlanReviewNode,
       legacyWorkspaceLayout: Boolean(legacyWorkspacePath),
       rootDir: deps.rootDir,
       worktreePath,
-      confirmedRepositories: executionTarget.repositoryScope?.state === "confirmed"
-        ? executionTarget.repositoryScope.repositories
-        : undefined,
+      confirmedRepositories: workspaceConfig?.repos,
     });
+    /*
+    FNXC:WorktreeDependencies 2026-08-29-06:59:
+    Plan Review is the single lifecycle blocker for dependency readiness. It retries deterministic
+    matrix rows once at this pre-dispatch point, but unfamiliar package-manager evidence remains
+    unrecognized until the planning-only installer records an engine-observed resolution. The
+    returned REVISE follows the existing review budget/replan cap to awaiting-approval; acquisition
+    itself merely logs failures and optional/disabled Plan Review groups never reach this node.
+    */
+    if (isPlanReviewNode) {
+      const dependencyGate = await runPlanReviewDependencyGate({
+        task: executionTarget,
+        settings,
+        workspaceConfig,
+        worktreePath,
+        store: deps.store,
+        getRunContextFor: deps.getRunContextFor,
+        runConfiguredCommand: deps.runConfiguredCommand,
+      });
+      if (dependencyGate) return dependencyGate;
+    }
     if (isDeterministicVerificationGate) {
       return runDeterministicVerificationGate({ store: deps.store, getRunContextFor: deps.getRunContextFor }, node, executionTarget, settings, worktreePath);
     }
@@ -842,31 +918,6 @@ export async function runGraphCustomNode(
         }
         outcome = buildWorkspaceReviewOutcome(aggregate, { superseded: reviewSuperseded });
       }
-    } else if (workspaceConfig && declaredReviewKind === "plan") {
-      /*
-      FNXC:WorkspaceBoundary 2026-08-22-22:04:
-      Plan Review reads the shared workspace before scope exists. It declares a
-      null writable root instead of relying on legacy cwd inference, so the
-      session keeps task-store prompt tools but cannot modify operator files.
-      */
-      const planningBoundary = {
-        kind: "read-only-root" as const,
-        writableRoot: null,
-        projectRoot: deps.rootDir,
-        readOnlyRoots: [deps.rootDir],
-        repoRoots: workspaceConfig.repos.map((repoRelPath) => ({ repoRelPath, repoRootDir: join(deps.rootDir, repoRelPath) })),
-      };
-      const planningEnv = mode === "prompt"
-        ? (await deps.buildInjectedRuntimeEnv(live.id, deps.rootDir, undefined)).env
-        : nodeEnv;
-      outcome = await deps.executeWorkflowStep(
-        live,
-        step,
-        deps.rootDir,
-        settings,
-        planningEnv,
-        { unattended, principalAgentId, outputLanguage, sessionBoundary: planningBoundary },
-      );
     } else {
       outcome = mode === "script"
         ? await deps.executeScriptWorkflowStep(live, step, worktreePath, settings, nodeEnv)

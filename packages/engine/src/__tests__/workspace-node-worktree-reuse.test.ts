@@ -143,25 +143,22 @@ describe("workspace graph-node checkout reuse", () => {
     expect(harness.ensureGraphCustomNodeWorktree).toHaveBeenCalledTimes(1);
   });
 
-  it("fails fast instead of reviewing a fresh tree when a recorded Code Review checkout vanished", async () => {
+  it("reacquires every configured checkout when a recorded Code Review child vanished", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-fn207-workspace-"));
     roots.push(root);
     const paths = await workspacePaths(root);
     await rm(paths["repo-b"], { recursive: true, force: true });
     const row = task(root, paths);
     const harness = deps(root, row);
+    harness.ensureGraphCustomNodeWorktree.mockImplementation(async () => {
+      await mkdir(paths["repo-b"], { recursive: true });
+      return row;
+    });
+    reviewWorkspacePerRepoMock.mockResolvedValue({ verdict: "APPROVE", review: "approved", summary: "approved", retryable: false });
 
-    const result = await runGraphCustomNode(harness as never, CODE_REVIEW_NODE as never, row, {} as never);
+    await runGraphCustomNode(harness as never, CODE_REVIEW_NODE as never, row, {} as never);
 
-    expect(result).toEqual({ outcome: "failure", value: "workspace-worktree-missing" });
-    expect(harness.ensureGraphCustomNodeWorktree).not.toHaveBeenCalled();
-    expect(harness.executeWorkflowStep).not.toHaveBeenCalled();
-    expect(harness.store.logEntry).toHaveBeenCalledWith(
-      row.id,
-      expect.stringContaining("cannot review a missing workspace checkout for 'repo-b'"),
-      undefined,
-      undefined,
-    );
+    expect(harness.ensureGraphCustomNodeWorktree).toHaveBeenCalledTimes(1);
   });
 
   it("allows Plan Review to reacquire a recorded checkout that vanished", async () => {
@@ -181,7 +178,7 @@ describe("workspace graph-node checkout reuse", () => {
     expect(harness.ensureGraphCustomNodeWorktree).toHaveBeenCalledTimes(1);
     expect(harness.store.logEntry).toHaveBeenCalledWith(
       row.id,
-      expect.stringContaining("Plan Review workspace checkout for 'repo-b' is missing on disk"),
+      expect.stringContaining("acquiring configured workspace checkout 'repo-b'"),
       undefined,
       undefined,
     );

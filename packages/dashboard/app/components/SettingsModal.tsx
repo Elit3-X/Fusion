@@ -1030,7 +1030,6 @@ export function SettingsModal({
     mergeIntegrationWorktree: "reuse-task-worktree",
     mergeAdvanceAutoSync: "stash-and-ff",
     merger: { mode: "ai", maxReviewPasses: 3, allowDirtyLocalCheckoutSync: true },
-    recycleWorktrees: false,
     showWorktreeGrouping: false,
     openTasksInRightSidebar: false,
     openMobileTasksInPopup: false,
@@ -1039,7 +1038,6 @@ export function SettingsModal({
     taskDetailChatFirst: false,
     chatMessageLayout: "bubbles",
     executorAllowSiblingBranchRename: false,
-    worktreeNaming: "random",
     worktreeCopyFiles: [],
     worktreesDir: "",
     worktrunk: {

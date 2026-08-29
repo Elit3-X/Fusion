@@ -258,7 +258,7 @@ export function installPipelineMockScripts(input: {
       therefore skipped the whole block on a workspace task, the executor produced no commit, and
       Code Review reported "No changes — not reviewed" on a scoped repository that was genuinely
       untouched. Resolve the repository the session can actually commit in, exactly as a real
-      executor does through fn_acquire_repo_worktree.
+      executor does through task-start workspace provisioning.
       */
       const implementationRepoDir = existsSync(join(context.options.cwd, ".git"))
         ? context.options.cwd

@@ -716,19 +716,19 @@ name in baseBranchFallbackFrom. Legacy entries without these fields remain pinne
 integration branch and ignore task.baseBranch. Ref names live here and in task logs, never audit metadata.
 */
 /*
-FNXC:RepositoryScope 2026-08-20-23:07:
-Repository acquisition is an implementation detail, not task intent. This durable scope is the
-sole authority for workspace review, landing, and recovery; unprefixed file scope can seed it but
-must never expand it to every acquired checkout.
+FNXC:RepositoryScope 2026-08-29-08:50:
+FN-258 makes configured workspace membership the complete, confirmed scope for every workspace task.
+Review and landing still use this durable snapshot, but neither task creation nor later task mutations
+may select a subset of configured repositories.
 */
 export interface TaskRepositoryScope {
   repositories: string[];
-  /** A proposal is visible before the planner confirms the repository intent. */
-  state?: "proposed" | "confirmed";
-  /** Monotonic intent generation used to fence stale review callbacks. */
+  /** Workspace membership is confirmed from the configured workspace, never selected per task. */
+  state?: "confirmed";
+  /** Monotonic configuration generation used to fence stale review callbacks. */
   revision?: number;
   confirmedAt?: string;
-  confirmedBy?: "operator" | "plan" | "inferred";
+  confirmedBy?: "workspace";
   /** FNXC:RepositoryScope 2026-08-21-01:18: Fresh landing accepts only the exact repository diff approved by Code Review. */
   reviewEvidence?: Record<string, { fingerprint: string; approvedAt: string }>;
   /*
@@ -738,6 +738,7 @@ export interface TaskRepositoryScope {
   or checkout path, so a changed scope or diff opens a new remediation episode safely.
   */
   reviewRemediation?: { scopeRevision: number; repository: string; inputSignature: string };
+  /** Historical manual-scope events remain readable in Task Detail but no new task may write them. */
   extensions?: Array<{
     repository: string;
     requestedAt: string;
@@ -1652,8 +1653,6 @@ export interface TaskCreateInput {
   dependencies?: string[];
   /** When true, this task is expected to complete without creating git commits. */
   noCommitsExpected?: boolean;
-  /** Explicit workspace repository intent selected by the operator at creation. */
-  repositoryScope?: string[];
   /** IDs of workflow steps to enable for this task */
   enabledWorkflowSteps?: string[];
   /**

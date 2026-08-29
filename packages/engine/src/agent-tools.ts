@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import * as fusionCore from "@fusion/core";
 import type { AgentState, AgentCapability, AgentUpdateInput, AgentLogEntry, Artifact, ArtifactCreateInput, ArtifactWithTask, Task, TaskDocument, TaskDocumentCreateInput, TaskStore, RunMutationContext, MessageStore, Message, SourceType, Settings, ResearchRun, ResearchRunStatus, TaskCreateInput, ReflectionStore, ApprovalRequestStore, ProjectSettings, ChatStore, WorkflowSettingDefinition, GoalStatus, WorkflowIrNode, IdeationCandidate, MissionWithHierarchy, DbTransaction } from "@fusion/core";
-import { listTraits, isBuiltinWorkflowId, AgentStore, validateColumnAgentBindings, ColumnAgentBindingError, stripApprovalBypassFlags, WorkflowSettingRejectionError, resolveEffectiveSettingsById, resolveWorkflowIrById, findOrphanedSettingValues, BUILTIN_WORKFLOW_SETTINGS, MAX_TASK_LIST_TEXT_CHARS, formatCurrentTaskLine, normalizeWorkflowIcon, parseWorkflowIr, WorkflowIrError, assertColumnTraitsValid, ColumnTraitValidationError, isLegacyWorkspaceWorktreeLayout, resolveWorkspaceRepoWorktreePath, resolveWorkspaceTaskWorktreeDir } from "@fusion/core";
+import { listTraits, isBuiltinWorkflowId, AgentStore, validateColumnAgentBindings, ColumnAgentBindingError, stripApprovalBypassFlags, WorkflowSettingRejectionError, resolveEffectiveSettingsById, resolveWorkflowIrById, findOrphanedSettingValues, BUILTIN_WORKFLOW_SETTINGS, MAX_TASK_LIST_TEXT_CHARS, formatCurrentTaskLine, normalizeWorkflowIcon, parseWorkflowIr, WorkflowIrError, assertColumnTraitsValid, ColumnTraitValidationError } from "@fusion/core";
 import { promoteHeldTask } from "./execution/hold-release.js";
 import { computeCrossParentDiagnosticClaim, computeCrossParentDiagnosticClaimId, computeParentIntentClaimId, DASHBOARD_USER_ID, dailyMemoryPath, ensureOpenClawMemoryFiles, evaluateImplementationTaskBind, extractAgentProvisioningRequest, findSameAgentDuplicates, getMemoryBackendCapabilities, getProjectMemory, isEphemeralAgent, memoryLongTermPath, normalizeMessageParticipant, reconcileDeterministicDuplicate, resolveAgentProvisioningPolicy, resolveMemoryBackend, resolveResearchSettings, resolveTaskGithubTracking, runDeterministicDuplicateGuard, scheduleQmdProjectMemoryRefresh, searchProjectMemory, shouldSkipBackgroundQmdRefresh } from "@fusion/core";
 import { ResearchOrchestrator } from "./research/research-orchestrator.js";
@@ -26,14 +26,18 @@ import type { AgentReflectionService } from "./agents/agent-reflection.js";
 import { createLogger } from "./logger.js";
 // FNXC:PlanArtifactPersistence 2026-07-26-03:55: PROMPT.md is filesystem-only; mirror plan writes into the DB.
 import { mirrorPlanToProjectDb } from "./plan-artifact-writeback.js";
-import { isPlanningLifecycleLockTransportError } from "./planning-handoff-recovery.js";
 import { fetchWebContent, WebFetchError } from "./util/web-fetch.js";
 import type { RunAuditor } from "./util/run-audit.js";
 import { computeApprovalDedupeKey } from "./agents/agent-action-gate.js";
 import { MessageDeliveryAutoRecoveryHandler } from "./auto-recovery-handlers/message-delivery.js";
 import { emitGoalRetrievalAudit } from "./goals/goal-anchoring-audit.js";
 import { recordRetry } from "./errors/retry-burned-logger.js";
-import { acquireWorkspaceRepoWorktree, WorkspaceRepoAcquireBusyError } from "./worktree/worktree-acquisition.js";
+import {
+  DEPENDENCY_INSTALL_COMMAND_TIMEOUT_MS,
+  recordPlannerDependencyResolution,
+  type DependencyCommandResult,
+  type DependencyCommandRunner,
+} from "./worktree/worktree-dependency-install.js";
 import { validateCodeNodeSources } from "./execution/code-node-runner.js";
 import { resolveFeatureRepairTargets } from "./missions/mission-feature-sync.js";
 import { reconcileMissionState } from "./missions/mission-state-reconcile.js";
@@ -77,13 +81,6 @@ export const taskCreateParams = Type.Object({
       description:
         "Workflow ID to select for the new task (e.g. 'WF-003' or 'builtin:coding'). " +
         "Omit to inherit the project default workflow. Use fn_workflow_list to discover valid IDs.",
-    }),
-  ),
-  repository_scope: Type.Optional(
-    Type.Array(Type.String(), {
-      description:
-        "Explicit workspace repositories this task may modify. Names must match configured workspace repositories; " +
-        "omitting this lets the planner confirm a proposed scope.",
     }),
   ),
   mission_lineage: Type.Optional(missionLineageParams),
@@ -145,14 +142,13 @@ export const patchnodeReadParams = Type.Object({
   limit: Type.Optional(Type.Number({ minimum: 1, description: "Max entries (default 20, max 50)" })),
 });
 
-export const acquireRepoWorktreeParams = Type.Object({
-  repo: Type.String({
-    description:
-      "Relative path of the sub-repo within the workspace to acquire a worktree in " +
-      "(e.g. 'wolf-server'). Must be one of the repos listed in the workspace. " +
-      "If already acquired, returns the existing worktree path immediately.",
+export const installWorktreeDependenciesParams = Type.Object({
+  action: Type.Union([Type.Literal("install"), Type.Literal("none")], {
+    description: "Run an engine-observed dependency install, or record a reasoned absence of an install step.",
   }),
-  reason: Type.Optional(Type.String({ minLength: 1, description: "Why this repository is needed when it is outside the current task scope." })),
+  command: Type.Optional(Type.String({ minLength: 1, description: "Required for action=install; command executed by Fusion in the task worktree." })),
+  reason: Type.Optional(Type.String({ minLength: 1, description: "Required for action=none; why this dependency evidence needs no install step." })),
+  repository: Type.Optional(Type.String({ minLength: 1, description: "Workspace-relative repository path when this task has multiple configured repositories." })),
 });
 
 export const taskDocumentWriteParams = Type.Object({
@@ -1694,7 +1690,6 @@ export function createTaskCreateTool(
           description: params.description,
           dependencies: params.dependencies,
           priority: params.priority,
-          ...(params.repository_scope ? { repositoryScope: params.repository_scope } : {}),
           ...(workflowId ? { workflowId } : {}),
           ...(lineage ? { missionId: lineage.missionId, sliceId: lineage.sliceId } : {}),
           ...definedFeatureBootstrapInput(store, lineage),
@@ -2230,26 +2225,142 @@ export function createTaskDocumentReadTool(store: TaskStore, taskId: string): To
   };
 }
 
+/*
+FNXC:WorktreeDependencies 2026-08-29-06:59:
+Planner dependency resolutions are durable only when Fusion itself observed the command result. The
+planning-only tool below runs in the pinned task worktree through the sandbox-routed command seam;
+planner prose or a shell claim cannot mark an install as successful. A reasoned `none` is limited to
+unrecognised evidence, while Plan Review remains the bounded blocker for unresolved readiness.
+*/
+export function createInstallWorktreeDependenciesTool(
+  store: TaskStore,
+  taskId: string,
+  options: {
+    rootDir: string;
+    runConfiguredCommand: DependencyCommandRunner;
+    getSettings: () => Promise<Settings>;
+    runContext?: RunMutationContext;
+    taskEnv?: NodeJS.ProcessEnv;
+    signal?: AbortSignal;
+  },
+): ToolDefinition {
+  const errorResult = (message: string) => ({
+    content: [{ type: "text" as const, text: `ERROR: ${message}` }],
+    details: {},
+    isError: true,
+  });
+  const tail = (value: string, max = 2_000) => value.length <= max ? value : `…${value.slice(-max)}`;
+
+  return {
+    name: "fn_install_worktree_dependencies",
+    label: "Install Worktree Dependencies",
+    description:
+      "Run a planner-selected dependency install through Fusion, or record a reasoned no-install decision. " +
+      "Plan Review will continue to request revision until dependency readiness is durable.",
+    parameters: installWorktreeDependenciesParams,
+    execute: async (_id: string, params: Static<typeof installWorktreeDependenciesParams>) => {
+      const task = await store.getTask(taskId);
+      if (!task) return errorResult(`Task ${taskId} no longer exists.`);
+      const workspaceRepos = (await fusionCore.loadWorkspaceConfig(options.rootDir))?.repos ?? [];
+      const requestedRepository = params.repository?.trim();
+      let worktreePath: string | undefined;
+      let repositoryLabel: string | undefined;
+      if (workspaceRepos.length > 0) {
+        if (workspaceRepos.length > 1 && !requestedRepository) {
+          return errorResult("repository is required for a workspace with multiple configured repositories.");
+        }
+        if (workspaceRepos.length === 1 && requestedRepository && requestedRepository !== workspaceRepos[0]) {
+          return errorResult(`Unknown workspace repository: ${requestedRepository}`);
+        }
+        const repository = requestedRepository ?? workspaceRepos[0]!;
+        if (!workspaceRepos.includes(repository)) return errorResult(`Unknown workspace repository: ${repository}`);
+        worktreePath = task.workspaceWorktrees?.[repository]?.worktreePath;
+        repositoryLabel = repository;
+      } else {
+        if (requestedRepository) return errorResult("repository is only valid for a configured workspace task.");
+        worktreePath = task.worktree;
+      }
+      if (!worktreePath || !existsSync(worktreePath)) {
+        return errorResult(`No acquired task worktree is available${repositoryLabel ? ` for ${repositoryLabel}` : ""}.`);
+      }
+
+      const settings = await options.getSettings();
+      if (params.action === "none") {
+        const reason = params.reason?.trim();
+        if (!reason) return errorResult("reason is required for action=none.");
+        const readiness = recordPlannerDependencyResolution({
+          worktreePath,
+          action: "none",
+          reason,
+          settings,
+        });
+        await store.logEntry(
+          taskId,
+          `Planner recorded no dependency install step${repositoryLabel ? ` [${repositoryLabel}]` : ""}`,
+          reason,
+          options.runContext,
+        );
+        return {
+          content: [{ type: "text" as const, text: `Recorded no-install resolution${repositoryLabel ? ` for ${repositoryLabel}` : ""}. Readiness: ${readiness.readiness}.` }],
+          details: { readiness: readiness.readiness },
+        };
+      }
+
+      const command = params.command?.trim();
+      if (!command) return errorResult("command is required for action=install.");
+      let result: DependencyCommandResult;
+      try {
+        result = await options.runConfiguredCommand(
+          command,
+          worktreePath,
+          DEPENDENCY_INSTALL_COMMAND_TIMEOUT_MS,
+          options.taskEnv ?? process.env,
+        );
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") throw error;
+        result = {
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          signal: null,
+          bufferExceeded: false,
+          timedOut: false,
+          spawnError: error instanceof Error ? error : new Error(String(error)),
+        };
+      }
+      const readiness = recordPlannerDependencyResolution({
+        worktreePath,
+        action: "install",
+        command,
+        result,
+        settings,
+      });
+      const succeeded = !result.spawnError && !result.timedOut && result.exitCode === 0;
+      const output = tail([result.stdout ?? "", result.stderr ?? "", typeof result.spawnError === "string" ? result.spawnError : result.spawnError?.message ?? ""]
+        .filter(Boolean)
+        .join("\n"));
+      await store.logEntry(
+        taskId,
+        `Planner dependency install${repositoryLabel ? ` [${repositoryLabel}]` : ""} ${succeeded ? "completed" : "failed"}`,
+        output || `Exit code: ${result.exitCode ?? "unknown"}`,
+        options.runContext,
+      );
+      return {
+        content: [{
+          type: "text" as const,
+          text: `${succeeded ? "Dependency install completed" : "Dependency install failed"}${repositoryLabel ? ` for ${repositoryLabel}` : ""}. Exit code: ${result.exitCode ?? "unknown"}. Readiness: ${readiness.readiness}.${output ? `\n${output}` : ""}`,
+        }],
+        details: { exitCode: result.exitCode, readiness: readiness.readiness },
+        ...(succeeded ? {} : { isError: true }),
+      };
+    },
+  };
+}
+
 /**
  * FNXC:WorkflowReviewers 2026-07-01-13:22:
  * Plan Review inline fixes must be able to rewrite the task's authoritative PROMPT.md, but that pre-execution reviewer should not need general source-file write tools. Route the write through TaskStore so existing PROMPT.md validation, task directory placement, and task.json sync remain the single persistence path.
  */
-/*
-FNXC:RepositoryScope 2026-08-20-23:40:
-A workspace plan confirms a task-level intent once, rather than turning each acquired checkout into
-an independent plan. The heading is mandatory for a workspace plan: retaining a creation proposal
-when a planner omitted or misspelled it would let review approve unconfirmed repository intent.
-*/
-function parsePlanRepositoryScope(content: string, configured: readonly string[]): string[] | undefined {
-  const match = content.match(/^##\s+Repository Scope\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/m);
-  if (!match) return undefined;
-  const repositories = [...match[1].matchAll(/^\s*[-*]\s+`?([^`\n]+?)`?\s*$/gm)]
-    .map((entry) => entry[1].trim())
-    .filter(Boolean);
-  if (repositories.length === 0 || repositories.some((repo) => !configured.includes(repo))) return undefined;
-  return [...new Set(repositories)].sort();
-}
-
 export function createTaskPromptWriteTool(
   store: TaskStore,
   taskId: string,
@@ -2271,42 +2382,6 @@ export function createTaskPromptWriteTool(
       confirmation could run, so the validated prompt-then-scope compensation remains sequential.
       */
       try {
-        const rootDir = typeof (store as unknown as { getRootDir?: unknown }).getRootDir === "function"
-          ? store.getRootDir()
-          : undefined;
-        const configured = rootDir ? (await fusionCore.loadWorkspaceConfig(rootDir))?.repos ?? [] : [];
-        const plannedScope = parsePlanRepositoryScope(params.content, configured);
-        /*
-        FNXC:RepositoryScope 2026-08-20-23:57:
-        Workspace plans cannot persist before their Repository Scope is validated. This blocks a
-        Plan Review from approving a stale creation proposal when the planner omitted an empty, or
-        unknown scope heading; non-workspace plans retain their existing prompt-only contract.
-        */
-        if (configured.length > 0 && !plannedScope) {
-          throw new Error("Workspace PROMPT.md must include a non-empty ## Repository Scope with configured repository names");
-        }
-        const current = await store.getTask(taskId);
-        const hasStartedLanding = Object.values(current?.workspaceWorktrees ?? {}).some((entry) => Boolean(entry.landedSha));
-        if (plannedScope && hasStartedLanding && JSON.stringify(current?.repositoryScope?.repositories ?? []) !== JSON.stringify(plannedScope)) {
-          throw new Error(`Repository scope for ${taskId} cannot change after workspace landing has started`);
-        }
-        /*
-        FNXC:RepositoryScope 2026-08-21-01:18:
-        PROMPT.md and confirmed task intent are one observable generation. The authoritative
-        updateTask path holds the planning lifecycle lock and writes both fields in one task-row
-        transaction, so review, completion, and land readers never observe a new scope heading
-        paired with the prior repository_scope value. File projection follows the committed row.
-        */
-        const repositoryScope = plannedScope
-          ? {
-              repositories: plannedScope,
-              state: "confirmed" as const,
-              revision: (current?.repositoryScope?.revision ?? 0) + 1,
-              confirmedAt: new Date().toISOString(),
-              confirmedBy: "plan" as const,
-              extensions: current?.repositoryScope?.extensions,
-            }
-          : undefined;
         /*
         FNXC:TaskReset 2026-08-22-04:49:
         A triage attempt captured before Reset can outlive the route's non-reentrant planning lock.
@@ -2316,10 +2391,8 @@ export function createTaskPromptWriteTool(
         if (canPersist && !canPersist()) {
           throw new Error(`Planning for ${taskId} was reset before PROMPT.md could be persisted`);
         }
-        const promptUpdate = {
-          prompt: params.content,
-          ...(repositoryScope ? { repositoryScope } : {}),
-        };
+        // Workspace membership is derived from workspace.json at task start; PROMPT.md is plan-only.
+        const promptUpdate = { prompt: params.content };
         if (canPersist) {
           /*
           FNXC:TaskReset 2026-08-22-18:07:
@@ -6631,222 +6704,6 @@ export function createReadMessagesTool(messageStore: MessageStore, agentId: stri
           details: {},
         };
       }
-    },
-  };
-}
-
-export function isLateAcquireColumnBlocked(workflowIr: fusionCore.WorkflowIr, column: string): boolean {
-  const blockedColumns = new Set<string>([
-    "in-review",
-    "done",
-    "archived",
-    ...fusionCore.resolveReviewColumns(workflowIr),
-    ...fusionCore.columnsWithFlag(workflowIr, "complete"),
-    ...fusionCore.columnsWithFlag(workflowIr, "archived"),
-  ]);
-  return blockedColumns.has(column);
-}
-
-class LateWorkspaceRepoAcquireError extends Error {
-  constructor(public readonly repo: string) {
-    super(`Cannot acquire new repository ${repo} after review or landing has started`);
-    this.name = "LateWorkspaceRepoAcquireError";
-  }
-}
-
-  /*
-  FNXC:WorkspaceLateAcquire 2026-08-20-20:37 DELIBERATE-LITERAL:
-  Late worktree acquisition is refused once the task has left the executable column set
-  (in-review — review/merge owns the worktree; done/archived — terminal) or has started
-  landing (a merging-* status, or any workspace repo with a landedSha). This is a
-  deliberate column+status+workspace condition (FN-9163, upstream 2a3150582) — reviewed
-  and intentionally kept as an honest literal for the lifecycle-column census; no single
-  role helper expresses this three-part condition without inventing a bespoke trait.
-  (2026-08-21, RUFU-146 rebase: after #3492 landed the column half is resolved by
-  isLateAcquireColumnBlocked and the three-part condition now lives in this helper.)
-  */
-async function isWorkspaceRepoLateAcquireBlocked(store: TaskStore, currentTask: import("@fusion/core").Task, repo: string): Promise<boolean> {
-  if (currentTask.workspaceWorktrees?.[repo]) return false;
-  if (["merging", "merging-pr", "merging-fix"].includes(currentTask.status ?? "")) return true;
-  if (Object.values(currentTask.workspaceWorktrees ?? {}).some((entry) => Boolean(entry.landedSha))) return true;
-  const workflowIr = await fusionCore.resolveWorkflowIrForTask(store, currentTask.id);
-  return isLateAcquireColumnBlocked(workflowIr, currentTask.column);
-}
-
-export function createAcquireRepoWorktreeTool(opts: {
-  workspaceRootDir: string;
-  workspaceRepos: string[];
-  resolveWorkspaceRepos?: () => Promise<string[]>;
-  task: import("@fusion/core").Task;
-  store: TaskStore;
-  settings: Partial<Settings>;
-  logger?: { log: (m: string) => void; warn: (m: string) => void };
-  secretsStore?: Pick<import("@fusion/core").SecretsStore, "listEnvExportable">;
-  runContext?: RunMutationContext;
-  audit?: Pick<RunAuditor, "git" | "filesystem">;
-  /*
-  FNXC:Workspace 2026-06-21-22:30:
-  F2 — executor-supplied callback invoked after a SUCCESSFUL fresh acquire so the
-  acquired sub-repo worktree path is registered in the executor's per-task
-  activeWorktrees Set (KTD2). Without this the Set only ever held the browse-only
-  root and the "task holds N sub-repo paths" invariant was hollow — owner/liveness
-  checks never saw live sub-repo worktrees. Not called on the already-acquired
-  short-circuit (the path was registered on the original fresh acquire).
-  */
-  onAcquired?: (worktreePath: string) => void;
-  // FNXC:Workspace 2026-06-22 — thread the configured worktree-init runner so sub-repo worktrees run configured setup.
-  runConfiguredCommand?: import("./worktree/worktree-acquisition.js").AcquireWorkspaceRepoWorktreeOptions["runConfiguredCommand"];
-  taskEnv?: NodeJS.ProcessEnv;
-}): ToolDefinition {
-  const { workspaceRootDir, workspaceRepos, resolveWorkspaceRepos, task, store, settings, logger, secretsStore, runContext, audit, onAcquired, runConfiguredCommand, taskEnv } = opts;
-  return {
-    name: "fn_acquire_repo_worktree",
-    label: "Acquire Repo Worktree",
-    description:
-      "Acquire an isolated git worktree for a sub-repo in this workspace. " +
-      "The returned repository-relative path is inside this task's workspace directory. " +
-      "Call this before editing files in a sub-repo; work in the returned path. " +
-      `Available repos: ${workspaceRepos.join(", ")}.`,
-    parameters: acquireRepoWorktreeParams,
-    execute: async (_id: string, params: Static<typeof acquireRepoWorktreeParams>) => {
-      const { repo } = params;
-      const freshTask = await store.getTask(task.id);
-      /*
-      FNXC:Workspace 2026-08-20-02:03:
-      Membership can grow on disk during a run. Refresh per acquire, but use a monotone union of
-      startup, fresh, and acquired members so a transient refresh never revokes a usable repo.
-      */
-      let freshRepos: string[] = [];
-      try { freshRepos = await resolveWorkspaceRepos?.() ?? []; } catch { /* optional refresh is fail-safe */ }
-      const allowed = [...new Set([...workspaceRepos, ...freshRepos, ...Object.keys(freshTask.workspaceWorktrees ?? {})])];
-      if (!allowed.includes(repo)) {
-        return {
-          content: [{ type: "text" as const, text: `ERROR: Unknown repo: "${repo}". Available: ${allowed.join(", ")}. Add it to .fusion/workspace.json in Settings → General → Workspace repositories, then retry without restarting the engine.` }],
-          details: {},
-          isError: true,
-        };
-      }
-      const refuseLateAcquisition = async () => {
-        await store.logEntry(task.id, `fn_acquire_repo_worktree: refused late acquisition of ${repo}; task is already in review or landing`, undefined, runContext);
-        return {
-          content: [{ type: "text" as const, text: `ERROR: Cannot acquire new repository "${repo}" after review or landing has started. Create a follow-up task with fn_task_create for this repository.` }],
-          details: {},
-          isError: true,
-        };
-      };
-      /*
-      FNXC:WorkflowResolvedColumns 2026-08-20-04:35:
-      A renamed review/terminal lane must close late repository admission exactly like the built-in
-      `in-review`/`done`/`archived` lanes. Resolve membership from the task's own workflow while
-      retaining the legacy ids as a fail-safe for malformed or partially migrated task state.
-      */
-      if (await isWorkspaceRepoLateAcquireBlocked(store, freshTask, repo)) {
-        return refuseLateAcquisition();
-      }
-      /*
-      FNXC:Workspace 2026-06-21-22:30:
-      F1 — acquireWorkspaceRepoWorktree can throw WorkspaceRepoAcquireBusyError on
-      same-sub-repo contention (KTD4) or a generic failure. Both must surface as a
-      structured isError tool result, never an uncaught throw that crashes the agent
-      loop. The busy message is sanitized — it does NOT leak the holder task id into
-      agent-facing text (only into details). runContext is forwarded so the helper's
-      audit/log entries keep run attribution.
-      */
-      let result: Awaited<ReturnType<typeof acquireWorkspaceRepoWorktree>>;
-      try {
-        result = await acquireWorkspaceRepoWorktree({
-          repoRelPath: repo,
-          workspaceRootDir,
-          task: freshTask,
-          store,
-          settings,
-          logger,
-          secretsStore,
-          audit,
-          runContext,
-          runConfiguredCommand,
-          taskEnv,
-          validateTaskBeforeCreate: async (latestTask) => {
-            if (await isWorkspaceRepoLateAcquireBlocked(store, latestTask, repo)) {
-              throw new LateWorkspaceRepoAcquireError(repo);
-            }
-          },
-          // FNXC:WorkspaceWorktree 2026-08-22-22:16: A mid-flight scope extension joins the task's single directory unless this task is already legacy.
-          ...(() => {
-            const taskDir = resolveWorkspaceTaskWorktreeDir(workspaceRootDir, settings, freshTask.id);
-            return isLegacyWorkspaceWorktreeLayout(freshTask, taskDir)
-              ? {}
-              : { worktreePath: resolveWorkspaceRepoWorktreePath(taskDir, repo) };
-          })(),
-        });
-      } catch (err) {
-        if (err instanceof LateWorkspaceRepoAcquireError) {
-          return refuseLateAcquisition();
-        }
-        if (err instanceof WorkspaceRepoAcquireBusyError) {
-          return {
-            content: [{ type: "text" as const, text: `Sub-repo ${repo} is temporarily locked by another task's acquisition; retry fn_acquire_repo_worktree shortly.` }],
-            details: { holderTaskId: err.holderTaskId },
-            isError: true,
-          };
-        }
-        const message = err instanceof Error ? err.message : String(err);
-        return {
-          content: [{ type: "text" as const, text: `ERROR: Failed to acquire worktree for ${repo}: ${message}` }],
-          details: {},
-          isError: true,
-        };
-      }
-      // FNXC:PlanningLifecycleLock 2026-08-23-07:00: active-worktree registration is idempotent and must precede the later planning-locked scope mutation, so a retryable transport error cannot hide a successful acquisition.
-      onAcquired?.(result.worktreePath);
-      /*
-      FNXC:RepositoryScope 2026-08-20-23:40:
-      A successful pre-land acquisition outside explicit intent is an extension request, not evidence
-      that every acquired repository belongs to the task. Persist the accepted extension once so the
-      next review and land pass can deliberately include it.
-      */
-      if (!freshTask.repositoryScope?.repositories.includes(repo)) {
-        /*
-        FNXC:RepositoryScope 2026-08-21-01:53:
-        Acquisition extends intent as a durable delta after the checkout succeeds. A fresh
-        planning-locked read preserves a concurrent plan confirmation or operator decision.
-        */
-        try {
-          await store.mutateTaskRepositoryScope(task.id, {
-            action: "add",
-            repositories: [repo],
-            reason: params.reason ?? "Executor acquired a repository required for implementation.",
-            actor: runContext?.agentId ?? "executor",
-          });
-        } catch (err) {
-          if (isPlanningLifecycleLockTransportError(err)) {
-            return {
-              content: [{ type: "text" as const, text: "Worktree was acquired but repository-scope persistence is temporarily unavailable; retry fn_acquire_repo_worktree shortly." }],
-              details: {}, isError: true,
-            };
-          }
-          throw err;
-        }
-      }
-      // FNXC:Workspace 2026-06-21-22:30: F2 — register a freshly-acquired sub-repo worktree in the executor's activeWorktrees Set (KTD2) so owner/liveness checks see live per-repo worktrees, not just the browse-only root.
-      // FNXC:Workspace 2026-06-22-09:00: register UNCONDITIONALLY, including the
-      // already-acquired short-circuit. After an executor restart activeWorktrees is an
-      // empty Map; a resumed workspace task with pre-existing task.workspaceWorktrees hits
-      // the alreadyAcquired path, so skipping onAcquired left the sub-repo path unregistered
-      // in-memory and conflict/liveness checks missed it. Set.add is idempotent, so re-firing
-      // on a fresh acquire is a harmless no-op.
-      await store.logEntry(
-        task.id,
-        result.alreadyAcquired
-          ? `fn_acquire_repo_worktree: reusing existing worktree for ${repo} at repository-relative path ${repo}`
-          : `fn_acquire_repo_worktree: created worktree for ${repo} at repository-relative path ${repo} (branch: ${result.branch})`,
-        undefined,
-        runContext,
-      );
-      return {
-        content: [{ type: "text" as const, text: `Worktree ready at: ${result.worktreePath} (branch: ${result.branch}, alreadyAcquired: ${result.alreadyAcquired})` }],
-        details: result,
-      };
     },
   };
 }

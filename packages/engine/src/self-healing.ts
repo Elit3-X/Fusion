@@ -15723,16 +15723,12 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
   }
 
   /**
-   * Remove orphaned worktrees not assigned to any active task.
+   * Remove task worktrees not assigned to any active task.
    *
-   * When `recycleWorktrees` is OFF: removes registered idle worktrees too —
-   * they would otherwise pile up since the pool isn't keeping them.
-   *
-   * When `recycleWorktrees` is ON: leaves registered idle worktrees alone
-   * (the pool wants them for reuse) but still reaps unregistered stale dirs
-   * left behind by killed runs (e.g., `clear-hawk-broken`, `*-bak`). Those
-   * dirs can never be recycled — they aren't git worktrees — so they only
-   * waste disk.
+   * FNXC:TaskWorktreeNames 2026-08-29-08:51:
+   * FN-258 retires recycled worktrees, so every idle registered checkout is
+   * removable after the existing liveness checks; retaining it could only
+   * collide with a future task's deterministic directory.
    */
   private async cleanupOrphans(): Promise<number> {
     try {
@@ -15744,11 +15740,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           await backend.prune({ rootDir: this.options.rootDir });
         }
         return 0;
-      }
-
-      if (settings.recycleWorktrees) {
-        // Recycle on: only sweep unregistered stale dirs.
-        return await this.reapUnregisteredOrphans();
       }
 
       const orphaned = await scanIdleWorktrees(this.options.rootDir, this.store, settings);
@@ -15797,8 +15788,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
   /**
    * Sweep unregistered stale directories under `<rootDir>/.worktrees/` —
    * directories that exist on disk but are NOT registered git worktrees.
-   * Safe to run alongside `recycleWorktrees: true` because the pool only
-   * tracks registered idle worktrees, never these orphans.
+   * Registered worktrees are handled by the ordinary idle-worktree sweep.
    */
   private async reapUnregisteredOrphans(): Promise<number> {
     const settings = await this.store.getSettings();

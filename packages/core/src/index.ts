@@ -1585,9 +1585,6 @@ export {
   validateMcpServersSettings,
   validateMcpServersSettingsDetailed,
   validateUnavailableNodePolicy,
-  assertWorktreeNamingRecycleExclusive,
-  isRecycleWorktreeNamingConflict,
-  RECYCLE_WORKTREE_NAMING_CONFLICT_MESSAGE,
 } from "./config/settings-validation.js";
 export type { McpValidationError, McpValidationResult } from "./config/settings-validation.js";
 

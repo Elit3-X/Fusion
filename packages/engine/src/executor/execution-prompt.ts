@@ -284,10 +284,9 @@ Do not repeatedly rerun a broad failing or hanging workspace command without a n
       `This project is a workspace containing multiple git repositories.\n` +
       `Available repos:\n` +
       workspaceConfig.repos.map((r: string) => `- \`${r}\``).join("\n") +
-      `\n\nBefore editing files in any sub-repo, call \`fn_acquire_repo_worktree\` ` +
-      `with the repo name to get an isolated worktree path. ` +
+      `\n\nEvery configured repository is already checked out beneath this task's workspace directory at its repository-relative path. ` +
       /* FNXC:WorkspaceFinalization 2026-08-27-08:42: Completion refuses main-checkout COMMITS (they reach the shared branch unreviewed). Uncommitted main-checkout edits only warn — the merger already stashes/restores a dirty checkout — but they deliver nothing, so the acquired-worktree commit invariant still fails work that lives only there. */
-      `Work exclusively inside that returned path — never edit the repo's main checkout directly. Committing in a sub-repo main checkout refuses completion at \`fn_task_done\`: that commit would reach the shared branch without review. Uncommitted edits left in a main checkout are reported but deliver nothing — completion still requires commits in the acquired worktree. Move the work into an acquired worktree and leave the main checkout as you found it.\n`;
+      `Work exclusively inside those task-owned paths — never edit a repository's main checkout directly. Committing in a sub-repo main checkout refuses completion at \`fn_task_done\`: that commit would reach the shared branch without review. Uncommitted edits left in a main checkout are reported but deliver nothing — completion still requires commits in the task worktrees. Leave each main checkout as you found it.\n`;
   }
 
   return executionPrompt;

@@ -316,6 +316,7 @@ export function buildRunGraphCustomNodeDeps(host: any): any {
     ensureWorkspaceConfig: withWorkspaceResolver(host),
     options: host.options as { pluginRunner?: unknown; [k: string]: unknown },
     graphUnattendedRuns: host.graphUnattendedRuns,
+    runConfiguredCommand: pure.runConfiguredCommand,
     ...facadeMethods(host, [
       "getRunContextFor",
       "adoptColumnAgentForNode", "buildInjectedRuntimeEnv", "ensureGraphCustomNodeWorktree",
@@ -473,7 +474,6 @@ export function buildEnsureGraphCustomNodeWorktreeDeps(host: any, runConfiguredC
     ...facadeMethods(host, [
       "getRunContextFor", "addActiveWorktree", "registerConfiguredCommandController", "unregisterConfiguredCommandController",
     ]),
-    pool: host.options.pool,
     secretsStore: host.options.secretsStore,
     createWorktree: (
       branch: string, path: string, taskId: string, startPoint?: string, allowSibling?: boolean,

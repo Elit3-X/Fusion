@@ -571,7 +571,6 @@ export const DEFAULT_PROJECT_SETTINGS = {
   worktreeCopyFiles: [],
   testCommand: undefined,
   buildCommand: undefined,
-  recycleWorktrees: false,
   showWorktreeGrouping: false,
   openTasksInRightSidebar: false,
   /*
@@ -600,7 +599,6 @@ export const DEFAULT_PROJECT_SETTINGS = {
   */
   taskDetailChatFirst: false,
   executorAllowSiblingBranchRename: false,
-  worktreeNaming: "random",
   worktrunk: {
     enabled: false,
     binaryPath: undefined,

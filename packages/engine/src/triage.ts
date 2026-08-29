@@ -63,6 +63,8 @@ import {
   resolveTaskOutputLanguage,
   parsePlanningPlanMd,
   loadWorkspaceConfig,
+  isLegacyWorkspaceWorktreeLayout,
+  resolveWorkspaceTaskWorktreeDir,
   type NearDuplicateCandidate,
 } from "@fusion/core";
 
@@ -222,6 +224,70 @@ import type { StuckTaskDetector } from "./healing/stuck-task-detector.js";
 */
 const STALE_PLANNING_STATUS_GRACE_MS = 20 * 60_000;
 
+export interface PlanningDependencyInstructionTarget {
+  repository: string;
+  readiness: WorktreeDependencyReadiness;
+}
+
+/** Render only the exceptional dependency work that the planner must resolve before Plan Review. */
+export function buildPlanningDependencyInstallationInstruction(
+  targets: readonly PlanningDependencyInstructionTarget[],
+): string {
+  const blocking = targets.filter((target) =>
+    target.readiness.readiness === "unresolved" || target.readiness.readiness === "unrecognized",
+  );
+  if (blocking.length === 0) return "";
+  const lines = [
+    "## Dependency installation",
+    "",
+    "This planning worktree is the same task-pinned directory execution will use. Resolve every item below through `fn_install_worktree_dependencies`; planner prose or a shell claim is not a durable resolution.",
+  ];
+  for (const target of blocking) {
+    const { readiness } = target;
+    if (readiness.readiness === "unresolved") {
+      for (const row of readiness.unresolvedRepos) {
+        const entry = readiness.entries.find((candidate) => candidate.ecosystem === row.ecosystem);
+        lines.push(`- \`${target.repository}\`: ${row.manifests.join(", ") || row.ecosystem}; command \`${row.command}\`; ${entry?.reason ?? entry?.outcome ?? "not yet installed"}.`);
+      }
+    } else {
+      lines.push(`- \`${target.repository}\`: Fusion has no built-in command for ${readiness.evidence.join(", ")}. Determine the package manager and run its install command through \`fn_install_worktree_dependencies\`, or use its \`none\` action with a reason if no install step is genuinely required.`);
+    }
+  }
+  lines.push("", "Plan Review will return a REVISE beginning `Dependencies are not installed.` until these records are resolved.");
+  return lines.join("\n");
+}
+
+async function resolvePlanningDependencyInstruction(input: {
+  task: Task;
+  rootDir: string;
+  planningCwd: string;
+  settings: Settings;
+}): Promise<string> {
+  const workspace = await loadWorkspaceConfig(input.rootDir).catch(() => null);
+  const targets: PlanningDependencyInstructionTarget[] = [];
+  const inspect = (repository: string, worktreePath: string) => {
+    if (!existsSync(worktreePath)) return;
+    const plan = detectWorktreeDependencyPlan(worktreePath, input.settings);
+    const evidence = detectUnrecognizedDependencyEvidence(worktreePath);
+    targets.push({ repository, readiness: resolveWorktreeDependencyReadiness(worktreePath, plan, evidence) });
+  };
+  try {
+    if (workspace?.repos.length) {
+      for (const repository of workspace.repos) {
+        const path = input.task.workspaceWorktrees?.[repository]?.worktreePath;
+        if (path) inspect(repository, path);
+      }
+    } else if (input.planningCwd !== input.rootDir) {
+      inspect("task worktree", input.planningCwd);
+    }
+  } catch {
+    // A missing/unreadable probe is intentionally not dependency evidence. Plan Review will retain
+    // its not-determined fallthrough rather than manufacture an unresolved worktree.
+    return "";
+  }
+  return buildPlanningDependencyInstallationInstruction(targets);
+}
+
 
 import { exec } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -242,6 +308,7 @@ import {
   createTaskDocumentReadTool,
   createTaskDocumentWriteTool,
   createTaskPromptWriteTool,
+  createInstallWorktreeDependenciesTool,
   createWorkflowListTool,
   createWorkflowSelectTool,
   resolveTerminalColumnsForTasks,
@@ -251,6 +318,14 @@ import {
   isResearchToolSurfaceEnabled,
 } from "./execution/tool-availability.js";
 import { runGhostBugPreflight } from "./triage-domain/triage-preflight.js";
+import { runConfiguredCommand } from "./executor/configured-command.js";
+import { resolveGraphNodeSessionBoundary } from "./executor/run-graph-custom-node.js";
+import {
+  detectUnrecognizedDependencyEvidence,
+  detectWorktreeDependencyPlan,
+  resolveWorktreeDependencyReadiness,
+  type WorktreeDependencyReadiness,
+} from "./worktree/worktree-dependency-install.js";
 import { archiveAsGhostBug } from "./self-healing.js";
 import {
   TRIAGE_MARKER_CLEARED_REPLAN_LOG_ACTION,
@@ -2993,6 +3068,12 @@ export class TriageProcessor {
             triageRunContext,
             () => !this.resetFence.isStale(task.id, planningGeneration),
           ),
+          createInstallWorktreeDependenciesTool(this.store, task.id, {
+            rootDir: this.rootDir,
+            runConfiguredCommand,
+            getSettings: async () => this.store.getSettings(),
+            runContext: triageRunContext,
+          }),
           createWorkflowListTool(this.store),
           createWorkflowSelectTool(this.store, task.id),
           ...(isResearchToolSurfaceEnabled(settings)
@@ -3134,30 +3215,6 @@ export class TriageProcessor {
         // this a no-op there while still guaranteeing no dangling token leaks.
         const renderedBasePrompt = renderTriagePolicyPlaceholders(resolvedBasePrompt, triagePolicySettings);
         const duplicatePolicyInstruction = buildPlanningDuplicatePolicyInstruction();
-        /*
-        FNXC:RepositoryScope 2026-08-21-00:12:
-        Workspace plan persistence rejects a missing Repository Scope, so every planner that sees
-        repository intent must be explicitly instructed to emit the confirmed heading rather than
-        repeatedly producing a plan the authoritative writer cannot publish.
-        */
-        const triageLayers = buildPromptLayers({
-          basePrompt: renderedBasePrompt,
-          goalContext: triageGoalResolution.goalContext,
-          agentInstructions: [
-            triageIdentitySection,
-            duplicatePolicyInstruction,
-            task.repositoryScope
-              ? `## Workspace repository intent\nThis is a multi-repository workspace task. Your final PROMPT.md MUST include a non-empty \`## Repository Scope\` heading with a markdown bullet list of configured repository names. Confirm only repositories the task concerns; do not infer intent from acquired checkouts. File Scope entries must be qualified as \`repository/path\` when more than one repository is in scope.`
-              : "",
-            triageInstructions,
-            isResearchToolSurfaceEnabled(settings)
-              ? getResearchGuidanceForSurface("triage")
-              : "",
-          ].filter((section) => section.trim()).join("\n\n"),
-          pluginContributions: triagePluginContributions,
-        });
-
-        const triageSystemPromptFinal = collapsePromptLayers(triageLayers);
 
         // Build skill selection context (assigned agent skills take precedence over role fallback)
         const skillContext = await buildSessionSkillContext({
@@ -3228,14 +3285,8 @@ export class TriageProcessor {
         here is the one Plan Review and the implementation session then reuse.
         */
         let planningCwd = (await this.options.acquirePlanningWorktree?.(task.id).catch(() => null)) || this.rootDir;
-        const workspacePlanningConfig = planningCwd === this.rootDir
-          ? await loadWorkspaceConfig(this.rootDir).catch(() => null)
-          : null;
-        const planningSessionBoundary = workspacePlanningConfig?.repos.length
-          ? { kind: "read-only-root" as const, writableRoot: null, projectRoot: this.rootDir, readOnlyRoots: [this.rootDir] }
-          : planningCwd === this.rootDir
-            ? undefined
-            : { kind: "task-worktree" as const, writableRoot: planningCwd, projectRoot: this.rootDir };
+        const workspacePlanningConfig = await loadWorkspaceConfig(this.rootDir).catch(() => null);
+        let planningSessionBoundary: ReturnType<typeof resolveGraphNodeSessionBoundary> | { kind: "task-worktree"; writableRoot: string; projectRoot: string } | undefined;
         if (planningCwd !== this.rootDir) {
           /*
           FNXC:NodeWorktreeIsolation 2026-07-26-09:10:
@@ -3268,6 +3319,9 @@ export class TriageProcessor {
             holderLiveProbe: (holderTaskId) => this.processing.has(holderTaskId) || this.hasLivePlanningWork(holderTaskId),
           });
           if (acquired.action === "contended") {
+            if (workspacePlanningConfig?.repos.length) {
+              throw new Error(`Workspace planning task directory is held by live task ${acquired.holderTaskId}; refusing shared-checkout fallback`);
+            }
             planLog.warn(
               `${task.id}: planning worktree ${planningCwd} is held by live task ${acquired.holderTaskId} (${acquired.holderKind}) — planning in the shared checkout instead`,
             );
@@ -3282,6 +3336,46 @@ export class TriageProcessor {
           }
           await this.store.logEntry(task.id, `Planning session running in task worktree ${planningCwd}`).catch(() => undefined);
         }
+        if (workspacePlanningConfig?.repos.length) {
+          if (planningCwd === this.rootDir) {
+            throw new Error("Workspace planning requires a private task directory, not the workspace root");
+          }
+          const planningTask = await this.store.getTask(task.id);
+          const taskDir = resolveWorkspaceTaskWorktreeDir(this.rootDir, settings, task.id);
+          planningSessionBoundary = resolveGraphNodeSessionBoundary({
+            isWorkspace: true,
+            writeCapable: true,
+            legacyWorkspaceLayout: isLegacyWorkspaceWorktreeLayout(planningTask, taskDir),
+            rootDir: this.rootDir,
+            worktreePath: planningCwd,
+            confirmedRepositories: workspacePlanningConfig.repos,
+          });
+        } else if (planningCwd !== this.rootDir) {
+          planningSessionBoundary = { kind: "task-worktree", writableRoot: planningCwd, projectRoot: this.rootDir };
+        }
+
+        const planningDependencyInstruction = await resolvePlanningDependencyInstruction({
+          task: await this.store.getTask(task.id),
+          rootDir: this.rootDir,
+          planningCwd,
+          settings,
+        });
+        const triageLayers = buildPromptLayers({
+          basePrompt: renderedBasePrompt,
+          goalContext: triageGoalResolution.goalContext,
+          agentInstructions: [
+            triageIdentitySection,
+            duplicatePolicyInstruction,
+            planningDependencyInstruction,
+            triageInstructions,
+            isResearchToolSurfaceEnabled(settings)
+              ? getResearchGuidanceForSurface("triage")
+              : "",
+          ].filter((section) => section.trim()).join("\n\n"),
+          pluginContributions: triagePluginContributions,
+        });
+        const triageSystemPromptFinal = collapsePromptLayers(triageLayers);
+
         /*
         FNXC:TriagePlanningRetry 2026-08-03-00:02:
         Plan Review may only receive evidence from a clean planner attempt. Capture the root

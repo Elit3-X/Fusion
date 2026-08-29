@@ -2144,13 +2144,11 @@ export class Scheduler {
    * Reserve the worktree path a task will use before it enters in-progress.
    * This prevents tasks from appearing active without an assigned worktree.
    */
-  private planWorktreePath(
-    task: Task,
-    naming: string | undefined,
-    reservedNames: Set<string>,
-    settings: Partial<Settings>,
-  ): string {
-    return planTaskWorktreePath(task, this.store.getRootDir(), naming, reservedNames, settings);
+  private planWorktreePath(task: Task, settings: Partial<Settings>): string | null {
+    // Workspace tasks acquire their configured child worktrees at graph/planning entry; never
+    // publish a singular coordinator path that points at the non-Git workspace root.
+    if (task.repositoryScope?.confirmedBy === "workspace") return null;
+    return planTaskWorktreePath(task, this.store.getRootDir(), undefined, settings);
   }
 
   /**
@@ -3255,8 +3253,8 @@ export class Scheduler {
             throw error;
           }
         },
-        allocateWorktree: (task, reservedNames) =>
-          this.planWorktreePath(task, settings.worktreeNaming, reservedNames, settings),
+        allocateWorktree: (task, _reservedNames) =>
+          this.planWorktreePath(task, settings),
       });
       for (const taskId of result.released) {
         // The authoritative move has made this task visible to canonical live-task

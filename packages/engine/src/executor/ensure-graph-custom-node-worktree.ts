@@ -15,7 +15,6 @@ import { generateSyntheticRunId, createRunAuditor, type EngineRunContext, type R
 import { acquireTaskWorktree, acquireWorkspaceTaskWorktrees } from "../worktree/worktree-acquisition.js";
 import { captureBaseCommitSha } from "./worktree-git-refs.js";
 import { createConfiguredCommandAbortError } from "./task-predicates.js";
-import type { WorktreePool } from "../worktree/worktree-pool.js";
 import { resolveWorkspaceConfigOnce } from "./workspace-config-resolver.js";
 
 export type EnsureGraphCustomNodeWorktreeDeps = {
@@ -25,7 +24,6 @@ export type EnsureGraphCustomNodeWorktreeDeps = {
   getWorkspaceConfig: () => WorkspaceConfig | null | undefined;
   setWorkspaceConfig: (config: WorkspaceConfig | null) => void;
   getRunContextFor: (taskId: string) => EngineRunContext | undefined;
-  pool?: WorktreePool;
   secretsStore?: Parameters<typeof acquireTaskWorktree>[0]["secretsStore"];
   createWorktree: (
     branch: string,
@@ -68,25 +66,21 @@ export async function ensureGraphCustomNodeWorktree(
   deps.registerConfiguredCommandController(task.id, commandAbortController);
   try {
     /*
-    FNXC:WorkspaceWorktree 2026-08-22-22:42:
-    FN-158 acquires only the planner-confirmed repository scope. Callers reach
-    this seam solely for write-capable nodes; read-only planning never creates a
-    branch, lease, or worktree before it can declare its scope.
+    FNXC:WorkspaceWorktree 2026-08-29-06:59:
+    Workspace membership is decided once by workspace.json. Planning, read-only gates, and
+    implementation all acquire the complete configured set into this task directory; the short
+    per-repository lease protects only `git worktree add`, not the task's private checkout lifetime.
     */
     if (workspaceConfig) {
       await deps.store.logEntry(
         task.id,
-        `Workflow node '${nodeId}' acquiring workspace checkouts for ${task.repositoryScope?.repositories.length ?? 0} repository(ies)`,
+        `Workflow node '${nodeId}' acquiring workspace checkouts for ${workspaceConfig.repos.length} configured repository(ies)`,
         undefined,
         deps.getRunContextFor(task.id),
       );
-      if (task.repositoryScope?.state !== "confirmed") {
-        throw new Error("Workspace acquisition requires a confirmed ## Repository Scope");
-      }
       const workspace = await acquireWorkspaceTaskWorktrees({
         workspaceConfig,
         workspaceRootDir: deps.rootDir,
-        repoRelPaths: task.repositoryScope.repositories,
         task,
         store: deps.store,
         settings,
@@ -127,7 +121,6 @@ export async function ensureGraphCustomNodeWorktree(
       rootDir: deps.rootDir,
       store: deps.store,
       settings,
-      pool: deps.pool,
       logger: executorLog,
       audit,
       runContext: deps.getRunContextFor(task.id),

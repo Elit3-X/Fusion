@@ -372,6 +372,12 @@ The **step-inversion** track makes task *steps* themselves workflow-modelable. T
 
 Per-instance `worktree` isolation, including the implicit default for `mode: "parallel"`, is not supported for workspace (multi-repo) projects. It fails fast with `worktree-isolation-unsupported-workspace`; use `mode: "sequential"` with `isolation: "shared"` for workspace projects.
 
+### Workspace workflow admission
+
+At task start, a workspace task acquires task-ID-named worktrees for every repository configured in `.fusion/workspace.json`; workflow nodes do not select repositories or add checkouts on demand. The configured set is immediately persisted as the confirmed repository scope used by Code Review, verification, and landing; planning no longer proposes a `## Repository Scope` heading.
+
+Before a prompt Plan Review is dispatched, Fusion checks every task worktree's dependency readiness. It retries deterministic matrix rows once, but cannot infer a command for `unrecognized` package-manager evidence. Any remaining `unresolved` or `unrecognized` worktree produces the ordinary Plan Review `REVISE` with output beginning `Dependencies are not installed.` and one high-severity finding per repository. The planner repairs it through `fn_install_worktree_dependencies`, which records only engine-observed command exits or a reasoned `none` resolution. The existing Plan Review revision budget and `planReviewReplanCap` bound this loop; exhaustion parks `awaiting-approval` with reason `plan-review-replan-cap`, never an approval. A missing or unreadable dependency probe is `not-determined`, logged, and dispatches the review unchanged.
+
 Parallelism is opt-in *per step by the planner*, not asserted by the workflow author. A step depends on the previous step unless its PROMPT.md heading carries a `(depends: N,M)` annotation listing the 1-indexed steps it actually depends on — e.g. `### Step 3 (depends: 1): Title`. An explicit empty list (`### Step 3 (depends:): Title` or `json-steps` `"depends": []`) means the step has no dependencies and can be scheduled as an independent root. An absent annotation/key is different: it remains the legacy previous-step dependency, so an unannotated plan is fully sequential regardless of `mode`. Annotate **conservatively**: only mark a step independent when it genuinely does not read or modify the prior step's output, or heavily-overlapping "independent" steps will loop integrate→conflict→rework until the budget exhausts.
 
 #### `step-review` node & rework edges

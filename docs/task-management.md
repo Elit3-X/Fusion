@@ -111,12 +111,6 @@ This layer complements, rather than replaces, FN-4829 similarity detection, FN-4
 
 Archiving a workspace (multi-repository) task now synchronously removes every recorded per-sub-repository worktree, including archives initiated by `fn_task_archive` and CLI paths that do not construct an executor. Each path is protected by a per-repository cross-process reservation until backend removal and its `fusion/<task-id>` branch cleanup finish. If one removal fails, its reservation is quarantined and the next acquisition reconciles that orphan; successful sibling repositories are still released. On unarchive, Fusion reconciles the retained live-row metadata: it drops each per-repository entry whose exact worktree path is gone (including its `landedSha`) and clears a stale singular worktree path. A fully disposed workspace task consequently returns as a non-workspace card that must be re-executed rather than re-landed. `archiveTask(..., { cleanup: false })` intentionally retains worktrees, and the self-healing workspace sweep remains an idempotent backstop. See [Workspaces](./workspaces.md#archiving-and-cleanup) for the workspace operator lifecycle.
 
-### Task-pinned orphan recovery
-
-When `worktreeNaming: "task-id"` finds an inactive pinned directory whose Git metadata is incomplete or unregistered, Fusion preserves the whole directory before recreating the task worktree at the same path. The normal preservation root is `<project>/.fusion/recovery/worktrees`. If the configured worktree directory is on another filesystem, Fusion retries the atomic rename under `<worktreesDir>/.fusion-recovery/worktrees` instead of using copy-and-delete.
-
-Each preservation root retains the newest 10 Fusion-generated orphan directories. Pruning is best-effort and skips unknown names, symlinks, unreadable entries, and paths with active sessions. Copy artifacts elsewhere if they need indefinite retention. Worktree discovery, cleanup, and capacity scans treat `.fusion-recovery` as an internal container rather than a task worktree.
-
 ### Explicit duplicate-marker guard (FN-5220)
 
 Fusion also recognizes the canonical one-line redirect marker:
@@ -355,7 +349,7 @@ Auto-completion/finalization remains owned by existing recovery passes:
 
 ### Archive worktree cleanup
 
-Archiving a single-repository task synchronously removes its git worktree before branch and task-metadata cleanup. CLI and extension archive requests fence live execution under the per-task advisory transaction lock: a WIP-lane or active-merge refusal performs no archive write and suppresses all cleanup (worktrees, branches, and task directory). This applies to random and pinned (`task-id`/`task-title`) names, including `fn_task_archive` and direct CLI archive commands that run without an executor. A host-scoped filesystem reservation serializes a successor's deterministic-path acquisition with archival disposal; if removal fails, the reservation is quarantined so the next acquisition can reconcile the orphan instead of colliding with it. `archive({ cleanup: false })` intentionally retains the worktree. Workspace tasks' per-repository `workspaceWorktrees` are not removed by this lifecycle yet.
+Archiving a single-repository task synchronously removes its task-ID-pinned git worktree before branch and task-metadata cleanup. CLI and extension archive requests fence live execution under the per-task advisory transaction lock: a WIP-lane or active-merge refusal performs no archive write and suppresses all cleanup (worktrees, branches, and task directory). Native worktrees always derive from the lowercased task ID; Worktrunk retains its backend-owned layout. A host-scoped filesystem reservation serializes a successor's deterministic-path acquisition with archival disposal; if removal fails, the reservation is quarantined so the next acquisition can reconcile the orphan instead of colliding with it. `archive({ cleanup: false })` intentionally retains the worktree. Workspace tasks' per-repository `workspaceWorktrees` are not removed by this lifecycle yet.
 
 Board ordering behavior:
 - `todo` mirrors scheduler dispatch order: priority first (`urgent` → `low`), then oldest `createdAt` within a priority tier, then task ID as deterministic tie-break.

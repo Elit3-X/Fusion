@@ -38,7 +38,6 @@ import {supersedePlanReviewResults} from "../planner/plan-approval.js";
 import {PLAN_REVIEW_GROUP_ID} from "../workflows/builtin-plan-review-group.js";
 import {BranchWriteProvenanceError, validateTaskBranchName} from "../branch/branch-assignment.js";
 import {withTaskBranchContextInSourceMetadata} from "./branch-context.js";
-import {invalidateSupersededRepositoryScopeReviews} from "../tasks/repository-scope.js";
 import {writePromptFileAtomic} from "./prompt-file.js";
 
 /*
@@ -250,35 +249,10 @@ export async function updateTaskUnlockedImpl(store: TaskStore, id: string, updat
       if (updates.workspaceWorktrees !== undefined) {
         task.workspaceWorktrees = updates.workspaceWorktrees;
       }
-      /*
-      FNXC:RepositoryScope 2026-08-21-01:18:
-      A validated workspace plan commits its prompt and repository intent through this one
-      task-row write. Do not route that paired publication through updateTaskRepositoryScope:
-      a second transaction would expose a new ## Repository Scope heading with stale intent.
-      */
       if (updates.externalBlock === null) {
         task.externalBlock = undefined;
       } else if (updates.externalBlock !== undefined) {
         task.externalBlock = updates.externalBlock;
-      }
-      if (updates.repositoryScope === null) {
-        task.repositoryScope = undefined;
-      } else if (updates.repositoryScope !== undefined) {
-        /*
-        FNXC:RepositoryScope 2026-08-21-02:48:
-        Prompt confirmation writes scope in the same task mutation. Its new revision cannot
-        inherit Code Review evidence or a remediation target captured for the old repository intent.
-        */
-        const scopeRevisionChanged = task.repositoryScope?.revision !== updates.repositoryScope.revision;
-        task.repositoryScope = scopeRevisionChanged
-          ? { ...updates.repositoryScope, reviewEvidence: undefined, reviewRemediation: undefined }
-          : updates.repositoryScope;
-        if (scopeRevisionChanged) {
-          task.workflowStepResults = invalidateSupersededRepositoryScopeReviews(
-            task.workflowStepResults,
-            task.repositoryScope.revision,
-          );
-        }
       }
       // New dependencies re-seed hold-lane tasks and exhausted Plan Review cap parks.
       let movedToTriage = false;

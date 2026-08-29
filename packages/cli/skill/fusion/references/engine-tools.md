@@ -74,6 +74,14 @@ Archived publication is deliberately absent from every runtime tool schema: ther
 | `fn_task_show` | Fetch full task detail including PROMPT.md | `id` (string) |
 | `fn_review_spec` | Spawn spec reviewer and return `APPROVE`/`REVISE`/`RETHINK`/`UNAVAILABLE` | none |
 
+## Planning-only dependency tool (`triage.ts`)
+
+Workspace tasks already contain every repository declared by `.fusion/workspace.json`; planners never select or acquire repositories on demand.
+
+| Tool | Purpose | Parameters |
+|---|---|---|
+| `fn_install_worktree_dependencies` | Ask Fusion to run a planner-selected dependency install in a prepared worktree, or record a reasoned no-install resolution for unrecognised evidence. Only Fusion-observed exit code `0` records installed readiness. | `action` (`install` \| `none`), `command` (required for `install`), `reason` (required for `none`), `repository?` (required for multi-repository workspaces) |
+
 ## Executor-only runtime tools (`executor.ts`)
 
 Note: step-session execution (`step-session-executor.ts`) reuses executor coordination tools (`fn_send_message`, `fn_read_messages`, `fn_list_agents`, task-document tools, and memory tools) so spawned/session-sliced execution keeps parity with main executor runs.
@@ -84,7 +92,6 @@ Note: step-session execution (`step-session-executor.ts`) reuses executor coordi
 | `fn_task_add_dep` | Add a dependency to current task (confirmation-gated; never a task it spawned) | `task_id` (string), `confirm?` (boolean) |
 | `fn_task_done` | End the task: `outcome="completed"` (default) marks it complete; `outcome="blocked"` honestly parks it failed (`BLOCKED: <reason>`) with no completion claim, preserving steps/worktree and recording `blockedBy` as dependencies | `summary?` (string), `outcome?` (`completed` \| `blocked`), `blockedBy?` (string[]), `reason?` (string, required when blocked) |
 | `fn_spawn_agent` | Spawn child agent in separate worktree | `name` (string), `role` (enum), `task` (string) |
-| `fn_acquire_repo_worktree` | Acquire an isolated git worktree for a sub-repo in a workspace task (workspace mode only) | `repo` (string — must be one of the workspace's configured repos) |
 
 ## Merger-only runtime tools (`merger.ts`)
 

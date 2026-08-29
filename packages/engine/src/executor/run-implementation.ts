@@ -89,7 +89,6 @@ import {
   createWorkflowValidateTool,
 } from "./shared-worker-tools.js";
 import {
-  createAcquireRepoWorktreeTool,
   createAgentCreateTool,
   createAgentDeleteTool,
   createGetAgentConfigTool,
@@ -766,17 +765,9 @@ export async function runImplementation(
       one session boundary.
       */
       if (hasWorkspaceRepos && deps.workspaceConfig) {
-        if (task.repositoryScope?.state !== "confirmed") {
-          throw new Error("Workspace acquisition requires a confirmed ## Repository Scope");
-        }
         const workspace = await acquireWorkspaceTaskWorktrees({
           workspaceConfig: deps.workspaceConfig,
           workspaceRootDir: deps.rootDir,
-          // FNXC:WorkspaceWorktree 2026-08-22-23:45:
-          // Execution may only acquire the scope confirmed by planning. Omitting
-          // this would silently recreate the pre-plan manifest-wide lease and
-          // worktree acquisition on the direct implementation entry point.
-          repoRelPaths: task.repositoryScope.repositories,
           task,
           store: deps.store,
           settings,
@@ -833,7 +824,6 @@ export async function runImplementation(
             rootDir: deps.rootDir,
             store: deps.store,
             settings,
-            pool: deps.options.pool,
             logger: executorLog,
             audit,
             runContext: deps.getRunContextFor(task.id),
@@ -2165,26 +2155,6 @@ export async function runImplementation(
         ...getEnabledPluginTools(deps.options.pluginRunner),
       ];
 
-      if (deps.workspaceConfig && deps.workspaceConfig.repos.length > 0) {
-        customTools.push(createAcquireRepoWorktreeTool({
-          workspaceRootDir: deps.rootDir,
-          workspaceRepos: deps.workspaceConfig.repos,
-          resolveWorkspaceRepos: async () => (await deps.refreshWorkspaceConfig?.())?.repos ?? [],
-          task,
-          store: deps.store,
-          settings,
-          logger: executorLog,
-          secretsStore: deps.options.secretsStore,
-          runContext: engineRunContext,
-          audit,
-          // FNXC:Workspace 2026-06-21-22:30: F2 — register each freshly-acquired sub-repo worktree path in this task's activeWorktrees Set (KTD2) so owner/liveness checks see live per-repo worktrees, not just the browse-only root.
-          onAcquired: (worktreePath: string) => deps.addActiveWorktree(task.id, worktreePath),
-          taskEnv,
-          // FNXC:Workspace 2026-06-22 — forward the configured worktree-init runner so sub-repo worktrees run configured setup.
-          runConfiguredCommand: (command, cwd, timeoutMs, env) =>
-            runConfiguredCommand(command, cwd, timeoutMs, env, audit),
-        }));
-      }
 
       // Accumulates the full assistant text output for the most recent session.
       // Reset to "" each time a new session begins so detectPseudoPause only

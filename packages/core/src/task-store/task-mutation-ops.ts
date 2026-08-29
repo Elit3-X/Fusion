@@ -702,41 +702,19 @@ export async function mergeWorkspaceWorktreeEntryImpl(
 }
 
 /*
-FNXC:RepositoryScope 2026-08-20-23:07:
-Scope changes are a project-scoped read-modify-write under the task advisory lock. This updates only
-repository_scope, so an operator scope decision cannot overwrite concurrent per-repository acquisition
-or landing entries.
+FNXC:RepositoryScope 2026-08-29-08:50:
+FN-258 removes per-task repository selection. This engine-only replacement writer re-synchronizes
+scope from workspace.json under the existing planning and advisory locks, preserving the review fence
+only when the complete configured set is unchanged.
 */
-export type TaskRepositoryScopeMutation = {
-  action: "add" | "remove" | "refuse";
-  repositories: string[];
-  reason: string;
-  actor: string;
-};
-
 export async function updateTaskRepositoryScopeImpl(
   store: TaskStore,
   id: string,
-  requestedScope: TaskRepositoryScope | TaskRepositoryScopeMutation | undefined,
+  requestedScope: TaskRepositoryScope | undefined,
 ): Promise<Task> {
-  const configuredRepositories = (await loadWorkspaceConfig(store.getRootDir()))?.repos ?? [];
-  const isMutation = requestedScope !== undefined && "action" in requestedScope;
-  const requestedRepositories = requestedScope && "repositories" in requestedScope
-    ? requestedScope.repositories
-    : undefined;
-  const normalizedRepositories = requestedRepositories
-    ? [...new Set(requestedRepositories.map((repo) => repo.trim()).filter(Boolean))].sort()
-    : undefined;
-  if (normalizedRepositories && configuredRepositories.length > 0) {
-    const unknown = normalizedRepositories.filter((repo) => !configuredRepositories.includes(repo));
-    if (unknown.length > 0) throw new Error(`Unknown workspace repository scope: ${unknown.join(", ")}`);
-  }
-  /*
-  FNXC:RepositoryScope 2026-08-21-01:53:
-  Scope intent shares planning lifecycle serialization with plan confirmation. Acquire that lock
-  before the task/advisory transaction so a delta always merges the current scope and appends its
-  event instead of restoring a stale client snapshot over a planner or executor extension.
-  */
+  const configuredRepositories = [...new Set(((await loadWorkspaceConfig(store.getRootDir()))?.repos ?? [])
+    .map((repository) => repository.trim())
+    .filter(Boolean))].sort();
   return store.withPlanningLifecycleLock(id, () => store.withTaskLock(id, async () => {
     const layer = store.asyncLayer!;
     const outcome = await layer.transactionImmediate(async (tx) => {
@@ -754,62 +732,25 @@ export async function updateTaskRepositoryScopeImpl(
           eq(schema.project.workspaceLandIntents.status, "pending"),
         ))
         .limit(1);
-      /*
-      FNXC:RepositoryScope 2026-08-21-00:12:
-      Repository intent becomes immutable once a land intent is pending or any repository has
-      landed. This transaction-level fence prevents an already-acquired clean checkout from
-      changing review or landing obligations after integration begins.
-      */
-      const now = new Date().toISOString();
       const currentRepositories = current.repositoryScope?.repositories ?? [];
-      const mutation = isMutation ? requestedScope as TaskRepositoryScopeMutation : undefined;
-      const nextRepositories = mutation?.action === "add"
-        ? [...new Set([...currentRepositories, ...normalizedRepositories!])].sort()
-        : mutation
-          ? currentRepositories.filter((repository) => !normalizedRepositories!.includes(repository))
-          : normalizedRepositories;
-      const repositoriesChanged = JSON.stringify([...currentRepositories].sort()) !== JSON.stringify(nextRepositories ?? []);
+      const repositoriesChanged = JSON.stringify([...currentRepositories].sort())
+        !== JSON.stringify(configuredRepositories);
       if ((pendingIntent || hasLandedRepository) && repositoriesChanged) {
         throw new Error(`Repository scope for ${id} cannot change after workspace landing has started`);
       }
-      const priorExtensions = current.repositoryScope?.extensions ?? [];
-      const mutationEvents = mutation
-        ? normalizedRepositories!.map((repository) => ({
-            repository,
-            requestedAt: now,
-            requestedBy: mutation.actor,
-            reason: mutation.reason,
-            status: mutation.action === "refuse" ? "refused" as const : "accepted" as const,
-            ...(mutation.action === "refuse" ? { refusedAt: now, refusedBy: mutation.actor, refusalReason: mutation.reason } : {}),
-          }))
-        : [];
-      const replacement = isMutation
-        ? {
-            ...(current.repositoryScope ?? {}),
-            repositories: nextRepositories ?? [],
+      const replacement = configuredRepositories.length === 0
+        ? undefined
+        : {
+            ...requestedScope,
+            repositories: configuredRepositories,
             state: "confirmed" as const,
-            confirmedAt: now,
-            confirmedBy: mutation!.actor === "operator" ? "operator" as const : current.repositoryScope?.confirmedBy,
-            extensions: [...priorExtensions, ...mutationEvents],
-          }
-        : requestedScope;
-      /*
-      FNXC:RepositoryScope 2026-08-21-02:48:
-      A repository-scope mutation invalidates the prior review episode. Never carry approval
-      evidence or a remediation target into a new revision: landing may only accept fingerprints
-      reviewed against the current confirmed repository set, and remediation must re-evaluate it.
-      */
+            confirmedBy: "workspace" as const,
+            confirmedAt: current.repositoryScope?.confirmedAt ?? new Date().toISOString(),
+          };
       const stateChanged = (current.repositoryScope?.state ?? "proposed") !== (replacement?.state ?? "proposed");
       const scopeChanged = repositoriesChanged || stateChanged;
-      /*
-      FNXC:RepositoryScope 2026-08-21-19:25:
-      FN-120 treats repository intent as a semantic set plus confirmation state. Republishing the
-      same normalized confirmed set must not churn its generation or erase a current approval;
-      only a real intent/state transition creates a new review episode.
-      */
-      const normalized = nextRepositories && replacement && {
+      const normalized = replacement && {
         ...replacement,
-        repositories: nextRepositories,
         revision: scopeChanged
           ? Math.max((current.repositoryScope?.revision ?? 0) + 1, replacement.revision ?? 0)
           : (current.repositoryScope?.revision ?? replacement.revision ?? 1),

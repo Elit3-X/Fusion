@@ -76,7 +76,6 @@ import { promisify } from "node:util";
 import { InProcessRuntime } from "./runtimes/in-process-runtime.js";
 import { createStoreSpecDriftRepository, SpecDriftReconciler } from "./spec-drift-reconciler.js";
 import { publishPersistedMissionFeatureAlignment } from "./missions/mission-feature-sync.js";
-import type { WorktreePool } from "./worktree/worktree-pool.js";
 import type { ProjectRuntimeConfig } from "./project/project-runtime.js";
 import { PrMonitor } from "./merge/pr-monitor.js";
 import { PlannerOverseerMonitor, resolveExecutorStuckAfterMs } from "./overseer/planner-overseer.js";
@@ -193,7 +192,6 @@ export type ProcessPullRequestMergeFn = (
   store: TaskStore,
   cwd: string,
   taskId: string,
-  pool?: WorktreePool,
   /** Propagates merge-queue cancellation into refresh git mutations. */
   signal?: AbortSignal,
 ) => Promise<"merged" | "waiting" | "skipped">;
@@ -4871,7 +4869,6 @@ export class ProjectEngine {
                     store,
                     cwd,
                     taskId,
-                    (this.runtime as any).worktreePool,
                     abortSignal,
                   ),
                 abortSignal,
@@ -4934,8 +4931,6 @@ export class ProjectEngine {
             // Direct merge via AI agent, gated by semaphore
             runtimeLog.log(`${hasManualResolver ? "Manual" : "Auto"}-merge merging ${taskId}...`);
 
-            const pool = (this.runtime as any).worktreePool;
-
             const agentStore = (this.runtime as any).agentStore;
 
             const usageLimitPauser = (this.runtime as any).usageLimitPauser;
@@ -4953,7 +4948,6 @@ export class ProjectEngine {
               */
               const mergerOptions = {
                 manual: hasManualResolver,
-                pool,
                 usageLimitPauser,
                 credentialRotator,
                 agentStore,

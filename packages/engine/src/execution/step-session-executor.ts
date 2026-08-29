@@ -31,8 +31,8 @@ import {
 } from "../agents/agent-session-helpers.js";
 import type { AgentActionGateContext } from "../agents/agent-action-gate.js";
 import type { SkillSelectionContext } from "../cli-runtime/skill-resolver.js";
-import { generateWorktreeName } from "../worktree/worktree-names.js";
 import { resolveTaskWorktreePath } from "../worktree/worktree-paths.js";
+import { canonicalStepInstanceBranchName } from "../worktree/worktree-names.js";
 import { installTaskWorktreeIdentityGuard } from "../worktree/worktree-hooks.js";
 import { AgentSemaphore } from "../concurrency/concurrency.js";
 import { StuckTaskDetector } from "../healing/stuck-task-detector.js";
@@ -1998,10 +1998,12 @@ Follow instructions precisely and avoid unrelated changes.`,
    * @returns The path to the new worktree.
    */
   private async createStepWorktree(stepIndex: number): Promise<string> {
-    const { rootDir, settings } = this.options;
-    const name = generateWorktreeName(rootDir, settings);
+    const { rootDir, settings, taskDetail } = this.options;
+    // FNXC:TaskWorktreeNames 2026-08-29-08:51: parallel step paths remain
+    // deterministic under their owning task rather than consuming random names.
+    const name = `${taskDetail.id.toLowerCase()}-step-${stepIndex}`;
     const worktreePath = resolveTaskWorktreePath(rootDir, settings, name);
-    const branchName = `fusion/step-${stepIndex}-${name}`;
+    const branchName = canonicalStepInstanceBranchName(taskDetail.id, stepIndex);
 
     stepExecLog.log(`Creating worktree for step ${stepIndex}: ${worktreePath} (branch: ${branchName})`);
 

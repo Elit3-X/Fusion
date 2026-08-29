@@ -127,7 +127,6 @@ function makeTask(id: string): Task {
 }
 
 const SETTINGS: Partial<Settings> = {
-  worktreeNaming: "task-id",
   commitMsgHookEnabled: true,
   taskPrefix: "FN",
   taskAttributionTrailerNames: ["Fusion-Task-Id"],
@@ -174,9 +173,7 @@ describeIfGit("acquireWorkspaceRepoWorktree (U2 per-repo hardening)", { timeout:
   it("records a repository-qualified dependency-readiness decision through the workspace callback store", async () => {
     fixture = await createWorkspaceFixture(["repo-a"]);
     const { store, current, logs } = makeFakeStore(makeTask("FN-255"));
-    const ensureDependencyReadiness = vi.fn().mockResolvedValue({
-      decision: "ran; source=inferred; command=pnpm install --frozen-lockfile; duration=5ms",
-    });
+    const ensureDependencyReadiness = vi.fn().mockResolvedValue({ readiness: "satisfied" });
 
     const result = await acquireWorkspaceRepoWorktree({
       repoRelPath: "repo-a",
@@ -188,12 +185,43 @@ describeIfGit("acquireWorkspaceRepoWorktree (U2 per-repo hardening)", { timeout:
       registry: new ActiveSessionRegistry(),
     });
 
-    expect(ensureDependencyReadiness).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: result.worktreePath,
+    expect(ensureDependencyReadiness).toHaveBeenCalledTimes(1);
+    expect(ensureDependencyReadiness.mock.calls[0]?.[0]).toMatchObject({
+      worktreePath: result.worktreePath,
       taskId: "FN-255",
-      context: "for task worktree",
-    }));
-    expect(logs).toContain("Worktree dependency readiness [repo-a]: ran; source=inferred; command=pnpm install --frozen-lockfile; duration=5ms");
+    });
+    expect(logs).toContain("Worktree dependency readiness [repo-a]: satisfied");
+  });
+
+  it("runs the real dependency bootstrap through workspace acquisition", async () => {
+    fixture = await createWorkspaceFixture(["repo-a"]);
+    const repo = fixture.repoPath("repo-a");
+    writeFileSync(join(repo, "package.json"), "{\"name\":\"fixture\"}\n", "utf8");
+    writeFileSync(join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    fixture.git("repo-a", "git add package.json pnpm-lock.yaml && git commit -m 'add dependency manifests'");
+    writeFileSync(join(fixture.rootDir, "pnpm"), "fixture", "utf8");
+    const { store, current, logs } = makeFakeStore(makeTask("FN-258-workspace-bootstrap"));
+    const runConfiguredCommand = vi.fn().mockResolvedValue({ exitCode: 0, stderr: "", stdout: "" });
+
+    const result = await acquireWorkspaceRepoWorktree({
+      repoRelPath: "repo-a",
+      workspaceRootDir: fixture.rootDir,
+      task: current(),
+      store,
+      settings: SETTINGS,
+      registry: new ActiveSessionRegistry(),
+      runConfiguredCommand,
+      taskEnv: { PATH: fixture.rootDir },
+    });
+
+    expect(result.alreadyAcquired).toBe(false);
+    expect(runConfiguredCommand).toHaveBeenCalledWith(
+      "pnpm install --frozen-lockfile",
+      result.worktreePath,
+      300_000,
+      { PATH: fixture.rootDir },
+    );
+    expect(logs).toContain("Worktree dependency readiness [repo-a]: satisfied");
   });
 
   it("captures against a NON-main integration branch and does not inherit a shared settings.integrationBranch (KTD3)", async () => {

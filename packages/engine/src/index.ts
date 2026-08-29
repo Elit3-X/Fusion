@@ -684,7 +684,6 @@ export {
 } from "./providers/index.js";
 export { activeSessionRegistry } from "./agents/active-session-registry.js";
 export {
-  WorktreePool,
   scanIdleWorktrees,
   cleanupOrphanedWorktrees,
   reapOrphanWorktrees,
@@ -709,7 +708,7 @@ export {
   type BranchConflictInspectionResult,
   type InspectBranchConflictInput,
 } from "./execution/branch-conflicts.js";
-export { generateReservedWorktreeName, generateWorktreeName, planTaskWorktreePath, slugify } from "./worktree/worktree-names.js";
+export { planTaskWorktreePath } from "./worktree/worktree-names.js";
 export { deriveJiraBranchName, normalizeJiraIssueKey } from "./worktree/jira-branch-name.js";
 export type { JiraBranchNameResult } from "./worktree/jira-branch-name.js";
 export { createLogger, type Logger } from "./logger.js";

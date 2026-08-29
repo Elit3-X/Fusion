@@ -169,7 +169,7 @@ export const AGENT_PERMISSION_POLICY_CATEGORY_TOOL_EXAMPLES: Record<
 > = {
   git_write: ["git commit", "git push", "git merge", "git branch -d", "git worktree add", "write", "edit"],
   file_write_delete: ["write", "edit", "fn_task_attach"],
-  command_execution: ["bash (non-git)", "fn_run_verification", "fn_acquire_repo_worktree", "read", "find", "grep", "ls"],
+  command_execution: ["bash (non-git)", "fn_run_verification", "fn_install_worktree_dependencies", "read", "find", "grep", "ls"],
   network_api: ["fn_research_run (web/research)", "fn_research_cancel", "fn_web_fetch", "worktrunk_install"],
   /* FNXC:ToolGovernance 2026-06-27-16:51: Dashboard policy examples must mirror action-gate mutation exports. Identity reflection is exempt heartbeat coordination, so it is intentionally not advertised as task_agent_mutation.
    * FNXC:WorkflowAuthoringTools 2026-06-29-23:40: Published workflow authoring tools are now agent-visible, so policy examples include the mutating workflow create/update/delete/settings/select surface operators can approve or block.

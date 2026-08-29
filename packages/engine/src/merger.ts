@@ -151,7 +151,8 @@ const LEGACY_COMPLETE_LANES: readonly string[] = ["done"];
 
 import { buildSessionSkillContext } from "./cli-runtime/session-skill-context.js";
 import { resolveMcpServersForStore } from "./mcp/mcp-resolution.js";
-import { classifyTaskWorktree, getRegisteredWorktreeBranches, isRepoRootPath, RemovalReason, removeWorktree, type WorktreePool } from "./worktree/worktree-pool.js";
+import { classifyTaskWorktree, getRegisteredWorktreeBranches, isRepoRootPath } from "./worktree/worktree-pool.js";
+import { RemovalReason, removeWorktree } from "./worktree/worktree-backend.js";
 import { activeSessionRegistry } from "./agents/active-session-registry.js";
 import { AgentLogger } from "./agents/agent-logger.js";
 import { attachAgentUsageTelemetry, emitAgentSessionStart } from "./agents/agent-usage-telemetry.js";
@@ -5088,9 +5089,6 @@ export interface MergerOptions {
   onAgentText?: (delta: string) => void;
   /** Called with agent tool usage */
   onAgentTool?: (toolName: string) => void;
-  /** Worktree pool — when provided and `recycleWorktrees` is enabled,
-   *  worktrees are released to the pool instead of being removed. */
-  pool?: WorktreePool;
   /** Usage limit pauser — parks only the affected provider-routed task. */
   usageLimitPauser?: UsageLimitPauser;
   /** Called with the agent session immediately after creation. Enables the
@@ -6408,11 +6406,6 @@ workflow steps run exclusively as the workflow graph's own post-merge optional-g
  * Attempt 2 (if enabled and Attempt 1 failed): Auto-resolve lock/generated files, retry AI
  * Attempt 3 (if enabled and Attempt 2 failed): Reset and use git merge -X theirs --squash
  *
- * When `options.pool` is provided and `recycleWorktrees` is enabled in
- * settings, the worktree is detached from its branch and released to the
- * idle pool instead of being removed. The task's branch is always deleted
- * regardless of pooling. On next task execution, the pooled worktree will
- * be acquired and prepared with a fresh branch via {@link WorktreePool.prepareForTask}.
  */
 
 /**
@@ -7131,18 +7124,8 @@ export async function aiMergeTask(
     //   - FN-4811 active-session: skip a match whose path is currently owned
     //     by a DIFFERENT task in `activeSessionRegistry`. Same-task or unowned
     //     paths are eligible for direct reuse.
-    //   - FN-4954 pool-lease: when `recycleWorktrees=true` AND a pool is
-    //     attached, skip the direct-reuse shortcut and fall through to
-    //     `acquireTaskWorktree`, which integrates with `WorktreePool.acquire`
-    //     so the pool's `leased` map stays consistent. Without that fall-through
-    //     the new path would bypass pool bookkeeping and could collide with
-    //     `PoolDoubleLeaseError`.
     const expectedBranch = resolveTaskWorkingBranch(task);
-    // FN-4954: when a worktree pool is attached and recycling is enabled, pool
-    // semantics REQUIRE going through `acquireTaskWorktree` so `WorktreePool`'s
-    // lease bookkeeping stays consistent. Skip the direct-reuse shortcut here
-    // and fall through to the existing acquisition path.
-    const directReuseEligible = !(options.pool && settings.recycleWorktrees);
+    const directReuseEligible = true;
     if (directReuseEligible) {
       try {
         const { stdout: porcelain } = await execAsync(
@@ -7286,7 +7269,6 @@ export async function aiMergeTask(
       rootDir: projectRootDir,
       store,
       settings,
-      pool: options.pool,
       logger: mergerLog,
       audit,
       runContext: engineRunContext,
@@ -9813,36 +9795,6 @@ export async function aiMergeTask(
     if (otherUser) {
       mergerLog.debug(`Worktree retained — still needed by ${otherUser}`);
       result.worktreeRemoved = false;
-    } else if (options.pool && settings.recycleWorktrees) {
-      if (activeSessionRegistry.isPathActive(worktreePath)) {
-        mergerLog.warn(`${taskId}: skipping pooled release for active session path ${worktreePath}`);
-        await audit?.git({
-          type: "worktree:removal-refused-active-session",
-          target: worktreePath,
-          metadata: { taskId, reason: RemovalReason.MergerCleanup, kind: "merger" },
-        });
-        result.worktreeRemoved = false;
-      } else {
-        try {
-          const onBranch = await execAsync("git symbolic-ref --quiet HEAD", { cwd: worktreePath, timeout: 5_000, encoding: "utf-8" })
-            .then(() => true)
-            .catch(() => false);
-          if (onBranch) {
-            await execAsync("git checkout --detach HEAD", { cwd: worktreePath, timeout: 10_000, encoding: "utf-8" });
-          }
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          mergerLog.warn(`${taskId}: failed to detach pooled worktree before release: ${msg}`);
-        }
-        try {
-          await store.updateTask(taskId, { worktree: null, branch: null, branchWriteOrigin: "engine" });
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          mergerLog.warn(`${taskId}: failed to clear worktree pointer before pool release: ${msg}`);
-        }
-        options.pool.release(worktreePath, taskId);
-        result.worktreeRemoved = false;
-      }
     } else {
       try {
         if (activeSessionRegistry.isPathActive(worktreePath)) {
