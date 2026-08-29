@@ -873,6 +873,31 @@ describe("NewTaskModal", () => {
       });
     });
 
+    it.each(["mobile", "desktop"] as const)("restores default-on steps in the %s New Task layout after Fast is disabled", async (viewport) => {
+      const { fetchWorkflows, fetchWorkflowOptionalSteps } = await import("../../api");
+      mockViewportMode = viewport;
+      vi.mocked(fetchWorkflows).mockResolvedValue([WF]);
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([{ ...STEP, defaultOn: true }]);
+
+      const { props } = renderNewTaskModal();
+      fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), { target: { value: "Restore Fast selection" } });
+      await chooseWorkflowOption("wf-x");
+
+      const trigger = await screen.findByTestId("task-form-inline-optional-steps");
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+      const executionModeSelect = screen.getByTestId("task-form-execution-mode-select");
+      fireEvent.change(executionModeSelect, { target: { value: "fast" } });
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: none"));
+      fireEvent.change(executionModeSelect, { target: { value: "standard" } });
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+
+      fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+      await waitFor(() => expect(props.onCreateTask).toHaveBeenCalledTimes(1));
+      const payload = vi.mocked(props.onCreateTask).mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(payload.enabledWorkflowSteps).toEqual(["browser-verification"]);
+      expect(payload).not.toHaveProperty("executionMode");
+    });
+
     it("keeps exactly one inline optional-steps trigger when Advanced is expanded", async () => {
       const { fetchWorkflows, fetchWorkflowOptionalSteps } = await import("../../api");
       vi.mocked(fetchWorkflows).mockResolvedValue([WF]);

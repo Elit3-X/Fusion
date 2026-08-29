@@ -1200,6 +1200,41 @@ describe("TaskDetailModal", () => {
       });
     });
 
+    it("keeps edit-mode optional workflow steps out of the fast-to-standard update payload", async () => {
+      const { updateTask } = await import("../../api");
+      const mockUpdate = vi.mocked(updateTask);
+      mockUpdate.mockResolvedValue({ id: "FN-001" } as Task);
+
+      const { container } = render(
+        <TaskDetailModal
+          initialTab="definition"
+          task={makeTask({
+            id: "FN-001",
+            column: "triage",
+            title: "Test",
+            description: "Desc",
+            executionMode: "fast",
+            enabledWorkflowSteps: ["code-review"],
+          })}
+          onClose={noop}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(document.querySelector(".modal-edit-btn")!);
+      fireEvent.change(screen.getByTestId("task-form-execution-mode-select"), { target: { value: "standard" } });
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("FN-001", { executionMode: null }, undefined);
+      });
+      expect(mockUpdate.mock.calls[0]?.[1]).toEqual({ executionMode: null });
+      expect(mockUpdate.mock.calls[0]?.[1]).not.toHaveProperty("enabledWorkflowSteps");
+    });
+
     it("patches edit-mode standard-to-fast on a todo task without confirmation or replanning", async () => {
       const { updateTask, rebuildTaskSpec } = await import("../../api");
       const mockUpdate = vi.mocked(updateTask);

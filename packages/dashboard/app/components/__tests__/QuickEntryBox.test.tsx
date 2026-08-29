@@ -1873,6 +1873,156 @@ describe("QuickEntryBox", () => {
       });
     });
 
+    it.each([
+      ["desktop", mockDesktopViewport],
+      ["mobile", mockMobileViewport],
+    ] as const)("restores the pre-Fast selection and standard create payload on %s", async (_viewport, setViewport) => {
+      setViewport();
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([DEFAULT_ON_STEP, MANUAL_STEP]);
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      renderQuickEntryBox({ onCreate, workflowId: "wf-explicit" });
+
+      const trigger = await screen.findByTestId("quick-entry-optional-steps-trigger");
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: none"));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "Restore Fast selection" } });
+      clickSave();
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      const createdPayload = onCreate.mock.calls[0]?.[0];
+      expect(createdPayload?.enabledWorkflowSteps).toEqual(["browser-verification"]);
+      expect(createdPayload).not.toHaveProperty("executionMode");
+    });
+
+    it("restores an operator's non-default pre-Fast selection", async () => {
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([DEFAULT_ON_STEP, MANUAL_STEP]);
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      renderQuickEntryBox({ onCreate, workflowId: "wf-explicit" });
+
+      const trigger = await screen.findByTestId("quick-entry-optional-steps-trigger");
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+      fireEvent.click(trigger);
+      fireEvent.click(await screen.findByTestId("wf-optional-steps-dropdown-option-browser-verification"));
+      fireEvent.click(await screen.findByTestId("wf-optional-steps-dropdown-option-manual-smoke"));
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: none"));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "Restore manual selection" } });
+      clickSave();
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      expect(onCreate.mock.calls[0]?.[0]?.enabledWorkflowSteps).toEqual(["manual-smoke"]);
+    });
+
+    it("merges steps selected while Fast is active after the pre-Fast selection without duplicates", async () => {
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([DEFAULT_ON_STEP, MANUAL_STEP]);
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      renderQuickEntryBox({ onCreate, workflowId: "wf-explicit" });
+
+      const trigger = await screen.findByTestId("quick-entry-optional-steps-trigger");
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: none"));
+      fireEvent.click(trigger);
+      fireEvent.click(await screen.findByTestId("wf-optional-steps-dropdown-option-browser-verification"));
+      fireEvent.click(await screen.findByTestId("wf-optional-steps-dropdown-option-manual-smoke"));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 2 selected"));
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "Merge Fast selections" } });
+      clickSave();
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      expect(onCreate.mock.calls[0]?.[0]?.enabledWorkflowSteps).toEqual([
+        "browser-verification",
+        "manual-smoke",
+      ]);
+    });
+
+    it("falls back to default-on steps when metadata resolves while Fast is active", async () => {
+      let resolveOptionalSteps: (steps: typeof DEFAULT_ON_STEP[]) => void = () => {};
+      vi.mocked(fetchWorkflowOptionalSteps).mockReturnValue(new Promise((resolve) => {
+        resolveOptionalSteps = resolve;
+      }));
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      renderQuickEntryBox({ onCreate, workflowId: "wf-explicit" });
+
+      await waitFor(() => expect(fetchWorkflowOptionalSteps).toHaveBeenCalledWith("wf-explicit", TEST_PROJECT_ID));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await act(async () => {
+        resolveOptionalSteps([DEFAULT_ON_STEP]);
+      });
+
+      const trigger = await screen.findByTestId("quick-entry-optional-steps-trigger");
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: none"));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "Restore deferred Fast selection" } });
+      clickSave();
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      expect(onCreate.mock.calls[0]?.[0]?.enabledWorkflowSteps).toEqual(["browser-verification"]);
+    });
+
+    it("uses the new workflow default-on selection after a Fast-mode workflow change", async () => {
+      const SECOND_WORKFLOW_DEFAULT_ON_STEP = {
+        ...DEFAULT_ON_STEP,
+        templateId: "code-review",
+        name: "Code review",
+      };
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([DEFAULT_ON_STEP]);
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      const { props, rerender } = renderQuickEntryBox({ onCreate, workflowId: "wf-explicit" });
+
+      const trigger = await screen.findByTestId("quick-entry-optional-steps-trigger");
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: 1 selected"));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await waitFor(() => expect(trigger).toHaveTextContent("Steps: none"));
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([SECOND_WORKFLOW_DEFAULT_ON_STEP]);
+      rerender(<QuickEntryBox {...props} workflowId="wf-second" />);
+
+      await waitFor(() => expect(fetchWorkflowOptionalSteps).toHaveBeenCalledWith("wf-second", TEST_PROJECT_ID));
+      await waitFor(() => expect(trigger.isConnected).toBe(false));
+      const updatedTrigger = await screen.findByTestId("quick-entry-optional-steps-trigger");
+      await waitFor(() => expect(updatedTrigger).toHaveTextContent("Steps: none"));
+      expect(screen.getByTestId("quick-entry-fast-toggle")).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(updatedTrigger);
+      await screen.findByTestId("wf-optional-steps-dropdown-option-code-review");
+      fireEvent.mouseDown(document.body);
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      await waitFor(() => expect(updatedTrigger).toHaveTextContent("Steps: 1 selected"));
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "Use new workflow selection" } });
+      clickSave();
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      expect(onCreate.mock.calls[0]?.[0]?.enabledWorkflowSteps).toEqual(["code-review"]);
+    });
+
+    it("keeps standard creates without optional-step metadata undefined after a Fast round-trip", async () => {
+      vi.mocked(fetchWorkflowOptionalSteps).mockResolvedValue([]);
+      const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
+      renderQuickEntryBox({ onCreate, workflowId: "wf-empty" });
+
+      await waitFor(() => expect(fetchWorkflowOptionalSteps).toHaveBeenCalledWith("wf-empty", TEST_PROJECT_ID));
+      expect(screen.queryByTestId("quick-entry-optional-steps-trigger")).toBeNull();
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      fireEvent.click(screen.getByTestId("quick-entry-fast-toggle"));
+      fireEvent.change(screen.getByTestId("quick-entry-input"), { target: { value: "No optional steps" } });
+      clickSave();
+
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      expect(onCreate.mock.calls[0]?.[0]?.enabledWorkflowSteps).toBeUndefined();
+    });
+
     it("submits explicit empty optional steps when Fast is created before optional-step metadata loads", async () => {
       vi.mocked(fetchWorkflowOptionalSteps).mockReturnValue(new Promise(() => undefined));
       const onCreate = vi.fn().mockResolvedValue(CREATED_TASK);
