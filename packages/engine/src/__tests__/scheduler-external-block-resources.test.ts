@@ -37,10 +37,10 @@ function blockedTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe("external-block resource ownership", () => {
-  it("retains a WIP file-scope lease while an ordinary pause releases it", () => {
+  it("retains a WIP file-scope lease for external and ordinary pauses", () => {
     const blocked = blockedTask();
     expect(shouldHoldActiveFileScopeLease(blocked, [blocked], { isWipColumn: true })).toBe(true);
-    expect(shouldHoldActiveFileScopeLease({ ...blocked, status: null, externalBlock: undefined }, [blocked], { isWipColumn: true })).toBe(false);
+    expect(shouldHoldActiveFileScopeLease({ ...blocked, status: null, externalBlock: undefined }, [blocked], { isWipColumn: true })).toBe(true);
   });
 
   it("retains the review-lane lease only while its worktree remains present", () => {

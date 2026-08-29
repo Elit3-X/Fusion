@@ -12,6 +12,8 @@ import * as schema from "./postgres/schema/index.js";
 import { type FSWatcher } from "node:fs";
 import { readFile } from "node:fs/promises";
 import type { Task, TaskDetail, TaskCreateInput, TaskAttachment, AgentLogEntry, BoardConfig, Column, ColumnId, CheckoutClaimPrecondition, MergeResult, Settings, GlobalSettings, ProjectSettings, ActivityLogEntry, ActivityEventType, TaskDocument, TaskDocumentRevision, TaskDocumentCreateInput, ArchivedTaskDocumentAdditionInput, ArchivedTaskDocumentAdditionResult, TaskDocumentWithTask, Artifact, ArtifactCreateInput, ArtifactType, ArtifactWithTask, InboxTask, TaskLogEntry, RunMutationContext, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, ArchivedTaskEntry, ArchiveAgentLogMode, TaskPriority, WorkflowStepTemplate, Agent, AutostashOrphanRecord, TaskCommitAssociation, CommitAssociationDiffBackfillReport, GithubIssueAction, MergeQueueEntry, MergeQueueEnqueueOptions, MergeQueueAcquireOptions, MergeQueueReleaseOutcome, HandoffToReviewOptions, GoalCitation, GoalCitationFilter, GoalCitationInput, GoalCitationSurface, BranchGroup, BranchGroupCreateInput, BranchGroupUpdate, TaskBranchAssignmentMode, MergeRequestRecord, MergeRequestState, MergeRequestWorkflowProjectionOptions, CompletionHandoffMarker, WorkflowWorkItem, WorkflowWorkItemDueFilter, WorkflowWorkItemKind, WorkflowWorkItemState, WorkflowWorkItemTransitionPatch, WorkflowWorkItemUpsertInput, PrEntity, PrEntityCreateInput, PrEntityUpdate, PrThreadState, PrThreadOutcome, PluginActivation, PluginActivationInput, TaskStep } from "./types.js";
+import { fileScopeLeaseBlocksCandidate, type FileScopeLeaseKind } from "./tasks/file-scope-lease.js";
+import { compareTasksByPriorityThenAgeAndId } from "./tasks/task-priority.js";
 
 /*
 FNXC:SpecLock 2026-08-09-21:01:
@@ -158,7 +160,8 @@ import { createTaskBackendImpl, _createTaskInternalBackendImpl, createTaskImpl, 
 import { getTaskImpl, listTasksImpl, searchTasksImpl, listTasksModifiedSinceImpl, getTaskVerificationRequestAsyncImpl, listTaskRecommendationsImpl, findTaskByProposalClaimIdImpl, listTasksBySourceLineageImpl } from "./task-store/reads.js";
 import { updateTaskUnlockedImpl } from "./task-store/task-update.js";
 import { __setTaskActivityLogLimitsForTesting } from "./task-store/comments.js";
-import { declaresAnyLifecycleTrait, resolveReviewColumns, resolveTaskLifecycleColumns, type LifecycleColumns } from "./workflows/workflow-lifecycle-traits.js";
+import { columnsWithFlag, declaresAnyLifecycleTrait, resolveLifecycleColumns, resolveReviewColumns, type LifecycleColumns } from "./workflows/workflow-lifecycle-traits.js";
+import { isReviewColumnRole, isWipColumnRole } from "./column-roles.js";
 import { resolveProjectColumnsForRoles } from "./project-lane-vocabulary.js";
 import {
   appendPatchnodeEntry,
@@ -426,29 +429,82 @@ function filterRepairOverlapIgnoredPaths(paths: string[], ignorePaths: string[])
   return paths.filter((path) => !ignorePaths.some((ignorePath) => repairIgnoredOverlapPath(path, ignorePath)));
 }
 
-/*
-FNXC:WorkflowLifecycleColumns 2026-07-31-01:10 (batch-core feed):
-Does this candidate still hold an active file-scope lease? Hoisted to module scope because the
-overlap repair asks it in TWO places (the blocker pre-check and the reroute search) and they must not
-drift — one of the two answering differently is how the repair reroutes to a blocker the other half
-already dismissed.
+export interface RepairFileScopeLeaseLanes {
+  /** A single legacy lane or every selected-workflow lane carrying the WIP role. */
+  wip: string | ReadonlySet<string> | undefined;
+  /** A single legacy lane or every selected-workflow lane carrying a review role. */
+  review: string | ReadonlySet<string> | undefined;
+  terminal?: ReadonlySet<string>;
+}
 
-Pause/failed state is checked by each caller, which owns that half of the question; this decides only
-the LANE half.
+type RepairTaskLifecycleLanes = {
+  lifecycle: LifecycleColumns | undefined;
+  lease: RepairFileScopeLeaseLanes | undefined;
+};
 
-`lanes === undefined` means the candidate's workflow could not be read: keep today's literals.
-A resolved workflow with no wip/review lane answers false for that half rather than substituting one.
-*/
-export function holdsRepairFileScopeLease(
-  candidate: Pick<Task, "column" | "worktree">,
-  lanes: { wip: string | undefined; review: string | undefined } | undefined,
+function repairLeaseLaneIncludes(
+  lanes: string | ReadonlySet<string> | undefined,
+  column: string,
 ): boolean {
-  /* DELIBERATE-LITERAL — the unresolvable-workflow default documented above, reviewed 2026-07-31-01:10. */
+  return typeof lanes === "string" ? lanes === column : lanes?.has(column) === true;
+}
+
+/*
+FNXC:OverlapScheduling 2026-08-29-06:04:
+Operator overlap repair must use the same lease lifetime as scheduler admission: terminal or deleted
+cards release immediately; WIP stays active before worktree acquisition; review stays active only
+while its worktree exists; other retained worktrees are dormant and resolve contention by priority,
+age, then task id. The explicit archive/delete/worktree-clear escape hatch remains the only way to
+release unfinished work early.
+
+FNXC:OverlapScheduling 2026-08-29-06:34:
+An unresolvable workflow retains the shared legacy role answer through core column-role helpers. Do
+not reintroduce local lifecycle literals here: that would make a compatibility fallback a new
+unclassified lifecycle guard and let this repair path drift from the common role policy.
+
+FNXC:OverlapScheduling 2026-08-29-07:04:
+`LifecycleColumns` intentionally chooses one destination per role and cannot classify membership.
+Overlap repair therefore receives complete role sets from the blocker's own selected workflow: a
+second WIP or review lane retains unfinished work, while every complete or archived lane releases it.
+*/
+export function classifyRepairFileScopeLease(
+  candidate: Pick<Task, "column" | "worktree" | "deletedAt">,
+  lanes: RepairFileScopeLeaseLanes | undefined,
+): FileScopeLeaseKind {
+  if (candidate.deletedAt) return "none";
   if (!lanes) {
-    return candidate.column === "in-progress" || (candidate.column === "in-review" && Boolean(candidate.worktree));
+    if (isWipColumnRole(undefined, candidate.column)) return "active";
+    return isReviewColumnRole(undefined, candidate.column) && Boolean(candidate.worktree) ? "active" : "none";
   }
-  if (lanes.wip !== undefined && candidate.column === lanes.wip) return true;
-  return lanes.review !== undefined && candidate.column === lanes.review && Boolean(candidate.worktree);
+  if (lanes.terminal?.has(candidate.column)) return "none";
+  if (repairLeaseLaneIncludes(lanes.wip, candidate.column)) return "active";
+  if (repairLeaseLaneIncludes(lanes.review, candidate.column)) {
+    return candidate.worktree ? "active" : "none";
+  }
+  return candidate.worktree ? "dormant" : "none";
+}
+
+/** Compatibility wrapper retained for callers that only need a boolean lease answer. */
+export function holdsRepairFileScopeLease(
+  candidate: Pick<Task, "column" | "worktree" | "deletedAt">,
+  lanes: RepairFileScopeLeaseLanes | undefined,
+): boolean {
+  return classifyRepairFileScopeLease(candidate, lanes) !== "none";
+}
+
+function repairLeaseLanesForWorkflow(
+  ir: WorkflowIr,
+  lifecycle: LifecycleColumns | undefined = resolveLifecycleColumns(ir),
+): RepairFileScopeLeaseLanes | undefined {
+  if (!lifecycle) return undefined;
+  return {
+    wip: new Set(columnsWithFlag(ir, "countsTowardWip")),
+    review: new Set(resolveReviewColumns(ir)),
+    terminal: new Set([
+      ...columnsWithFlag(ir, "complete"),
+      ...columnsWithFlag(ir, "archived"),
+    ]),
+  };
 }
 
 export const PATCHNODE_RECONCILE_TTL_MS = 15 * 60_000;
@@ -2989,14 +3045,28 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     same three literals appear at each step. A repair that declines everything looks identical in the
     logs to a board with nothing to repair.
 
-    `repairIrCache` is caller-owned per the contract on `resolveTaskLifecycleColumns`: this pass
-    resolves lanes for the task, its blocker, and every reroute candidate, so a board spanning three
-    workflows must read three IRs — not one per card.
+    `repairIrCache` is caller-owned per the task workflow resolver contract: this pass resolves
+    lanes for the task, its blocker, and every reroute candidate, so a board spanning three workflows
+    must read three IRs — not one per card.
     */
     const repairIrCache = new Map<string, WorkflowIr>();
-    const repairLanesFor = async (taskId: string) =>
-      (await resolveTaskLifecycleColumns(this, taskId, repairIrCache).catch(() => undefined));
-    const taskLanes = await repairLanesFor(task.id);
+    const repairLanesByTaskId = new Map<string, Promise<RepairTaskLifecycleLanes>>();
+    const repairLanesFor = (taskId: string): Promise<RepairTaskLifecycleLanes> => {
+      const cached = repairLanesByTaskId.get(taskId);
+      if (cached) return cached;
+      const resolving = (async (): Promise<RepairTaskLifecycleLanes> => {
+        try {
+          const ir = await resolveWorkflowIrForTask(this, taskId, repairIrCache);
+          const lifecycle = resolveLifecycleColumns(ir);
+          return { lifecycle, lease: repairLeaseLanesForWorkflow(ir, lifecycle) };
+        } catch {
+          return { lifecycle: undefined, lease: undefined };
+        }
+      })();
+      repairLanesByTaskId.set(taskId, resolving);
+      return resolving;
+    };
+    const taskLanes = (await repairLanesFor(task.id)).lifecycle;
     /*
     The hold lane is resolved, NOT defaulted per field: `taskLanes === undefined` means the workflow
     could not be read (keep the literal), while a resolved workflow with no hold lane is an ANSWER —
@@ -3036,23 +3106,19 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     const taskScope = await getScope(task.id);
     if (blocker) {
       /*
-      FNXC:WorkflowLifecycleColumns 2026-07-31-01:10 (batch-core feed):
-      The blocker's OWN lanes decide whether it still holds a file-scope lease — it may live on a
-      different board from the task it blocks.
-
-      NOTE for whoever unifies this: `holdsRepairFileScopeLease` below and
-      `shouldHoldActiveFileScopeLease` in `engine/scheduler.ts` are a THIRD and FOURTH copy of this
-      same predicate. They must keep agreeing or the repair reroutes to a blocker the scheduler
-      ignores. Not unified here because the scheduler's copy lives in `@fusion/engine`, which core
-      cannot import, and moving it is a cross-batch refactor rather than a conversion.
+      FNXC:OverlapScheduling 2026-08-29-06:04:
+      The blocker's own resolved lanes decide whether it still owns overlapping files. Classification
+      is shared with the scheduler-facing helper, so a failed or paused review card with a retained
+      worktree cannot be cleared through the operator repair path before its work lands.
       */
       const blockerLanes = await repairLanesFor(blocker.id);
-      const blockerHoldsActiveLease = !blocker.paused
-        && !blocker.userPaused
-        && blocker.status !== "failed"
-        && holdsRepairFileScopeLease(blocker, blockerLanes);
+      const blockerLeaseKind = classifyRepairFileScopeLease(blocker, blockerLanes.lease);
+      const blockerHoldsLease = fileScopeLeaseBlocksCandidate(blocker, task, {
+        kind: blockerLeaseKind,
+        waivedForTaskIds: [],
+      });
       const blockerScope = await getScope(blocker.id);
-      if (blockerHoldsActiveLease && repairScopesOverlap(taskScope, blockerScope)) {
+      if (blockerHoldsLease && repairScopesOverlap(taskScope, blockerScope)) {
         return {
           taskId: id,
           dryRun,
@@ -3075,7 +3141,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     */
     const dependencyLanesByTaskId = new Map<string, LifecycleColumns | undefined>();
     for (const depId of task.dependencies ?? []) {
-      dependencyLanesByTaskId.set(depId, await repairLanesFor(depId));
+      dependencyLanesByTaskId.set(depId, (await repairLanesFor(depId)).lifecycle);
     }
     const isUnresolvedDependency = (depId: string): boolean => {
       const dep = taskById.get(depId);
@@ -3202,33 +3268,41 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     getScope: (taskId: string) => Promise<string[]>,
     previousOverlapBlockedBy: string,
     /* The CALLER's resolver, so this search shares the repair's single IR cache rather than opening a
-       second one — and so both halves of the repair resolve a given card's lanes identically. */
-    resolveLanes: (taskId: string) => Promise<LifecycleColumns | undefined>,
+       second one — and so both halves of the repair resolve a given card's lane membership identically. */
+    resolveLanes: (taskId: string) => Promise<RepairTaskLifecycleLanes>,
   ): Promise<string | null> {
     /*
-    FNXC:OverlapRepair 2026-06-25-05:49:
-    Stale-overlap repair must reroute only to tasks that the scheduler would still treat as active file-scope lease holders. Operator-paused or failed active rows are parked work, not live blockers, so the repair should clear stale state instead of creating a fresh blocker edge to them.
-    */
-    /*
-    FNXC:WorkflowLifecycleColumns 2026-07-31-01:10 (batch-core feed):
-    Resolve each candidate's lanes before the sync filter, sharing the caller's IR cache. Resolution
-    is restricted to candidates that survive the id filter so an unrelated backlog costs nothing.
+    FNXC:OverlapScheduling 2026-08-29-06:04:
+    Reroute only to a holder that the shared lifetime classification says blocks this task. Paused and
+    failed rows with retained worktrees still own unfinished files; dormant holders use the same
+    priority → age → id ordering as scheduler admission before repair records a fresh blocker edge.
     */
     const candidatePool = tasks.filter(
       (candidate) => candidate.id !== task.id && candidate.id !== previousOverlapBlockedBy,
     );
     const candidateLanesByTaskId = new Map<string, LifecycleColumns | undefined>();
+    const candidateLeaseKinds = new Map<string, FileScopeLeaseKind>();
     for (const candidate of candidatePool) {
-      candidateLanesByTaskId.set(candidate.id, await resolveLanes(candidate.id));
+      const lanes = await resolveLanes(candidate.id);
+      candidateLanesByTaskId.set(candidate.id, lanes.lifecycle);
+      candidateLeaseKinds.set(candidate.id, classifyRepairFileScopeLease(candidate, lanes.lease));
     }
     const activeCandidates = candidatePool
-      .filter((candidate) => {
-        if (candidate.paused || candidate.userPaused || candidate.status === "failed") return false;
-        return holdsRepairFileScopeLease(candidate, candidateLanesByTaskId.get(candidate.id));
-      })
+      .filter((candidate) => candidateLeaseKinds.get(candidate.id) === "active")
+      .filter((candidate) => fileScopeLeaseBlocksCandidate(candidate, task, {
+        kind: "active",
+        waivedForTaskIds: [],
+      }))
       .sort((a, b) => a.id.localeCompare(b.id));
+    const dormantCandidates = candidatePool
+      .filter((candidate) => candidateLeaseKinds.get(candidate.id) === "dormant")
+      .filter((candidate) => fileScopeLeaseBlocksCandidate(candidate, task, {
+        kind: "dormant",
+        waivedForTaskIds: [],
+      }))
+      .sort(compareTasksByPriorityThenAgeAndId);
 
-    for (const candidate of activeCandidates) {
+    for (const candidate of [...activeCandidates, ...dormantCandidates]) {
       const candidateScope = await getScope(candidate.id);
       if (repairScopesOverlap(taskScope, candidateScope)) return candidate.id;
     }

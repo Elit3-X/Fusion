@@ -1719,6 +1719,8 @@ export type {
   BuildUnblockWeightMapOptions,
   PriorityFanoutComparatorContext,
 } from "./tasks/task-priority.js";
+export { fileScopeLeaseBlocksCandidate } from "./tasks/file-scope-lease.js";
+export type { FileScopeLeaseClassification, FileScopeLeaseKind } from "./tasks/file-scope-lease.js";
 
 // ── Mission Hierarchy Types ────────────────────────────────────────────
 

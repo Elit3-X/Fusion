@@ -9373,7 +9373,7 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
     dependent stays `overlapBlockedBy` forever behind a holder that is not coming back — a deadlock
     the sweep exists to break, silently not broken.
     */
-    it("rebounds a stale lease when holder and dependency rest in RENAMED wip and hold lanes", async () => {
+    it("keeps a renamed WIP holder in place when its lease is waived for the waiting dependency", async () => {
       const { store, manager } = setup([
         makeTask({ id: "FN-H", column: "building", dependencies: ["FN-D"], worktree: "/tmp/wt-h" }),
         makeTask({ id: "FN-D", column: "drafting", status: "queued", overlapBlockedBy: "FN-H" }),
@@ -9395,9 +9395,9 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
       }]);
       vi.spyOn(manager as any, "evaluateBackwardMoveTripleProof").mockResolvedValue({ ok: true, stalenessMs: 10_000, reason: "test" });
 
-      await expect(manager.reconcileDependencyBlockingLeases()).resolves.toBe(1);
-      /* The dependent is released rather than left blocked behind a holder that is not coming back. */
-      expect(store.updateTask).toHaveBeenCalledWith("FN-D", { overlapBlockedBy: null, status: null });
+      await expect(manager.reconcileDependencyBlockingLeases()).resolves.toBe(0);
+      expect(store.moveTask).not.toHaveBeenCalled();
+      expect(store.updateTask).not.toHaveBeenCalledWith("FN-D", { overlapBlockedBy: null, status: null });
       manager.stop();
     });
 
@@ -9452,7 +9452,7 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
       manager.stop();
     });
 
-    it("uses merge-shadow dependency marker options during deadlock scans", async () => {
+    it("uses merge-shadow dependency marker options before applying the targeted waiver", async () => {
       const { store, manager } = setup([
         makeTask({ id: "FN-H", column: "in-progress", dependencies: ["FN-D"] }),
         makeTask({ id: "FN-D", column: "todo", overlapBlockedBy: "FN-H" }),
@@ -9462,7 +9462,8 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
 
       await expect(manager.reconcileDependencyBlockingLeases()).resolves.toBe(0);
       expect(store.getCompletionHandoffAcceptedMarker).toHaveBeenCalledWith("FN-D");
-      expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      expect(store.moveTask).not.toHaveBeenCalled();
+      expect(store.recordRunAuditEvent).not.toHaveBeenCalledWith(expect.objectContaining({
         mutationType: "task:reconcile-dependency-blocking-lease-no-action",
         target: "FN-H",
       }));
@@ -9481,7 +9482,7 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
       manager.stop();
     });
 
-    it("emits no-action audit and does not rebound when triple-proof fails", async () => {
+    it("does not invoke triple-proof recovery when the dependency waiver already admits work", async () => {
       const { store, manager } = setup([
         makeTask({ id: "FN-H", column: "in-progress", dependencies: ["FN-D"] }),
         makeTask({ id: "FN-D", column: "todo", overlapBlockedBy: "FN-H" }),
@@ -9490,7 +9491,7 @@ describe("FN-5335 triple-proof no-action unit coverage", () => {
 
       await expect(manager.reconcileDependencyBlockingLeases()).resolves.toBe(0);
       expect(store.moveTask).not.toHaveBeenCalled();
-      expect(store.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      expect(store.recordRunAuditEvent).not.toHaveBeenCalledWith(expect.objectContaining({
         mutationType: "task:reconcile-dependency-blocking-lease-no-action",
         target: "FN-H",
       }));

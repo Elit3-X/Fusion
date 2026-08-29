@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSy
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr,
+import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, isWipColumnRole, isReviewColumnRole, isTerminalColumnRole, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr, type WorkflowIrV2,
 
   resolveNearDuplicateCanonicalFlags,
   LEGACY_COLUMN_IDS_BY_ROLE,
@@ -43,6 +43,7 @@ import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_
   classifyTaskBranchOrigin,
   isFusionDeletableBranch,
   isTaskExternallyBlocked,
+  fileScopeLeaseBlocksCandidate,
 } from "@fusion/core";
 import { finalizePlanningSegment } from "@fusion/core";
 import type { WorkspaceLandIntent } from "@fusion/core";
@@ -130,7 +131,7 @@ import {
   sendNtfyNotification,
   type NtfyNotifier,
 } from "./util/notifier.js";
-import { clearBlockedStatusOnly, filterPathsByIgnoreList, getUnmetSchedulingDependencies, isCoordinationOnlyTask, pathsOverlap, shouldHoldActiveFileScopeLease, resolveDependencySatisfactionColumns} from "./scheduler.js";
+import { classifyFileScopeLease, clearBlockedStatusOnly, filterPathsByIgnoreList, getUnmetSchedulingDependencies, isCoordinationOnlyTask, pathsOverlap, resolveDependencySatisfactionColumns } from "./scheduler.js";
 import { runSurfacingSweep, hours, type SurfacingCycle } from "./surfacing-sweeps.js";
 /* U4 substrate PR1: the git-evidence readers and their helpers now live in
    self-healing-git-evidence.ts. Imported back here because call sites remain. */
@@ -138,6 +139,43 @@ import { SelfHealingGitEvidence, execAsync, shellQuote } from "./self-healing-gi
 import { evaluateParkedAgentTaskLink, PARKED_AGENT_LINK_FRESH_RUN_MS } from "./agents/task-agent-sync.js";
 import { describeSelfHealingNoActionWedge } from "./notification/task-wedge-notification.js";
 import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "./healing/recovery-policy.js";
+
+type FileScopeLeaseTaskRoles = {
+  isWipColumn: boolean;
+  isReviewColumn: boolean;
+  isTerminalColumn: boolean;
+};
+
+/*
+FNXC:OverlapScheduling 2026-08-29-06:34:
+Project-wide role unions discover cards for a self-healing sweep, but they cannot classify a file-scope
+lease holder: two workflows may reuse one column id for different lifecycle roles. Resolve the holder's
+selected workflow before deciding whether its unfinished work still blocks overlap. This preserves the
+operator contract that a claim lasts until the holder's work lands without letting another board's role
+silently release or strengthen it.
+*/
+async function resolveFileScopeLeaseTaskRoles(
+  store: TaskStore,
+  task: Pick<Task, "id" | "column">,
+  irCache: Map<string, WorkflowIr>,
+): Promise<FileScopeLeaseTaskRoles> {
+  try {
+    const ir = await resolveWorkflowIrForTask(store, task.id, irCache);
+    const column = (ir as WorkflowIrV2).columns?.find((candidate) => candidate.id === task.column);
+    const flags = column ? resolveColumnFlags(column) : undefined;
+    return {
+      isWipColumn: isWipColumnRole(flags, task.column),
+      isReviewColumn: isReviewColumnRole(flags, task.column),
+      isTerminalColumn: isTerminalColumnRole(flags, task.column),
+    };
+  } catch {
+    return {
+      isWipColumn: isWipColumnRole(undefined, task.column),
+      isReviewColumn: isReviewColumnRole(undefined, task.column),
+      isTerminalColumn: isTerminalColumnRole(undefined, task.column),
+    };
+  }
+}
 
 export {
   COMPLETED_BLOCKED_PAUSE_REASON,
@@ -5310,6 +5348,15 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       const taskById = new Map(allTasks.map((t) => [t.id, t]));
       const overlapIgnorePaths = settings.overlapIgnorePaths ?? [];
       const filteredScopeByTaskId = new Map<string, string[]>();
+      const leaseRoleIrCache = new Map<string, WorkflowIr>();
+      const leaseRolesByTaskId = new Map<string, FileScopeLeaseTaskRoles>();
+      const resolveLeaseRolesFor = async (leaseTask: Task): Promise<FileScopeLeaseTaskRoles> => {
+        const cached = leaseRolesByTaskId.get(leaseTask.id);
+        if (cached) return cached;
+        const roles = await resolveFileScopeLeaseTaskRoles(this.store, leaseTask, leaseRoleIrCache);
+        leaseRolesByTaskId.set(leaseTask.id, roles);
+        return roles;
+      };
       /*
       FNXC:OverlapSelfHealing 2026-06-25-04:34:
       Completion fan-out may preserve queued overlap blockers only when the blocker still holds the scheduler's active file-scope lease. Cache empty filtered scopes too so coordination-only tasks stay deterministic within a reconciliation pass.
@@ -5325,25 +5372,22 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       const hasActiveFileScopeOverlapBlocker = async (dependent: Task, blockerId: string | null | undefined): Promise<boolean> => {
         if (!blockerId) return false;
         const blocker = taskById.get(blockerId);
+        if (!blocker) return false;
         /*
-        FNXC:WorkflowResolvedColumns 2026-07-30-22:20 (shared predicate, HALF-converted):
-        `shouldHoldActiveFileScopeLease` is the scheduler's lease predicate, shared with this path on
-        purpose so stale-blocker cleanup cannot preserve blockers the scheduler would ignore — or, as
-        here, RELEASE blockers the scheduler still honours. Its two role answers are optional
-        parameters defaulting to the legacy ids; the scheduler's own call sites pass resolved answers
-        and these did not, so on a renamed board the two disagreed: the scheduler kept the lease while
-        this sweep saw `false` for every card, cleared `overlapBlockedBy`, and released a dependent to
-        edit files another agent still holds. Membership comes from the sets this sweep already
-        resolved a few lines above.
+        FNXC:OverlapScheduling 2026-08-29-05:49:
+        Completion fan-out must make the same lifetime decision as scheduling. A retained worktree in
+        review or another non-terminal lane still owns unmerged files; dormant holders only preserve a
+        dependent's block when their priority → age → id order wins.
         */
-        if (!blocker || !shouldHoldActiveFileScopeLease(blocker, allTasks, {
+        const roles = await resolveLeaseRolesFor(blocker);
+        const classification = classifyFileScopeLease(blocker, allTasks, {
           mergeRequestContractShadowEnabled: settings.mergeRequestContractShadowEnabled,
-          handoffAccepted: settings.mergeRequestContractShadowEnabled === true
+          handoffAccepted: settings.mergeRequestContractShadowEnabled === true && roles.isReviewColumn
             ? (await this.store.getCompletionHandoffAcceptedMarker(blocker.id)) !== null
             : false,
-          isWipColumn: completedWipColumns.has(blocker.column),
-          isReviewColumn: completedReviewColumns.has(blocker.column),
-        })) return false;
+          ...roles,
+        });
+        if (!fileScopeLeaseBlocksCandidate(blocker, dependent, classification)) return false;
         const dependentScope = await getFilteredFileScope(dependent.id);
         if (dependentScope.length === 0 || isCoordinationOnlyTask(dependent, dependentScope)) return false;
         const blockerScope = await getFilteredFileScope(blocker.id);
@@ -6462,6 +6506,15 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
 
       const overlapIgnorePaths = settings.overlapIgnorePaths ?? [];
       const filteredScopeByTaskId = new Map<string, string[]>();
+      const leaseRoleIrCache = new Map<string, WorkflowIr>();
+      const leaseRolesByTaskId = new Map<string, FileScopeLeaseTaskRoles>();
+      const resolveLeaseRolesFor = async (leaseTask: Task): Promise<FileScopeLeaseTaskRoles> => {
+        const cached = leaseRolesByTaskId.get(leaseTask.id);
+        if (cached) return cached;
+        const roles = await resolveFileScopeLeaseTaskRoles(this.store, leaseTask, leaseRoleIrCache);
+        leaseRolesByTaskId.set(leaseTask.id, roles);
+        return roles;
+      };
       /*
       FNXC:OverlapSelfHealing 2026-06-25-04:34:
       Stale blockedBy cleanup must mirror scheduler lease semantics before preserving queued overlap state. Empty-scope cache hits matter here because no-write-scope advisory tasks should not repeatedly reparse specs or look active by accident.
@@ -6477,25 +6530,16 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       const hasActiveFileScopeOverlapBlocker = async (task: Task, blockerId: string | null | undefined): Promise<boolean> => {
         if (!blockerId) return false;
         const blocker = taskById.get(blockerId);
-        /*
-        FNXC:WorkflowResolvedColumns 2026-07-30-22:20 (shared predicate, HALF-converted):
-        `shouldHoldActiveFileScopeLease` is the scheduler's lease predicate, shared with this path on
-        purpose so stale-blocker cleanup cannot preserve blockers the scheduler would ignore — or, as
-        here, RELEASE blockers the scheduler still honours. Its two role answers are optional
-        parameters defaulting to the legacy ids; the scheduler's own call sites pass resolved answers
-        and these did not, so on a renamed board the two disagreed: the scheduler kept the lease while
-        this sweep saw `false` for every card, cleared `overlapBlockedBy`, and released a dependent to
-        edit files another agent still holds. Membership comes from the sets this sweep already
-        resolved a few lines above.
-        */
-        if (!blocker || !shouldHoldActiveFileScopeLease(blocker, allTasks, {
+        if (!blocker) return false;
+        const roles = await resolveLeaseRolesFor(blocker);
+        const classification = classifyFileScopeLease(blocker, allTasks, {
           mergeRequestContractShadowEnabled: settings.mergeRequestContractShadowEnabled,
-          handoffAccepted: settings.mergeRequestContractShadowEnabled === true
+          handoffAccepted: settings.mergeRequestContractShadowEnabled === true && roles.isReviewColumn
             ? (await this.store.getCompletionHandoffAcceptedMarker(blocker.id)) !== null
             : false,
-          isWipColumn: blockedWipColumns.has(blocker.column),
-          isReviewColumn: blockedReviewColumns.has(blocker.column),
-        })) return false;
+          ...roles,
+        });
+        if (!fileScopeLeaseBlocksCandidate(blocker, task, classification)) return false;
 
         const taskScope = await getFilteredFileScope(task.id);
         if (taskScope.length === 0 || isCoordinationOnlyTask(task, taskScope)) return false;
@@ -6842,6 +6886,20 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         }
       }
       if (!deadlockingDependency || !deadlockEvidence) continue;
+
+      const classification = classifyFileScopeLease(holder, tasks, {
+        schedulingDependencyOptions: dependencyOptions,
+        isWipColumn: true,
+        isReviewColumn: false,
+        isTerminalColumn: false,
+      });
+      /*
+      FNXC:OverlapScheduling 2026-08-29-05:49:
+      A WIP holder waives its file claim only toward its own unmet dependency. Do not bounce the
+      holder when that targeted waiver already lets the dependency run; the old blanket lease drop
+      was a deadlock escape that unnecessarily released unrelated overlapping work.
+      */
+      if (!fileScopeLeaseBlocksCandidate(holder, deadlockingDependency, classification)) continue;
 
       const graceMs = settings.taskStuckTimeoutMs ?? STALE_ACTIVE_BRANCH_EXECUTION_GRACE_MS;
       const proof = await this.evaluateBackwardMoveTripleProof(holder, {

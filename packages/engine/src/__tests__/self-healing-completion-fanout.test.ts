@@ -103,6 +103,30 @@ function createStore(tasks: Task[], settings?: Partial<Settings>): TaskStore & E
   }) as unknown as TaskStore & EventEmitter;
 }
 
+function configureTaskWorkflowSelections(
+  store: TaskStore,
+  definitions: ReadonlyArray<{ id: string; ir: unknown }>,
+  workflowIdByTaskId: Readonly<Record<string, string>>,
+): void {
+  const definitionById = new Map(definitions.map((definition) => [definition.id, definition]));
+  const mutable = store as unknown as {
+    listWorkflowDefinitions: ReturnType<typeof vi.fn>;
+    getTaskWorkflowSelection: ReturnType<typeof vi.fn>;
+    getTaskWorkflowSelectionAsync: ReturnType<typeof vi.fn>;
+    getWorkflowDefinition: ReturnType<typeof vi.fn>;
+  };
+  mutable.listWorkflowDefinitions = vi.fn(async () => definitions);
+  mutable.getTaskWorkflowSelection = vi.fn((taskId: string) => {
+    const workflowId = workflowIdByTaskId[taskId];
+    return workflowId ? { workflowId, stepIds: [] } : undefined;
+  });
+  mutable.getTaskWorkflowSelectionAsync = vi.fn(async (taskId: string) => {
+    const workflowId = workflowIdByTaskId[taskId];
+    return workflowId ? { workflowId, stepIds: [] } : undefined;
+  });
+  mutable.getWorkflowDefinition = vi.fn(async (workflowId: string) => definitionById.get(workflowId));
+}
+
 describe("self-healing completion fan-out", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -133,6 +157,99 @@ describe("self-healing completion fan-out", () => {
     expect((store as any).logEntry).toHaveBeenCalledWith(
       "FN-CLEAR",
       expect.stringContaining("FN-4523"),
+    );
+  });
+
+  it("preserves an overlap block held by a failed review task with a worktree", async () => {
+    const completed = makeTask("FN-COMPLETED", { column: "done" });
+    const overlapHolder = makeTask("FN-OVERLAP", {
+      column: "in-review",
+      status: "failed",
+      worktree: "/wt/fn-overlap",
+    });
+    const dependent = makeTask("FN-DEPENDENT", {
+      column: "todo",
+      status: "queued",
+      blockedBy: completed.id,
+      overlapBlockedBy: overlapHolder.id,
+    });
+    const store = createStore([completed, overlapHolder, dependent]);
+    (store as any).parseFileScopeFromPrompt = vi.fn(async () => ["packages/core/src/store.ts"]);
+    const mgr = new SelfHealingManager(store, { rootDir: "/repo" });
+
+    await mgr.reconcileCompletedTask(completed.id);
+
+    expect(await store.getTask(dependent.id)).toMatchObject({
+      status: "queued",
+      blockedBy: null,
+      overlapBlockedBy: overlapHolder.id,
+    });
+    expect((store as any).transitionQueuedEpisode).toHaveBeenCalledWith(
+      dependent.id,
+      expect.objectContaining({ signature: `file-scope:${overlapHolder.id}` }),
+    );
+  });
+
+  it("uses the holder workflow rather than a project-wide terminal column union", async () => {
+    const completed = makeTask("FN-254-COMPLETED", { column: "done" });
+    const overlapHolder = makeTask("FN-254-HOLDER", {
+      column: "shared",
+      priority: "high",
+      worktree: "/wt/fn-254-holder",
+    });
+    const dependent = makeTask("FN-254-DEPENDENT", {
+      column: "todo",
+      priority: "normal",
+      status: "queued",
+      blockedBy: completed.id,
+      overlapBlockedBy: overlapHolder.id,
+    });
+    const store = createStore([completed, overlapHolder, dependent]);
+    (store as any).parseFileScopeFromPrompt = vi.fn(async () => ["packages/core/src/store.ts"]);
+    configureTaskWorkflowSelections(
+      store,
+      [
+        {
+          id: "wf-holder",
+          ir: {
+            version: "v2",
+            name: "holder-workflow",
+            columns: [
+              { id: "todo", name: "Todo", traits: [{ trait: "hold" }] },
+              { id: "shared", name: "Shared", traits: [] },
+              { id: "done", name: "Done", traits: [{ trait: "complete" }] },
+            ],
+            nodes: [],
+            edges: [],
+          },
+        },
+        {
+          id: "wf-other",
+          ir: {
+            version: "v2",
+            name: "other-workflow",
+            columns: [
+              { id: "shared", name: "Shared", traits: [{ trait: "complete" }] },
+            ],
+            nodes: [],
+            edges: [],
+          },
+        },
+      ],
+      { [overlapHolder.id]: "wf-holder" },
+    );
+    const mgr = new SelfHealingManager(store, { rootDir: "/repo" });
+
+    await mgr.reconcileCompletedTask(completed.id);
+
+    expect(await store.getTask(dependent.id)).toMatchObject({
+      status: "queued",
+      blockedBy: null,
+      overlapBlockedBy: overlapHolder.id,
+    });
+    expect((store as any).transitionQueuedEpisode).toHaveBeenCalledWith(
+      dependent.id,
+      expect.objectContaining({ signature: `file-scope:${overlapHolder.id}` }),
     );
   });
 

@@ -810,7 +810,7 @@ export function buildExecuteCoreDeps(host: any): any {
     releaseSemaphore: () => { host.options.semaphore?.release(); },
     ...facadeMethods(host, [
       "clearStalePauseAbortBeforeDispatch", "blockOuterDispatchWhenDependenciesUnmet",
-      "executeWorkflowGraph",
+      "blockOuterDispatchWhenFileScopeLeaseHeld", "executeWorkflowGraph",
     ]),
   };
 }
