@@ -1721,14 +1721,13 @@ function TaskCardComponent({
 
   `awaitingPlanning` is absent from SSE payloads, so its step-count fallback deliberately matches the Ready / Queued to plan badge pair. `isAwaitingApproval` only applies on an intake-trait merged planning lane or for the `plan-review-replan-cap` reason.
 
-  FNXC:TaskCardPromote 2026-08-11-09:13:
-  FN-8950 anticipates `issueRelease`'s approval and unplanned refusal arms. An enabled-but-pending
-  default-on Plan Review in Todo and an absent enabled-step selection are both blocked; approval
-  holds are blocked on every column rather than only intake. This is deliberately conservative,
-  not exact parity: the card cannot resolve custom defaultOn values, plan-review's column/WIP
-  position, or capacity continuations, and also suppresses the planning-stage `specifying` and
+  FNXC:TaskCardPromote 2026-08-29-00:24:
+  FN-245 removes force promotion, so the card continues to suppress the shortcut for every
+  unplanned or approval-held state. This remains deliberately conservative rather than exact
+  parity: the card cannot resolve custom defaultOn values, plan-review's column/WIP position, or
+  capacity continuations, and also suppresses the planning-stage `specifying` and
   `plan-review-unavailable` statuses. Hiding a shortcut is safer than offering a click the server
-  rejects: capacity release and explicit force promotion remain available.
+  rejects; capacity release remains available for genuinely planned cards.
   */
   const isStillInPlanning = awaitingPlanning
     || ["planning", "specifying", "needs-replan", "plan-review-unavailable"].includes(task.status ?? "")

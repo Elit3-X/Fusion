@@ -444,9 +444,8 @@ export function Board({ tasks, projectId, maxConcurrent, effectiveMaxConcurrent 
     columnFlagsByTaskId: blockerFanoutColumnFlagsByTaskId,
   });
 
-  const handlePromote = useCallback(async (taskId: string, options?: { force?: boolean }) => {
-    // `force` only ever arrives from Column's confirmed unplanned-for-execution override.
-    await promoteTask(taskId, projectId, options);
+  const handlePromote = useCallback(async (taskId: string) => {
+    await promoteTask(taskId, projectId);
   }, [projectId]);
 
   const handleToggleAutoMerge = useCallback(() => {

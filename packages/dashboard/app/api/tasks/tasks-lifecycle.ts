@@ -17,16 +17,15 @@ import type { DeleteTaskOptions, ArchiveTaskOptions } from "./tasks.js";
 /**
  * Manually promote a held card out of its hold column (U9).
  *
- * FNXC:WorkflowScheduling 2026-07-25-04:55:
- * `force` waives the `unplanned-for-execution` gate (pending replan / pre-release
- * Plan Review) and starts execution anyway. It is only ever sent after the
- * operator confirms the override dialog the plain promote's rejection raises;
- * capacity is still enforced server-side, so a forced promote can still reject.
+ * FNXC:WorkflowScheduling 2026-08-29-00:24:
+ * FN-245 removes the browser client's force option. Every promote request is a
+ * normal release attempt, so an unplanned or approval-held card remains held
+ * until its planning gates genuinely complete.
  */
-export function promoteTask(id: string, projectId?: string, options?: { force?: boolean }): Promise<Task> {
+export function promoteTask(id: string, projectId?: string): Promise<Task> {
   return api<Task>(withProjectId(`/tasks/${id}/promote`, projectId), {
     method: "POST",
-    body: JSON.stringify({ force: options?.force === true }),
+    body: JSON.stringify({}),
   });
 }
 

@@ -143,58 +143,52 @@ describe("automatic capacity-hold candidacy", () => {
     expect(reserveSlot).not.toHaveBeenCalled();
   });
 
-  it("keeps an explicit promote refusal durable while force still releases the same seed", async () => {
-    const refusedTask = task({ id: "FN-2421" });
-    const refused = await makeStore(refusedTask, {
-      prompt: buildBootstrapPrompt(refusedTask.id, refusedTask.title, refusedTask.description),
+  it("keeps explicit promote refusals durable for every unplanned seed", async () => {
+    const firstTask = task({ id: "FN-2421" });
+    const first = await makeStore(firstTask, {
+      prompt: buildBootstrapPrompt(firstTask.id, firstTask.title, firstTask.description),
     });
 
-    await expect(promoteHeldTask(refused.store, refusedTask.id)).resolves.toMatchObject({
+    await expect(promoteHeldTask(first.store, firstTask.id)).resolves.toMatchObject({
       released: false,
       rejection: "unplanned-for-execution",
     });
-    expect(refused.checkAndRecordUnplannedExecutionBlock).toHaveBeenCalledTimes(1);
-    expect(refusedTask.log.filter((entry) => entry.message.includes("Execution dispatch refused"))).toHaveLength(1);
+    expect(first.checkAndRecordUnplannedExecutionBlock).toHaveBeenCalledTimes(1);
+    expect(firstTask.log.filter((entry) => entry.message.includes("Execution dispatch refused"))).toHaveLength(1);
+    expect(first.moveTaskIf).not.toHaveBeenCalled();
 
-    const forcedTask = task({ id: "FN-2422" });
-    const forced = await makeStore(forcedTask, {
-      prompt: buildBootstrapPrompt(forcedTask.id, forcedTask.title, forcedTask.description),
+    const secondTask = task({ id: "FN-2422" });
+    const second = await makeStore(secondTask, {
+      prompt: buildBootstrapPrompt(secondTask.id, secondTask.title, secondTask.description),
     });
-    await expect(promoteHeldTask(forced.store, forcedTask.id, {}, { force: true })).resolves.toMatchObject({
-      released: true,
-      forcedUnplanned: true,
+    await expect(promoteHeldTask(second.store, secondTask.id)).resolves.toMatchObject({
+      released: false,
+      rejection: "unplanned-for-execution",
     });
-    expect(forced.moveTaskIf).toHaveBeenCalledTimes(1);
-    expect(forced.checkAndRecordUnplannedExecutionBlock).not.toHaveBeenCalled();
+    expect(second.checkAndRecordUnplannedExecutionBlock).toHaveBeenCalledTimes(1);
+    expect(second.moveTaskIf).not.toHaveBeenCalled();
   });
 
-  it("preserves the forced Plan Review waiver and replan bookkeeping", async () => {
+  it("does not write plan-review waiver bookkeeping for a terminal refusal", async () => {
     const original = task({ id: "FN-2423", status: "needs-replan" });
     const fixture = await makeStore(original, { ir: workflow(true) });
 
-    await expect(promoteHeldTask(fixture.store, original.id, {}, { force: true })).resolves.toMatchObject({
-      released: true,
-      forcedUnplanned: true,
+    await expect(promoteHeldTask(fixture.store, original.id)).resolves.toMatchObject({
+      released: false,
+      rejection: "unplanned-for-execution",
     });
-    expect(original.status).toBeNull();
-    expect(original.workflowStepResults).toEqual([
-      expect.objectContaining({
-        workflowStepId: PLAN_REVIEW_GROUP_ID,
-        status: "skipped",
-        bypassedBy: "operator-force-promote",
-      }),
-    ]);
-    expect(fixture.recordRunAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
-      mutationType: "task:promote-forced-unplanned",
-      taskId: original.id,
-    }));
+    expect(original.status).toBe("needs-replan");
+    expect(original.workflowStepResults).toBeUndefined();
+    expect(fixture.updateTask).not.toHaveBeenCalled();
+    expect(fixture.recordRunAuditEvent).not.toHaveBeenCalled();
+    expect(fixture.moveTaskIf).not.toHaveBeenCalled();
   });
 
-  it("does not turn force into an approval bypass for a fully planned card", async () => {
+  it("keeps a fully planned approval-held card refused", async () => {
     const original = task({ id: "FN-2424", status: "awaiting-approval" });
     const fixture = await makeStore(original);
 
-    await expect(promoteHeldTask(fixture.store, original.id, {}, { force: true })).resolves.toMatchObject({
+    await expect(promoteHeldTask(fixture.store, original.id)).resolves.toMatchObject({
       released: false,
       rejection: "capacity-exhausted-or-no-slot",
     });
@@ -204,16 +198,17 @@ describe("automatic capacity-hold candidacy", () => {
     expect(fixture.checkAndRecordUnplannedExecutionBlock).not.toHaveBeenCalled();
   });
 
-  it("still reserves capacity after an operator forces an unplanned card", async () => {
+  it("does not reserve capacity for an unplanned card", async () => {
     const original = task({ id: "FN-2425", status: "needs-replan" });
     const fixture = await makeStore(original);
     const reserveSlot = vi.fn(async () => null);
 
-    await expect(promoteHeldTask(fixture.store, original.id, { reserveSlot }, { force: true })).resolves.toMatchObject({
+    await expect(promoteHeldTask(fixture.store, original.id, { reserveSlot })).resolves.toMatchObject({
       released: false,
-      rejection: "capacity-exhausted-or-no-slot",
+      rejection: "unplanned-for-execution",
     });
-    expect(reserveSlot).toHaveBeenCalledTimes(1);
+    expect(reserveSlot).not.toHaveBeenCalled();
+    expect(fixture.moveTaskIf).not.toHaveBeenCalled();
   });
 
   it("distinguishes pending Plan Review from an active capacity continuation", async () => {

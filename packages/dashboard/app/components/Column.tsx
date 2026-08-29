@@ -233,8 +233,7 @@ interface ColumnProps {
   /** Per-task workflow columns for aggregate Board cards whose tasks come from different workflows. */
   taskContextMenuColumnsByTaskId?: ReadonlyMap<string, readonly TaskContextMenuColumnMetadata[]>;
   /** Manually promote a held card out of this hold column (workflow mode). */
-  /** `force` waives the unplanned-for-execution gate after operator confirmation. */
-  onPromote?: (taskId: string, options?: { force?: boolean }) => Promise<void>;
+  onPromote?: (taskId: string) => Promise<void>;
 }
 
 function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMaxConcurrent = maxConcurrent, showWorktreeGrouping, onMoveTask, onPauseTask, onUnpauseTask, onResetTask, onDuplicateTask, onMergeTask, onOpenDetail, onOpenRefine, onOpenGroupModal, addToast, onQuickCreate, onNewTask, autoMerge, mergeStrategy = "direct", onToggleAutoMerge, planAutoApproveEnabled, onTogglePlanAutoApprove, globalPaused, onUpdateTask, onRetryTask, onOpenChatWithPrefill, onArchiveTask, onUnarchiveTask, onRevertTask, onReviseTask, onDeleteTask, onArchiveAllDone, sortMode, onSortModeChange, doneSortMode, onDoneSortModeChange, collapsed, onToggleCollapse, archivedHasMore, archivedLoadingMore, onLoadMoreArchived, allTasks, availableModels, onPlanningMode, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, onOpenMission, lastFetchTimeMs, taskCardFieldDefs, taskWorkflowBadges, blockerFanoutMap, prAuthAvailable, holdTaskIds, workflowMode, workflowId, workflowOptions, defaultWorkflowId, columnDisplayName, columnDescription, columnFlags, workflowContextMenuColumns, taskContextMenuColumnsByTaskId, onPromote }: ColumnProps) {
@@ -424,14 +423,12 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMax
   }, [isSearchActive, searchResultSignature]);
 
   /*
-  FNXC:BoardPromote 2026-07-25-04:55:
-  Promote is a two-attempt flow for the `unplanned-for-execution` rejection only.
-  The first attempt never forces; if the server refuses because a replan / plan
-  review is still outstanding, the operator is asked whether to start execution
-  anyway and the retry carries `{ force: true }`. Every other rejection (capacity,
-  guard) stays a plain inline message with no override — those are not the
-  operator's call to waive. Inline feedback rather than a toast, so several holds
-  can promote concurrently without toast spam.
+  FNXC:BoardPromote 2026-08-29-00:24:
+  FN-245 makes promote a single release attempt. An `unplanned-for-execution`
+  refusal is terminal at this surface, so the board shows the existing inline
+  copy without opening a confirmation dialog or retrying with an override.
+  Inline feedback rather than a toast lets several held cards report safely at
+  once without toast spam.
   */
   const handlePromote = useCallback(async (taskId: string) => {
     if (!onPromote) return;
@@ -442,29 +439,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMax
       return next;
     });
     try {
-      try {
-        await onPromote(taskId);
-      } catch (err) {
-        const rejection = extractTransitionRejection(err);
-        if (rejection?.code !== "unplanned-for-execution") throw err;
-
-        const forceConfirmed = await confirm({
-          title: t("column.promoteUnplannedTitle", "Start execution anyway?"),
-          message: t(
-            "column.promoteUnplannedMessage",
-            "{{taskId}} is still waiting on planning or plan review. Promoting now starts execution with the current plan and cancels the pending replan.",
-            { taskId },
-          ),
-          confirmLabel: t("column.promoteUnplannedConfirm", "Start Anyway"),
-          cancelLabel: t("column.promoteUnplannedCancel", "Keep Waiting"),
-          danger: true,
-        });
-        if (!forceConfirmed) {
-          setInlineFeedback(translateRejection(t, rejection));
-          return;
-        }
-        await onPromote(taskId, { force: true });
-      }
+      await onPromote(taskId);
     } catch (err) {
       const rejection = extractTransitionRejection(err);
       if (rejection) {
@@ -479,7 +454,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, effectiveMax
         return next;
       });
     }
-  }, [confirm, onPromote, t]);
+  }, [onPromote, t]);
 
   /*
   FNXC:WorkflowResolvedColumns 2026-07-30-20:10 (PR #2772 review — my own inert conversion):

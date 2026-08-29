@@ -53,7 +53,6 @@ import {
   resolveEffectiveAutoMerge,
   isTaskBlockedOnApproval,
   isPlanReviewSatisfied,
-  resolveWorkflowOptionalSteps,
   type TaskStore,
   type Task,
   type TaskReleaseGateVerdict,
@@ -122,6 +121,10 @@ export interface HoldReleaseResult {
   budgetTruncated?: boolean;
   unevaluatedCount?: number;
 }
+
+type IssueReleaseResult =
+  | { released: true }
+  | { released: false; rejection?: "unplanned-for-execution" };
 
 // ── Workflow IR resolution (read-only) ────────────────────────────────────────
 // The selection → builtin/custom → default rule lives in @fusion/core's
@@ -482,9 +485,9 @@ async function dependencySatisfied(ctx: SweepCtx, dep: Task): Promise<Dependency
 
   if (completeFlag !== legacy) {
     /*
-    FNXC:RunAudit 2026-08-20-05:39:
-    Hold-release telemetry is best-effort: a hostile audit sink must never gate a sweep,
-    force-promote, or event release.
+    FNXC:RunAudit 2026-08-29-00:24:
+    FN-245 removes force-promote; hold-release telemetry remains best-effort so a
+    hostile audit sink never gates a sweep, explicit promote, or event release.
     */
     void emitBoundedRunAudit(ctx.store, {
         taskId: dep.id,
@@ -802,8 +805,8 @@ export async function runHoldReleaseSweep(
       }
       // Once issueRelease starts it must complete: it may own a reservation and move transaction.
       if (expired()) { breakIndex = index; break; }
-      const released = await issueRelease(store, deps, task, target, ir);
-      if (released) { const waitedMs = deps.now() - (heldSince.get(task.id)?.sinceMs ?? deps.now()); heldSince.delete(task.id); schedulerLog.log(`Hold release for ${task.id} → ${target} after ${waitedMs}ms held (release=${release})`); result.released.push(task.id); }
+      const releaseResult = await issueRelease(store, deps, task, target, ir);
+      if (releaseResult.released) { const waitedMs = deps.now() - (heldSince.get(task.id)?.sinceMs ?? deps.now()); heldSince.delete(task.id); schedulerLog.log(`Hold release for ${task.id} → ${target} after ${waitedMs}ms held (release=${release})`); result.released.push(task.id); }
       else { trackHeld(task.id, "move-rejected-or-no-slot", deps.now()); result.held.push({ taskId: task.id, reason: "move-rejected-or-no-slot" }); }
       evaluatedTaskIds.add(task.id);
     }
@@ -830,8 +833,8 @@ export async function runHoldReleaseSweep(
  * Issue a single release move (`moveSource: "scheduler"`). For releases into a
  * processing (capacity) column the reservation-first ordering (KTD-10) reserves
  * worktree + semaphore before the move and releases the reservation if the move
- * rejects on capacity. Returns true on a committed move, false otherwise (the
- * card stays held).
+ * rejects on capacity. Its classified result lets explicit callers retain a
+ * planning-gate refusal that is discovered from the locked live task.
  */
 async function issueRelease(
   store: TaskStore,
@@ -839,66 +842,29 @@ async function issueRelease(
   task: Task,
   target: string,
   ir: WorkflowIr,
-  options: { allowUnplanned?: boolean } = {},
-): Promise<boolean> {
+): Promise<IssueReleaseResult> {
   const targetColumn = findColumn(ir, target);
   const targetIsProcessing = targetColumn ? resolveColumnFlags(targetColumn).countsTowardWip === true : false;
 
   /*
-  FNXC:WorkflowScheduling 2026-07-07-00:00:
-  Every release surface funnels through this function (the sweep, explicit
-  `promoteHeldTask`, and `releaseHeldTaskByEvent`) so a single defensive check
-  here covers all of them — including the operator/webhook release paths that
-  do not pass a `reserveSlot` dep at all and would otherwise bypass the
-  scheduler's `reserveSlot` guard entirely. An unplanned card (bootstrap-stub
-  PROMPT.md, `status: "planning"`, or resident in an `intake`-trait column)
-  must never be moved into a processing column, no matter which surface
-  requested the release (FN-7648).
-
-  FNXC:WorkflowScheduling 2026-07-25-04:55:
-  `allowUnplanned` is the ONLY way past this check, and it is set exclusively by
-  an explicit operator force-promote (`promoteHeldTask({ force: true })`). The
-  automatic surfaces — the sweep and the webhook release — never pass it, so
-  FN-7648's invariant still holds for every non-operator release.
+  FNXC:WorkflowScheduling 2026-08-29-00:24:
+  FN-245 removes the operator force-promote override and its `allowUnplanned`
+  waiver. Every release surface funnels through this choke point, so an
+  unplanned or approval-held card is refused before it can enter a processing
+  column; no caller can bypass either gate.
   */
-  /*
-  FNXC:PlanApprovalHold 2026-07-27-19:30 (U7 / R4):
-  A card blocked on a pending human approval decision must never be released into
-  a processing column by an AUTOMATED surface. `isTaskBlockedOnApproval` is core's
-  declared "single shared predicate ... before rebounding, requeuing, resuming,
-  re-planning, or otherwise advancing a task" (task-merge.ts), and this release
-  path did not consult it.
-
-  How it was reachable: the manual plan-approval gate parks the card by writing
-  `status: "awaiting-approval"` with NO pause flag, so the pre-existing
-  `task.paused || task.userPaused` skip in `runHoldReleaseSweep` did not match,
-  and `isUnplannedForExecution` enumerates only `planning` / `needs-replan`. Once
-  the plan-review gate's evidence landed, the sweep released a card whose plan the
-  operator had never approved — the gate was skipped end to end.
-
-  Checked HERE rather than in each caller because `issueRelease` is the single
-  choke point every release surface funnels through (sweep, `promoteHeldTask`,
-  `releaseHeldTaskByEvent`, and the scheduler's `reserveSlot` guard). Gated on
-  `!options.allowUnplanned` for the same reason the unplanned check is: an
-  explicit operator force-promote IS a human decision about this card, so it
-  waives the human-decision gate, while no automatic surface can.
-  */
-  /*
-  FNXC:WorkflowScheduling 2026-08-28-21:24:
-  `allowUnplanned` remains the operator-only plan-gate waiver derived from the card's unplanned state, never from `force` alone. It short-circuits candidacy evaluation exactly as the prior paired guards did; automatic and external-event releases cannot set it, while explicit non-forced requests still receive the durable FN-7648 refusal they requested.
-  */
-  if (targetIsProcessing && !options.allowUnplanned) {
+  if (targetIsProcessing) {
     const readiness = await evaluateCapacityHoldReadiness(store, deps, task, ir, target);
     if (!readiness.releasable && readiness.kind === "awaiting-approval") {
       schedulerLog.debug(
         `Hold release for ${task.id} blocked — awaiting a human approval decision (status=${task.status ?? "null"}, pausedReason=${task.pausedReason ?? "null"})`,
       );
-      return false;
+      return { released: false };
     }
     if (!readiness.releasable) {
       await checkAndRecordUnplannedExecutionBlock(store, task, ir);
       schedulerLog.debug(`Hold release for ${task.id} blocked — card is unplanned and cannot enter processing column ${target}`);
-      return false;
+      return { released: false, rejection: "unplanned-for-execution" };
     }
   }
 
@@ -913,30 +879,42 @@ async function issueRelease(
       A held card re-attempts release on every sweep, so a full board reprinted this line per task per poll and buried real scheduler events. Being at capacity is the expected steady state, not an event: debug-only (`FUSION_DEBUG=scheduler`).
       */
       schedulerLog.debug(`Hold release for ${task.id} deferred — no reservable slot for ${target}`);
-      return false;
+      return { released: false };
     }
   }
 
   try {
     const originalColumn = task.column;
+    let liveUnplanned: Task | undefined;
     /*
     FNXC:UserPausedDispatch 2026-07-21-21:45:
     Hold release must test the source column and both pause flags under the same task lock as the move. This makes an operator pause win atomically against scheduler dispatch and also replaces event-identity inference for concurrent release attempts.
 
-    FNXC:PlanApprovalHold 2026-07-27-19:30 (U7 / R6):
-    The approval hold is tested here too, not only in the pre-check above. The
-    pre-check reads a task snapshot the sweep loaded earlier in the pass, so a plan
-    gate (or an operator) that parks the card between that read and this move would
-    otherwise lose the race and the card would release unapproved. Only the
-    predicate under the task lock is authoritative; the pre-check is an early exit.
-    `allowUnplanned` is carried through so an explicit operator force-promote waives
-    the gate here exactly as it does above — one waiver, not two policies.
+    FNXC:WorkflowScheduling 2026-08-29-00:24:
+    FN-245 keeps the approval gate under the task lock and removes its former
+    operator waiver. A release that races an approval hold is refused on every
+    surface instead of entering a processing column.
+
+    FNXC:WorkflowScheduling 2026-08-29-00:59:
+    FN-245 requires the execution-entry gate to inspect the task held by
+    `moveTaskIf`'s lock, not the earlier release candidate. A replan or newly
+    pending Plan Review that lands while capacity is reserved keeps the card
+    held; refusal evidence is recorded after the lock releases.
     */
     const result = await store.moveTaskIf(
       task.id,
       target,
-      (live) => live.column === originalColumn && live.paused !== true && live.userPaused !== true
-        && !(targetIsProcessing && !options.allowUnplanned && isTaskBlockedOnApproval(live)),
+      async (live) => {
+        if (live.column !== originalColumn || live.paused === true || live.userPaused === true
+          || (targetIsProcessing && isTaskBlockedOnApproval(live))) {
+          return false;
+        }
+        if (targetIsProcessing && await isUnplannedForExecution(store, live, ir)) {
+          liveUnplanned = live;
+          return false;
+        }
+        return true;
+      },
       {
         moveSource: "scheduler",
         allocateWorktree:
@@ -947,24 +925,29 @@ async function issueRelease(
     );
     if (!result.moved) {
       reservation?.release();
+      if (liveUnplanned) {
+        await checkAndRecordUnplannedExecutionBlock(store, liveUnplanned, ir);
+        schedulerLog.debug(`Hold release for ${task.id} blocked — card became unplanned before entering processing column ${target}`);
+        return { released: false, rejection: "unplanned-for-execution" };
+      }
       schedulerLog.log(`Hold release for ${task.id} skipped — task became paused or left ${originalColumn}`);
-      return false;
+      return { released: false };
     }
-    return true;
+    return { released: true };
   } catch (error) {
     if (error instanceof TransitionRejectionError && error.rejection.code === "capacity-exhausted") {
       // Lost the in-txn race for the slot — release the reservation, stay held.
       // FNXC:EngineDiagnostics 2026-07-26-08:17: capacity races re-hit every sweep while full; same class as deferred-no-slot → debug.
       reservation?.release();
       schedulerLog.debug(`Hold release for ${task.id} rejected on capacity for ${target} — staying held`);
-      return false;
+      return { released: false };
     }
     // Any other failure: release the reservation and let the card stay held.
     reservation?.release();
     schedulerLog.warn(
       `Hold release for ${task.id} into ${target} failed: ${error instanceof Error ? error.message : String(error)}`,
     );
-    return false;
+    return { released: false };
   }
 }
 
@@ -978,26 +961,17 @@ async function issueRelease(
  * still serializes through the in-txn capacity check (KTD-10): a promote into a
  * full column rejects with `capacity-exhausted`, surfaced to the caller.
  *
- * FNXC:WorkflowScheduling 2026-07-25-04:55:
- * `options.force` is the operator's "start it anyway" override for the
- * `unplanned-for-execution` rejection: an operator who has read the card and
- * decided the pending replan / Plan Review is not worth waiting for can push it
- * straight into execution. Force ONLY relaxes the unplanned gate — the hold
- * membership, release target, capacity check, and slot reservation are all still
- * enforced, so a forced promote into a full column still rejects on capacity.
- * Force also CLEARS a durable replan signal (`needs-replan` /
- * `plan-review-unavailable`) before the move: those statuses are read by triage's
- * todo rediscovery and by this module's own gate, so leaving one in place would
- * let the card be pulled back for the very replan the operator just waived.
- * `status: "planning"` is deliberately NOT cleared — triage is mid-write on
- * PROMPT.md and clearing it would race the writer; the card still releases.
+ * FNXC:WorkflowScheduling 2026-08-29-00:24:
+ * FN-245 makes explicit promotion a non-waivable release attempt. An unplanned
+ * or approval-held card remains held on every promote surface until planning
+ * and any required approval genuinely complete; capacity and slot reservation
+ * checks continue to protect planned cards.
  */
 export async function promoteHeldTask(
   store: TaskStore,
   taskId: string,
   deps: Pick<HoldReleaseDeps, "reserveSlot" | "allocateWorktree"> = {},
-  options: { force?: boolean } = {},
-): Promise<{ released: boolean; toColumn?: string; rejection?: string; forcedUnplanned?: boolean }> {
+): Promise<{ released: boolean; toColumn?: string; rejection?: string }> {
   const task = await store.getTask(taskId);
   if (!task) return { released: false, rejection: "task-not-found" };
 
@@ -1009,88 +983,36 @@ export async function promoteHeldTask(
   if (!target) return { released: false, rejection: "no-release-target" };
 
   /*
-  FNXC:WorkflowScheduling 2026-07-21-22:31:
-  Surface pre-release Plan Review / unplanned holds distinctly from true WIP
-  capacity. issueRelease returns a bare false for both; without this check the
-  promote API mislabeled FN-8471-style plan-review waits as capacity-exhausted.
+  FNXC:WorkflowScheduling 2026-08-29-00:24:
+  FN-245 replaces the synthetic skipped Plan Review result and replan-status
+  clear with a terminal refusal. The explicit promotion path records the
+  existing refusal evidence but cannot manufacture a waiver for plan review.
   */
   const targetColumn = findColumn(ir, target);
   const targetIsProcessing = targetColumn
     ? resolveColumnFlags(targetColumn).countsTowardWip === true
     : false;
   const unplanned = targetIsProcessing && (await isUnplannedForExecution(store, task, ir));
-  if (unplanned && options.force !== true) {
+  if (unplanned) {
     await checkAndRecordUnplannedExecutionBlock(store, task, ir);
     return { released: false, rejection: "unplanned-for-execution", toColumn: target };
   }
 
-  let promoted = task;
-  if (unplanned) {
-    /*
-    FNXC:RequiredPreMergeSteps 2026-08-22-21:27:
-    A forced release explicitly waives the plan gate. Persist that waiver as a
-    terminal skipped result, otherwise the merge-door resultless-gate check
-    would silently reverse the operator's force-promote decision later.
-    */
-    const planReview = resolveWorkflowOptionalSteps(ir).find((step) => step.templateId === PLAN_REVIEW_GROUP_ID);
-    const planGateWaived = planReview
-      && isWorkflowOptionalGroupEnabled(task.enabledWorkflowSteps, planReview.templateId, planReview.defaultOn)
-      && !task.workflowStepResults?.some((result) => result.workflowStepId === planReview.templateId);
-    if (planGateWaived) {
-      const now = new Date().toISOString();
-      const workflowStepResults = [
-        ...(task.workflowStepResults ?? []),
-        {
-          workflowStepId: planReview.templateId,
-          workflowStepName: planReview.name,
-          phase: "pre-merge" as const,
-          status: "skipped" as const,
-          bypassedBy: "operator-force-promote",
-          bypassedAt: now,
-          bypassReason: "forced-promote waived plan gate",
-          bypassedFromStatus: "absent" as const,
-        },
-      ];
-      await store.updateTask(task.id, { workflowStepResults });
-      promoted = { ...promoted, workflowStepResults };
-    }
-    // Clear the durable replan signal so triage's todo rediscovery and this
-    // module's own gate do not pull the card back into the waived replan.
-    if (task.status === "needs-replan" || task.status === "plan-review-unavailable") {
-      try {
-        await store.updateTask(task.id, { status: null });
-        promoted = { ...task, status: undefined };
-      } catch (error) {
-        schedulerLog.warn(
-          `Force-promote for ${task.id} could not clear replan status: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
-    // ids/outcomes-only audit of the override (no prompt or reason prose).
-    await emitBoundedRunAudit(store, {
-          domain: "database",
-          mutationType: "task:promote-forced-unplanned",
-          target: task.id,
-          taskId: task.id,
-          agentId: "system",
-          runId: `promote-force-${task.id}`,
-          metadata: { fromColumn: task.column, toColumn: target, priorStatus: task.status ?? null },
-        }, { log: schedulerLog });
-    schedulerLog.log(`Force-promote for ${task.id} bypassing unplanned gate into ${target} (operator override)`);
-  }
-
-  const released = await issueRelease(
+  const releaseResult = await issueRelease(
     store,
     { now: () => Date.now(), reserveSlot: deps.reserveSlot, allocateWorktree: deps.allocateWorktree },
-    promoted,
+    task,
     target,
     ir,
-    { allowUnplanned: unplanned },
   );
-  if (!released) {
-    return { released: false, rejection: "capacity-exhausted-or-no-slot" };
+  if (!releaseResult.released) {
+    return {
+      released: false,
+      rejection: releaseResult.rejection ?? "capacity-exhausted-or-no-slot",
+      ...(releaseResult.rejection ? { toColumn: target } : {}),
+    };
   }
-  return { released: true, toColumn: target, forcedUnplanned: unplanned || undefined };
+  return { released: true, toColumn: target };
 }
 
 /**
@@ -1126,12 +1048,33 @@ export async function releaseHeldTaskByEvent(
   const target = resolveReleaseTarget(ir, task.column, true);
   if (!target) return { released: false, rejection: "no-release-target" };
 
-  const released = await issueRelease(
+  /*
+  FNXC:WorkflowScheduling 2026-08-29-00:50:
+  FN-245 requires an external-event release to report the same terminal
+  unplanned refusal as manual promotion. Classify and record the refusal before
+  the boolean release helper so a planning gate cannot be reported as capacity.
+  */
+  const targetColumn = findColumn(ir, target);
+  const targetIsProcessing = targetColumn
+    ? resolveColumnFlags(targetColumn).countsTowardWip === true
+    : false;
+  if (targetIsProcessing && await isUnplannedForExecution(store, task, ir)) {
+    await checkAndRecordUnplannedExecutionBlock(store, task, ir);
+    return { released: false, rejection: "unplanned-for-execution", toColumn: target };
+  }
+
+  const releaseResult = await issueRelease(
     store,
     { now: () => Date.now(), reserveSlot: deps.reserveSlot, allocateWorktree: deps.allocateWorktree },
     task,
     target,
     ir,
   );
-  return released ? { released: true, toColumn: target } : { released: false, rejection: "capacity-exhausted-or-no-slot" };
+  return releaseResult.released
+    ? { released: true, toColumn: target }
+    : {
+        released: false,
+        rejection: releaseResult.rejection ?? "capacity-exhausted-or-no-slot",
+        ...(releaseResult.rejection ? { toColumn: target } : {}),
+      };
 }

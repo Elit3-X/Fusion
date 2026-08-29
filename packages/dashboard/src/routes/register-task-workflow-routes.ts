@@ -2660,15 +2660,12 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         : undefined;
 
       /*
-      FNXC:WorkflowScheduling 2026-07-25-04:55:
-      `{ force: true }` is the operator's explicit "start it anyway" override for
-      the `unplanned-for-execution` rejection below — the board offers it in the
-      confirm dialog that rejection raises. It waives ONLY the plan/replan gate;
-      capacity and slot reservation still arbitrate the move.
+      FNXC:WorkflowScheduling 2026-08-29-00:24:
+      FN-245 removes the promote override. A `force` body field is inert so the
+      route always preserves the plan and approval gates enforced by
+      `promoteHeldTask`.
       */
-      const force = (req.body as { force?: unknown } | undefined)?.force === true;
-
-      const result = await promoteHeldTask(scopedStore, req.params.id, { allocateWorktree }, { force });
+      const result = await promoteHeldTask(scopedStore, req.params.id, { allocateWorktree });
       if (!result.released) {
         /*
         FNXC:WorkflowScheduling 2026-07-21-22:31:
@@ -2681,8 +2678,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
             code: "unplanned-for-execution",
             messageKey: "board.rejection.unplannedForExecution",
             retryable: true,
-            // Tells the board this rejection has an operator override available.
-            forceable: true,
           });
         }
         if (result.rejection === "capacity-exhausted-or-no-slot") {

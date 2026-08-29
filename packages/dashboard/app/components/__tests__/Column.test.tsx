@@ -368,14 +368,7 @@ describe("Column workflow mode (U9)", () => {
     expect(screen.getByTestId("card-promote-FN-7")).toBeDefined();
   });
 
-  /*
-  FNXC:BoardPromote 2026-07-25-04:55:
-  The unplanned-for-execution rejection must (a) render real copy rather than the
-  raw `board.rejection.unplannedForExecution` key and (b) offer the operator an
-  explicit force override. Declining leaves the card held; confirming re-issues
-  the promote with `{ force: true }`.
-  */
-  function renderHoldColumnWithPromote(onPromote: (taskId: string, options?: { force?: boolean }) => Promise<void>) {
+  function renderHoldColumnWithPromote(onPromote: (taskId: string) => Promise<void>) {
     return render(
       <Column
         {...defaultProps}
@@ -394,46 +387,20 @@ describe("Column workflow mode (U9)", () => {
       code: "unplanned-for-execution",
       messageKey: "board.rejection.unplannedForExecution",
       retryable: true,
-      forceable: true,
     },
   };
 
-  it("offers an override on unplanned-for-execution and keeps the card held when declined", async () => {
+  it("renders terminal unplanned copy without a confirmation or retry", async () => {
     const onPromote = vi.fn().mockRejectedValue(unplannedRejection);
-    mockConfirm.mockResolvedValue(false);
     renderHoldColumnWithPromote(onPromote);
 
     fireEvent.click(screen.getByTestId("card-promote-FN-7"));
-
-    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
-    expect(mockConfirm.mock.calls[0][0]).toMatchObject({
-      title: "Start execution anyway?",
-      confirmLabel: "Start Anyway",
-      cancelLabel: "Keep Waiting",
-      danger: true,
-    });
-    expect(mockConfirm.mock.calls[0][0].message).toContain("FN-7");
 
     await waitFor(() => expect(screen.getByTestId("column-inline-feedback")).toBeDefined());
-    // Real copy, never the raw i18n key (the FN-8471 regression).
     expect(screen.getByTestId("column-inline-feedback").textContent).not.toContain("board.rejection");
     expect(screen.getByTestId("column-inline-feedback").textContent).toContain("plan review");
-    expect(onPromote).toHaveBeenCalledTimes(1);
-    expect(onPromote).toHaveBeenCalledWith("FN-7");
-  });
-
-  it("re-promotes with force once the operator confirms the override", async () => {
-    const onPromote = vi.fn()
-      .mockRejectedValueOnce(unplannedRejection)
-      .mockResolvedValueOnce(undefined);
-    mockConfirm.mockResolvedValue(true);
-    renderHoldColumnWithPromote(onPromote);
-
-    fireEvent.click(screen.getByTestId("card-promote-FN-7"));
-
-    await waitFor(() => expect(onPromote).toHaveBeenCalledTimes(2));
-    expect(onPromote).toHaveBeenLastCalledWith("FN-7", { force: true });
-    expect(screen.queryByTestId("column-inline-feedback")).toBeNull();
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(onPromote.mock.calls).toEqual([["FN-7"]]);
   });
 
   it("does not offer an override for a capacity rejection", async () => {
