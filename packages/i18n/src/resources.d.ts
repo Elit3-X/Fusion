@@ -9364,6 +9364,7 @@ export default interface Resources {
       "noWorkflowAssigned": "No workflow assigned",
       "notRunReasonExecutionModeSkip": "fast mode skipped this check",
       "notRunReasonNotConfigured": "no test or build command is configured",
+      "notRunReasonRepositoryContextUnresolved": "the workspace repository context could not be resolved",
       "notRunReasonToolingUnavailable": "a required tool was unavailable",
       "notes": "Notes:",
       "output": "Output:",

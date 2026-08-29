@@ -931,7 +931,14 @@ async function issueRelease(
         return true;
       },
       {
+        /*
+        FNXC:SchedulerMoveAttribution 2026-08-29-07:37:
+        Scheduler hold release is a forward execution admission, not a graph/review reopen. Name
+        this authority so the timeline distinguishes its deliberate todo-to-WIP dispatch from an
+        unexplained automatic move; plugin move policies receive the same source literal.
+        */
         moveSource: "scheduler",
+        workflowMoveSource: "scheduler-hold-release",
         allocateWorktree:
           targetIsProcessing && deps.allocateWorktree
             ? (reservedNames) => deps.allocateWorktree!(task, reservedNames)

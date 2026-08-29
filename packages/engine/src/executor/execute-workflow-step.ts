@@ -227,6 +227,8 @@ export async function executeWorkflowStep(
     outputLanguage?: ResolvedTaskOutputLanguage;
     sessionBoundary?: SessionBoundaryDescriptor;
     diffBaseCommitSha?: string;
+    /** Identifies the repository inspected by a per-repository workspace dispatch. */
+    dispatchLabel?: string;
   },
 ): Promise<WorkflowStepOutcome> {
   const diffBaseCommitSha = stepOptions?.diffBaseCommitSha ?? task.baseCommitSha;
@@ -796,6 +798,16 @@ CRITICAL SCOPING RULES — read before doing anything else:
     const fallbackLaneLabel = isReviewTypeWorkflowStep ? "validator" : "executor";
 
     const timeoutMs = Math.max(60_000, settings.workflowStepTimeoutMs ?? 900_000);
+    const dispatchLabel = stepOptions?.dispatchLabel?.trim() || undefined;
+
+    /*
+    FNXC:WorkflowStepModelMarker 2026-08-29-06:46:
+    A workspace review constructs one session per repository, so its model markers must identify
+    the inspected tree. A same-model malformed-output self-retry adds no model-resolution value;
+    dedupe identical markers within this workflow-step call while retaining a marker for a real
+    fallback model change.
+    */
+    let lastEmittedModelMarker: string | undefined;
 
     const runOnce = async (
       provider: string | undefined,
@@ -1006,7 +1018,7 @@ CRITICAL SCOPING RULES — read before doing anything else:
             : "";
           await deps.store.logEntry(
             task.id,
-            `[skills] [executor] ${summary.availableCount} skill(s) available; forced: ${summary.forcedSkillNames.length ? `[${summary.forcedSkillNames.join(", ")}]` : "none"}${unavailable}`,
+            `[skills] [executor]${dispatchLabel ? ` [${dispatchLabel}]` : ""} ${summary.availableCount} skill(s) available; forced: ${summary.forcedSkillNames.length ? `[${summary.forcedSkillNames.join(", ")}]` : "none"}${unavailable}`,
           );
         },
         ...(readonlyCustomTools.allowed.length > 0
@@ -1024,11 +1036,12 @@ CRITICAL SCOPING RULES — read before doing anything else:
           attemptLabel === "fallback" ? "fallback after timeout" : "",
         ],
       );
-      executorLog.debug(`${task.id}: workflow step '${workflowStep.name}' using model ${workflowModelDetails}`);
-      await deps.store.logEntry(
-        task.id,
-        `Workflow step '${workflowStep.name}' using model: ${workflowModelDetails}`,
-      );
+      const workflowModelMarker = `Workflow step '${workflowStep.name}'${dispatchLabel ? ` [${dispatchLabel}]` : ""} using model: ${workflowModelDetails}`;
+      executorLog.debug(`${task.id}: ${workflowModelMarker}`);
+      if (workflowModelMarker !== lastEmittedModelMarker) {
+        lastEmittedModelMarker = workflowModelMarker;
+        await deps.store.logEntry(task.id, workflowModelMarker);
+      }
       deps.setActiveWorkflowStepSession(task.id, session, worktreePath, createSeenSteeringIds(task));
       // FNXC:TaskTiming 2026-07-30-21:40: graph-owned Plan Review is the only
       // post-spec planning lane. Start before prompting and finalize in finally before any replan handoff.
@@ -1352,7 +1365,10 @@ CRITICAL SCOPING RULES — read before doing anything else:
        * FN-7561: when NO fallback model is configured, a MALFORMED primary (unparseable verdict — a single fumbled response) still deserves one retry so a transient formatting fumble does not feed the plan-review replan loop. Self-retry once on the SAME primary model. Timeouts are NOT self-retried — they would likely just time out again and burn another full budget. If the self-retry is still malformed it is returned as a non-blocking advisory downstream.
        */
       if (primaryMalformed && !primaryOutcome.timedOut) {
-        executorLog.log(`${task.id}: workflow step '${workflowStep.name}' produced malformed output and no fallback is configured — retrying once on the primary model`);
+        await deps.store.logEntry(
+          task.id,
+          `Workflow step '${workflowStep.name}' retrying the primary model after malformed output — no fallback model is configured`,
+        );
         const retryOutcome = await runOnce(primaryProvider, primaryModelId, "primary-retry");
         const retryMalformed = (retryOutcome as { malformed?: boolean }).malformed === true;
         if (!retryMalformed) return retryOutcome;

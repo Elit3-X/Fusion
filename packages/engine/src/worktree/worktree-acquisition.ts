@@ -51,6 +51,8 @@ import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } fro
 import { acquireActiveSessionPath, activeSessionRegistry, executingTaskLock, type ActiveSessionRegistry } from "../agents/active-session-registry.js";
 import { refreshReusedWorktreeBase, type WorktreeBaseRefreshResult } from "../worktree-base-refresh.js";
 import { normalizeWorkspaceTaskRouting } from "../executor/workspace-config-resolver.js";
+import { getConfiguredWorktreeInitCommand } from "../merge/merge-dependency-sync.js";
+import { ensureWorktreeDependencyReadiness, formatWorktreeDependencyReadinessLog } from "./dependency-readiness.js";
 
 const execAsync = promisify(exec);
 const WORKTREE_BACKEND_MARKER = "fusion-worktree-backend-kind";
@@ -114,6 +116,8 @@ export interface AcquireTaskWorktreeOptions {
     stderr?: string;
     bufferExceeded?: boolean;
   }>;
+  /** Test seam for the shared task-worktree dependency readiness helper. */
+  ensureDependencyReadiness?: typeof ensureWorktreeDependencyReadiness;
   taskEnv?: NodeJS.ProcessEnv;
   backend?: WorktreeBackend;
   /** Test seam for filesystem-device recovery behavior. */
@@ -382,6 +386,7 @@ async function ensureWorkspaceGroupOwnership(
 
 export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Promise<AcquireTaskWorktreeResult> {
   const { task, rootDir, store, settings, pool, logger, audit, runContext, createWorktree, runConfiguredCommand, runInitCommand, taskEnv, secretsStore, workspaceContext } = opts;
+  const ensureDependencyReadiness = opts.ensureDependencyReadiness ?? ensureWorktreeDependencyReadiness;
   /*
    * FNXC:BranchNaming 2026-08-21-09:09:
    * Singular assignment persistence is a real task-branch write. Derive its durable provenance
@@ -705,6 +710,35 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     await logConfiguredCopyFileResults(results, source);
   };
 
+  const resolveDependencyReadinessForPreparedWorktree = async (preparedWorktreePath: string): Promise<void> => {
+    if (!runInitCommand || getConfiguredWorktreeInitCommand(settings)) return;
+    try {
+      const readiness = await ensureDependencyReadiness({
+        cwd: preparedWorktreePath,
+        settings,
+        taskId: task.id,
+        logger,
+        context: "for task worktree",
+      });
+      await store.logEntry(
+        task.id,
+        formatWorktreeDependencyReadinessLog(readiness.decision, workspaceContext?.repoRelPath),
+        undefined,
+        runContext,
+      );
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      logger?.error?.(`${task.id}: inferred worktree dependency readiness failed — first test run will likely fail: ${message}`);
+      await store.logEntry(
+        task.id,
+        formatWorktreeDependencyReadinessLog(`failed — first test run will likely fail: ${message}`, workspaceContext?.repoRelPath),
+        undefined,
+        runContext,
+      );
+    }
+  };
+
   const emitRepoRootReturnGuardAudit = async (guardedPath: string, source: string) => {
     await audit?.git({ 
       type: "worktree:incomplete-detected",
@@ -800,6 +834,16 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
         await store.logEntry(task.id, `Worktree init command failed (first test run will likely fail): ${message}`, outcome, runContext);
       }
     }
+
+    /*
+    FNXC:WorktreeDependencyReadiness 2026-08-29-06:46:
+    A task used to discover missing package-manager binaries only when its verification step had
+    already started. Resolve the same lockfile-based readiness decision used by AI-merge clean rooms
+    as part of fresh and pooled acquisition. A configured init command remains authoritative and is
+    the operator's opt-out from inference; an inferred install failure is visible but non-fatal so
+    the worktree can still be inspected or repaired by the task.
+    */
+    await resolveDependencyReadinessForPreparedWorktree(worktreePath);
 
     await maybeWarnForeignTaskStartPoint({
       baseBranch,
@@ -1215,6 +1259,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
             await store.logEntry(task.id, `Removed desktop build artifacts from worktree: ${cleanup.removed.join(", ")}`, undefined, runContext);
           }
           await copyConfiguredFilesForPreparedWorktree("pool");
+          await resolveDependencyReadinessForPreparedWorktree(worktreePath);
           await maybeWarnForeignTaskStartPoint({
             baseBranch,
             rootDir,
@@ -1391,6 +1436,7 @@ export interface AcquireWorkspaceTaskWorktreesOptions {
   runContext?: RunMutationContext;
   registry?: ActiveSessionRegistry;
   runConfiguredCommand?: AcquireTaskWorktreeOptions["runConfiguredCommand"];
+  ensureDependencyReadiness?: AcquireTaskWorktreeOptions["ensureDependencyReadiness"];
   taskEnv?: NodeJS.ProcessEnv;
   addActiveWorktree?: (taskId: string, path: string) => void;
   /** Limit acquisition to the confirmed repository scope; omitted retains the declared manifest. */
@@ -1416,6 +1462,7 @@ export interface AcquireWorkspaceRepoWorktreeOptions {
    */
   holderLiveProbe?: (holderTaskId: string, path: string) => boolean;
   runConfiguredCommand?: AcquireTaskWorktreeOptions["runConfiguredCommand"];
+  ensureDependencyReadiness?: AcquireTaskWorktreeOptions["ensureDependencyReadiness"];
   taskEnv?: NodeJS.ProcessEnv;
   /**
    * FNXC:WorkspaceWorktree 2026-08-20-06:26:34: Revalidate caller-owned admission policy immediately
@@ -1464,7 +1511,7 @@ const WORKSPACE_REPO_ACQUIRE_OWNER_KEY = "workspace-repo-acquire";
 export async function acquireWorkspaceRepoWorktree(
   opts: AcquireWorkspaceRepoWorktreeOptions,
 ): Promise<{ worktreePath: string; branch: string; baseCommitSha?: string; alreadyAcquired: boolean }> {
-  const { repoRelPath, workspaceRootDir, task, store, settings, logger, secretsStore, audit, runContext, runConfiguredCommand, taskEnv, validateTaskBeforeCreate } = opts;
+  const { repoRelPath, workspaceRootDir, task, store, settings, logger, secretsStore, audit, runContext, runConfiguredCommand, ensureDependencyReadiness, taskEnv, validateTaskBeforeCreate } = opts;
   const registry = opts.registry ?? activeSessionRegistry;
   const { join } = await import("node:path");
 
@@ -1781,6 +1828,7 @@ export async function acquireWorkspaceRepoWorktree(
       audit,
       runContext,
       runConfiguredCommand,
+      ensureDependencyReadiness,
       taskEnv,
       runInitCommand: true,
     });
@@ -2093,6 +2141,7 @@ export async function acquireWorkspaceTaskWorktrees(
       registry: opts.registry,
       holderLiveProbe: opts.holderLiveProbe,
       runConfiguredCommand: opts.runConfiguredCommand,
+      ensureDependencyReadiness: opts.ensureDependencyReadiness,
       taskEnv: opts.taskEnv,
       worktreePath: legacyLayout ? undefined : resolveWorkspaceRepoWorktreePath(taskWorktreeDir, repoRelPath),
     });

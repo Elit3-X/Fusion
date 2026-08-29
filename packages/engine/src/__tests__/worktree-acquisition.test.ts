@@ -1185,6 +1185,74 @@ describe("acquireTaskWorktree", () => {
     expect(store.updateTask).toHaveBeenCalledWith("FN-1", { worktree: "/tmp/new", branch: "fusion/fn-1", branchWriteOrigin: "engine" });
   });
 
+  it("resolves inferred dependency readiness once for a fresh worktree before execution", async () => {
+    const ensureDependencyReadiness = vi.fn().mockResolvedValue({
+      decision: "ran; source=inferred; command=pnpm install --frozen-lockfile; duration=7ms",
+    });
+
+    await acquireTaskWorktree({
+      task,
+      rootDir: process.cwd(),
+      store,
+      settings: {},
+      createWorktree: vi.fn().mockResolvedValue({ path: "/tmp/new", branch: "fusion/fn-1" }),
+      runInitCommand: true,
+      ensureDependencyReadiness,
+    });
+
+    expect(ensureDependencyReadiness).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: "/tmp/new",
+      taskId: "FN-1",
+      context: "for task worktree",
+    }));
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-1",
+      "Worktree dependency readiness: ran; source=inferred; command=pnpm install --frozen-lockfile; duration=7ms",
+      undefined,
+      undefined,
+    );
+  });
+
+  it("does not infer readiness when a configured init command is authoritative", async () => {
+    const ensureDependencyReadiness = vi.fn();
+    const runConfiguredCommand = vi.fn().mockResolvedValue({ exitCode: 0, stderr: "", stdout: "" });
+
+    await acquireTaskWorktree({
+      task,
+      rootDir: process.cwd(),
+      store,
+      settings: { worktreeInitCommand: "./bootstrap" } as any,
+      createWorktree: vi.fn().mockResolvedValue({ path: "/tmp/new", branch: "fusion/fn-1" }),
+      runInitCommand: true,
+      runConfiguredCommand,
+      ensureDependencyReadiness,
+    });
+
+    expect(runConfiguredCommand).toHaveBeenCalledWith("./bootstrap", "/tmp/new", 300_000, undefined);
+    expect(ensureDependencyReadiness).not.toHaveBeenCalled();
+  });
+
+  it("keeps an inferred readiness failure non-fatal for the first test run", async () => {
+    const ensureDependencyReadiness = vi.fn().mockRejectedValue(new Error("pnpm unavailable"));
+
+    await expect(acquireTaskWorktree({
+      task,
+      rootDir: process.cwd(),
+      store,
+      settings: {},
+      createWorktree: vi.fn().mockResolvedValue({ path: "/tmp/new", branch: "fusion/fn-1" }),
+      runInitCommand: true,
+      ensureDependencyReadiness,
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })).resolves.toMatchObject({ source: "fresh" });
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-1",
+      expect.stringContaining("Worktree dependency readiness: failed — first test run will likely fail: pnpm unavailable"),
+      undefined,
+      undefined,
+    );
+  });
+
   it("skips init command when runInitCommand false", async () => {
     const runConfiguredCommand = vi.fn();
     await acquireTaskWorktree({
@@ -1239,6 +1307,36 @@ describe("acquireTaskWorktree", () => {
 
     expect(readFileSync(join(worktreePath, ".env"), "utf-8")).toBe("SECRET=redacted\n");
     expect(store.logEntry).toHaveBeenCalledWith("FN-1", "Copied configured worktree files into fresh worktree: .env", undefined, undefined);
+  });
+
+  it("resolves inferred dependency readiness for a pooled worktree", async () => {
+    const pooledPath = track(mkdtempSync(join(tmpdir(), "fn-pooled-dependency-readiness-")));
+    const ensureDependencyReadiness = vi.fn().mockResolvedValue({
+      decision: "skipped-marker-match; source=inferred; command=pnpm install --frozen-lockfile; duration=1ms",
+    });
+
+    await acquireTaskWorktree({
+      task,
+      rootDir: process.cwd(),
+      store,
+      settings: { recycleWorktrees: true } as any,
+      pool: {
+        acquire: (_taskId: string) => pooledPath,
+        prepareForTask: vi.fn().mockResolvedValue({ branch: "fusion/fn-1", worktreePath: pooledPath, reclaimed: false }),
+        release: vi.fn(),
+      } as any,
+      createWorktree: vi.fn().mockResolvedValue({ path: "/tmp/fn-worktree-fallback", branch: "fusion/fn-1" }),
+      runInitCommand: true,
+      ensureDependencyReadiness,
+    });
+
+    expect(ensureDependencyReadiness).toHaveBeenCalledWith(expect.objectContaining({ cwd: pooledPath, taskId: "FN-1" }));
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-1",
+      "Worktree dependency readiness: skipped-marker-match; source=inferred; command=pnpm install --frozen-lockfile; duration=1ms",
+      undefined,
+      undefined,
+    );
   });
 
   it("invokes desktop artifact cleanup once for pooled acquisition", async () => {

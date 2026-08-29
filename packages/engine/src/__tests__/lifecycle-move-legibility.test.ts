@@ -41,7 +41,7 @@ describe("lifecycle move legibility", () => {
       task: { id: "FN-207" }, from: "review", to: "implementation", source: "engine",
       requestedSource: "engine", lifecycleReason: "code-review-revise-remediation",
       workflowMoveSource: "workflow-graph", lanes,
-    })).toContain("— Code review requested implementation fixes [source=engine]");
+    })).toContain("— Code Review REVISE requested implementation fixes [source=engine]");
   });
 
   it("attributes any non-graph provenance verbatim rather than inventing a cause", () => {
@@ -49,6 +49,20 @@ describe("lifecycle move legibility", () => {
       task: { id: "FN-207" }, from: "implementation", to: "review", source: "engine",
       requestedSource: "engine", workflowMoveSource: "merge-boundary", lanes,
     })).toContain("— merge-boundary transition [source=engine]");
+  });
+
+  it.each([
+    ["scheduler hold release", "scheduler-hold-release", "planning", "implementation", "scheduler"],
+    ["normal auto-merge finalization", "auto-merge-finalization", "review", "done", "engine"],
+    ["recovery auto-merge finalization", "auto-merge-finalization", "planning", "done", "engine"],
+    ["legacy merger completion", "merger-complete-task", "review", "done", "engine"],
+  ] as const)("renders %s provenance instead of unattributed automatic move", (_name, workflowMoveSource, from, to, source) => {
+    const line = formatLifecycleMoveLog({
+      task: { id: "FN-255" }, from, to, source, requestedSource: source, workflowMoveSource, lanes,
+    });
+
+    expect(line).toContain(`— ${workflowMoveSource} transition`);
+    expect(line).not.toContain("unattributed automatic move");
   });
 
   it("still reports a genuinely causeless move as unattributed", () => {
@@ -86,7 +100,7 @@ describe("lifecycle move legibility", () => {
     expect(formatLifecycleMoveLog({
       task: { id: "FN-207" }, from: "review", to: "implementation", source: "engine",
       requestedSource: "engine", lifecycleReason: "code-review-revise-remediation", lanes,
-    })).toBe("Lifecycle move: review → implementation (backward) — Code review requested implementation fixes [source=engine]");
+    })).toBe("Lifecycle move: review → implementation (backward) — Code Review REVISE requested implementation fixes [source=engine]");
 
     expect(formatLifecycleMoveLog({
       task: { id: "FN-207" }, from: "review", to: "planning", source: "user",
@@ -151,7 +165,7 @@ describe("lifecycle move legibility", () => {
     expect(store.moveTask).toHaveBeenCalledTimes(1);
     expect(store.logEntry).toHaveBeenCalledWith(
       row.id,
-      "Lifecycle move deferred: review → implementation (backward) — Code review requested implementation fixes (destination at capacity; retrying later)",
+      "Lifecycle move deferred: review → implementation (backward) — Code Review REVISE requested implementation fixes (destination at capacity; retrying later)",
     );
   });
 });

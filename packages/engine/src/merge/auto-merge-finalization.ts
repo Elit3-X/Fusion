@@ -397,9 +397,15 @@ export async function finalizeProvenAutoMergeTask({
 
   try {
     fence?.assertOwned("finalization");
+    /*
+    FNXC:AutoMergeMoveAttribution 2026-08-29-07:37:
+    Proven merge finalization advances review to the complete lane. Use a dedicated neutral
+    provenance instead of workflow-graph, workflow-remediation, or plan-approval: those literals
+    carry in-review-entry and reopen semantics. The value is also forwarded to plugin move policies.
+    */
     const moved = await store.moveTask(taskId, completeColumn, shouldRecoveryRehome
-      ? { moveSource: "engine", recoveryRehome: true, preserveProgress: true }
-      : { moveSource: "engine", preserveProgress: true });
+      ? { moveSource: "engine", workflowMoveSource: "auto-merge-finalization", recoveryRehome: true, preserveProgress: true }
+      : { moveSource: "engine", workflowMoveSource: "auto-merge-finalization", preserveProgress: true });
     if (result) result.task = moved;
     if (shouldRecoveryRehome) {
       await recordFinalizationAudit({

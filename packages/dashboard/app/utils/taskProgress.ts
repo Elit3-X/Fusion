@@ -25,7 +25,7 @@ Keep this fixed reason tuple local and drift-tested against the Node barrel inst
 core workflow helpers that would pass Vitest and fail the production build.
 */
 
-export const WORKFLOW_STEP_NOT_RUN_REASONS = ["not-configured", "tooling-unavailable", "execution-mode-skip"] as const;
+export const WORKFLOW_STEP_NOT_RUN_REASONS = ["not-configured", "tooling-unavailable", "execution-mode-skip", "repository-context-unresolved"] as const;
 const WORKFLOW_STEP_NOT_RUN_REASON_SET: ReadonlySet<string> = new Set(WORKFLOW_STEP_NOT_RUN_REASONS);
 
 export function isWorkflowStepNotRun(result: WorkflowStepResult): boolean {

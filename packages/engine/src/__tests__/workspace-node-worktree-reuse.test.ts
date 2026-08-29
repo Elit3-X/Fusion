@@ -6,6 +6,7 @@ import type { TaskDetail } from "@fusion/core";
 
 const reviewWorkspacePerRepoMock = vi.hoisted(() => vi.fn());
 vi.mock("../executor/workspace-review-per-repo.js", () => ({
+  isApprovalFamilyVerdict: (verdict: string) => verdict === "APPROVE" || verdict === "APPROVE_WITH_ADVISORIES",
   reviewWorkspacePerRepo: reviewWorkspacePerRepoMock,
 }));
 

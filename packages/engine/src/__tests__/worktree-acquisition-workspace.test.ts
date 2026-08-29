@@ -11,7 +11,7 @@ git only where the invariant needs it; everything else is a narrow seam.
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   WORKSPACE_GROUP_MARKER_FILENAME,
   workspaceRepoSegment,
@@ -169,6 +169,31 @@ describeIfGit("acquireWorkspaceRepoWorktree (U2 per-repo hardening)", { timeout:
     // Base must be the LOCAL tip, never the behind origin tip.
     expect(result.baseCommitSha).toBe(localTip);
     expect(current().workspaceWorktrees?.["repo-a"]?.baseCommitSha).toBe(localTip);
+  });
+
+  it("records a repository-qualified dependency-readiness decision through the workspace callback store", async () => {
+    fixture = await createWorkspaceFixture(["repo-a"]);
+    const { store, current, logs } = makeFakeStore(makeTask("FN-255"));
+    const ensureDependencyReadiness = vi.fn().mockResolvedValue({
+      decision: "ran; source=inferred; command=pnpm install --frozen-lockfile; duration=5ms",
+    });
+
+    const result = await acquireWorkspaceRepoWorktree({
+      repoRelPath: "repo-a",
+      workspaceRootDir: fixture.rootDir,
+      task: current(),
+      store,
+      settings: SETTINGS,
+      ensureDependencyReadiness,
+      registry: new ActiveSessionRegistry(),
+    });
+
+    expect(ensureDependencyReadiness).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: result.worktreePath,
+      taskId: "FN-255",
+      context: "for task worktree",
+    }));
+    expect(logs).toContain("Worktree dependency readiness [repo-a]: ran; source=inferred; command=pnpm install --frozen-lockfile; duration=5ms");
   });
 
   it("captures against a NON-main integration branch and does not inherit a shared settings.integrationBranch (KTD3)", async () => {

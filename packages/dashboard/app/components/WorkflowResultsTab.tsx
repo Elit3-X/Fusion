@@ -105,6 +105,7 @@ const NOT_RUN_REASON_LABELS = {
   "not-configured": ["app:workflow.notRunReasonNotConfigured", "no test or build command is configured"],
   "tooling-unavailable": ["app:workflow.notRunReasonToolingUnavailable", "a required tool was unavailable"],
   "execution-mode-skip": ["app:workflow.notRunReasonExecutionModeSkip", "fast mode skipped this check"],
+  "repository-context-unresolved": ["app:workflow.notRunReasonRepositoryContextUnresolved", "the workspace repository context could not be resolved"],
 } as const;
 
 function getStatusLabel(result: WorkflowStepResult, t: ReturnType<typeof useTranslation>["t"]): string {

@@ -6415,7 +6415,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         throw badRequest(`stepIndex ${stepIndex} is out of range`);
       }
 
-      const updated = await scopedStore.updateStep(req.params.id, stepIndex, status);
+      const updated = await scopedStore.updateStep(req.params.id, stepIndex, status, { operatorOverride: true });
       if (updated.steps?.[stepIndex]?.status !== status) {
         throw conflict(`Step ${stepIndex} transition to ${status} was rejected`);
       }

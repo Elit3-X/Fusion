@@ -1075,8 +1075,14 @@ export type { RemediationStepInput } from "./tasks/remediation-steps.js";
 export type { AppendRemediationStepsOptions, AppendRemediationStepsResult } from "./task-store/remediation-step-ops.js";
 export { evaluateNoCommitsNoOpFinalize } from "./merge/no-commits-finalize-guard.js";
 export type { NoCommitsNoOpFinalizeEvaluation } from "./merge/no-commits-finalize-guard.js";
-export { evaluateCompletedPromotionFailureProvenance, CLEAN_COMPLETION_MARKERS } from "./merge/completed-promotion-failure-provenance.js";
+export { evaluateCompletedPromotionFailureProvenance, CLEAN_COMPLETION_MARKERS, MAX_LOG_SCAN } from "./merge/completed-promotion-failure-provenance.js";
 export type { CompletedPromotionFailureProvenanceEvaluation } from "./merge/completed-promotion-failure-provenance.js";
+export {
+  evaluateStepLedgerSeal,
+  STEP_LEDGER_REENTRY_MARKERS,
+  STEP_LEDGER_REOPEN_MARKER_PREFIX,
+} from "./task-store/step-ledger-seal.js";
+export type { StepLedgerSealEvaluation } from "./task-store/step-ledger-seal.js";
 export { evaluateSkipBypassTaint } from "./merge/skip-bypass-taint-guard.js";
 export type { SkipBypassTaintEvaluation } from "./merge/skip-bypass-taint-guard.js";
 export {

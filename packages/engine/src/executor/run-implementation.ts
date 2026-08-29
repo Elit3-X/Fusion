@@ -1370,7 +1370,15 @@ export async function runImplementation(
               return false;
             }
           },
-          onStepComplete: (stepIndex, result) => {
+          onStepComplete: async (stepIndex, result) => {
+            /*
+            FNXC:StepCompletionOrdering 2026-08-29-06:46:
+            A fire-and-forget updateStep was the only production writer able to resolve after
+            `Task marked done by agent`: StepSessionExecutor returned while this callback's promise
+            remained outstanding. Completion writers already mark all non-terminal steps before their
+            marker, and fresh/resumed executor markers precede in-session writes; awaiting this
+            projection preserves that durable ordering.
+            */
             // FNXC:EngineDiagnostics 2026-07-26-10:05: per-step success is expected bookkeeping (incl. foreach instances); failures stay at log.
             if (result.success) {
               executorLog.debug(`${task.id}: step ${stepIndex} succeeded (${result.retries} retries)`);
@@ -1378,9 +1386,7 @@ export async function runImplementation(
               executorLog.log(`${task.id}: step ${stepIndex} failed (${result.retries} retries)`);
             }
             try {
-              deps.store.updateStep(task.id, stepIndex, result.success ? "done" : "skipped", stepProjectionOptions).catch((err) => {
-                executorLog.warn(`${task.id}: failed to update step ${stepIndex} status: ${err}`);
-              });
+              await deps.store.updateStep(task.id, stepIndex, result.success ? "done" : "skipped", stepProjectionOptions);
               const safeReason = result.success ? undefined : sanitizeFailureReason(result.error);
               if (!result.success) {
                 void emitProactiveStatus(

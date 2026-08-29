@@ -448,7 +448,7 @@ Node config (`WorkflowOptionalGroupConfig`): `{ name?, defaultOn?, maxRevisions?
 
 ### Not-executed checks
 
-A check that never starts is stored as terminal `status: "skipped"` with a fixed `notRunReason`: `not-configured` when no test or build command exists, `tooling-unavailable` when a required tool such as `agent-browser` is unavailable, or `execution-mode-skip` when fast mode deliberately omits the check. Dashboard progress, Workflow results, and agent activity present this state as **Not executed** with its reason, and count it as completed without painting it as passed.
+A check that never starts is stored as terminal `status: "skipped"` with a fixed `notRunReason`: `not-configured` when no test or build command exists, `tooling-unavailable` when a required tool such as `agent-browser` is unavailable, `execution-mode-skip` when fast mode deliberately omits the check, or `repository-context-unresolved` when a workspace gate cannot resolve its task-owned repository context. Dashboard progress, Workflow results, and agent activity present this state as **Not executed** with its reason, and count it as completed without painting it as passed.
 
 The graph still follows the success edge, so no operator action is required. Recorders deliberately do not write this discriminator for the `plan-review` group: Plan Review satisfaction is fail-closed on skipped rows, and writing one would create a blocking hold rather than an automatic continuation. This exclusion does not allow an unexecuted Plan Review to satisfy merge approval; both plan-domain and code-domain gates still require their existing positive evidence.
 

@@ -142,7 +142,7 @@ export interface StepSessionExecutorOptions {
    */
   onStepStart?: (stepIndex: number) => void | boolean | Promise<void | boolean>;
   /** Callback invoked when a step completes (success or failure). */
-  onStepComplete?: (stepIndex: number, result: StepResult) => void;
+  onStepComplete?: (stepIndex: number, result: StepResult) => void | Promise<void>;
   /** Optional skill selection context for session creation. */
   skillSelection?: SkillSelectionContext;
   /** Optional extra skill body directories for session resource discovery. */
@@ -1736,7 +1736,7 @@ Follow instructions precisely and avoid unrelated changes.`,
             tokenUsage: await this.extractStepTokenUsage(session, reusePrimarySession),
           };
           await this.completeWorkflowStepActivityRun(activityRun, "completed", result);
-          this.options.onStepComplete?.(stepIndex, result);
+          await this.options.onStepComplete?.(stepIndex, result);
           return result;
         } catch (err: unknown) {
           // Normalize error message for consistent classification
@@ -1777,7 +1777,7 @@ Follow instructions precisely and avoid unrelated changes.`,
                 tokenUsage: await this.extractStepTokenUsage(session, reusePrimarySession),
               };
               await this.completeWorkflowStepActivityRun(activityRun, "completed", result);
-              this.options.onStepComplete?.(stepIndex, result);
+              await this.options.onStepComplete?.(stepIndex, result);
               return result;
             } catch (reducedErr: unknown) {
               const reducedErrorMessage = typeof reducedErr === "string"
@@ -1817,7 +1817,7 @@ Follow instructions precisely and avoid unrelated changes.`,
               tokenUsage: await this.extractStepTokenUsage(session, reusePrimarySession),
             };
             await this.completeWorkflowStepActivityRun(activityRun, "failed", result);
-            this.options.onStepComplete?.(stepIndex, result);
+            await this.options.onStepComplete?.(stepIndex, result);
             return result;
           }
           if (reusePrimarySession) {

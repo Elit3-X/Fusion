@@ -841,7 +841,7 @@ export async function runTaskUpdate(id: string, stepStr: string, status: string,
   // wrap resolution+write in one retryable unit via `withBoardWrite`, closing
   // the resolved store on every attempt.
   await withBoardWrite(projectName, { id, action: "update step" }, async (context) => {
-    const task = await context.store.updateStep(id, stepIndex, status as StepStatus);
+    const task = await context.store.updateStep(id, stepIndex, status as StepStatus, { operatorOverride: true });
 
     const step = task.steps[stepIndex];
     console.log();

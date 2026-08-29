@@ -116,7 +116,7 @@ import {
 } from "../merger.js";
 import { resolveBranchGroupMergeRouting, type BranchGroupMergeRouting, type SyncGroupPrFn } from "./group-merge-coordinator.js";
 import { DEFAULT_COMMIT_AUTHOR_EMAIL, DEFAULT_COMMIT_AUTHOR_NAME } from "../worktree/worktree-hooks.js";
-import { installWorktreeDependencies, LOCKFILE_CANDIDATES} from "./merge-dependency-sync.js";
+import { describeDependencySyncDecision, installWorktreeDependencies, LOCKFILE_CANDIDATES} from "./merge-dependency-sync.js";
 import { activeSessionRegistry } from "../agents/active-session-registry.js";
 import { MergeGateRevokedError } from "./merger-errors.js";
 import { cleanupLandedTaskWorktree } from "./post-landing-worktree-cleanup.js";
@@ -374,12 +374,12 @@ async function recoverApprovedPreexistingAiMergeWorktree(
     await store.updateTask(taskId, { aiMergeReviewReconciliation: null });
     await log(`AI merge: recovered approved pre-existing clean-room commit ${short(selected.squashSha)} before pruning`);
     await audit.git({ type: "merge:ai-landed", target: integrationBranch, metadata: { taskId, landedSha: selected.squashSha, source: "pre-prune-clean-room-recovery", mergeRoot: selected.mergeRoot } }).catch(() => undefined);
-    return { outcome: "landed", squashSha: selected.squashSha, localSync: land.localSync, tipSha: selected.tipSha, integrationBranch };
+    return { outcome: "landed", squashSha: selected.squashSha, localSync: land.localSync, tipSha: selected.tipSha, integrationBranch, dependencySyncDecision: "recovered-no-new-sync" };
   }
 
   await store.updateTask(taskId, { aiMergeReviewReconciliation: null });
   await log(`AI merge: recovered already-landed clean-room commit ${short(selected.squashSha)} before pruning`);
-  return { outcome: "landed", squashSha: selected.squashSha, localSync: "skipped-other-branch", tipSha: selected.tipSha, integrationBranch };
+  return { outcome: "landed", squashSha: selected.squashSha, localSync: "skipped-other-branch", tipSha: selected.tipSha, integrationBranch, dependencySyncDecision: "recovered-no-new-sync" };
 }
 
 export {
@@ -1001,6 +1001,7 @@ export type LandOneRepoResult =
       outcome: "empty";
       tipSha: string;
       integrationBranch: string;
+      dependencySyncDecision: string;
     }
   | {
       /** The squash landed; the local integration ref now points at `squashSha`. */
@@ -1009,6 +1010,7 @@ export type LandOneRepoResult =
       localSync: LocalSyncOutcome;
       tipSha: string;
       integrationBranch: string;
+      dependencySyncDecision: string;
     };
 
 /**
@@ -1026,16 +1028,29 @@ export async function landOneRepo(
   ctx: LandRepoContext,
 ): Promise<LandOneRepoResult> {
   const {
-    taskId, settings, audit, log, setStatus, maxPasses,
+    taskId, settings, audit, log: baseLog, setStatus, maxPasses,
     mergeAgent, reviewAgent, stashResolveAgent,
     includeTaskId, trailers, taskTitle, signal, store,
   } = ctx;
+  /*
+  FNXC:WorkspaceMergeLogs 2026-08-29-07:28:
+  A workspace task lands one clean room per repository. Prefix the existing task-scoped logger
+  once at the per-repository body boundary so clean-room, dependency-sync, review, and ref-advance
+  lines all identify the repository without adding durable-write call sites or changing single-repo
+  wording.
+  */
+  const repoRelPath = ctx.repoRel;
+  const log = repoRelPath
+    ? async (message: string) => baseLog(formatRepositoryMergeLog(repoRelPath, message))
+    : baseLog;
+  const repoContext = repoRelPath ? { ...ctx, log } : ctx;
+  let dependencySyncDecision = "not-run";
 
   // If a prior merger died after the clean-room squash was approved but before
   // landing/finalization, land that commit before the normal pre-merge prune can
   // delete the only easy reference to it.
-  const recovered = await recoverApprovedPreexistingAiMergeWorktree(repoRootDir, branch, integrationBranch, ctx);
-  if (recovered) return recovered;
+  const recovered = await recoverApprovedPreexistingAiMergeWorktree(repoRootDir, branch, integrationBranch, repoContext);
+  if (recovered) return { ...recovered, dependencySyncDecision: "recovered-no-new-sync" };
 
   // Pre-merge prune is rooted at THIS sub-repo (KTD1): N per-repo clean rooms for
   // one task share the `fusion-ai-merge-<taskId>-` prefix, so a prune rooted at a
@@ -1068,7 +1083,7 @@ export async function landOneRepo(
     */
     if (Number.parseInt(aheadRaw.trim(), 10) === 0 && outstandingReviewReasons.length === 0) {
       await audit.git({ type: "merge:ai-empty", target: integrationBranch, metadata: { taskId, tipSha } });
-      return { outcome: "empty", tipSha, integrationBranch };
+      return { outcome: "empty", tipSha, integrationBranch, dependencySyncDecision: "not-run-empty" };
     }
 
     // 1. Clean-room worktree at the integration tip.
@@ -1166,6 +1181,7 @@ export async function landOneRepo(
         }
       }
       if (noCommitsDepsSkipAllowed) {
+        dependencySyncDecision = "skipped-no-commits";
         await log(`AI merge: skipping dependency sync — no-commits task (no code changes expected)`);
       } else {
       const depsSyncStartedAt = Date.now();
@@ -1194,6 +1210,7 @@ export async function landOneRepo(
         throwIfAborted(signal, taskId);
         if (!ctx.nonFatalDependencySync) throw depsErr;
         const depsErrMessage = getErrorMessage(depsErr);
+        dependencySyncDecision = `failed-nonfatal; deps-unavailable; reason=${depsErrMessage}`;
         await log(`AI merge (workspace): dependency sync FAILED for this sub-repo's clean room — landing without dep-dependent verification (deps unavailable): ${depsErrMessage}`);
         await audit.git({
           type: "merge:ai-deps-sync",
@@ -1202,6 +1219,7 @@ export async function landOneRepo(
         });
       }
       if (depsSyncResult) {
+        dependencySyncDecision = describeDependencySyncDecision(depsSyncResult);
         await audit.git({
           type: "merge:ai-deps-sync",
           target: integrationBranch,
@@ -1221,7 +1239,9 @@ export async function landOneRepo(
           },
         });
       }
-      await log(`[timing] AI merge dependency sync completed in ${Date.now() - depsSyncStartedAt}ms${depsSyncResult ? (depsSyncResult.installCommand ? ` (${depsSyncResult.skipped ? "skipped" : "ran"}: ${depsSyncResult.installCommand})` : " (no command)") : " (failed — non-fatal, deps unavailable)"}`);
+      await log(`[timing] AI merge dependency sync completed: ${depsSyncResult
+        ? describeDependencySyncDecision(depsSyncResult)
+        : `failed-nonfatal; duration=${Date.now() - depsSyncStartedAt}ms; deps-unavailable`}`);
       }
 
       // 2 + 3. Merge + review loop (corrective passes).
@@ -1246,7 +1266,7 @@ export async function landOneRepo(
         // Branch had no net changes vs the tip — nothing to land. The caller
         // decides how to finalize the (possibly multi-repo) task.
         await audit.git({ type: "merge:ai-empty", target: integrationBranch, metadata: { taskId, tipSha } });
-        return { outcome: "empty", tipSha, integrationBranch };
+        return { outcome: "empty", tipSha, integrationBranch, dependencySyncDecision };
       }
 
       /*
@@ -1305,7 +1325,7 @@ export async function landOneRepo(
       /* FNXC:AIMergeReviewReconciliation 2026-08-20-22:27: once the exact confirmed candidate lands, clear its findings, confirmation count, and corrective budget together so completed work cannot be revived. */
       await store.updateTask(taskId, { aiMergeReviewReconciliation: null });
       await log(`AI merge: advanced ${integrationBranch} → ${short(squashSha)} (local checkout: ${landed.localSync})`);
-      return { outcome: "landed", squashSha, localSync: landed.localSync, tipSha, integrationBranch };
+      return { outcome: "landed", squashSha, localSync: landed.localSync, tipSha, integrationBranch, dependencySyncDecision };
     } finally {
       for (const registeredPath of registeredMergePaths) {
         activeSessionRegistry.unregisterPath(registeredPath);
@@ -2215,6 +2235,8 @@ export interface WorkspaceRepoLandResult {
   landedSha?: string;
   /** How the sub-repo checkout was reconciled when landed. */
   localSync?: LocalSyncOutcome;
+  /** The clean-room dependency-readiness decision for this repository when a land ran. */
+  dependencySyncDecision?: string;
   /** Failure message when `status === "failed"`. */
   error?: string;
   /**
@@ -2769,6 +2791,7 @@ export async function landWorkspaceTask(
       repos.push({
         repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch,
         status: "landed", landedSha: provenLandedSha, alreadyLanded: true,
+        dependencySyncDecision: "not-run-already-landed",
       });
       continue;
     }
@@ -2972,6 +2995,7 @@ export async function landWorkspaceTask(
           repos.push({
             repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch,
             status: "landed", landedSha: landResult.squashSha, localSync: landResult.localSync,
+            dependencySyncDecision: landResult.dependencySyncDecision,
           });
           allLanded = false;
           const landedCount = repos.filter((r) => r.status === "landed").length;
@@ -2984,9 +3008,13 @@ export async function landWorkspaceTask(
         repos.push({
           repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch,
           status: "landed", landedSha: landResult.squashSha, localSync: landResult.localSync,
+          dependencySyncDecision: landResult.dependencySyncDecision,
         });
       } else {
-        repos.push({ repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch, status: "empty" });
+        repos.push({
+          repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch, status: "empty",
+          dependencySyncDecision: landResult.dependencySyncDecision,
+        });
       }
     } catch (err: unknown) {
       /*
@@ -3027,7 +3055,10 @@ export async function landWorkspaceTask(
         action: "Retry after resolving the reported repository issue",
         technicalDetail: message.slice(0, 2_000),
       }).catch(() => undefined);
-      repos.push({ repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch, status: "failed", error: operatorMessage });
+      repos.push({
+        repo: repoRel, repoRootDir, integrationBranch, branch: entry.branch, status: "failed",
+        dependencySyncDecision: "failed-before-decision", error: operatorMessage,
+      });
       allLanded = false;
       // Stop on first failure and return a partial result. The already-landed repos'
       // `landedSha` is persisted, so the engine dispatch's auto-retry re-runs this
@@ -3219,6 +3250,24 @@ async function persistRepoLandedSha(
  * `task:merged` consumer); the full per-repo map is carried in `mergeDetails.workspaceLandedShas`.
  * Returns true iff the task was moved to done.
  */
+/*
+FNXC:WorkspaceMergeLogs 2026-08-29-07:28:
+The terminal workspace log is one durable write at the established finalization ordinal. Summarize
+all repository outcomes, SHAs, and dependency decisions together so a task card has one unambiguous
+landing recap rather than an unlabeled aggregate count.
+*/
+export function formatRepositoryMergeLog(repoRelPath: string, message: string): string {
+  return `[${repoRelPath}] ${message}`;
+}
+
+export function formatWorkspaceLandingSummary(repos: WorkspaceRepoLandResult[]): string {
+  const aggregate = repos.some((repo) => repo.status === "failed") ? "partial-failed" : "all-landed";
+  const repositoryResults = repos
+    .map((repo) => `${repo.repo} {status=${repo.status}; sha=${repo.landedSha ?? "none"}; dependency-sync=${repo.dependencySyncDecision ?? "not-recorded"}}`)
+    .join("; ");
+  return `AI merge (workspace): aggregate=${aggregate}; task → done; ${repositoryResults}`;
+}
+
 async function finalizeWorkspaceTask(
   store: TaskStore,
   taskId: string,
@@ -3269,7 +3318,7 @@ async function finalizeWorkspaceTask(
     worktreeRemoved: false,
     branchDeleted: false,
   };
-  await fence?.write("log", () => store.logEntry(taskId, `AI merge (workspace): all ${repos.length} sub-repo(s) landed — task → done`, "AiMerge").catch(() => undefined));
+  await fence?.write("log", () => store.logEntry(taskId, formatWorkspaceLandingSummary(repos), "AiMerge").catch(() => undefined));
   fence?.assertOwned("finalization");
   await finalizeTask(store, taskId, result, undefined, undefined, undefined, fence);
   return true;

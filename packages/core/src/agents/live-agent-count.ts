@@ -91,6 +91,7 @@ two hand-written copies of one rule, and line 84 answering differently from line
 a card in both counts or neither.
 */
 const LEGACY_PRE_IMPLEMENTATION_COLUMN_IDS: ReadonlySet<string> = new Set(["triage", "todo"]);
+const LEGACY_WIP_COLUMN_ID = "in-progress";
 
 /** Legacy-vocabulary "is this column a planner lane?", for callers that supply no traits. */
 function isLegacyPreImplementationColumn(columnId: string): boolean {
@@ -130,7 +131,7 @@ export function enrichRunningAgentTaskShapeFromFlags<T extends RunningAgentTaskS
     ...task,
     columnTerminalKind: flags?.archived ? "archived" : flags?.complete ? "complete" : "none",
     columnIsIntakeOrHold: flags ? flags.intake === true || flags.hold === true : isLegacyPreImplementationColumn(task.column),
-    columnCountsTowardWip: flags ? flags.countsTowardWip === true : task.column === "in-progress",
+    columnCountsTowardWip: flags ? flags.countsTowardWip === true : task.column === LEGACY_WIP_COLUMN_ID,
     /*
     FNXC:WorkflowLifecycleColumns 2026-07-29-23:10 (reason now at
     `isLegacyPreImplementationColumn`): these id fallbacks are REACHABLE, not fixture-only —
@@ -207,7 +208,7 @@ export function isRunningAgentTask(task: RunningAgentTaskShape): boolean {
   }
   // A live gate-session lease (pending step result) is Running even with a null status.
   if (hasLiveWorkflowStepLease(task)) return true;
-  const isWip = task.columnCountsTowardWip ?? task.column === "in-progress";
+  const isWip = task.columnCountsTowardWip ?? task.column === LEGACY_WIP_COLUMN_ID;
   return isWip;
 }
 

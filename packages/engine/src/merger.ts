@@ -11545,8 +11545,16 @@ export async function completeTask(
   const preMoveTask = await store.getTask(taskId);
   // Clear transient status before moving to done
   await store.updateTask(taskId, { status: null });
-  // Use moveTask for proper event emission
-  const task = await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "complete"));
+  /*
+  FNXC:MergerMoveAttribution 2026-08-29-07:37:
+  Legacy merger completion remains a forward merge authority. Its own neutral provenance keeps the
+  lifecycle timeline legible without borrowing graph/remediation/plan-approval literals that alter
+  review-entry auditing and reopen field-clearing semantics; plugins observe this source too.
+  */
+  // Use moveTask for proper event emission.
+  const task = await store.moveTask(taskId, await resolveMergerLifecycleColumn(store, taskId, "complete"), {
+    workflowMoveSource: "merger-complete-task",
+  });
   const settings = await store.getSettings();
   if (isMergeRequestContractShadowEnabled(settings) && preMoveTask?.autoMerge !== false) {
     const mergeRequestRecord = await store.getMergeRequestRecordAsync(taskId);

@@ -19,6 +19,7 @@ import {assertSafeGitBranchName, assertSafeAbsolutePath} from "../task-store/she
 import {isFusionDeletableBranch} from "../branch/branch-assignment.js";
 import {acquireMergeQueueLease as acquireMergeQueueLeaseAsync} from "../task-store/async/async-merge-coordination.js";
 import {appendTaskStepReport} from "../workflows/task-step-reports.js";
+import {evaluateStepLedgerSeal, STEP_LEDGER_REOPEN_MARKER_PREFIX} from "./step-ledger-seal.js";
 
 export type StepStartDisposition = "started" | "resumed" | "blocked" | "terminal";
 
@@ -68,7 +69,7 @@ async function appendProactiveStepStatus(store: TaskStore, taskId: string, messa
   await store.appendAgentLog(taskId, message, "status", undefined, "executor");
 }
 
-async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph"; summary?: string },): Promise<{ task: Task; startResult?: Omit<StepStartResult, "task"> }> {
+async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph"; summary?: string; operatorOverride?: boolean },): Promise<{ task: Task; startResult?: Omit<StepStartResult, "task"> }> {
     // FNXC:WorkflowStepOrdering 2026-07-20-20:05:
     // Step-inversion projection discipline (U6/KTD-7). A `source: "graph"` write
     // is the workflow-graph executor projecting a foreach instance's lifecycle
@@ -130,6 +131,7 @@ async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, s
       // step status would silently undo progress, and the currentStep
       // rewind below would discard the task's place in the plan.
       const currentStatus = task.steps[stepIndex].status;
+      const isTransition = status !== currentStatus;
       if (
         status === "in-progress" &&
         (currentStatus === "done" || currentStatus === "skipped")
@@ -248,6 +250,72 @@ async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, s
         }
       }
 
+      const ledgerSeal = isTransition ? evaluateStepLedgerSeal(task.log) : { sealed: false };
+      if (
+        isTransition
+        && status !== "pending"
+        && !options?.operatorOverride
+        && ledgerSeal.sealed
+      ) {
+        const ts = new Date().toISOString();
+        const stepName = task.steps[stepIndex].name;
+        task.updatedAt = ts;
+        task.log.push({
+          timestamp: ts,
+          action:
+            `Ignored post-completion ${status} for step ${stepIndex} (${stepName}) — ` +
+            `implementation ended at "${ledgerSeal.markerAction}" and no new implementation session has started`,
+        });
+        if (graphSource) {
+          task.log.push({
+            timestamp: ts,
+            action:
+              `[integrity-warning] graph-source updateStep suppressed: step ${stepIndex} ` +
+              `(${stepName}) → ${status} arrived after completion`,
+          });
+        }
+        await store.atomicWriteTaskJson(dir, task);
+        if (store.isWatching) store.taskCache.set(id, { ...task });
+        store.emit("task:updated", task);
+        return {
+          task,
+          ...(status === "in-progress"
+            ? {
+                startResult: {
+                  accepted: false,
+                  disposition: "terminal" as const,
+                },
+              }
+            : {}),
+        };
+      }
+
+      const reopenAfterCompletion = isTransition && ledgerSeal.sealed
+        ? status === "pending"
+          ? "pending"
+          : options?.operatorOverride
+            ? "operator"
+            : undefined
+        : undefined;
+      if (reopenAfterCompletion) {
+        const stepName = task.steps[stepIndex].name;
+        task.log.push({
+          timestamp: new Date().toISOString(),
+          action: reopenAfterCompletion === "pending"
+            ? `${STEP_LEDGER_REOPEN_MARKER_PREFIX} — step ${stepIndex} (${stepName}) returned to pending after completion`
+            : `${STEP_LEDGER_REOPEN_MARKER_PREFIX} — step ${stepIndex} (${stepName}) edited by operator after completion`,
+        });
+      }
+
+      /*
+      FNXC:StepLedgerIntegrity 2026-08-29-06:46:
+      The task timeline must describe state transitions, never repeated writes. On mono-025, the
+      graph step-runner start projection recorded the initial Preflight start, the implementation
+      StepSessionExecutor onStepStart re-wrote that same status, and its fire-and-forget
+      onStepComplete could write done after `Task marked done by agent`. A sealed completion window
+      refuses later non-pending engine transitions; pending resets and explicit operator edits append
+      a reopen marker first, so re-entry remains possible without time-traveling the ledger.
+      */
       task.steps[stepIndex].status = status;
       task.updatedAt = new Date().toISOString();
 
@@ -290,17 +358,20 @@ async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, s
       */
       if ((status === "done" || status === "skipped") && (task.stuckKillCount ?? 0) > 0) {
         task.stuckKillCount = undefined;
-        task.log.push({
-          timestamp: task.updatedAt,
-          action: `Reset stuck-kill streak (forward progress: step ${stepIndex} (${task.steps[stepIndex].name}) → ${status})`,
-        });
+        if (isTransition) {
+          task.log.push({
+            timestamp: task.updatedAt,
+            action: `Reset stuck-kill streak (forward progress: step ${stepIndex} (${task.steps[stepIndex].name}) → ${status})`,
+          });
+        }
       }
 
-      // Log it
-      task.log.push({
-        timestamp: task.updatedAt,
-        action: `Step ${stepIndex} (${task.steps[stepIndex].name}) → ${status}`,
-      });
+      if (isTransition) {
+        task.log.push({
+          timestamp: task.updatedAt,
+          action: `Step ${stepIndex} (${task.steps[stepIndex].name}) → ${status}`,
+        });
+      }
 
       await store.atomicWriteTaskJson(dir, task);
       if (store.isWatching) store.taskCache.set(id, { ...task });
@@ -325,7 +396,7 @@ async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, s
     });
 }
 
-export async function updateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph"; summary?: string },): Promise<Task> {
+export async function updateStepImpl(store: TaskStore, id: string, stepIndex: number, status: import("../types.js").StepStatus, options?: { source?: "graph"; summary?: string; operatorOverride?: boolean },): Promise<Task> {
   return (await mutateStepImpl(store, id, stepIndex, status, options)).task;
 }
 

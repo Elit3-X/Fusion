@@ -1686,6 +1686,41 @@ describe("StepSessionExecutor", () => {
       expect(onStepStart).toHaveBeenNthCalledWith(3, 2);
     });
 
+    it("awaits an asynchronous completion callback before the session run resolves", async () => {
+      const task = makeTaskDetail({
+        prompt: makeStepPrompt("FN-255", 1),
+        steps: [{ name: "Deferred completion", status: "pending" }],
+      });
+      mockedCreateFnAgent.mockResolvedValue({ session: makeMockSession() } as any);
+
+      let releaseCompletion!: () => void;
+      const completionGate = new Promise<void>((resolve) => { releaseCompletion = resolve; });
+      let markCompletionStarted!: () => void;
+      const completionStarted = new Promise<void>((resolve) => { markCompletionStarted = resolve; });
+      const onStepComplete = vi.fn(async () => {
+        markCompletionStarted();
+        await completionGate;
+      });
+      const executor = new StepSessionExecutor({
+        taskDetail: task,
+        worktreePath: "/project/.worktrees/main",
+        rootDir: "/project",
+        settings: makeSettings({ maxParallelSteps: 1 }),
+        onStepComplete,
+      });
+
+      const run = executor.executeAll();
+      await completionStarted;
+      let settled = false;
+      void run.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      releaseCompletion();
+      await expect(run).resolves.toMatchObject([{ stepIndex: 0, success: true }]);
+      expect(onStepComplete).toHaveBeenCalledTimes(1);
+    });
+
     it("does not create or complete a step session when the persisted start is rejected", async () => {
       const prompt = makeStepPrompt("FN-8490", 1);
       const task = makeTaskDetail({

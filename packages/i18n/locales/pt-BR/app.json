@@ -9121,6 +9121,7 @@
     "aggregateNotFullyExecuted": "Not fully executed",
     "notRunReasonExecutionModeSkip": "fast mode skipped this check",
     "notRunReasonNotConfigured": "no test or build command is configured",
+    "notRunReasonRepositoryContextUnresolved": "the workspace repository context could not be resolved",
     "notRunReasonToolingUnavailable": "a required tool was unavailable",
     "statusNotRunWithReason": "Not executed — {{reason}}",
     "summaryNotExecuted_one": "{{count}} not executed",
