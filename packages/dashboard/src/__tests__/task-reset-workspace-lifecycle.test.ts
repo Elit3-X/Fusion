@@ -55,8 +55,10 @@ function workspaceTask(root: string, legacy = false): Task {
     ? join(root, repo, ".worktrees", "fn-401")
     : join(taskDir, repo);
   return {
-    id: "FN-401", title: "Workspace reset", description: "A workspace task", column: "in-progress", status: "failed",
+    id: "FN-401", title: "Workspace reset", description: "A workspace task", column: "in-progress", status: "failed", error: "stale failure",
     dependencies: [], steps: [{ name: "Implement", status: "done" }], currentStep: 0,
+    workflowStepResults: [{ workflowStepId: "code-review", status: "failed" }],
+    approvedPlanFingerprint: "stale-plan-approval",
     workspaceWorktrees: {
       "apps/a": { worktreePath: worktree("apps/a"), branch: "fusion/fn-401" },
       "apps/b": { worktreePath: worktree("apps/b"), branch: "fusion/fn-401" },
@@ -89,6 +91,9 @@ function createStore(root: string, initialTask: Task, otherTasks: Task[] = []) {
     branch: undefined,
     steps: [],
     currentStep: 0,
+    workflowStepResults: [],
+    approvedPlanFingerprint: undefined,
+    error: undefined,
   }));
   const store = {
     getRootDir: vi.fn().mockReturnValue(root),
@@ -170,6 +175,10 @@ describe("POST /api/tasks/:id/reset workspace lifecycle", () => {
     expect(JSON.stringify(res.body)).not.toContain("does not support workspace tasks");
     expect(publication).toHaveBeenCalledOnce();
     expect(publication).toHaveBeenCalledWith("FN-401", "triage");
+    expect(res.body.workflowStepResults).toEqual([]);
+    expect(res.body.approvedPlanFingerprint).toBeUndefined();
+    expect(res.body.status).toBeUndefined();
+    expect(res.body.error).toBeUndefined();
     const cleanupTargets = [
       { repoRootDir: join(root, "apps/a"), recordedBranches: ["fusion/fn-401"] },
       { repoRootDir: join(root, "apps/b"), recordedBranches: ["fusion/fn-401"] },

@@ -70,6 +70,8 @@ function taskFixture(worktree: string): Task {
     branch: "fusion/fn-400",
     workflowIrPin: "stale-pin",
     workflowStepResults: [{ workflowStepId: "plan-review", status: "failed" }],
+    approvedPlanFingerprint: "stale-plan-approval",
+    error: "stale failure",
     reviewState: { status: "changes-requested" } as never,
     awaitingApprovalReason: "plan-review-replan-cap",
     log: [],
@@ -130,7 +132,18 @@ describe("POST /tasks/:id/reset", () => {
     const events: string[] = [];
     const task = taskFixture(worktree);
     vi.mocked(getRegisteredWorktreeBranches).mockResolvedValue([{ branch: task.branch!, worktreePath: worktree }]);
-    const reset = { ...task, column: "triage", status: undefined, worktree: undefined, branch: undefined, steps: [], currentStep: 0 };
+    const reset = {
+      ...task,
+      column: "triage",
+      status: undefined,
+      error: undefined,
+      worktree: undefined,
+      branch: undefined,
+      steps: [],
+      currentStep: 0,
+      workflowStepResults: [],
+      approvedPlanFingerprint: undefined,
+    };
     let store!: TaskStore;
     store = createStore(root, task, events, async function (this: TaskStore, id, intake) {
       void (this as unknown as { asyncLayer: unknown }).asyncLayer;
@@ -164,7 +177,10 @@ describe("POST /tasks/:id/reset", () => {
       await expect(readFile(worktree, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       expect(res.body).toMatchObject({ id: "FN-400", column: "triage" });
       expect(res.body.status).toBeUndefined();
+      expect(res.body.error).toBeUndefined();
       expect(res.body.steps).toEqual([]);
+      expect(res.body.workflowStepResults).toEqual([]);
+      expect(res.body.approvedPlanFingerprint).toBeUndefined();
     } finally {
       unregister();
     }

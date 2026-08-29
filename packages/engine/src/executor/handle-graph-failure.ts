@@ -520,6 +520,22 @@ export async function handleGraphFailure(
         );
       }
       /*
+      FNXC:WorkflowLifecycle 2026-08-29-02:20:
+      FN-249 treats an operator cancellation as the terminal outcome for its in-flight graph run.
+      Keep the existing breadcrumb, then stop before every recovery classifier so a canceled run
+      cannot retry a merge or manufacture a failed park; engine aborts have no user-cancel marker
+      and retain their existing recoveries.
+      */
+      if (deps.userCanceledTaskIds.has(task.id)) {
+        deps.clearPausedAborted(task.id);
+        deps.activeWorktrees.delete(task.id);
+        const cancellationExit = "Workflow graph run ended after operator cancellation — no merge routing, no failure park";
+        executorLog.log(`${task.id}: ${cancellationExit}`);
+        await deps.store.logEntry(task.id, cancellationExit, undefined, deps.getRunContextFor(task.id));
+        await deps.persistTokenUsage(task.id);
+        return;
+      }
+      /*
       FNXC:WorkflowLifecycleColumns 2026-07-30-21:40 (PR #2640 review, greptile P2): one lane
       snapshot for one recovery decision — see `resolveResumeLanes`. Eligibility and re-entry are two
       halves of the SAME decision and must not read different boards.
@@ -552,7 +568,7 @@ export async function handleGraphFailure(
           return;
         }
       }
-      if (genuinePauseAbort && await deps.isRetryableBenignMergePauseAbort(live, result, abortProvenance, pausedAborted, resumeLanesMemo)) {
+      if (genuinePauseAbort && await deps.isRetryableBenignMergePauseAbort(live, result, abortProvenance, pausedAborted, deps.userCanceledTaskIds.has(task.id), resumeLanesMemo)) {
         if (await deps.routeGraphMergeFailureToRetry(live, result, abortProvenance)) {
           return;
         }

@@ -386,6 +386,98 @@ export async function updateTaskAtomicImpl(store: TaskStore, id: string, updater
     });
   }
 
+export type FencedWorkflowStepResultsPatch = Pick<
+  Task,
+  "workflowStepResults"
+  | "approvedPlanFingerprint"
+  | "reviewConvergenceStage"
+  | "reviewConvergenceEscalationCount"
+>;
+
+export type WorkflowStepResultsFencedCompute = (
+  current: Task,
+) => FencedWorkflowStepResultsPatch | null;
+
+export type WorkflowStepResultsFencedUpdateResult =
+  | { applied: true; task: Task }
+  | {
+    applied: false;
+    reason: "refused" | "no-op" | "unavailable" | "task-missing" | "task-deleted";
+  };
+
+/*
+FNXC:WorkflowStepResults 2026-08-29-02:04:
+FN-249 makes durable graph step-result writes contend with resetTaskPublicationImpl's exact
+transaction-scoped task advisory lock. withTaskLock and updateTaskAtomic are in-process promise
+chains and do not order against Reset; the planning lifecycle lock is also disjoint because Reset
+never takes it. Acquire the advisory lock before reading or writing the task row, then compute the
+field-bounded patch from that in-transaction row. This primitive deliberately does not take
+withTaskWorkflowSerialization because it touches no workflow-work-item rows.
+
+The compute callback is synchronous and pure. It executes while the task lock and PostgreSQL
+transaction are open, so awaiting a store method can deadlock on the non-reentrant task lock or
+starve the connection pool. The engine supplies the abort re-check and startedAt attempt CAS in
+this closure, after Reset's transaction has either committed or released its lock.
+*/
+export async function updateWorkflowStepResultsFencedImpl(
+  store: TaskStore,
+  id: string,
+  compute: WorkflowStepResultsFencedCompute,
+): Promise<WorkflowStepResultsFencedUpdateResult> {
+  const layer = store.asyncLayer;
+  if (!layer) return { applied: false, reason: "unavailable" };
+
+  return store.withTaskLock(id, async () => {
+    const outcome = await layer.transactionImmediate(async (tx): Promise<WorkflowStepResultsFencedUpdateResult> => {
+      await acquireTaskAdvisoryXactLock(tx, layer.projectId, id);
+      const row = await readTaskRowInTransaction(tx, id, { includeDeleted: true }, layer.projectId);
+      if (!row) return { applied: false, reason: "task-missing" };
+      if (row.deletedAt) return { applied: false, reason: "task-deleted" };
+
+      const current = store.rowToTask(store.pgRowToTaskRow(row));
+      const patch = compute(current);
+      if (patch === null) return { applied: false, reason: "refused" };
+      const patchKeys = Object.keys(patch) as Array<keyof FencedWorkflowStepResultsPatch>;
+      if (patchKeys.length === 0) return { applied: false, reason: "no-op" };
+
+      const values: {
+        workflowStepResults?: Task["workflowStepResults"];
+        approvedPlanFingerprint?: string | null;
+        reviewConvergenceStage?: number | null;
+        reviewConvergenceEscalationCount?: number | null;
+        updatedAt: string;
+      } = { updatedAt: new Date().toISOString() };
+      if (Object.prototype.hasOwnProperty.call(patch, "workflowStepResults")) {
+        values.workflowStepResults = patch.workflowStepResults ?? [];
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "approvedPlanFingerprint")) {
+        values.approvedPlanFingerprint = patch.approvedPlanFingerprint ?? null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "reviewConvergenceStage")) {
+        values.reviewConvergenceStage = patch.reviewConvergenceStage ?? null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "reviewConvergenceEscalationCount")) {
+        values.reviewConvergenceEscalationCount = patch.reviewConvergenceEscalationCount ?? null;
+      }
+
+      const [updatedRow] = await tx.update(schema.project.tasks).set(values).where(and(
+        eq(schema.project.tasks.id, id),
+        taskProjectScope(layer),
+        isNull(schema.project.tasks.deletedAt),
+      )).returning();
+      if (!updatedRow) return { applied: false, reason: "task-missing" };
+      return { applied: true, task: store.rowToTask(store.pgRowToTaskRow(updatedRow)) };
+    });
+
+    if (outcome.applied) {
+      await store.writeTaskJsonFile(store.taskDir(id), outcome.task);
+      if (store.isWatching) store.taskCache.set(id, { ...outcome.task });
+      store.emitTaskLifecycleEventSafely("task:updated", [outcome.task]);
+    }
+    return outcome;
+  });
+}
+
 /**
  * FNXC:TaskRecommendations 2026-08-08-06:52:
  * A recommendation link is a read-modify-write of one JSONB parent field. Dashboard processes
