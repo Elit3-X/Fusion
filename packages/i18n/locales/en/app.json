@@ -8427,14 +8427,12 @@
     "stage": {
       "plan": "Plan",
       "code": "Code",
-      "review": "Review",
-      "merge": "Merge"
+      "review": "Review"
     },
     "empty": {
       "plan": "No planning reports recorded.",
       "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
-      "review": "No review reports recorded.",
-      "merge": "No merge reports recorded. Merge details appear at the bottom of Summary."
+      "review": "No review reports recorded."
     },
     "entry": {
       "noBody": "No report body was recorded.",

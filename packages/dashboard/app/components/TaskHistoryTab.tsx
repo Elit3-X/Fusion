@@ -50,8 +50,12 @@ function normalizeToken(token: string): string {
 }
 
 /*
-FNXC:TaskHistory 2026-08-28-13:46:
-Operators need planning, implementation, review, and merge summaries visible in sequence rather than hidden in an accordion. Every stage therefore renders a static heading followed immediately by its reports or stage-specific empty state, with no toggle shell or collapsed state.
+FNXC:TaskHistory 2026-08-29-12:20:
+Operators need Plan, Code, and Review reports visible in sequence rather than hidden in an accordion.
+Merge facts belong only to the trailing MergeDetails panel for completed work. Every stage therefore
+renders a static heading followed immediately by its reports or stage-specific empty state, with no
+toggle shell or collapsed state. Entry badges stay driven by entry.verdict ?? entry.status, so a
+completion report deliberately left without either value by the projection emits no status pill.
 */
 export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTabProps) {
   const { t } = useTranslation("app");
@@ -75,7 +79,7 @@ export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTa
             </div>
             <div className="task-history-panel">
               {stage.entries.length === 0 ? (
-                <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, stage.id === "merge" ? "No merge reports recorded. Merge details appear at the bottom of Summary." : "No reports recorded.")}</p>
+                <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, "No reports recorded.")}</p>
               ) : (
                 <div className="task-history-entries">
                   {stage.entries.map((entry) => {

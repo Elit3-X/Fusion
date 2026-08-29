@@ -339,6 +339,25 @@ describe("WorkflowResultsTab", () => {
       .toHaveTextContent("Not executed — the workspace repository context could not be resolved");
   });
 
+  it("keeps the documentation-delivery name and status badge on the Workflow tab", () => {
+    render(
+      <WorkflowResultsTab
+        taskId="FN-001"
+        task={baseTask}
+        settings={mockSettings}
+        results={[{
+          workflowStepId: "documentation-delivery",
+          workflowStepName: "Documentation",
+          phase: "pre-merge",
+          status: "passed",
+        }]}
+      />,
+    );
+
+    expect(screen.getByText("Documentation")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-result-badge-documentation-delivery")).toHaveTextContent("Passed");
+  });
+
   it.each([
     { name: "not started", task: { ...baseTask, status: "todo", column: "todo" } as Task, results: [] as WorkflowStepResult[], testId: "workflow-phase-badge-not-started", text: "Not started" },
     { name: "in progress", task: { ...baseTask, status: "in-progress", column: "in-progress" } as Task, results: [{ workflowStepId: "WS-004", workflowStepName: "Performance Check", phase: "pre-merge", status: "pending" }] as WorkflowStepResult[], testId: "workflow-phase-badge-pre-merge", text: "Pre-merge steps running" },

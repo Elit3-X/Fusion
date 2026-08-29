@@ -28,12 +28,13 @@ afterEach(() => {
 });
 
 describe("TaskHistoryTab", () => {
-  it("renders all four stage sections and counts immediately", async () => {
+  it("renders Plan, Code, and Review sections and counts immediately", async () => {
     await renderHistory();
-    for (const id of ["plan", "code", "review", "merge"]) {
+    for (const id of ["plan", "code", "review"]) {
       expect(screen.getByTestId(`task-history-stage-${id}`)).toBeInTheDocument();
       expect(screen.getByTestId(`task-history-count-${id}`)).toHaveTextContent("0");
     }
+    expect(screen.queryByTestId("task-history-stage-merge")).not.toBeInTheDocument();
   });
 
   it("shows every stage-specific empty state without interaction", async () => {
@@ -41,7 +42,7 @@ describe("TaskHistoryTab", () => {
     expect(screen.getByText(/No planning reports recorded/)).toBeInTheDocument();
     expect(screen.getByText(/No implementation summaries recorded/)).toBeInTheDocument();
     expect(screen.getByText(/No review reports recorded/)).toBeInTheDocument();
-    expect(screen.getByText(/No merge reports recorded/)).toBeInTheDocument();
+    expect(screen.queryByText(/No merge reports recorded/)).not.toBeInTheDocument();
   });
 
   it("shows review attempts chronologically with dates and markdown", async () => {
@@ -193,10 +194,68 @@ describe("TaskHistoryTab", () => {
     expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
   });
 
-  it("renders stage, merge, and body fallbacks through localization keys", async () => {
+  it.each([
+    ["desktop", originalInnerWidth],
+    ["mobile", 375],
+  ])("renders one unbadged completion summary without a Merge stage at %s width", async (_viewport, width) => {
+    const REPORT = "Both repositories now contain a root-level empty bonjour.txt file.";
+    window.innerWidth = width;
+    await renderHistory(task({ summary: REPORT }), [result({
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      verdict: "APPROVE",
+      status: "passed",
+      output: REPORT,
+      startedAt: "2026-08-28T13:53:53.000Z",
+      completedAt: "2026-08-28T13:54:19.500Z",
+    })]);
+
+    const reviewStage = screen.getByTestId("task-history-stage-review");
+    const completionHeading = within(reviewStage).getByRole("heading", { name: "Completion summary", level: 5 });
+    const completionEntry = completionHeading.closest("article");
+    expect(screen.getAllByText(REPORT)).toHaveLength(1);
+    expect(screen.queryByText("Documentation")).not.toBeInTheDocument();
+    expect(within(reviewStage).getAllByRole("heading", { level: 5, name: "Completion summary" })).toHaveLength(1);
+    expect(completionEntry?.querySelectorAll(".workflow-result-badge")).toHaveLength(0);
+    expect(screen.queryByText("Approved")).not.toBeInTheDocument();
+    expect(screen.queryByText("Passed")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-history-entry-duration")).toHaveTextContent("Took 26.5 s");
+    expect(screen.getByTestId("task-history-count-review")).toHaveTextContent("1");
+    expect(screen.getByTestId("task-history-count-code")).toHaveTextContent("0");
+    expect(screen.queryByTestId("task-history-stage-merge")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No merge reports recorded/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a Code Review badge while leaving the completion summary unbadged", async () => {
+    await renderHistory(task({ summary: "Documentation report" }), [
+      result({ workflowStepId: "code-review-step", workflowStepName: "Code Review", verdict: "APPROVE", output: "Code review report" }),
+      result({ workflowStepId: "documentation-delivery", workflowStepName: "Documentation", verdict: "APPROVE", output: "Documentation report" }),
+    ]);
+
+    const reviewStage = screen.getByTestId("task-history-stage-review");
+    const completionHeading = within(reviewStage).getByRole("heading", { name: "Completion summary", level: 5 });
+    const codeReviewHeading = within(reviewStage).getByRole("heading", { name: "Code Review", level: 5 });
+    expect(reviewStage.querySelectorAll(".workflow-result-badge")).toHaveLength(1);
+    expect(codeReviewHeading.closest("article")?.querySelector(".workflow-result-badge")).toHaveTextContent("Approved");
+    expect(completionHeading.closest("article")?.querySelector(".workflow-result-badge")).toBeNull();
+  });
+
+  it("uses generic no-body copy for a bodyless summary projection", async () => {
+    await renderHistory(task(), [result({
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      verdict: "APPROVE",
+      output: "",
+      notes: "",
+    })]);
+
+    expect(screen.getByTestId("task-history-entry-no-body")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
+  });
+
+  it("renders stage and body fallbacks through localization keys", async () => {
     const resources = structuredClone(realEnApp) as typeof realEnApp;
     resources.taskHistory.stage.plan = "PLAN_SENTINEL";
-    resources.taskHistory.empty.merge = "MERGE_EMPTY_SENTINEL";
     resources.taskHistory.entry.noBody = "NO_BODY_SENTINEL";
     resources.taskHistory.entry.verdictNoNotes = "NO_NOTES_SENTINEL";
     resources.taskHistory.entry.duration = "DURATION_SENTINEL {{duration}}";
@@ -205,7 +264,6 @@ describe("TaskHistoryTab", () => {
       mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" },
     }), [result({ verdict: "APPROVE", output: "", notes: "", startedAt: "2026-08-28T03:00:00.000Z", completedAt: "2026-08-28T03:00:01.000Z" })], resources);
     expect(screen.getByText("PLAN_SENTINEL")).toBeInTheDocument();
-    expect(screen.getByText("MERGE_EMPTY_SENTINEL")).toBeInTheDocument();
     expect(screen.getAllByText("NO_BODY_SENTINEL")).toHaveLength(1);
     expect(screen.getByText("NO_NOTES_SENTINEL")).toBeInTheDocument();
     expect(screen.getByText("DURATION_SENTINEL 1.0 s")).toBeInTheDocument();

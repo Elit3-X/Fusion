@@ -17,14 +17,20 @@ function stageEntries(history: ReturnType<typeof buildTaskHistory>, id: string) 
   return history.find((stage) => stage.id === id)!.entries;
 }
 
+const completionSummaryTitle = {
+  kind: "i18n",
+  key: "taskHistory.entry.completionSummary",
+  defaultValue: "Completion summary",
+};
+
 describe("buildTaskHistory", () => {
-  it("always returns four empty stages for a fresh task", () => {
+  it("always returns three empty stages for a fresh task", () => {
     expect(buildTaskHistory(task(), [])).toEqual([
-      { id: "plan", entries: [] }, { id: "code", entries: [] }, { id: "review", entries: [] }, { id: "merge", entries: [] },
+      { id: "plan", entries: [] }, { id: "code", entries: [] }, { id: "review", entries: [] },
     ]);
   });
 
-  it("projects a fully populated task into all four stages", () => {
+  it("projects a fully populated task into Plan, Code, and Review", () => {
     const history = buildTaskHistory(task({
       stepReports: [{ id: "code-1", stepIndex: 1, stepName: "Implement", summary: "Built it", recordedAt: "2026-08-28T02:00:00.000Z", source: "agent", attempt: 1 }],
       mergeDetails: { commitSha: "1234567890abcdef", mergedAt: "2026-08-28T04:00:00.000Z", mergeCommitMessage: "Merge history", filesChanged: 3 },
@@ -32,7 +38,7 @@ describe("buildTaskHistory", () => {
       result({ workflowStepId: "plan-review-step", workflowStepName: "Plan Review", reviewKind: "plan", verdict: "APPROVE", completedAt: "2026-08-28T01:00:00.000Z" }),
       result({ workflowStepId: "code-review-step", workflowStepName: "Code Review", reviewKind: "code", verdict: "APPROVE", completedAt: "2026-08-28T03:00:00.000Z" }),
     ]);
-    expect(history.map((stage) => [stage.id, stage.entries.length])).toEqual([["plan", 1], ["code", 1], ["review", 1], ["merge", 0]]);
+    expect(history.map((stage) => [stage.id, stage.entries.length])).toEqual(["plan", "code", "review"].map((id, index) => [id, 1]));
   });
 
   it("restores chronological order for newest-first prior review attempts", () => {
@@ -118,7 +124,7 @@ describe("buildTaskHistory", () => {
     expect(entries).toHaveLength(1);
   });
 
-  it("retains the task summary when its completion workflow result has no renderable body", () => {
+  it("uses a single persisted summary when a completion workflow result has no renderable body", () => {
     const entries = stageEntries(buildTaskHistory(task({ summary: "Persisted summary" }), [result({
       workflowStepId: "completion-summary",
       workflowStepName: "Completion summary",
@@ -127,9 +133,7 @@ describe("buildTaskHistory", () => {
       findings: [],
     })]), "review");
 
-    expect(entries).toHaveLength(2);
-    expect(entries.find((entry) => entry.id === "task:completion-summary")).toMatchObject({ body: "Persisted summary" });
-    expect(entries.find((entry) => entry.id.startsWith("workflow:completion-summary:"))).toMatchObject({ body: undefined });
+    expect(entries).toEqual([expect.objectContaining({ body: "Persisted summary", title: completionSummaryTitle })]);
   });
 
   it("pins a completion workflow result below a later Code Review verdict", () => {
@@ -153,7 +157,7 @@ describe("buildTaskHistory", () => {
     expect(stageEntries(history, "code")).toEqual([]);
     expect(stageEntries(history, "review").map((entry) => entry.title)).toEqual([
       { kind: "text", text: "Code Review" },
-      { kind: "text", text: "Completion summary" },
+      completionSummaryTitle,
     ]);
   });
 
@@ -202,27 +206,135 @@ describe("buildTaskHistory", () => {
     expect(stageEntries(history, "code")[0]?.durationMs).toBe(15_000);
   });
 
-  it("keeps a post-merge completion result in the Merge stage", () => {
+  it("places post-merge completion results in Review", () => {
     const history = buildTaskHistory(task(), [
       result({ workflowStepId: "completion-summary", workflowStepName: "Completion summary", phase: "post-merge" }),
     ]);
 
-    expect(stageEntries(history, "merge")).toHaveLength(1);
-    expect(stageEntries(history, "review")).toHaveLength(0);
+    expect(stageEntries(history, "review")).toHaveLength(1);
+    expect(history.map((stage) => stage.id)).not.toContain("merge");
   });
 
-  it("does not synthesize a merge history entry from landed commit metadata", () => {
+  it("does not synthesize history entries from landed commit metadata", () => {
     const history = buildTaskHistory(task({
       mergeDetails: { commitSha: "1234567890abcdef", mergedAt: "2026-08-28T04:00:00.000Z", mergeTargetBranch: "main" },
     }), []);
 
-    expect(stageEntries(history, "merge")).toEqual([]);
+    expect(history.flatMap((stage) => stage.entries)).toEqual([]);
+    expect(history.map((stage) => stage.id)).not.toContain("merge");
   });
 
-  it("classifies post-merge workflow output as merge", () => {
+  it("classifies post-merge workflow output as Review", () => {
     const history = buildTaskHistory(task(), [result({ workflowStepId: "post-audit", workflowStepName: "Post merge audit", phase: "post-merge", verdict: "APPROVE" })]);
-    expect(stageEntries(history, "merge")).toHaveLength(1);
-    expect(stageEntries(history, "review")).toHaveLength(0);
+    expect(stageEntries(history, "review")).toHaveLength(1);
+    expect(history.map((stage) => stage.id)).not.toContain("merge");
+  });
+
+  it("projects an approved documentation-delivery report once without an approval state", () => {
+    const REPORT = "Both repositories now contain the requested empty file.";
+    const history = buildTaskHistory(task({ summary: REPORT }), [result({
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      verdict: "APPROVE",
+      status: "passed",
+      output: REPORT,
+      startedAt: "2026-08-28T13:53:53.000Z",
+      completedAt: "2026-08-28T13:54:19.500Z",
+    })]);
+
+    expect(stageEntries(history, "code")).toEqual([]);
+    const [entry] = stageEntries(history, "review");
+    expect(entry).toMatchObject({ title: completionSummaryTitle, body: REPORT, durationMs: 26_500 });
+    expect(entry?.verdict).toBeUndefined();
+    expect(entry?.status).toBeUndefined();
+  });
+
+  it("projects a documentation-delivery report into Review without a parsed verdict", () => {
+    const REPORT = "Documentation report without a verdict.";
+    const history = buildTaskHistory(task({ summary: REPORT }), [result({
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      verdict: undefined,
+      status: "passed",
+      output: REPORT,
+    })]);
+
+    expect(stageEntries(history, "code")).toEqual([]);
+    const [entry] = stageEntries(history, "review");
+    expect(entry).toMatchObject({ title: completionSummaryTitle, body: REPORT });
+    expect(entry?.verdict).toBeUndefined();
+    expect(entry?.status).toBeUndefined();
+  });
+
+  it("treats the documentation-delivery inner step as a summary projection", () => {
+    const REPORT = "Inner documentation report.";
+    const entries = stageEntries(buildTaskHistory(task({ summary: REPORT }), [result({
+      workflowStepId: "documentation-delivery-step",
+      workflowStepName: "Documentation",
+      verdict: "APPROVE",
+      output: REPORT,
+    })]), "review");
+
+    expect(entries).toEqual([expect.objectContaining({ title: completionSummaryTitle, body: REPORT })]);
+    expect(entries[0]?.verdict).toBeUndefined();
+    expect(entries[0]?.status).toBeUndefined();
+  });
+
+  it("uses a synthetic completion summary when no summary-projection result exists", () => {
+    const entries = stageEntries(buildTaskHistory(task({ summary: "Persisted completion" }), [
+      result({ workflowStepId: "code-review-step", workflowStepName: "Code Review", reviewKind: "code", verdict: "APPROVE" }),
+    ]), "review");
+
+    expect(entries.at(-1)).toMatchObject({ id: "task:completion-summary", title: completionSummaryTitle, body: "Persisted completion" });
+  });
+
+  it("suppresses a stripped archived summary carrier and retains a synthetic persisted summary", () => {
+    const entries = stageEntries(buildTaskHistory(task({ summary: "Persisted completion" }), [result({
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      remediationArchivedAt: "2026-08-28T02:00:00.000Z",
+      output: undefined,
+      notes: undefined,
+      verdict: undefined,
+      findings: [],
+    })]), "review");
+
+    expect(entries).toEqual([expect.objectContaining({ id: "task:completion-summary", body: "Persisted completion" })]);
+  });
+
+  it("keeps all summary-projection attempts and applies the persisted summary only to the last", () => {
+    const summary = "Persisted completion";
+    const entries = stageEntries(buildTaskHistory(task({ summary }), [result({
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      output: "Latest raw report",
+      completedAt: "2026-08-28T03:00:00.000Z",
+      priorAttempts: [
+        result({ workflowStepId: "documentation-delivery", workflowStepName: "Documentation", output: "Middle raw report", completedAt: "2026-08-28T02:00:00.000Z" }),
+        result({ workflowStepId: "documentation-delivery", workflowStepName: "Documentation", output: "First raw report", completedAt: "2026-08-28T01:00:00.000Z" }),
+      ],
+    })]), "review");
+
+    expect(entries).toHaveLength(3);
+    expect(entries.map((entry) => [entry.body, entry.verdict, entry.status])).toEqual([
+      ["First raw report", undefined, undefined],
+      ["Middle raw report", undefined, undefined],
+      [summary, undefined, undefined],
+    ]);
+  });
+
+  it("retains a bodyless summary projection for the generic no-body fallback", () => {
+    const entries = stageEntries(buildTaskHistory(task(), [result({
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      verdict: "APPROVE",
+      output: " ",
+      notes: " ",
+    })]), "review");
+
+    expect(entries).toEqual([expect.objectContaining({ body: undefined })]);
+    expect(entries[0]?.verdict).toBeUndefined();
+    expect(entries[0]?.status).toBeUndefined();
   });
 
   it("keeps local workflow identity literals aligned with core built-ins", () => {
@@ -232,6 +344,7 @@ describe("buildTaskHistory", () => {
       fileURLToPath(new URL("../../../../core/src/workflows/builtin-code-review-group.ts", testModuleUrl)),
       fileURLToPath(new URL("../../../../core/src/workflows/builtin-browser-verification-group.ts", testModuleUrl)),
       fileURLToPath(new URL("../../../../core/src/workflows/builtin-completion-summary-node.ts", testModuleUrl)),
+      fileURLToPath(new URL("../../../../core/src/workflows/builtin-documentation-delivery-group.ts", testModuleUrl)),
     ].map((path) => readFileSync(path, "utf8")).join("\n");
     for (const value of Object.values(TASK_HISTORY_WORKFLOW_IDS)) expect(sources).toContain(`= "${value}"`);
   });

@@ -8766,7 +8766,6 @@ export default interface Resources {
     "taskHistory": {
       "empty": {
         "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
-        "merge": "No merge reports recorded. Merge details appear at the bottom of Summary.",
         "plan": "No planning reports recorded.",
         "review": "No review reports recorded."
       },
@@ -8793,7 +8792,6 @@ export default interface Resources {
       },
       "stage": {
         "code": "Code",
-        "merge": "Merge",
         "plan": "Plan",
         "review": "Review"
       },

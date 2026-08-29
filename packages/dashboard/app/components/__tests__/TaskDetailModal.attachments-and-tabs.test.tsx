@@ -852,7 +852,7 @@ describe("TaskDetailModal", () => {
       expect(screen.getByTestId("task-history-stage-plan")).toBeInTheDocument();
       expect(screen.getByTestId("task-history-stage-code")).toBeInTheDocument();
       expect(screen.getByTestId("task-history-stage-review")).toBeInTheDocument();
-      expect(screen.getByTestId("task-history-stage-merge")).toBeInTheDocument();
+      expect(screen.queryByTestId("task-history-stage-merge")).not.toBeInTheDocument();
       expect(screen.getByText("Workflow")).toBeInTheDocument();
       expect(screen.queryByText("Commits")).toBeNull();
     });

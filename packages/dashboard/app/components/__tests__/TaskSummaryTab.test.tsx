@@ -12,11 +12,12 @@ describe("TaskSummaryTab", () => {
 
     expect(screen.getByRole("heading", { name: "Work done by agents", level: 3 })).toBeInTheDocument();
     expect(screen.getByTestId("task-history-tab")).toBeInTheDocument();
-    for (const stage of ["plan", "code", "review", "merge"]) {
+    for (const stage of ["plan", "code", "review"]) {
       const stageNode = screen.getByTestId(`task-history-stage-${stage}`);
       expect(stageNode).toBeInTheDocument();
       expect(stageNode.querySelector(".task-history-empty")?.textContent?.trim()).toBeTruthy();
     }
+    expect(screen.queryByTestId("task-history-stage-merge")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Completion summary" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "What changed" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Token usage & cost" })).not.toBeInTheDocument();
@@ -71,7 +72,30 @@ describe("TaskSummaryTab", () => {
 
     const reviewStage = screen.getByTestId("task-history-stage-review");
     expect(within(reviewStage).getByText(completionSummary)).toBeInTheDocument();
-    expect(within(reviewStage).getByTestId("task-history-entry-no-body")).toBeInTheDocument();
+    expect(within(reviewStage).queryByTestId("task-history-entry-no-body")).not.toBeInTheDocument();
     expect(screen.getAllByText(completionSummary)).toHaveLength(1);
+  });
+
+  it("renders a documentation-delivery summary once and without a status badge", () => {
+    const completionSummary = "The documentation delivery report must appear once.";
+    const results: WorkflowStepResult[] = [{
+      workflowStepId: "documentation-delivery",
+      workflowStepName: "Documentation",
+      phase: "pre-merge",
+      status: "passed",
+      verdict: "APPROVE",
+      output: completionSummary,
+      startedAt: "2026-08-28T13:53:53.000Z",
+      completedAt: "2026-08-28T13:54:19.500Z",
+    }];
+
+    render(<TaskSummaryTab task={makeTask({ summary: completionSummary, workflowStepResults: results })} results={results} />);
+
+    const reviewStage = screen.getByTestId("task-history-stage-review");
+    const completionHeading = within(reviewStage).getByRole("heading", { name: "Completion summary", level: 5 });
+    expect(screen.getAllByText(completionSummary)).toHaveLength(1);
+    expect(screen.queryByText("Documentation")).not.toBeInTheDocument();
+    expect(completionHeading.closest("article")?.querySelector(".workflow-result-badge")).toBeNull();
+    expect(screen.queryByText("Approved")).not.toBeInTheDocument();
   });
 });
