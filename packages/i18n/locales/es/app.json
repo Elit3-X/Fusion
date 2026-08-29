@@ -137,7 +137,10 @@
     "toolEntriesHidden_other": "",
     "toolsOff": "Herramientas: Desactivado",
     "toolsOn": "Herramientas: Activado",
-    "usingDefault": "Usando predeterminado"
+    "usingDefault": "Usando predeterminado",
+    "missingToolDetailHint": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details.",
+    "showLessDetail": "Show less {{detailLabel}}",
+    "showMoreDetail": "Show more {{detailLabel}}{{lineCount}}"
   },
   "agentMention": {
     "membersOf": "Miembros de #{{roomName}}",
@@ -6194,7 +6197,7 @@
       "saveToolOutputInAgentLogs": "",
       "updates": "",
       "weekly": "",
-      "whenDisabledToolRowsAreStillLoggedBut": "",
+      "whenDisabledToolRowsAreStillLoggedBut": " When disabled, tool rows are still logged but detailed tool payloads are omitted. Very large tool payloads may still be clipped even when this stays enabled. Default: enabled. ",
       "whenEnabledFusionChecksNpmForNewVersions": "",
       "whenEnabledTheDashboardProbesForAGlobally": "",
       "gitLabEnabledHint": "",
@@ -9565,7 +9568,8 @@
     "missingOutput": "",
     "missingOutputTimestamp": "",
     "statusUpdate": "",
-    "statusUpdateTimestamp": ""
+    "statusUpdateTimestamp": "",
+    "toolDetailsMissing": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details."
   },
   "engineBanner": {
     "body": "The engine for this project is not running, so task automation and live updates may be paused. Start it now to reconnect the dashboard.",
@@ -9808,5 +9812,11 @@
     "title": "",
     "today": "",
     "yesterday": ""
+  },
+  "toolCallDetails": {
+    "line": "line",
+    "lines": "lines",
+    "showLess": "Show less",
+    "showMore": "Show more ({{count}} {{lineLabel}})"
   }
 }

@@ -757,35 +757,37 @@ describe("summarizeToolArgs", () => {
     summarizeToolArgs = mod.summarizeToolArgs;
   });
 
-  it("returns command for bash tool", () => {
+  it("preserves a sole command or path byte-for-byte", () => {
     expect(summarizeToolArgs("Bash", { command: "ls -la" })).toBe("ls -la");
-    expect(summarizeToolArgs("bash", { command: "echo hello" })).toBe("echo hello");
-  });
-
-  it("returns long bash commands in full without truncation", () => {
-    const longCmd = "a".repeat(100);
-    const result = summarizeToolArgs("Bash", { command: longCmd });
-    expect(result).toBe(longCmd);
-  });
-
-  it("returns path for read/edit/write tools", () => {
     expect(summarizeToolArgs("Read", { path: "src/types.ts" })).toBe("src/types.ts");
-    expect(summarizeToolArgs("edit", { path: "src/store.ts" })).toBe("src/store.ts");
-    expect(summarizeToolArgs("Write", { path: "out.txt", content: "data" })).toBe("out.txt");
+    expect(summarizeToolArgs("Bash", { command: "a".repeat(1_300) })).toBe("a".repeat(1_300));
   });
 
-  it("returns first string arg for unknown tools", () => {
-    expect(summarizeToolArgs("fn_task_update", { step: 1, status: "done" })).toBe("done");
+  it("renders all fn_run_verification arguments with command first", () => {
+    expect(summarizeToolArgs("fn_run_verification", {
+      allowFullSuite: false,
+      command: "pnpm lint",
+    })).toBe("command=pnpm lint, allowFullSuite=false");
   });
 
-  it("returns undefined when no args provided", () => {
+  it("renders all fn_task_update arguments with the string value first", () => {
+    expect(summarizeToolArgs("fn_task_update", { step: 1, status: "done" })).toBe("status=done, step=1");
+  });
+
+  it("renders compact JSON values and clips oversized multi-argument payloads", () => {
+    expect(summarizeToolArgs("Write", { path: "out.txt", content: { value: "data" } })).toBe('path=out.txt, content={"value":"data"}');
+    const result = summarizeToolArgs("fn_run_verification", {
+      command: "a".repeat(1_300),
+      allowFullSuite: false,
+      description: "x".repeat(400),
+    });
+    expect(result!.length).toBeLessThanOrEqual(1_200);
+    expect(result).toMatch(/…#[0-9a-f]{12}$/);
+  });
+
+  it("returns undefined when no args are provided", () => {
     expect(summarizeToolArgs("Bash")).toBeUndefined();
     expect(summarizeToolArgs("Bash", {})).toBeUndefined();
-  });
-
-  it("returns compact JSON when only non-string args are present", () => {
-    // FNXC:StuckDetector 2026-07-22-20:20: structured custom-tool args need a distinct summary.
-    expect(summarizeToolArgs("unknown", { count: 42, flag: true })).toBe('{"count":42,"flag":true}');
   });
 });
 

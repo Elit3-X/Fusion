@@ -71,7 +71,8 @@ Archive captures any missing legacy delivery inside its archive transaction befo
 ### Agent log storage + soft-delete visibility (FN-5143 / FN-5911)
 
 - Agent logs are stored outside PostgreSQL. Each task appends newline-delimited JSON records to `<rootDir>/.fusion/tasks/{ID}/agent-log.jsonl`.
-- Tool arguments and successful `tool_result` detail remain opt-in through `persistAgentToolOutput`; failed `tool_error` detail always persists as bounded diagnostic signal so task Activity transcripts can reveal the underlying failure.
+- Tool arguments and successful `tool_result` detail persist by default through `persistAgentToolOutput`; failed `tool_error` detail always persists as bounded diagnostic signal so task Activity transcripts can reveal the underlying failure. Set `persistAgentToolOutput: false` explicitly to retain the previous low-volume behavior; every stored detail remains redacted and bounded per row.
+- Agent run-log JSONL uses the same bounded tool-detail policy before its existing larger general-entry guard. The durable run row and its live `run:log` event carry the identical normalized detail, so reload and streaming viewers reconcile without duplicates.
 - Agent-log JSONL rows may include optional numeric timing metadata: `timeToFirstTokenMs` on the first visible model-output row for a request, and `durationMs` on tool/request completion rows such as `tool_result` or `tool_error`. These fields are additive, non-sensitive millisecond values; legacy rows may omit them and readers must continue to treat omission as normal.
 - `TaskStore.deleteTask` keeps that JSONL file on disk for forensics, but all live read APIs (`getAgentLogs*`, `getAgentLogCount`) gate on task liveness and return zero entries once `deletedAt` is set.
 - Archived-task snapshot behavior (`taskToArchiveEntry` / `archiveTask`) embeds a capped agent-log snapshot sourced from JSONL.

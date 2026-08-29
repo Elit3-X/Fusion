@@ -849,12 +849,11 @@ export interface GlobalSettings {
    *  triggers a vitest auto-kill. Clamped to [50, 99] in the UI.
    *  Default: 90. */
   vitestKillThresholdPct?: number;
-  /** When true (default), persist tool argument/result payloads in task agent
-   *  logs for `tool`, `tool_result`, and `tool_error` entries. Very large tool
-   *  payloads may still be clipped server-side to keep dashboard log reads
-   *  responsive. When false, tool timeline rows are still stored, but their
-   *  verbose `detail` payload is omitted to reduce log size/noise. Distinct
-   *  from `persistAgentThinkingLog`, which controls `thinking` rows. */
+  /** When true (default), persist tool arguments and successful result payloads
+   *  in task agent logs. Failed `tool_error` detail remains a bounded diagnostic
+   *  signal even when false; tool timeline rows remain stored either way. Very
+   *  large payloads may still be clipped server-side. Distinct from
+   *  `persistAgentThinkingLog`, which controls `thinking` rows. */
   persistAgentToolOutput?: boolean;
   /** Per-result engine-injected tool-output budget. Unset/null uses 16,000 characters;
    * positive integers set a custom cap; 0 disables the shared clamp; invalid values

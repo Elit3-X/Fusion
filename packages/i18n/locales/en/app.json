@@ -147,7 +147,10 @@
     "toolEntriesHidden_other": "{{count}} tool entries hidden",
     "toolsOff": "Tools: Off",
     "toolsOn": "Tools: On",
-    "usingDefault": "Using default"
+    "usingDefault": "Using default",
+    "missingToolDetailHint": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details.",
+    "showLessDetail": "Show less {{detailLabel}}",
+    "showMoreDetail": "Show more {{detailLabel}}{{lineCount}}"
   },
   "agentMention": {
     "membersOf": "Members of #{{roomName}}",
@@ -6242,7 +6245,7 @@
       "enableProactiveTaskChatHint": " When enabled, Task chat reports step progress, failures, reviews, and rollbacks in real time. Default: disabled. ",
       "updates": "Updates",
       "weekly": "Weekly",
-      "whenDisabledToolRowsAreStillLoggedBut": " When disabled, tool rows are still logged but detailed tool payloads are omitted. Very large tool payloads may still be clipped even when this stays enabled. Default: disabled. ",
+      "whenDisabledToolRowsAreStillLoggedBut": " When disabled, tool rows are still logged but detailed tool payloads are omitted. Very large tool payloads may still be clipped even when this stays enabled. Default: enabled. ",
       "whenEnabledFusionChecksNpmForNewVersions": " When enabled, Fusion checks npm for new versions of",
       "whenEnabledTheDashboardProbesForAGlobally": " When enabled, the dashboard probes for a globally-installed",
       "gitLabEnabledHint": "Global GitLab URL and token fallbacks apply to projects that do not set their own values. No default — unset (unset behaves as enabled until explicitly disabled).",
@@ -9638,7 +9641,8 @@
     "missingOutput": "Missing output",
     "missingOutputTimestamp": "Missing output timestamp",
     "statusUpdate": "Status update",
-    "statusUpdateTimestamp": "Status update timestamp"
+    "statusUpdateTimestamp": "Status update timestamp",
+    "toolDetailsMissing": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details."
   },
   "report": {
     "roadmapMatch": {
@@ -9808,5 +9812,11 @@
     "close": "Close artifact preview",
     "loading": "Loading image artifact…",
     "retry": "Retry"
+  },
+  "toolCallDetails": {
+    "line": "line",
+    "lines": "lines",
+    "showLess": "Show less",
+    "showMore": "Show more ({{count}} {{lineLabel}})"
   }
 }

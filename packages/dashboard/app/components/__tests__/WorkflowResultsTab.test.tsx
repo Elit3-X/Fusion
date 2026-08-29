@@ -803,6 +803,35 @@ describe("WorkflowResultsTab", () => {
     expect(within(liveLogPanel).getByText("Current workflow output")).toBeInTheDocument();
   });
 
+  it("renders multi-argument tool detail in the bounded live workflow console", () => {
+    const currentStepEntries: AgentLogEntry[] = [
+      {
+        timestamp: "2026-03-31T10:03:25Z",
+        taskId: "FN-001",
+        text: "fn_run_verification",
+        type: "tool",
+        detail: "command=pnpm lint, allowFullSuite=false",
+      },
+    ];
+    mockedUseAgentLogs.mockReturnValue({
+      entries: currentStepEntries,
+      loading: false,
+      clear: vi.fn(),
+      loadMore: vi.fn(),
+      hasMore: false,
+      total: currentStepEntries.length,
+      loadingMore: false,
+    });
+
+    render(<WorkflowResultsTab taskId="FN-001" results={mockResults} isTaskInProgress />);
+
+    const liveLogPanel = screen.getByTestId("workflow-live-log-WS-004");
+    expect(liveLogPanel.querySelector(".workflow-live-log-detail")).toHaveTextContent("command=pnpm lint, allowFullSuite=false");
+    const detailRule = loadAllAppCssBaseOnly().match(/\.workflow-live-log-detail\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(detailRule).toContain("max-block-size");
+    expect(detailRule).toContain("overflow: hidden");
+  });
+
   describe("FN-8345: live workflow log scroll following", () => {
     const initialEntries: AgentLogEntry[] = [{
       timestamp: "2026-03-31T10:03:25Z", taskId: "FN-001", text: "Streaming output", type: "text",

@@ -147,7 +147,10 @@
     "toolEntriesHidden_other": "{{count}} entradas de ferramenta ocultas",
     "toolsOff": "Ferramentas: Desativado",
     "toolsOn": "Ferramentas: Ativado",
-    "usingDefault": "Usando padrão"
+    "usingDefault": "Usando padrão",
+    "missingToolDetailHint": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details.",
+    "showLessDetail": "Show less {{detailLabel}}",
+    "showMoreDetail": "Show more {{detailLabel}}{{lineCount}}"
   },
   "agentMention": {
     "membersOf": "Membros de #{{roomName}}",
@@ -6727,7 +6730,7 @@
       "enableProactiveTaskChatHint": " Quando ativado, o chat da tarefa relata o progresso das etapas, falhas, revisões e reversões em tempo real. Padrão: desativado. ",
       "updates": "Atualizações",
       "weekly": "Semanal",
-      "whenDisabledToolRowsAreStillLoggedBut": " Quando desativado, as linhas de ferramentas continuam sendo registradas, mas os payloads detalhados das ferramentas são omitidos. Payloads de ferramentas muito grandes ainda podem ser cortados mesmo quando isso permanece ativado. Padrão: desativado. ",
+      "whenDisabledToolRowsAreStillLoggedBut": " Quando desativado, as linhas de ferramentas continuam sendo registradas, mas os payloads detalhados das ferramentas são omitidos. Payloads de ferramentas muito grandes ainda podem ser cortados mesmo quando isso permanece ativado. Padrão: ativado. ",
       "whenEnabledFusionChecksNpmForNewVersions": " Quando ativado, o Fusion verifica o npm em busca de novas versões de",
       "whenEnabledTheDashboardProbesForAGlobally": " Quando ativado, o painel verifica se existe, instalado globalmente, um",
       "gitLabEnabledHint": "Os valores globais de URL e token do GitLab servem de reserva para projetos que não definem os próprios valores. Sem padrão — não definido (o estado não definido se comporta como ativado até ser explicitamente desativado).",
@@ -9575,7 +9578,8 @@
     "missingOutput": "",
     "missingOutputTimestamp": "",
     "statusUpdate": "",
-    "statusUpdateTimestamp": ""
+    "statusUpdateTimestamp": "",
+    "toolDetailsMissing": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details."
   },
   "report": {
     "roadmapMatch": {
@@ -9808,5 +9812,11 @@
     "title": "",
     "today": "",
     "yesterday": ""
+  },
+  "toolCallDetails": {
+    "line": "line",
+    "lines": "lines",
+    "showLess": "Show less",
+    "showMore": "Show more ({{count}} {{lineLabel}})"
   }
 }

@@ -117,10 +117,13 @@ export default interface Resources {
       "loading": "Loading agent logs…",
       "loadingMore": "Loading…",
       "markdown": "Markdown",
+      "missingToolDetailHint": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details.",
       "plain": "Plain",
       "planning": "Planning",
       "reviewer": "Reviewer",
       "showFormattedMarkdown": "Show formatted markdown",
+      "showLessDetail": "Show less {{detailLabel}}",
+      "showMoreDetail": "Show more {{detailLabel}}{{lineCount}}",
       "showOutput": "Show output",
       "showRawText": "Show raw text",
       "showToolCallsResults": "Show tool calls and results",
@@ -6403,7 +6406,7 @@ export default interface Resources {
         "skipConfirmationDialogsHint": " When enabled, destructive actions such as deleting a task or resetting progress run immediately without a prompt. Default: disabled",
         "updates": "Updates",
         "weekly": "Weekly",
-        "whenDisabledToolRowsAreStillLoggedBut": " When disabled, tool rows are still logged but detailed tool payloads are omitted. Very large tool payloads may still be clipped even when this stays enabled. Default: disabled. ",
+        "whenDisabledToolRowsAreStillLoggedBut": " When disabled, tool rows are still logged but detailed tool payloads are omitted. Very large tool payloads may still be clipped even when this stays enabled. Default: enabled. ",
         "whenEnabledFusionChecksNpmForNewVersions": " When enabled, Fusion checks npm for new versions of",
         "whenEnabledTheDashboardProbesForAGlobally": " When enabled, the dashboard probes for a globally-installed"
       },
@@ -8024,6 +8027,7 @@ export default interface Resources {
       "toolCallCount_one": "{{count}} tool call",
       "toolCallCount_other": "{{count}} tool calls",
       "toolCallTo": "Tool call → {{label}}",
+      "toolDetailsMissing": "Some tool details are unavailable. They may have been recorded while detail saving was disabled; check Settings → Global General to save future tool details.",
       "toolError": "Tool error",
       "toolNames": "Tool names",
       "toolResult": "Tool result",
@@ -9236,6 +9240,12 @@ export default interface Resources {
       "taskCreatedFromTodo": "Created {{id}} from todo",
       "todoListsLabel": "Todo lists",
       "todos": "Todos"
+    },
+    "toolCallDetails": {
+      "line": "line",
+      "lines": "lines",
+      "showLess": "Show less",
+      "showMore": "Show more ({{count}} {{lineLabel}})"
     },
     "trackingRepoSelect": {
       "customOption": "Custom…",

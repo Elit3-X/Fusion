@@ -3054,6 +3054,7 @@ describe("runTaskRetry", () => {
       baseBranch: null,
       baseCommitSha: null,
       nextRecoveryAt: null,
+      sessionContentionWaitReason: null,
       /*
       FNXC:CliTests 2026-07-17-10:57:
       The exact manual retry reset contract now clears bulk-completion refusal
@@ -3068,6 +3069,7 @@ describe("runTaskRetry", () => {
       planReviewReplanCount: 0,
       stuckKillCount: 0,
       recoveryRetryCount: 0,
+      sessionContentionHoldCount: 0,
       taskDoneRetryCount: 0,
       worktreeSessionRetryCount: 0,
       workflowStepRetries: 0,
@@ -3147,6 +3149,7 @@ describe("runTaskRetry", () => {
       baseBranch: null,
       baseCommitSha: null,
       nextRecoveryAt: null,
+      sessionContentionWaitReason: null,
       /*
       FNXC:CliTests 2026-07-17-10:57:
       The exact manual retry reset contract now clears bulk-completion refusal
@@ -3161,6 +3164,7 @@ describe("runTaskRetry", () => {
       planReviewReplanCount: 0,
       stuckKillCount: 0,
       recoveryRetryCount: 0,
+      sessionContentionHoldCount: 0,
       taskDoneRetryCount: 0,
       worktreeSessionRetryCount: 0,
       workflowStepRetries: 0,
@@ -3405,6 +3409,55 @@ describe("runTaskLogs", () => {
     expect(calls[4]).toContain("[ERROR]");
   });
 
+  it("renders multiline tool arguments as one indented terminal block", async () => {
+    mockGetTask.mockResolvedValueOnce(makeTask({ id: "FN-001" }));
+    mockGetAgentLogs.mockResolvedValueOnce([
+      makeAgentLogEntry({
+        type: "tool",
+        text: "fn_run_verification",
+        detail: "command=pnpm lint\nallowFullSuite=false",
+      }),
+    ]);
+
+    await runTaskLogs("FN-001");
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const formatted = logSpy.mock.calls[0]?.[0] as string;
+    expect(formatted).toContain("[TOOL] fn_run_verification");
+    expect(formatted).toContain("\n\x1b[2m\x1b[90m    command=pnpm lint\n    allowFullSuite=false");
+  });
+
+  it("renders multiline results and errors as indented blocks while retaining the red error header", async () => {
+    mockGetTask.mockResolvedValueOnce(makeTask({ id: "FN-001" }));
+    mockGetAgentLogs.mockResolvedValueOnce([
+      makeAgentLogEntry({ type: "tool_result", text: "bash", detail: "stdout line one\nstdout line two" }),
+      makeAgentLogEntry({ type: "tool_error", text: "bash", detail: "stderr line one\nstderr line two" }),
+    ]);
+
+    await runTaskLogs("FN-001");
+
+    const [result, error] = logSpy.mock.calls.map((call) => call[0] as string);
+    expect(result).toContain("[RESULT] bash\n\x1b[2m\x1b[90m    stdout line one");
+    expect(error).toMatch(/^\x1b\[31m.*\[ERROR] bash/);
+    expect(error).toContain("\n\x1b[2m\x1b[90m    stderr line one");
+  });
+
+  it("keeps short single-line tool detail inline and omits an empty detail block", async () => {
+    mockGetTask.mockResolvedValueOnce(makeTask({ id: "FN-001" }));
+    mockGetAgentLogs.mockResolvedValueOnce([
+      makeAgentLogEntry({ type: "tool", text: "read", detail: "path/to/file.ts" }),
+      makeAgentLogEntry({ type: "tool_result", text: "read" }),
+    ]);
+
+    await runTaskLogs("FN-001");
+
+    const [tool, result] = logSpy.mock.calls.map((call) => call[0] as string);
+    expect(tool).toContain("[TOOL] read (path/to/file.ts)");
+    expect(tool).not.toContain("\n");
+    expect(result).toContain("[RESULT] read");
+    expect(result).not.toContain("\n");
+  });
+
   it("displays agent role when present", async () => {
     mockGetTask.mockResolvedValueOnce(makeTask({ id: "FN-001" }));
     mockGetAgentLogs.mockResolvedValueOnce([
@@ -3587,6 +3640,31 @@ describe("runTaskLogs", () => {
     expect(newEntry).toBeDefined();
 
     // Clean up
+    sigintHandlers.forEach((handler) => handler());
+  });
+
+  it("formats multiline tool detail from follow-mode JSONL through the shared formatter", async () => {
+    mockGetTask.mockResolvedValueOnce(makeTask({ id: "FN-001" }));
+    mockGetAgentLogs.mockResolvedValueOnce([]);
+    mockStatSync.mockReturnValue({ size: 0 });
+
+    runTaskLogs("FN-001", { follow: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const watchCallback = mockWatchFile.mock.calls[0]?.[2] as () => void;
+    mockStatSync.mockReturnValueOnce({ size: 200 });
+    mockReadFileSync.mockReturnValueOnce(`${JSON.stringify(makeAgentLogEntry({
+      type: "tool_result",
+      text: "fn_run_verification",
+      detail: "result line one\nresult line two",
+    }))}\n`);
+    watchCallback();
+
+    const followed = logSpy.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("[RESULT] fn_run_verification"),
+    )?.[0] as string | undefined;
+    expect(followed).toContain("\n\x1b[2m\x1b[90m    result line one");
+
     sigintHandlers.forEach((handler) => handler());
   });
 

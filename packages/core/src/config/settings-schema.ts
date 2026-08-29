@@ -364,10 +364,12 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   vitestKillThresholdPct: 90,
   // Agent log persistence controls
   /*
-  FNXC:AgentLogs 2026-06-23-00:00:
-  Verbose tool arguments and results are default-off to reduce persisted log volume and payload exposure. Operators who need saved tool details can explicitly opt in with persistAgentToolOutput: true; tool timeline rows remain logged either way.
+  FNXC:AgentLogs 2026-08-29-04:32:
+  FN-253 makes complete tool arguments and results visible by default: AgentLogger redacts them at
+  its single write boundary, persistence and delivery lanes bound each row, and operators can retain
+  the previous low-volume behavior by explicitly setting persistAgentToolOutput: false.
   */
-  persistAgentToolOutput: false,
+  persistAgentToolOutput: true,
   /*
   FNXC:ToolOutputBudget 2026-08-03-16:00:
   FN-8616 lets operators raise, lower, or disable the FN-8614 per-result tool-output

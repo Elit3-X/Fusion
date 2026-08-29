@@ -103,10 +103,18 @@ const agentLogTypeParams = Type.Union([
   Type.Literal("tool_error"),
 ], { description: "Only return entries of this agent-log type." });
 
+const agentLogDetailModeParams = Type.Union([
+  Type.Literal("preview"),
+  Type.Literal("full"),
+], {
+  description: "Tool-detail mode. Preview (default) bounds each detail row; full lifts that row preview while the whole response remains bounded.",
+});
+
 export const taskLogsReadParams = Type.Object({
   limit: Type.Optional(Type.Number({ description: "Maximum matching entries to return (default 100)." })),
   offset: Type.Optional(Type.Number({ description: "Number of matching entries to skip from the newest entry (default 0)." })),
   type: Type.Optional(agentLogTypeParams),
+  detail: Type.Optional(agentLogDetailModeParams),
 });
 
 export const chatTaskLogsReadParams = Type.Object({
@@ -114,6 +122,7 @@ export const chatTaskLogsReadParams = Type.Object({
   limit: Type.Optional(Type.Number({ description: "Maximum matching entries to return (default 100)." })),
   offset: Type.Optional(Type.Number({ description: "Number of matching entries to skip from the newest entry (default 0)." })),
   type: Type.Optional(agentLogTypeParams),
+  detail: Type.Optional(agentLogDetailModeParams),
 });
 
 export const taskListParams = Type.Object({});
@@ -1772,6 +1781,8 @@ providing a useful source-level stop before the universal per-result wrapper run
 The hint names the narrowing surface instead of silently tail-cutting an agent's context.
 */
 const SEMANTIC_TOOL_READ_MAX_CHARS = 12_000;
+/** Maximum persisted tool-detail characters shown per row in normal agent log reads. */
+export const AGENT_LOG_READ_DETAIL_PREVIEW_MAX = 600;
 
 function trimSemanticToolRead(text: string, hint: string): string {
   if (text.length <= SEMANTIC_TOOL_READ_MAX_CHARS) return text;
@@ -2030,20 +2041,67 @@ export function normalizeAgentLogPaging(rawLimit?: unknown, rawOffset?: unknown,
 FNXC:TaskLogsRead 2026-07-16-00:00:
 Issue #2149 requires failure analysis to preserve each persisted log row's chronology. AgentLogEntry has no persisted stream/run boundary, so adjacent text or thinking rows cannot safely be re-glued here: they may be distinct responses from the same agent. The dashboard can group its live render entries using its hidden tool-boundary metadata; this store-only reader must render every persisted row separately.
 */
-export function renderAgentLogEntries(entries: AgentLogEntry[]): string {
-  return entries.map((entry) => formatAgentLogBlock(entry, entry.text)).join("\n\n");
+export interface RenderAgentLogEntriesOptions {
+  /** Maximum tool-detail characters per entry; omit to retain the legacy unbounded renderer. */
+  detailPreviewMax?: number;
 }
 
-function formatAgentLogBlock(entry: AgentLogEntry, text: string): string {
+function buildAgentLogDetailPreview(detail: string, maximum: number | undefined): string {
+  if (maximum === undefined || detail.length <= maximum) return detail;
+
+  let kept = maximum;
+  let marker = "";
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    const omitted = detail.length - kept;
+    marker = `\n[Detail preview truncated: ${omitted} characters omitted. Use detail: "full" with a smaller limit, offset, or type filter to retrieve the complete payload.]`;
+    const nextKept = Math.max(0, maximum - marker.length);
+    if (nextKept === kept) break;
+    kept = nextKept;
+  }
+  return `${detail.slice(0, kept)}${marker}`;
+}
+
+export function renderAgentLogEntries(entries: AgentLogEntry[], options?: RenderAgentLogEntriesOptions): string {
+  return entries.map((entry) => formatAgentLogBlock(entry, entry.text, options?.detailPreviewMax)).join("\n\n");
+}
+
+function formatAgentLogBlock(entry: AgentLogEntry, text: string, detailPreviewMax?: number): string {
   const agent = entry.agent ? ` (${entry.agent})` : "";
-  const detail = entry.detail !== undefined ? `\nDetail:\n${entry.detail}` : "";
+  const detail = entry.detail !== undefined
+    ? `\nDetail:\n${buildAgentLogDetailPreview(entry.detail, detailPreviewMax)}`
+    : "";
   return `[${entry.timestamp}] ${entry.type}${agent}\n${text}${detail}`;
+}
+
+export type AgentLogReadDetailMode = "preview" | "full";
+
+export interface TaskAgentLogReadTextOptions {
+  total: number;
+  limit: number;
+  offset: number;
+  type?: AgentLogEntry["type"];
+  detail?: AgentLogReadDetailMode;
+}
+
+/*
+FNXC:TaskLogsRead 2026-08-29-05:00:
+FN-253 makes tool detail default-persisted, so all three fn_task_logs_read registrations share this
+builder. Preview mode bounds each row before the existing 12,000-character response budget; full mode
+is the explicit retrieval escape hatch while the same whole-response narrowing hint remains intact.
+*/
+export function buildTaskAgentLogReadText(entries: AgentLogEntry[], options: TaskAgentLogReadTextOptions): string {
+  const filter = options.type ? `, type=${options.type}` : "";
+  const header = `Agent log: ${entries.length}/${options.total} entries (limit=${options.limit}, offset=${options.offset}${filter})`;
+  const rendered = entries.length > 0
+    ? `${header}\n\n${renderAgentLogEntries(entries, options.detail === "full" ? undefined : { detailPreviewMax: AGENT_LOG_READ_DETAIL_PREVIEW_MAX })}`
+    : `${header}\n\n(no matching log entries)`;
+  return trimSemanticToolRead(rendered, "use a smaller limit, offset, or type filter for more");
 }
 
 async function readTaskAgentLogs(
   store: TaskStore,
   taskId: string,
-  params: { limit?: unknown; offset?: unknown; type?: AgentLogEntry["type"] },
+  params: { limit?: unknown; offset?: unknown; type?: AgentLogEntry["type"]; detail?: AgentLogReadDetailMode },
 ) {
   const { limit, offset } = normalizeAgentLogPaging(params.limit, params.offset);
   try {
@@ -2051,11 +2109,14 @@ async function readTaskAgentLogs(
       store.getAgentLogs(taskId, { limit, offset, type: params.type }),
       store.getAgentLogCount(taskId, { type: params.type }),
     ]);
-    const filter = params.type ? `, type=${params.type}` : "";
-    const header = `Agent log: ${entries.length}/${total} entries (limit=${limit}, offset=${offset}${filter})`;
-    const text = entries.length > 0 ? `${header}\n\n${renderAgentLogEntries(entries)}` : `${header}\n\n(no matching log entries)`;
     return {
-      content: [{ type: "text" as const, text: trimSemanticToolRead(text, "use a smaller limit, offset, or type filter for more") }],
+      content: [{ type: "text" as const, text: buildTaskAgentLogReadText(entries, {
+        total,
+        limit,
+        offset,
+        type: params.type,
+        detail: params.detail,
+      }) }],
       details: { taskId, total, limit, offset, type: params.type },
     };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2072,7 +2133,7 @@ export function createTaskLogsReadTool(store: TaskStore, taskId: string): ToolDe
   return {
     name: "fn_task_logs_read",
     label: "Read Agent Logs",
-    description: "Read this task's persisted agent log with pagination and optional type filtering. Default page size is 100.",
+    description: "Read this task's persisted agent log with pagination and optional type filtering. Tool detail is previewed per row by default; detail: full lifts the row preview while the whole response stays bounded. Default page size is 100.",
     parameters: taskLogsReadParams,
     execute: async (_id: string, params: Static<typeof taskLogsReadParams>) => readTaskAgentLogs(store, taskId, params),
   };
@@ -2086,7 +2147,7 @@ export function createChatTaskLogsReadTool(store: TaskStore): ToolDefinition {
   return {
     name: "fn_task_logs_read",
     label: "Read Agent Logs",
-    description: "Read a task's persisted agent log with pagination and optional type filtering. Requires task_id; default page size is 100.",
+    description: "Read a task's persisted agent log with pagination and optional type filtering. Requires task_id. Tool detail is previewed per row by default; detail: full lifts the row preview while the whole response stays bounded. Default page size is 100.",
     parameters: chatTaskLogsReadParams,
     execute: async (_id: string, params: Static<typeof chatTaskLogsReadParams>) => readTaskAgentLogs(store, params.task_id, params),
   };

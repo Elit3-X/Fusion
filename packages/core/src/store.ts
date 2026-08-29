@@ -3430,7 +3430,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   public flushAgentLogBuffer(): void {
     flushAgentLogBufferImpl(this);
   }
-  async appendAgentLogBatch( entries: Array<{ taskId: string; text: string; type: AgentLogEntry["type"]; detail?: string; agent?: AgentLogEntry["agent"]; }>, ): Promise<void> {
+  async appendAgentLogBatch( entries: Array<{ taskId: string; text: string; type: AgentLogEntry["type"]; detail?: string; agent?: AgentLogEntry["agent"]; durationMs?: number; timeToFirstTokenMs?: number }>, ): Promise<void> {
     return appendAgentLogBatchImpl(this, entries);
   }
 

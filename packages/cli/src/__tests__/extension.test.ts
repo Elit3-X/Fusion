@@ -87,6 +87,37 @@ describe("fn pi extension session lifecycle", () => {
     await expect(shutdownPromise).resolves.toBeUndefined();
   });
 });
+describe("fn_task_logs_read extension payload bounds", () => {
+  afterEach(async () => {
+    await closeCachedStores();
+  });
+
+  it("uses the shared bounded builder for oversized default-preview pages", async () => {
+    const cwd = "/fn-253-extension-log-reader";
+    const entries = Array.from({ length: 100 }, (_, index) => ({
+      taskId: "FN-253",
+      timestamp: "2026-08-29T00:00:00.000Z",
+      text: `tool-${index}`,
+      type: "tool_result" as const,
+      detail: "x".repeat(4_096),
+    }));
+    __setCachedStoreForTesting(cwd, {
+      getAgentLogs: vi.fn().mockResolvedValue(entries),
+      getAgentLogCount: vi.fn().mockResolvedValue(entries.length),
+    } as unknown as TaskStore);
+
+    const api = createMockApi();
+    registerExtension(api);
+    const tool = requireTool(api, "fn_task_logs_read");
+    const result = await tool.execute("call", { id: "FN-253", detail: "preview" }, undefined, undefined, makeCtx(cwd));
+    const text = result.content[0]?.text ?? "";
+
+    expect(text.length).toBeLessThanOrEqual(12_000);
+    expect(text).toContain("Detail preview truncated:");
+    expect(text).toContain("smaller limit, offset, or type filter");
+  });
+});
+
 interface ToolMeta {
   description?: string;
   promptGuidelines?: string[];

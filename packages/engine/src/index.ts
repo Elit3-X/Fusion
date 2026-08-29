@@ -84,6 +84,8 @@ export {
   createTaskLogTool,
   createTaskLogsReadTool,
   normalizeAgentLogPaging,
+  AGENT_LOG_READ_DETAIL_PREVIEW_MAX,
+  buildTaskAgentLogReadText,
   renderAgentLogEntries,
   createSendMessageTool,
   createReadMessagesTool,

@@ -916,6 +916,9 @@ const ANSI = {
   gray: "\x1b[90m",
 };
 
+/** Maximum single-line tool detail length that stays compact beside its header. */
+const CLI_INLINE_DETAIL_MAX = 120;
+
 /**
  * Format a timestamp for display (locale time string)
  */
@@ -923,9 +926,21 @@ function formatTimestamp(timestamp: string): string {
   return new Date(timestamp).toLocaleTimeString();
 }
 
-/**
- * Format a single agent log entry for display
- */
+function formatToolDetail(detail: string | undefined): string {
+  if (!detail) return "";
+  if (!detail.includes("\n") && detail.length <= CLI_INLINE_DETAIL_MAX) {
+    return ` (${detail})`;
+  }
+  const block = detail.split(/\r?\n/).map((line) => `    ${line}`).join("\n");
+  return `\n${ANSI.dim}${ANSI.gray}${block}${ANSI.reset}`;
+}
+
+/*
+FNXC:CliTaskLogs 2026-08-29-04:55:
+FN-253 makes tool arguments and results default-persisted. Keep short single-line details inline,
+but render longer or multiline payloads as one indented, dimmed block so each log entry remains one
+console.log call while terminal readers can scan the complete bounded durable payload.
+*/
 function formatLogEntry(entry: AgentLogEntry): string {
   const ts = formatTimestamp(entry.timestamp);
   const agent = entry.agent ? `[${entry.agent.toUpperCase()}] ` : "";
@@ -936,11 +951,11 @@ function formatLogEntry(entry: AgentLogEntry): string {
     case "thinking":
       return `${ANSI.dim}${ANSI.gray}  ${ts} ${agent}[THINK] ${entry.text}${ANSI.reset}`;
     case "tool":
-      return `  ${ts} ${agent}[TOOL] ${entry.text}${entry.detail ? ` (${entry.detail})` : ""}`;
+      return `  ${ts} ${agent}[TOOL] ${entry.text}${formatToolDetail(entry.detail)}`;
     case "tool_result":
-      return `  ${ts} ${agent}[RESULT] ${entry.text}${entry.detail ? ` (${entry.detail})` : ""}`;
+      return `  ${ts} ${agent}[RESULT] ${entry.text}${formatToolDetail(entry.detail)}`;
     case "tool_error":
-      return `${ANSI.red}  ${ts} ${agent}[ERROR] ${entry.text}${entry.detail ? ` (${entry.detail})` : ""}${ANSI.reset}`;
+      return `${ANSI.red}  ${ts} ${agent}[ERROR] ${entry.text}${formatToolDetail(entry.detail)}${ANSI.reset}`;
     default:
       return `  ${ts} ${agent}${entry.text}`;
   }

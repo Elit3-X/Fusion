@@ -168,8 +168,9 @@ export interface AgentLogEntry {
   type: AgentLogType;
   /**
    * For `tool`: human-readable argument summary (for example a file path or command).
-   * `tool` and successful `tool_result` detail are persisted only when `persistAgentToolOutput` is enabled;
-   * failed `tool_error` detail is always persisted as bounded diagnostic signal.
+   * `tool` and successful `tool_result` detail are persisted by default; an explicit
+   * `persistAgentToolOutput: false` omits them, while failed `tool_error` detail always persists
+   * as bounded diagnostic signal.
    *
    * FNXC:AgentLogging 2026-07-15-16:05: FN-7995 requires failed tool-call errors to remain available
    * to task transcript renderers even when verbose successful tool output is disabled.

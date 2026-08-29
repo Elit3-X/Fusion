@@ -6188,6 +6188,7 @@ export function TaskDetailContent({
                   onLoadMore={loadMoreAgentLogs}
                   loadingMore={agentLogLoadingMore}
                   totalCount={agentLogTotal}
+                  showMissingDetailHint
                 />
               ) : activitySegment === "interventions" ? (
                 // FNXC:PlannerOversight 2026-07-04-19:00: FN-7571 relocates the FN-7519
