@@ -1,4 +1,4 @@
-import { getStepParser, isRemediationStep } from "@fusion/core";
+import { FAST_LANE_STEP_NAME, getStepParser, isFastExecutionMode, isRemediationStep } from "@fusion/core";
 import type { TaskDetail, TaskStep, WorkflowIrNode } from "@fusion/core";
 
 import type { WorkflowNodeHandler, WorkflowNodeResult } from "../workflows/workflow-graph-executor.js";
@@ -44,12 +44,6 @@ export class ParseStepsNodeRunner implements WorkflowNodeRunner {
       this.audit("preserved-remediation-steps", `parse-steps node '${node.id}' preserved live remediation steps for task ${ctx.task.id}`);
       return { outcome: "success", value: "preserved-remediation-steps" };
     }
-    const parserId = typeof cfg.parser === "string" ? cfg.parser : "";
-    const artifactKey =
-      typeof cfg.artifact === "string" && cfg.artifact.trim() !== ""
-        ? cfg.artifact
-        : PARSE_STEPS_DEFAULT_ARTIFACT;
-
     try {
       if (this.deps.hasExpandedForeach && (await this.deps.hasExpandedForeach(ctx.task))) {
         this.audit(
@@ -64,6 +58,31 @@ export class ParseStepsNodeRunner implements WorkflowNodeRunner {
       return { outcome: "failure", value: "pin-mismatch" };
     }
 
+    /*
+    FNXC:FastLane 2026-08-29-03:10:
+    Preservation guards stay ahead of Fast routing: remediation steps and an already-pinned foreach
+    are durable work that must never be replaced. Only a fresh Fast entry synthesizes one step,
+    without reading or parsing the bootstrap prompt that intentionally has no plan headings.
+    */
+    if (isFastExecutionMode(liveTask)) {
+      try {
+        await this.deps.writeSteps(ctx.task, [{ name: FAST_LANE_STEP_NAME, status: "pending" }]);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.audit(
+          "parse-error",
+          `parse-steps node '${node.id}' failed to write the Fast step: ${message}`,
+        );
+        return { outcome: "failure", value: "parse-error" };
+      }
+      return { outcome: "success" };
+    }
+
+    const parserId = typeof cfg.parser === "string" ? cfg.parser : "";
+    const artifactKey =
+      typeof cfg.artifact === "string" && cfg.artifact.trim() !== ""
+        ? cfg.artifact
+        : PARSE_STEPS_DEFAULT_ARTIFACT;
     const parser = getStepParser(parserId);
     if (!parser) {
       this.audit(

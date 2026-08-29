@@ -428,7 +428,7 @@ export async function mergeTaskImpl(store: TaskStore, id: string): Promise<Merge
       */
       let mergeGate;
       try {
-        mergeGate = await resolvePreMergeGateForTask(store, id, task.enabledWorkflowSteps);
+        mergeGate = await resolvePreMergeGateForTask(store, id, task.enabledWorkflowSteps, task);
       } catch {
         throw new Error(`Cannot merge ${id}: merge gate could not resolve the task workflow`);
       }

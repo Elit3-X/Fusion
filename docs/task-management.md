@@ -469,47 +469,57 @@ Fusion no longer provides a dedicated task-branch conflict CLI command. Resolve 
 
 ## Task Execution Modes
 
-Each task has an execution mode that controls how the executor agent approaches the task:
+Each task has an execution mode that controls how the selected workflow executes it:
 
 | Mode | Description |
 |------|-------------|
-| `standard` | Full execution with complete review workflow (default) |
-| `fast` | Expedited execution with minimal overhead for simple tasks |
+| `standard` | Plans the work, executes the planned steps, and runs the workflow's normal review path (default). |
+| `fast` | Uses the original request for one implementation occurrence, without a planning session or pre-merge review. |
 
-### Fast Mode Bypassed Gates
+### Fast Mode Route
 
-When `executionMode: "fast"`, the following automated review/validation gates are **bypassed**:
+<!-- FNXC:FastLane 2026-08-29-03:20: Fast is a first-class overlay on the task's selected workflow, not a separate workflow or a lean planning variant. Keep the route description aligned with the graph taxonomy so a simple edit cannot silently skip its only implementation occurrence. -->
 
-| Gate | Standard Mode | Fast Mode |
+A Fast card is captured in intake, can pass through a hold/planning column while its worktree is prepared, then executes once and enters the normal review/merge region. `undefined` and `null` execution modes remain standard.
+
+| Category | Fast behavior |
+|----------|---------------|
+| **Bypassed** | The planning seam, every pre-merge optional group (including an explicitly selected group), their remediation/no-op nodes, and per-step `step-review` nodes. A bypassed pre-merge group records terminal `skipped` evidence with `bypassedBy: "fast-mode"`; it is never silently deleted. |
+| **Retargeted** | `parse-steps` still dispatches, but writes exactly one synthetic implementation step instead of reading `PROMPT.md`. The implementation session receives the original request and uses the Fast & Cheap model lane. |
+| **Untouched** | Completion summary, the merge region, and post-merge optional groups retain their standard workflow behavior. |
+
+`parse-steps` is deliberately retargeted rather than bypassed: it is the validated dominator for a `foreach(source: "task-steps")` region, and an empty expansion otherwise follows its success edge with zero implementation instances. The Fast template route also suppresses deferred done-marking and follows the existing `outcome:approve` edge past `step-review`; it records no fabricated reviewer verdict.
+
+### Fast Mode Bypassed Work
+
+| Work | Standard Mode | Fast Mode |
 |------|---------------|-----------|
-| `review_step` tool enforcement | Available to executor agent | **Not injected** |
-| Pre-merge workflow-step execution | Runs configured steps | **Skipped** |
-| Custom graph pre-merge prompt/script/gate nodes | Run in selected custom workflows | **Skipped** |
-| Workflow revision loop | Enabled (feedback → fix → re-review) | **Disabled** |
+| Planning session and Plan Review | Runs before execution | **Bypassed** |
+| Plan-derived step parsing | Reads planned `PROMPT.md` headings | **Retargeted** to one synthetic step from the original request |
+| Pre-merge optional groups | Run when default-on or explicitly enabled | **Bypassed**, with recorded skipped evidence |
+| Per-step code review | Reviews every stepwise occurrence | **Bypassed**; step execution marks its own step done |
+| Executor deterministic test/build gate | Runs when configured | **Skipped** (the Fast-mode behavior of the executor lane) |
 
-### Fast Mode Mandatory Gates
+### Fast Mode Unchanged Work
 
-The bypass applies to both the legacy workflow-step path and the workflow graph executor path (including custom non-`builtin:coding` workflows). `undefined` or `null` execution mode is treated as standard mode.
-
-The following quality gates **remain enforced** in fast mode:
-
-| Gate | Behavior |
+| Work | Behavior |
 |------|----------|
-| `task_done` requirement | Agent must call `task_done()` to complete |
-| Completion blocker checks | Tests, build, and typecheck from PROMPT.md still enforced |
-| Post-merge workflow steps | Run as normal (merger-owned) |
+| Completion summary | Runs normally before merge. |
+| Merge region | Uses the selected workflow's existing merge gates and landing behavior. |
+| Post-merge optional groups | Run normally after a successful merge. |
+| `task_done()` | Remains the implementation session's completion tool. |
 
 ### Execution Mode Matrix
 
 | Feature | Standard | Fast |
 |---------|----------|------|
-| Executor agent session | Full prompt + tools | Full prompt (minus review_step) |
-| Pre-merge workflow steps (legacy, builtin, and custom graph workflows) | ✅ Run | ❌ Bypassed |
-| Custom graph prompt/script/gate validation nodes | ✅ Run | ❌ Bypassed |
-| `review_step` tool | ✅ Available | ❌ Not available |
-| Post-merge workflow steps | ✅ Run | ✅ Run |
-| Completion blockers (test/build/typecheck) | ✅ Enforced | ✅ Enforced |
-| `task_done()` requirement | ✅ Required | ✅ Required |
+| Planning prompt | Full specification prompt | No planning prompt |
+| Implementation prompt | Planned step context | Compact original-request context |
+| Implementation occurrences | Parsed plan steps | Exactly one synthetic step when the workflow has `parse-steps` + `foreach` |
+| Pre-merge optional groups | ✅ Run when enabled | ❌ Bypassed even when explicitly enabled |
+| Per-step review | ✅ Runs where authored | ❌ Bypassed without a verdict |
+| Completion summary / merge | ✅ Run | ✅ Run unchanged |
+| Post-merge groups | ✅ Run | ✅ Run unchanged |
 
 ### Setting Execution Mode
 

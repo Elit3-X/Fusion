@@ -9,7 +9,8 @@ import type {
   TaskDetail,
   WorkflowFieldDefinition,
 } from "@fusion/core";
-import { buildExecutionMemoryInstructions, buildMemoryPreSteeringNudge, resolveTaskOutputLanguage, type WorkspaceConfig } from "@fusion/core";
+import { buildExecutionMemoryInstructions, buildMemoryPreSteeringNudge, isFastExecutionMode, resolveTaskOutputLanguage, type WorkspaceConfig } from "@fusion/core";
+import { buildFastLanePrompt } from "../execution/step-session-executor.js";
 import { executorLog } from "../logger.js";
 import type { PluginRunner } from "../plugins/plugin-runner.js";
 import { parseReviewLevelFromPrompt } from "./prompt-derived-eligibility.js";
@@ -85,6 +86,7 @@ export function buildExecutionPrompt(
   workspaceConfig?: WorkspaceConfig | null,
   options?: { pluginTaskContributions?: string },
 ): string {
+  if (isFastExecutionMode(task)) return buildFastLanePrompt(task, rootDir, settings, worktreePath);
   const prompt = scopePromptToWorktree(task.prompt, rootDir, worktreePath, workspaceConfig);
   const reviewLevel = parseReviewLevelFromPrompt(prompt);
   /*

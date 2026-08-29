@@ -4,6 +4,7 @@ import {
   buildConflictMatrix,
   determineParallelWaves,
   buildStepPrompt,
+  buildFastLanePrompt,
   buildReducedStepPrompt,
   StepSessionExecutor,
 } from "../execution/step-session-executor.js";
@@ -473,6 +474,37 @@ Do important work.
 - feat(FN-001): description
 
 ## Review level: 2`;
+
+  it("builds a compact Fast prompt from the original request without step scaffolding", () => {
+    const task = makeTaskDetail({
+      executionMode: "fast",
+      description: "Change the primary button to red.",
+      prompt: fullPrompt,
+      attachments: [{
+        filename: "button.png",
+        originalName: "button.png",
+        mimeType: "image/png",
+        size: 1,
+        createdAt: new Date().toISOString(),
+      }],
+      steeringComments: [{ author: "Operator", text: "Keep the hover state.", createdAt: new Date().toISOString() }],
+    });
+    const result = buildFastLanePrompt(task, "/repo", { testCommand: "pnpm test", buildCommand: "pnpm build" } as Settings, "/repo/.worktrees/fast");
+
+    expect(result).toContain("Change the primary button to red.");
+    expect(result).toContain("button.png");
+    expect(result).toContain("pnpm test");
+    expect(result).toContain("Keep the hover state.");
+    expect(result).toContain("/repo/.worktrees/fast");
+    expect(result).toContain("fix(FN-001): <short summary>");
+    expect(result).not.toContain("Work through each step in order");
+    expect(result).not.toContain("## Review level:");
+    expect(result).not.toContain("## Step Content");
+
+    const routed = buildStepPrompt(task, 0, "/repo", { testCommand: "pnpm test", buildCommand: "pnpm build" } as Settings, "/repo/.worktrees/fast");
+    expect(routed).toContain("Change the primary button to red.");
+    expect(routed).not.toContain("## Step Content");
+  });
 
   it("includes step-specific section text", () => {
     const task = makeTaskDetail({ prompt: fullPrompt });
@@ -1038,13 +1070,16 @@ vi.mock("../agents/agent-session-helpers.js", async () => {
       pi.promptWithFallback(session, prompt, options as any),
     ),
     describeAgentModel: vi.fn(async (session: any) => pi.describeModel(session)),
-    resolveExecutorSessionModel: vi.fn((taskModelProvider?: string, taskModelId?: string, settings?: any, assignedAgentRuntimeConfig?: Record<string, unknown>) => {
+    resolveExecutorSessionModel: vi.fn((taskModelProvider?: string, taskModelId?: string, settings?: any, assignedAgentRuntimeConfig?: Record<string, unknown>, _credentialInstanceId?: string, executionMode?: string | null) => {
       const model = typeof assignedAgentRuntimeConfig?.model === "string" ? assignedAgentRuntimeConfig.model : "";
       const slash = model.indexOf("/");
       if (slash > 0 && slash < model.length - 1) {
         return { provider: model.slice(0, slash), modelId: model.slice(slash + 1) };
       }
       if (taskModelProvider && taskModelId) return { provider: taskModelProvider, modelId: taskModelId };
+      if (executionMode === "fast" && settings?.fastCheapProvider && settings?.fastCheapModelId) {
+        return { provider: settings.fastCheapProvider, modelId: settings.fastCheapModelId };
+      }
       if (settings?.executionProvider && settings?.executionModelId) {
         return { provider: settings.executionProvider, modelId: settings.executionModelId };
       }
@@ -3393,6 +3428,23 @@ describe("StepSessionExecutor executor model lane hierarchy", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("uses the Fast & Cheap pair for a Fast step session while standard keeps execution", async () => {
+    const settings = {
+      executionProvider: "anthropic",
+      executionModelId: "claude-sonnet-4-5",
+      fastCheapProvider: "openai",
+      fastCheapModelId: "gpt-4.1-mini",
+    };
+    await expect(captureAgentModel(settings, { executionMode: "fast" })).resolves.toEqual({
+      provider: "openai",
+      modelId: "gpt-4.1-mini",
+    });
+    await expect(captureAgentModel(settings, { executionMode: "standard" })).resolves.toEqual({
+      provider: "anthropic",
+      modelId: "claude-sonnet-4-5",
+    });
   });
 
   it("uses project default override pair when execution lanes are absent", async () => {

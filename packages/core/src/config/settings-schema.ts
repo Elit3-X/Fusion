@@ -333,6 +333,11 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   importTranslateGlobalCredentialInstanceId: undefined,
   importTranslateGlobalModelId: undefined,
   importTranslateGlobalThinkingLevel: undefined,
+  // FNXC:FastCheapModelLane 2026-08-29-02:43: The Fast & Cheap route owns an optional global lane and otherwise inherits normal execution resolution.
+  fastCheapGlobalProvider: undefined,
+  fastCheapGlobalCredentialInstanceId: undefined,
+  fastCheapGlobalModelId: undefined,
+  fastCheapGlobalThinkingLevel: undefined,
   /*
   FNXC:Settings-ThinkingLevel 2026-07-10-00:00:
   Global model lanes can override the default thinking effort independently. Undefined preserves the existing inheritance to `defaultThinkingLevel`.
@@ -835,6 +840,11 @@ export const DEFAULT_PROJECT_SETTINGS = {
   importTranslateCredentialInstanceId: undefined,
   importTranslateModelId: undefined,
   importTranslateThinkingLevel: undefined,
+  // FNXC:FastCheapModelLane 2026-08-29-02:43: Project Fast & Cheap overrides stay separate from ordinary execution models so fast routing remains opt-in.
+  fastCheapProvider: undefined,
+  fastCheapCredentialInstanceId: undefined,
+  fastCheapModelId: undefined,
+  fastCheapThinkingLevel: undefined,
   /*
   FNXC:Settings-MergerModel 2026-07-13-07:52:
   Merger model lane stays project-scoped (not workflow-moved) like title summarizer: Settings → Project Models can override the global merger baseline without binding the choice to a workflow graph.

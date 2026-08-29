@@ -3235,7 +3235,7 @@ export class ProjectEngine {
     if (injected || !Array.isArray(task.steps)) return injected ?? undefined;
     let mergeGate;
     try {
-      mergeGate = await resolvePreMergeGateForTask(store, task.id, task.enabledWorkflowSteps);
+      mergeGate = await resolvePreMergeGateForTask(store, task.id, task.enabledWorkflowSteps, task);
     } catch {
       return "merge gate could not resolve the task workflow";
     }

@@ -410,6 +410,14 @@ vi.mock("../execution/step-session-executor.js", () => ({
     const end = nextHeading === -1 ? prompt.length : nextHeading;
     return prompt.slice(start, end).trim();
   },
+  buildFastLanePrompt: (task: { id: string; description?: string; attachments?: Array<{ originalName: string }> }, _rootDir?: string, _settings?: unknown, worktreePath?: string) => [
+    `## Task: ${task.id}`,
+    "## Original Request",
+    task.description ?? "",
+    ...(task.attachments?.map((attachment) => attachment.originalName) ?? []),
+    `Work only inside ${worktreePath ?? "the assigned task worktree"}.`,
+    `fix(${task.id}): <short summary>`,
+  ].join("\n"),
 }));
 
 vi.mock("../errors/rate-limit-retry.js", () => ({

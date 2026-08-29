@@ -630,8 +630,10 @@ function normalizeExecutionModeValue(executionMode: Task["executionMode"]): "sta
 
 function requiresExecutionModeReplan(column: Task["column"], flags?: TaskContextMenuColumnFlags): boolean {
   /*
-   FNXC:ExecutionModeReplan 2026-06-30-00:00:
-   Todo and in-progress tasks can already hold a generated plan or active execution context. Changing Standard/Fast mode invalidates that plan, so the dashboard must confirm the change and send the task back through the existing replanning path instead of silently patching executionMode in place.
+   FNXC:ExecutionModeReplan 2026-08-29-02:43:
+   FN-252 makes Fast a dedicated no-plan/no-review lane. Entering Fast must patch the task in
+   place, even from a hold or WIP lane; only returning a Fast task to Standard retains the
+   confirmation and replan needed to restore its ordinary plan.
 
    FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (U12 — R8 drift conversion):
    The rule is "this card may already hold a plan or a live execution context", which the
@@ -2698,7 +2700,7 @@ export function TaskDetailContent({
       }
       return false;
     }
-    const replanAfterExecutionModeChange = Object.prototype.hasOwnProperty.call(updates, "executionMode") && requiresExecutionModeReplan(task.column, detailColumnFlags);
+    const replanAfterExecutionModeChange = updates.executionMode === null && requiresExecutionModeReplan(task.column, detailColumnFlags);
     if (replanAfterExecutionModeChange && !includeDescription) {
       delete updates.executionMode;
     }
@@ -2839,7 +2841,7 @@ export function TaskDetailContent({
     const currentMode = normalizeExecutionModeValue(task.executionMode);
     const nextMode = currentMode === "fast" ? "standard" : "fast";
     const previousMode = inlineExecutionMode;
-    const shouldReplan = requiresExecutionModeReplan(task.column, detailColumnFlags);
+    const shouldReplan = nextMode === "standard" && requiresExecutionModeReplan(task.column, detailColumnFlags);
 
     if (shouldReplan) {
       const shouldChangeMode = await confirm({

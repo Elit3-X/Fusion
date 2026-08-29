@@ -489,7 +489,7 @@ An `optional-group` node's `phase` config selects one of two phases:
 
 Post-merge runs **graph-native**: after a successful merge the executor continues traversal to any post-merge optional-group node reachable from the merge region (and to plain post-merge nodes that follow a `seam:"merge"` node), running it via the same optional-group execution + recording path with `phase: "post-merge"` and non-blocking failures. This is gated by `experimentalFeatures.graphNativePostMerge`, which is **default-ON** and is now the single owner of post-merge execution — the legacy merger-owned post-merge path was deleted, so there is no fallback and post-merge work runs exactly once via the graph.
 
-> **Note on Fast Mode:** When a task has `executionMode: "fast"`, omitted/default optional groups are bypassed for speed and top-level custom pre-merge prompt/script/gate validation nodes are skipped. Explicitly selected optional groups still run their template prompt/script/gate nodes, so a Fast task with `enabledWorkflowSteps: ["browser-verification"]` runs Browser Verification. Post-merge steps remain active and run normally (post-merge is unaffected by execution mode).
+> **Note on Fast Mode:** When a task has `executionMode: "fast"`, every **pre-merge** optional group is bypassed, including groups explicitly named in `enabledWorkflowSteps`. The graph records terminal `skipped` evidence for each bypassed pre-merge group so merge admission remains auditable. `parse-steps` is retargeted to one synthetic implementation occurrence, per-step `step-review` is routed past without a verdict, and post-merge groups remain active and run normally.
 
 ## Execution Modes
 

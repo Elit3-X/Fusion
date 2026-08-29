@@ -6277,7 +6277,9 @@
       "openRouterRoutingOnlyHint": "",
       "openRouterAllowFallbacksHint": "",
       "openRouterRoutingSortHint": "",
-      "requireParametersHint": ""
+      "requireParametersHint": "",
+      "fastAndCheapModel": "Modèle rapide et économique",
+      "fastAndCheapModelHelp": "Sélectionnez ici un modèle pas cher pour les éditions rapides. Celui-ci sera utilisé pour le Fast Mode lors de la création d'une tâche."
     },
     "header": {
       "discord": "Discord",

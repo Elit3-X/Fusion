@@ -53,6 +53,7 @@ import {
   RetryStormError,
   columnsWithFlag,
   isEphemeralAgent,
+  isFastExecutionMode,
   resolveEphemeralTaskCreationPolicy,
   resolveExecutorFallbackModel,
   resolvePersistAgentThinkingLog,
@@ -520,8 +521,8 @@ export async function runImplementation(
     const pluginWorkflowStepTemplates = deps.options.pluginRunner?.getPluginWorkflowStepTemplates() ?? [];
     deps.store.setPluginWorkflowStepTemplates(pluginWorkflowStepTemplates);
 
-    // Read execution mode to determine whether to skip review and workflow steps
-    const executionMode = task.executionMode ?? "standard";
+    // Fast is one shared route policy; undefined/null retain standard execution behavior.
+    const fastExecution = isFastExecutionMode(task);
 
     // Construct run context for mutation correlation
     // Use a synthetic correlation ID: task ID + timestamp + random suffix
@@ -1256,6 +1257,7 @@ export async function runImplementation(
           settings,
           (stepIdentityAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
           detail.credentialInstanceId ?? undefined,
+          detail.executionMode,
         );
         let activeStepInstanceRef: ProviderInstanceRef | undefined = initialStepSessionModel.provider
           ? {
@@ -1557,7 +1559,7 @@ export async function runImplementation(
             // Run testCommand/buildCommand after all steps succeed but BEFORE
             // workflow steps and the in-review transition. Skipped in fast mode
             // and when no verification commands are configured.
-            if (executionMode !== "fast") {
+            if (!fastExecution) {
               if (settings.testCommand?.trim() || settings.buildCommand?.trim()) {
                 const verificationResult = await deps.runExecutorDeterministicVerification(task, worktreePath, settings, taskEnv);
 
@@ -1926,7 +1928,7 @@ export async function runImplementation(
       }
 
       // Log fast mode status
-      if (executionMode === "fast") {
+      if (fastExecution) {
         executorLog.debug(`${task.id}: fast mode`);
       }
 
@@ -2247,6 +2249,7 @@ export async function runImplementation(
           settings,
           (identityAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
           overrideColumnGovernsInitialSession ? undefined : activeAgentInstanceRef?.instanceId ?? detail.credentialInstanceId,
+          detail.executionMode,
         );
         const { provider: executorProvider, modelId: executorModelId } = executorSessionModel;
         /*
@@ -2265,7 +2268,11 @@ export async function runImplementation(
           : executorSessionModel.credentialInstanceId;
         const { provider: executorFallbackProvider, modelId: executorFallbackModelId } = resolveExecutorFallbackModel(settings);
         const executorSessionThinkingSource = (deps.graphSeamThinkingLevel.get(task.id) as string | undefined) ?? detail.thinkingLevel;
-        const executorThinkingLevel = resolveExecutorThinkingLevel(executorSessionThinkingSource, settings);
+        const executorThinkingLevel = resolveExecutorThinkingLevel(
+          executorSessionThinkingSource,
+          settings,
+          detail.executionMode,
+        );
         const executorFallbackThinkingLevel = resolveExecutorFallbackThinkingLevel(executorSessionThinkingSource, settings);
 
         // U1 telemetry: now that the session model/provider/node are resolved,

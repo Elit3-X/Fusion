@@ -6418,6 +6418,8 @@ export default interface Resources {
         "defaultModel": "Default Model",
         "deny": "deny",
         "fallbackModel": "Fallback Model",
+        "fastAndCheapModel": "Fast & Cheap Model",
+        "fastAndCheapModelHelp": "Select a cheap model here for quick edits. It is used for Fast Mode when creating a task.",
         "flowAndPublishesThemUnderTheOpencodeGo": " flow and publishes them under the opencode-go provider in model pickers. Default: enabled. ",
         "fusion": "Fusion",
         "globalBaselineModelsForEachAIRoleProject": " Global baseline models for each AI role. Project settings can override these per-project. ",

@@ -6654,7 +6654,9 @@
       "openRouterAllowFallbacksHint": "Sem padrão — não definido (aplica-se o comportamento padrão de fallback do próprio OpenRouter).",
       "openRouterRoutingSortHint": "Sem padrão — não definido (aplica-se a classificação padrão do próprio OpenRouter).",
       "requireParametersHint": "Padrão: desativado.",
-      "modelOverrides": ""
+      "modelOverrides": "",
+      "fastAndCheapModel": "Modelo rápido e econômico",
+      "fastAndCheapModelHelp": "Selecione aqui um modelo barato para edições rápidas. Ele é usado no Modo Rápido ao criar uma tarefa."
     },
     "appearance": {
       "hideAISessionNotificationBanners": "Ocultar banners de notificação de sessão de IA",

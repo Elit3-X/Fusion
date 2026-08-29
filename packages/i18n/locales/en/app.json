@@ -6319,7 +6319,9 @@
       "openRouterRoutingOnlyHint": "No default — unset (no provider restriction).",
       "openRouterAllowFallbacksHint": "No default — unset (OpenRouter's own default fallback behavior applies).",
       "openRouterRoutingSortHint": "No default — unset (OpenRouter's own default sort applies).",
-      "requireParametersHint": "Default: disabled."
+      "requireParametersHint": "Default: disabled.",
+      "fastAndCheapModel": "Fast & Cheap Model",
+      "fastAndCheapModelHelp": "Select a cheap model here for quick edits. It is used for Fast Mode when creating a task."
     },
     "header": {
       "discord": "Discord",

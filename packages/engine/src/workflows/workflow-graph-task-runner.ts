@@ -2,6 +2,7 @@ import type { Settings, TaskDetail, TaskStep, WorkflowDefinition, WorkflowIr } f
 import {
   getBuiltinWorkflow,
   isBuiltinWorkflowId,
+  isFastExecutionMode,
   parseWorkflowIr,
 } from "@fusion/core";
 
@@ -325,13 +326,14 @@ export class WorkflowGraphTaskRunner {
         : {}),
     };
     const wrappedRunCustomNode: WorkflowCustomNodeRunner = (node, t, c) => {
-      if (!this.deps.primitives && (t as { executionMode?: unknown }).executionMode === "fast") {
+      if (!this.deps.primitives && isFastExecutionMode(t) && c["workflow:fast-lane-active"] === true) {
         /*
         FNXC:WorkflowFastMode 2026-07-01-00:00:
         Raw WorkflowGraphTaskRunner tests and compatibility callers can run without the TaskExecutor custom-node service that normally owns fast-mode skips. In that fallback posture, skip executable custom prompt/script/gate nodes at the runner boundary so default-on optional review groups do not fail a fast-mode built-in workflow before legacy seams run.
 
-        FNXC:WorkflowFastMode 2026-07-01-00:00:
-        Explicitly selected optional-group bodies carry workflow:optionalGroupActive and must still execute in fast mode because selecting the optional workflow step is operator intent, not default built-in review behavior.
+        FNXC:FastLane 2026-08-29-03:10:
+        Pre-merge optional groups are bypassed by the shared route before their templates dispatch.
+        Keep this optional-template carve-out for post-merge groups, which remain unchanged Fast-mode work.
 
         FNXC:WorkflowFastMode 2026-07-01-00:00:
         Skill executor nodes use `config.skillName`, not `config.skill`; include that field in executable-node detection so raw fast-mode compatibility skips skill prompts the same way it skips prompt/script nodes.
@@ -368,7 +370,7 @@ export class WorkflowGraphTaskRunner {
       const fastModeFallbackParseSteps: ParseStepsHandlerDeps | undefined =
         !this.deps.primitives &&
         !this.deps.parseStepsDeps &&
-        (task as { executionMode?: unknown }).executionMode === "fast"
+        isFastExecutionMode(task)
           ? {
               /*
               FNXC:WorkflowFastMode 2026-07-01-00:00:

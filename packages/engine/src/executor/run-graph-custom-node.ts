@@ -19,7 +19,7 @@ import type {
   WorkflowStep,
   WorkspaceConfig,
 } from "@fusion/core";
-import { isLegacyWorkspaceWorktreeLayout, resolveEffectiveAgent, resolveWorkspaceTaskWorktreeDir, THINKING_LEVELS, WORKFLOW_STEP_NOT_RUN_REASONS } from "@fusion/core";
+import { isFastExecutionMode, isFastLaneSkippableCustomNode, isLegacyWorkspaceWorktreeLayout, resolveEffectiveAgent, resolveWorkspaceTaskWorktreeDir, THINKING_LEVELS, WORKFLOW_STEP_NOT_RUN_REASONS } from "@fusion/core";
 import { executorLog } from "../logger.js";
 import type { EngineRunContext } from "../util/run-audit.js";
 import type { WorkflowNodeResult } from "../workflows/workflow-graph-executor.js";
@@ -239,15 +239,17 @@ export async function runGraphCustomNode(
         ? graphContext[WORKFLOW_REVIEW_KIND_CONTEXT_KEY] as "plan" | "code"
         : undefined;
     /*
-    FNXC:FastOptionalSteps 2026-06-30-09:14:
-    Fast skips top-level custom prompt/script/gate review bodies by default, but an enabled optional-group template is explicit operator intent. The graph marks those template nodes so Browser Verification and custom optional groups still run under fast mode.
+    FNXC:FastLane 2026-08-29-03:10:
+    The pure route predicate keeps custom-node skips aligned with graph bypasses while preserving
+    the completion-summary, optional-template, and seam carve-outs. A selected Fast card no longer
+    treats an optional-group body as stronger operator intent: its parent pre-merge group is routed
+    around before this runner is reached.
     */
-    const isCompletionSummaryNode = cfg.summaryTarget === "task" || node.id === "completion-summary";
-    /*
-    FNXC:WorkflowCompletion 2026-07-01-18:42:
-    Fast mode skips review/validation work, not the agent-authored completion summary. FN-7335 reached review with "Fast mode — custom graph node 'completion-summary' skipped"; keep summary nodes executable so fast tasks still produce the same review/done card summary as standard tasks.
-    */
-    if (live.executionMode === "fast" && !isCompletionSummaryNode && !optionalGroupId && !cfg.seam && (node.kind === "prompt" || node.kind === "script" || node.kind === "gate")) {
+    if (
+      isFastExecutionMode(live)
+      && graphContext?.["workflow:fast-lane-active"] === true
+      && isFastLaneSkippableCustomNode(node, { optionalGroupId })
+    ) {
       executorLog.debug(`${live.id}: fast mode — skipping custom graph node '${node.id}'`);
       await deps.store.logEntry(
         live.id,

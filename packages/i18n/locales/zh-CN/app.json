@@ -6277,7 +6277,9 @@
       "openRouterRoutingOnlyHint": "",
       "openRouterAllowFallbacksHint": "",
       "openRouterRoutingSortHint": "",
-      "requireParametersHint": ""
+      "requireParametersHint": "",
+      "fastAndCheapModel": "快速且经济的模型",
+      "fastAndCheapModelHelp": "在此选择一个用于快速编辑的低价模型。创建任务时，快速模式将使用它。"
     },
     "header": {
       "discord": "Discord",

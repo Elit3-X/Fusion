@@ -729,7 +729,7 @@ export async function moveTaskInternalImpl(store: TaskStore, id: string, toColum
           !bypassGuards && toFacts.flags.complete && fromFacts.flags.mergeBlocker === true
             ? (getTaskMergeBlocker(task, {
               skipColumnIdentityCheck: true,
-              requiredPreMergeStepIds: resolveRequiredPreMergeStepIds(workflowIr, task.enabledWorkflowSteps),
+              requiredPreMergeStepIds: resolveRequiredPreMergeStepIds(workflowIr, task.enabledWorkflowSteps, task),
             }) ?? null)
             : null;
         /*
@@ -916,7 +916,7 @@ export async function moveTaskInternalImpl(store: TaskStore, id: string, toColum
         */
         const mergeBlocker = getTaskMergeBlocker(task, {
           reviewColumns: moveLifecycle?.review ? new Set([moveLifecycle.review]) : undefined,
-          requiredPreMergeStepIds: resolveRequiredPreMergeStepIds(workflowIr, task.enabledWorkflowSteps),
+          requiredPreMergeStepIds: resolveRequiredPreMergeStepIds(workflowIr, task.enabledWorkflowSteps, task),
         });
         if (mergeBlocker) {
           throw new Error(`Cannot move ${id} to done: ${mergeBlocker}`);

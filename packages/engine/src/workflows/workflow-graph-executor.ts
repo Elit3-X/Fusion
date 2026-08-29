@@ -11,7 +11,7 @@ import type {
   WorkflowStepResult,
   WorkflowStepNotRunReason,
 } from "@fusion/core";
-import { BUILTIN_CODING_WORKFLOW_IR, PLAN_REVIEW_GROUP_ID, WORKFLOW_STEP_NOT_RUN_REASONS, WorkflowIrError, computeWorkflowIrPin, getWorkflowExtensionRegistry, instanceNodeId, resolveMaxReworkCycles, isExperimentalFeatureEnabled, GRAPH_NATIVE_POST_MERGE_FLAG, isCompletionSummaryNode, classifyReviewLease, isWorkflowOptionalGroupEnabled, isPlanReviewSatisfied, parseNoOpCompletionMarker } from "@fusion/core";
+import { BUILTIN_CODING_WORKFLOW_IR, FAST_LANE_SKIP_VALUE, PLAN_REVIEW_GROUP_ID, WORKFLOW_STEP_NOT_RUN_REASONS, WorkflowIrError, computeWorkflowIrPin, getWorkflowExtensionRegistry, instanceNodeId, resolveFastLaneRoute, resolveMaxReworkCycles, isExperimentalFeatureEnabled, GRAPH_NATIVE_POST_MERGE_FLAG, isCompletionSummaryNode, classifyReviewLease, isWorkflowOptionalGroupEnabled, isPlanReviewSatisfied, parseNoOpCompletionMarker } from "@fusion/core";
 import { isNonPlanDefectPlanReviewFailure } from "../errors/transient-error-detector.js";
 import { isSessionContentionError } from "../errors/transient-error-patterns.js";
 import { isRequiredArtifactReadFailedValue, parseRequiredArtifactMissingValue } from "../execution/required-workflow-artifacts.js";
@@ -695,6 +695,7 @@ export class WorkflowGraphExecutor {
     }
 
     const runId = this.deps.runId ?? `${task.id}:run`;
+    const fastLaneRoute = resolveFastLaneRoute(ir, task);
     const context: Record<string, unknown> = {
       ...this.deps.initialContext,
       /*
@@ -704,7 +705,12 @@ export class WorkflowGraphExecutor {
        */
       [WORKFLOW_RUN_ID_CONTEXT_KEY]: runId,
       [WORKFLOW_ID_CONTEXT_KEY]: ir.name || "unknown",
+      "workflow:fast-lane-active": fastLaneRoute.active,
     };
+    const fastLaneSkippedNodeIds = new Set<string>();
+    if (fastLaneRoute.unsupportedReason) {
+      this.deps.logTaskEntry?.(`Fast mode fell back to standard workflow execution: ${fastLaneRoute.unsupportedReason}`);
+    }
     /*
      * FNXC:WorkflowPostMerge 2026-06-26-15:30:
      * Graph-native post-merge steps, gated by the DEFAULT-ON `graphNativePostMerge`
@@ -860,6 +866,42 @@ export class WorkflowGraphExecutor {
         // so an execute failure parks the card in the column it just entered.
         const boundary = await this.deps.columnBoundary?.onNodeEntry(node);
         if (boundary?.kind === "suspended") throw new WorkflowGraphSuspended(boundary);
+
+        /*
+        FNXC:FastLane 2026-08-29-03:05:
+        Fast mode bypasses planning and pre-merge gate nodes before their runner can dispatch, but
+        deliberately never bypasses parse-steps. KTD-3 requires parse-steps to dominate a
+        task-steps foreach, and its zero-step success edge would otherwise permit a silent empty
+        merge instead of the one synthetic implementation occurrence.
+        */
+        if (fastLaneRoute.active && fastLaneRoute.bypassedNodeIds.has(node.id)) {
+          if (node.kind === "optional-group") {
+            const groupName = fastLaneRoute.bypassedPreMergeGroups.find((group) => group.nodeId === node.id)?.name
+              ?? (typeof node.config?.name === "string" && node.config.name.trim() ? node.config.name : node.id);
+            const bypassedAt = new Date().toISOString();
+            await this.recordOptionalGroupStepResult(task.id, {
+              workflowStepId: node.id,
+              workflowStepName: groupName,
+              phase: "pre-merge",
+              source: "optional-group",
+              status: "skipped",
+              bypassedBy: "fast-mode",
+              bypassedAt,
+              bypassReason: "Fast mode bypasses pre-merge workflow gates",
+              bypassedFromStatus: "absent",
+              startedAt: bypassedAt,
+              completedAt: bypassedAt,
+            });
+          }
+          if (!fastLaneSkippedNodeIds.has(node.id)) {
+            fastLaneSkippedNodeIds.add(node.id);
+            this.deps.logTaskEntry?.(`Fast mode — workflow node '${node.id}' skipped`);
+          }
+          const result: WorkflowNodeResult = { outcome: "success", value: FAST_LANE_SKIP_VALUE };
+          context[`node:${node.id}:outcome`] = result.outcome;
+          context[`node:${node.id}:value`] = result.value;
+          return await traverseChildren(node, result);
+        }
 
         if (node.kind === "split") {
           // Concurrent fan-out: branches run in parallel up to their join, which

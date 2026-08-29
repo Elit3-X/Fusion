@@ -2409,7 +2409,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         ? undefined
         : await resolveWorkflowIrForTask(this, task.id);
       const absentStepId = reviewIrForBypass
-        ? [...resolveRequiredPreMergeStepIds(reviewIrForBypass, task.enabledWorkflowSteps)]
+        ? [...resolveRequiredPreMergeStepIds(reviewIrForBypass, task.enabledWorkflowSteps, task)]
           .find((workflowStepId) => !results.some((result) => result.workflowStepId === workflowStepId))
         : undefined;
       if (!failedTarget && !absentStepId) {

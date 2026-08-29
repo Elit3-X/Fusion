@@ -567,7 +567,7 @@ export async function moveToDoneImpl(store: TaskStore, task: Task, dir: string):
     } catch { /* degraded: the board told us nothing, so the legacy id stands */ }
     const mergeBlocker = getTaskMergeBlocker(task, {
       reviewColumns,
-      requiredPreMergeStepIds: mergeIr ? resolveRequiredPreMergeStepIds(mergeIr, task.enabledWorkflowSteps) : undefined,
+      requiredPreMergeStepIds: mergeIr ? resolveRequiredPreMergeStepIds(mergeIr, task.enabledWorkflowSteps, task) : undefined,
     });
     if (mergeBlocker) {
       throw new Error(`Cannot move ${task.id} to done: ${mergeBlocker}`);

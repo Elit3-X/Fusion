@@ -949,7 +949,7 @@ async function assertMergeGateStillOpen(
   });
   let gate;
   try {
-    gate = await resolvePreMergeGateForTask(ctx.store, task.id, task.enabledWorkflowSteps);
+    gate = await resolvePreMergeGateForTask(ctx.store, task.id, task.enabledWorkflowSteps, task);
   } catch {
     throw new MergeGateRevokedError(`Merge gate revoked for ${task.id}: task workflow could not be resolved`);
   }
@@ -1564,7 +1564,7 @@ export async function runAiMerge(
   const settings = await store.getSettings();
   let mergeGate;
   try {
-    mergeGate = await resolvePreMergeGateForTask(store, taskId, task.enabledWorkflowSteps);
+    mergeGate = await resolvePreMergeGateForTask(store, taskId, task.enabledWorkflowSteps, task);
   } catch {
     throw new Error(`Cannot merge ${taskId}: merge gate could not resolve the task workflow`);
   }

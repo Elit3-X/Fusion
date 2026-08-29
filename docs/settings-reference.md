@@ -1201,6 +1201,12 @@ The three GPT-5.6 codenamed OpenAI Codex variants (`gpt-5.6-luna`, `gpt-5.6-sol`
 
 Planning Mode uses this same complete-pair order for both a newly started session and an existing draft. When a workflow is selected in Planning Mode, its effective planning lane is loaded as the selected-workflow value; a complete request-level pair remains first, and incomplete/blank pairs are skipped rather than mixed with another level. Test mode still forces `mock` / `scripted` after resolution.
 
+### Fast & Cheap model
+
+<!-- FNXC:FastLane 2026-08-29-02:51: Fast mode is a dedicated no-plan/no-review execution lane, so its selector stays separate from the normal executor model and documents its project → global → execution resolution chain. -->
+
+Configure **Settings → Global Models → Fast & Cheap Model** with `fastCheapGlobalProvider`, `fastCheapGlobalCredentialInstanceId`, `fastCheapGlobalModelId`, and `fastCheapGlobalThinkingLevel`. Override those values per project in **Settings → Project Models** with `fastCheapProvider`, `fastCheapCredentialInstanceId`, `fastCheapModelId`, and `fastCheapThinkingLevel`. Provider/model pairs must be complete; an incomplete project pair falls through to the complete global pair, then to the normal execution lane (`executionProvider` / `executionModelId`, global execution values, selected-workflow values, and project/global defaults). Thinking follows project Fast & Cheap → global Fast & Cheap → normal execution thinking → default thinking. Fast-mode tasks use this lane for their original-request implementation session, while an unset lane preserves normal execution resolution.
+
 ### Executor model
 
 1. Per-task `modelProvider` + `modelId`

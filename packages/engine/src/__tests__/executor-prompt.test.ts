@@ -66,6 +66,23 @@ function createMockTaskDetail(overrides: Partial<TaskDetail> = {}): TaskDetail {
 }
 
 describe("buildExecutionPrompt", () => {
+  it("uses the compact original-request prompt for Fast execution", () => {
+    const task = createMockTaskDetail({
+      executionMode: "fast",
+      description: "Change the primary button to red.",
+      prompt: "# FN-001\n\nChange the primary button to red.",
+      attachments: [{ filename: "button.png", originalName: "button.png", mimeType: "image/png", size: 1, createdAt: new Date().toISOString() }],
+    });
+    const result = buildExecutionPrompt(task, "/home/user/project", { testCommand: "pnpm test" } as any, "/home/user/project/.worktrees/fast");
+
+    expect(result).toContain("Change the primary button to red.");
+    expect(result).toContain("button.png");
+    expect(result).toContain("fix(FN-001): <short summary>");
+    expect(result).not.toContain("Work through each step in order");
+    expect(result).not.toContain("## Review level:");
+    expect(result).not.toContain("## Step Content");
+  });
+
   it("includes attachment section with absolute paths for image attachments", () => {
     const task = createMockTaskDetail({
       attachments: [

@@ -19,7 +19,7 @@ import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { AgentHeartbeatRun, AgentStore, MessageStore, PermanentAgentGatingContext, ProviderInstanceRef, ResolvedMcpServerDefinition, TaskDetail, Settings, SteeringComment, TaskStore, TaskStep } from "@fusion/core";
-import { isValidProviderInstanceId, resolvePersistAgentThinkingLog, resolveExecutorFallbackModel, resolveTrailingVerificationStepIndex } from "@fusion/core";
+import { isFastExecutionMode, isValidProviderInstanceId, resolvePersistAgentThinkingLog, resolveExecutorFallbackModel, resolveTrailingVerificationStepIndex } from "@fusion/core";
 
 import {
   createResolvedAgentSession,
@@ -429,6 +429,9 @@ export function buildStepPrompt(
   settings?: Settings,
   worktreePath?: string,
 ): string {
+  if (isFastExecutionMode(taskDetail)) {
+    return buildFastLanePrompt(taskDetail, rootDir, settings, worktreePath);
+  }
   const { id, title, attachments } = taskDetail;
   const prompt = scopePromptToWorktree(taskDetail.prompt, rootDir, worktreePath);
 
@@ -544,6 +547,59 @@ export function buildStepPrompt(
   );
 
   return parts.join("\n");
+}
+
+/*
+FNXC:FastLane 2026-08-29-03:25:
+Fast implementation is one original-request session, not a compressed plan. Keep this builder free
+of step headings, review-level framing, and PROMPT.md section extraction so a small edit receives
+only the task context it needs: request, attachments, commands, steering, and worktree boundary.
+*/
+export function buildFastLanePrompt(
+  taskDetail: TaskDetail,
+  rootDir?: string,
+  settings?: Settings,
+  worktreePath?: string,
+): string {
+  const originalRequest = taskDetail.description || taskDetail.prompt || "";
+  const parts = [
+    `## Task: ${taskDetail.id}`,
+    taskDetail.title ? `**${taskDetail.title}**` : "",
+    "",
+    "## Original Request",
+    originalRequest,
+  ];
+
+  if (taskDetail.attachments && taskDetail.attachments.length > 0 && rootDir) {
+    const imageMimes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+    parts.push("", "## Attachments", "");
+    for (const attachment of taskDetail.attachments) {
+      const path = `${rootDir}/.fusion/tasks/${taskDetail.id}/attachments/${attachment.filename}`;
+      parts.push(
+        `- **${attachment.originalName}** (${imageMimes.has(attachment.mimeType) ? "screenshot" : attachment.mimeType}): \`${path}\``,
+      );
+    }
+  }
+
+  if (settings?.testCommand || settings?.buildCommand) {
+    parts.push("", "## Project Commands", "");
+    if (settings.testCommand) parts.push(`- **Test:** \`${settings.testCommand}\``);
+    if (settings.buildCommand) parts.push(`- **Build:** \`${settings.buildCommand}\``);
+  }
+
+  const steering = buildStepSteeringCommentsSection(taskDetail.steeringComments);
+  if (steering) parts.push("", steering);
+
+  parts.push(
+    "",
+    "## Worktree Boundaries",
+    "",
+    `Work only inside \`${worktreePath ?? "the assigned task worktree"}\`; do not edit the project root or another task's worktree.${rootDir ? ` Task attachments remain readable under \`${rootDir}/.fusion/tasks/${taskDetail.id}/attachments/\`.` : ""}`,
+    "",
+    `Find the relevant code, make the requested change, commit it as \`fix(${taskDetail.id}): <short summary>\`, then stop. Do not plan, review, or start additional work.`,
+  );
+
+  return parts.filter((part) => part !== "").join("\n");
 }
 
 function buildStepSteeringCommentsSection(comments: SteeringComment[] | undefined): string {
@@ -1377,8 +1433,10 @@ export class StepSessionExecutor {
     const promptTaskDetail = this.consumeTaskDetailForStepPrompt();
     const stepPrompt = buildStepPrompt(promptTaskDetail, stepIndex, this.options.rootDir, settings, worktreePath);
 
-    // Build reduced step prompt for context-limit recovery (simpler, shorter)
-    const reducedStepPrompt = buildReducedStepPrompt(promptTaskDetail, stepIndex, this.options.rootDir);
+    // Fast recovery stays in the same original-request lane instead of restoring step scaffolding.
+    const reducedStepPrompt = isFastExecutionMode(promptTaskDetail)
+      ? buildFastLanePrompt(promptTaskDetail, this.options.rootDir, settings, worktreePath)
+      : buildReducedStepPrompt(promptTaskDetail, stepIndex, this.options.rootDir);
     const reusePrimarySession = await this.shouldReusePrimarySession(worktreePath);
 
     // Acquire semaphore if provided
@@ -1432,7 +1490,11 @@ export class StepSessionExecutor {
          */
         const stepThinkingLevel = this.options.workflowStepThinkingLevel
           ?? (taskDetail.steps[stepIndex] as { thinkingLevel?: string } | undefined)?.thinkingLevel;
-        const effectiveThinkingLevel = resolveExecutorThinkingLevel(stepThinkingLevel ?? taskDetail.thinkingLevel, settings);
+        const effectiveThinkingLevel = resolveExecutorThinkingLevel(
+          stepThinkingLevel ?? taskDetail.thinkingLevel,
+          settings,
+          taskDetail.executionMode,
+        );
 
         try {
           // Get plugin tools from plugin runner if available
@@ -1517,6 +1579,7 @@ export class StepSessionExecutor {
             settings,
             this.options.assignedAgentRuntimeConfig,
             this.credentialInstanceId,
+            taskDetail.executionMode,
           );
 
           attachAgentUsageTelemetry(agentLogger, { store: this.store, agentId: taskDetail.assignedAgentId ?? null, taskId: taskDetail.id, nodeId: taskDetail.effectiveNodeId ?? taskDetail.nodeId ?? null, model: executorModelId ?? null, provider: executorProvider ?? null, lane: "workflow-step", ephemeral: true });

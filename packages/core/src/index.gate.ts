@@ -297,6 +297,16 @@ export {
   isReportingOnlyOptionalGroup,
 } from "./workflows/workflow-optional-steps.js";
 export type { ResolvedWorkflowOptionalStep } from "./workflows/workflow-optional-steps.js";
+export {
+  FAST_LANE_STEP_NAME,
+  FAST_LANE_SKIP_VALUE,
+  FAST_LANE_STEP_REVIEW_ROUTE_VALUE,
+  isFastExecutionMode,
+  isFastLaneSkippableCustomNode,
+  isFastLaneBypassedTemplateNode,
+  resolveFastLaneRoute,
+} from "./workflows/workflow-fast-lane.js";
+export type { FastLaneRoute, FastLaneTask } from "./workflows/workflow-fast-lane.js";
 export { resolveRequiredPreMergeStepIds, resolvePreMergeGateForTask } from "./merge/required-pre-merge-steps.js";
 export type { ResolvedPreMergeGate } from "./merge/required-pre-merge-steps.js";
 export { resolveStepReopenPolicy } from "./workflows/workflow-step-reopen-policy.js";
@@ -1627,6 +1637,8 @@ export {
   applyTestModeOverrides,
   isTestModeActive,
   resolveExecutionSettingsModel,
+  resolveFastCheapSettingsModel,
+  resolveFastCheapThinkingLevel,
   resolveExecutorFallbackModel,
   resolvePlanningFallbackModel,
   resolveValidatorFallbackModel,

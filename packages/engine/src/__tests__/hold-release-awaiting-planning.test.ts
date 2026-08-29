@@ -143,6 +143,27 @@ describe("automatic capacity-hold candidacy", () => {
     expect(reserveSlot).not.toHaveBeenCalled();
   });
 
+  it("releases a Fast bootstrap card through both explicit promotion and the capacity sweep", async () => {
+    const promotedTask = task({ id: "FN-242-fast-promote", executionMode: "fast" });
+    const promoted = await makeStore(promotedTask, {
+      ir: workflow(true),
+      prompt: buildBootstrapPrompt(promotedTask.id, promotedTask.title, promotedTask.description),
+    });
+
+    await expect(promoteHeldTask(promoted.store, promotedTask.id)).resolves.toMatchObject({ released: true });
+    expect(promotedTask.column).toBe("in-progress");
+    expect(promoted.checkAndRecordUnplannedExecutionBlock).not.toHaveBeenCalled();
+
+    const sweptTask = task({ id: "FN-242-fast-sweep", executionMode: "fast" });
+    const swept = await makeStore(sweptTask, {
+      ir: workflow(true),
+      prompt: buildBootstrapPrompt(sweptTask.id, sweptTask.title, sweptTask.description),
+    });
+    await expect(runHoldReleaseSweep(swept.store, { now: () => Date.now() })).resolves.toMatchObject({ released: [sweptTask.id] });
+    expect(sweptTask.column).toBe("in-progress");
+    expect(swept.checkAndRecordUnplannedExecutionBlock).not.toHaveBeenCalled();
+  });
+
   it("keeps explicit promote refusals durable for every unplanned seed", async () => {
     const firstTask = task({ id: "FN-2421" });
     const first = await makeStore(firstTask, {

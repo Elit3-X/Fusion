@@ -781,6 +781,18 @@ export interface GlobalSettings {
   importTranslateGlobalModelId?: string;
   /** Optional global translate-lane thinking override. Inherits `defaultThinkingLevel` when unset. */
   importTranslateGlobalThinkingLevel?: ThinkingLevel;
+  /*
+  FNXC:FastCheapModelLane 2026-08-29-02:43:
+  Fast & Cheap execution is a dedicated route, so its model selection must not reuse the normal execution lane. A complete pair is optional and falls through to the execution lane when unset.
+  */
+  /** Global baseline provider for Fast & Cheap task execution. Must be paired with `fastCheapGlobalModelId`. */
+  fastCheapGlobalProvider?: string;
+  /** Optional credential instance for `fastCheapGlobalProvider`. */
+  fastCheapGlobalCredentialInstanceId?: string;
+  /** Global baseline model ID for Fast & Cheap task execution. Must be paired with `fastCheapGlobalProvider`. */
+  fastCheapGlobalModelId?: string;
+  /** Optional global Fast & Cheap thinking override. Inherits execution/default thinking when unset. */
+  fastCheapGlobalThinkingLevel?: ThinkingLevel;
   /** Optional global execution-lane thinking override. Inherits `defaultThinkingLevel` when unset. */
   executionGlobalThinkingLevel?: ThinkingLevel;
   /** Optional global planning-lane thinking override. Inherits `defaultThinkingLevel` when unset. */
@@ -2247,6 +2259,14 @@ export interface ProjectSettings {
   importTranslateModelId?: string;
   /** Optional project translate-lane thinking override. Inherits through global translate thinking then default thinking when unset. */
   importTranslateThinkingLevel?: ThinkingLevel;
+  /** Project provider for Fast & Cheap task execution. Must be paired with `fastCheapModelId`; unset falls through to the global Fast & Cheap lane, then execution. */
+  fastCheapProvider?: string;
+  /** Optional credential instance for `fastCheapProvider`. */
+  fastCheapCredentialInstanceId?: string;
+  /** Project model ID for Fast & Cheap task execution. Must be paired with `fastCheapProvider`. */
+  fastCheapModelId?: string;
+  /** Optional project Fast & Cheap thinking override. Inherits through global Fast & Cheap then execution/default thinking. */
+  fastCheapThinkingLevel?: ThinkingLevel;
   /*
   FNXC:GitHubImportTranslate 2026-07-15-09:30:
   Auto-translation is OFF by default. This reverses the original opt-in-only stance (PR #2128) at operator request: import panels routinely list issues in languages the operator cannot read, so translation may now run automatically — but only when explicitly enabled, so import provenance stays faithful for operators who never opt in.

@@ -6839,7 +6839,7 @@ export async function aiMergeTask(
   */
   let mergeGate;
   try {
-    mergeGate = await resolvePreMergeGateForTask(store, taskId, task.enabledWorkflowSteps);
+    mergeGate = await resolvePreMergeGateForTask(store, taskId, task.enabledWorkflowSteps, task);
   } catch {
     throw new Error(`Cannot merge ${taskId}: merge gate could not resolve the task workflow`);
   }

@@ -1326,14 +1326,14 @@ done
 - **Review phase**: pre-merge review gates run as workflow-graph nodes — the graph's node handlers invoke `reviewStep()` (`reviewer.ts`) and record outcomes into `task.workflowStepResults`. Review level is a creation-time preset that writes the task's enabled workflow steps at create; the runtime does not re-read it, and the legacy in-session `fn_review_step` tool is deleted.
 - **Merge phase**: `aiMergeTask()` handles merge strategy and post-merge workflow steps
 
-> **Fast Mode:** Tasks with `executionMode: "fast"` skip optional pre-merge workflow-graph gates unless explicitly selected. Completion blockers (tests, build, typecheck from PROMPT.md) and post-merge workflow steps remain enforced.
+> **Fast Mode:** Tasks with `executionMode: "fast"` use a workflow overlay with three node categories: planning and all pre-merge optional/review remediation nodes are **bypassed**, `parse-steps` is **retargeted** to one synthetic implementation step, and completion-summary, merge, and post-merge nodes are **untouched**. Parse remains dispatched because KTD-3 requires it to dominate a task-steps foreach and a zero-step foreach takes a success edge without executing work. Per-step review is routed through its existing approve edge without a reviewer verdict, while step execution marks itself done. The executor's deterministic test/build gate remains skipped for Fast work; post-merge workflow steps remain enforced.
 
 ### Step status model
 Task steps use statuses: `pending`, `in-progress`, `done`, `skipped`.
 
 ### Workflow steps
 - Defined in project config as `WorkflowStep`
-- **Pre-merge** steps run as workflow-graph nodes — bypassed in fast mode unless explicitly selected. The executor's `runWorkflowSteps()` loop is deleted; the graph is the only pre-merge gate runner, and it records outcomes into `task.workflowStepResults`.
+- **Pre-merge** steps run as workflow-graph nodes — all are bypassed in Fast mode, even when explicitly selected, with terminal `skipped` evidence recorded into `task.workflowStepResults`. The executor's `runWorkflowSteps()` loop is deleted; the graph is the only pre-merge gate runner.
 - **Post-merge** steps run in merger (`runPostMergeWorkflowSteps()`)
 
 #### Graph ownership is unconditional (U10b)

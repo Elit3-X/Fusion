@@ -49,6 +49,7 @@ import {
   resolveWorkflowIrForTask,
   isUnplannedSeedPrompt,
   isDuplicateRedirectOnlyPrompt,
+  isFastExecutionMode,
   isWorkflowOptionalGroupEnabled,
   resolveEffectiveAutoMerge,
   isTaskBlockedOnApproval,
@@ -155,8 +156,8 @@ function isHeldTask(ir: WorkflowIr, task: Task): boolean {
  * FNXC:WorkflowScheduling 2026-07-07-00:00:
  * A card must never be released into a processing (`countsTowardWip`) column
  * while it is unplanned — regardless of which literal column id it currently
- * rests in. "Unplanned" means: `status === "planning"` (specified-in-place),
- * OR the card's PROMPT.md still equals the bootstrap stub AND the card is
+ * rests in. For standard cards, "unplanned" means `status === "planning"`
+ * (specified-in-place), OR the card's PROMPT.md still equals the bootstrap stub AND the card is
  * resident in the legacy `todo` column OR a column carrying the `intake`
  * trait. Keying the stub check on the literal `"todo"` string alone misses a
  * custom workflow whose intake/planning column is renamed (`ideas`, `Inbox`,
@@ -243,13 +244,20 @@ export async function evaluateUnplannedForExecution(store: TaskStore, task: Task
   const satisfied = task.workflowStepResults?.some(isPlanReviewSatisfied) === true;
   const planReview = preReleaseReview ? { nodeId: preReleaseReview.id, column: preReleaseReview.column!, defaultOn, enabled, appliesToColumn, satisfied } : undefined;
   let readyAtCapacityBoundary = false;
-  if (preReleaseReview && enabled && appliesToColumn && !satisfied) {
+  if (!isFastExecutionMode(task) && preReleaseReview && enabled && appliesToColumn && !satisfied) {
     if (typeof store.listWorkflowWorkItemsForTask !== "function") return { unplanned: true, reason: "plan-review-pending", readyAtCapacityBoundary, planReview };
     const active = (await store.listWorkflowWorkItemsForTask(task.id)).filter((item) => ACTIVE_WORKFLOW_WORK_ITEM_STATES.includes(item.state));
     readyAtCapacityBoundary = active.some((item) => item.waitReason === "capacity" && item.sourceColumn === task.column);
     if (!readyAtCapacityBoundary) return { unplanned: true, reason: "plan-review-pending", readyAtCapacityBoundary, planReview };
   }
-  if (task.status === "planning") return { unplanned: true, reason: "planning-status", readyAtCapacityBoundary, planReview };
+  /*
+  FNXC:FastLane 2026-08-29-04:23:
+  A Fast toggle can arrive after the ordinary planner claimed the card. Fast is intentionally
+  planless, so its admission must supersede that stale `planning` claim; otherwise triage skips the
+  card while hold release refuses it forever. `needs-replan` remains a real revision request and
+  still blocks every mode.
+  */
+  if (task.status === "planning" && !isFastExecutionMode(task)) return { unplanned: true, reason: "planning-status", readyAtCapacityBoundary, planReview };
   if (task.status === "needs-replan") return { unplanned: true, reason: "needs-replan", readyAtCapacityBoundary, planReview };
   const flags = findColumn(ir, task.column) ? resolveColumnFlags(findColumn(ir, task.column)!) : {};
   if (flags.intake !== true && flags.hold !== true) return { unplanned: false, reason: null, readyAtCapacityBoundary, planReview };
@@ -260,6 +268,13 @@ export async function evaluateUnplannedForExecution(store: TaskStore, task: Task
   the duplicate redirect refusal rather than accidentally releasing the card.
   */
   if (isDuplicateRedirectOnlyPrompt(undefined, task.title)) return { unplanned: true, reason: "duplicate-prompt", readyAtCapacityBoundary, planReview };
+  /*
+  FNXC:FastLane 2026-08-29-02:55:
+  A bootstrap PROMPT.md is the intended original-request payload for Fast execution, not evidence
+  that specification is missing. Keep earlier duplicate and replan refusals intact, then admit the
+  lane before any filesystem seed read so capacity/manual/event release all agree.
+  */
+  if (isFastExecutionMode(task)) return { unplanned: false, reason: null, readyAtCapacityBoundary, planReview };
   if (typeof store.getTasksDir !== "function") return { unplanned: false, reason: null, readyAtCapacityBoundary, planReview };
   try {
     const prompt = await readFile(getPromptPath(store.getTasksDir(), task.id), "utf-8");

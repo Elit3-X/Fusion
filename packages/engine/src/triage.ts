@@ -21,6 +21,7 @@ import {
   buildTriageMemoryInstructions,
   isUnplannedSeedPrompt,
   isTaskAwaitingPlanning,
+  isFastExecutionMode,
   getTaskDuplicateLineage,
   resolveExplicitDuplicateMarker,
   resolveAgentPrompt,
@@ -450,6 +451,8 @@ export class TriageProcessor {
   private advancedRecoveryReservations = new Set<string>();
   /** Prevent a selected planner from reappearing before specifyTask claims it. */
   private readonly coordinatorAdmittedTaskIds = new Set<string>();
+  /** One visible planning-bypass record per Fast card prevents discovery-poll log spam. */
+  private readonly fastLanePlanningSkipLogged = new Set<string>();
   /** Durable planning provider keeps this lane visible to execute/merge polls. */
   private unregisterAdmissionProvider: (() => void) | null = null;
   /** Timestamps when tasks entered the `processing` set, for staleness detection. */
@@ -1405,6 +1408,10 @@ export class TriageProcessor {
    * Do not recover `needs-replan` / `plan-review-unavailable`.
    */
   async recoverApprovedTask(task: Task): Promise<boolean> {
+    if (isFastExecutionMode(task)) {
+      await this.recordFastLanePlanningSkip(task);
+      return false;
+    }
     /*
     FNXC:PlanningDependencyReseed 2026-08-04-00:30:
     A dependency reseed from older writers could clear status after the planner
@@ -1921,6 +1928,9 @@ export class TriageProcessor {
     };
 
     const candidates = allTasks.filter(couldBeCandidate);
+    for (const candidate of candidates) {
+      if (isFastExecutionMode(candidate)) void this.recordFastLanePlanningSkip(candidate);
+    }
     /*
     FNXC:WorkflowLifecycleColumns 2026-07-29-18:40 (U11 — STALL 3):
     Resolves the IR ONCE per candidate and derives both the lifecycle roles and the
@@ -2047,7 +2057,8 @@ export class TriageProcessor {
          `paused`, so a row carrying `userPaused` without `paused` slipped through —
          invisible before this change (an undeclared-column card was admitted by
          nothing at all) and reachable the moment the rescue widens admission. */
-      (t) => ((isAtIntakeColumn(t) && !isAtHoldColumn(t)) || isAtUndeclaredColumn(t))
+      (t) => !isFastExecutionMode(t)
+        && ((isAtIntakeColumn(t) && !isAtHoldColumn(t)) || isAtUndeclaredColumn(t))
         && t.userPaused !== true
         && isTaskStillInPlanningStage(t)
         && !this.advancedRecoveryReservations.has(t.id)
@@ -2056,7 +2067,8 @@ export class TriageProcessor {
         && !(t.nextRecoveryAt && new Date(t.nextRecoveryAt).getTime() > now),
     );
     const eligibleTodoTasksRaw = candidates.filter(
-      (t) => isAtHoldColumn(t) && !this.processing.has(t.id) && !this.hasLivePlanningWork(t.id) && !t.paused
+      (t) => !isFastExecutionMode(t)
+        && isAtHoldColumn(t) && !this.processing.has(t.id) && !this.hasLivePlanningWork(t.id) && !t.paused
         && t.status !== "awaiting-approval" && t.status !== "failed" && t.status !== "stuck-killed"
         && t.status !== "planning"
         && !(t.nextRecoveryAt && new Date(t.nextRecoveryAt).getTime() > now),
@@ -2152,6 +2164,20 @@ export class TriageProcessor {
   FNXC:ConcurrencyAdmission 2026-08-28-21:44:
   Every admitted planning promise, including work selected through the durable coordinator provider, returns shared project capacity when it settles. Attach one common completion chain at both admission surfaces so success, rejection, and every pre-session early return immediately pull queued planning work and nudge execution rather than waiting for a timer.
   */
+  /*
+  FNXC:FastLane 2026-08-29-02:55:
+  Fast tasks intentionally carry only the operator's bootstrap request, so planning discovery and
+  direct planner admission must record one durable explanation instead of opening a specification
+  session or producing a log entry on every poll.
+  */
+  private async recordFastLanePlanningSkip(task: Pick<Task, "id">): Promise<void> {
+    if (this.fastLanePlanningSkipLogged.has(task.id)) return;
+    this.fastLanePlanningSkipLogged.add(task.id);
+    const message = "Fast mode intentionally skips specification planning";
+    planLog.log(`${task.id}: ${message}`);
+    await this.store.logEntry(task.id, message).catch(() => undefined);
+  }
+
   private startAdmittedPlanning(task: Task): void {
     void this.specifyTask(task)
       .catch((error: unknown) => {
@@ -2656,6 +2682,12 @@ export class TriageProcessor {
   }
 
   async specifyTask(task: Task): Promise<void> {
+    if (isFastExecutionMode(task)) {
+      await this.recordFastLanePlanningSkip(task);
+      if (dropPreHeldExecutorSlot(task.id)) this.options.semaphore?.release();
+      this.coordinatorAdmittedTaskIds.delete(task.id);
+      return;
+    }
     if (this.resetFence.isResetHoldActive(task.id)) {
       if (dropPreHeldExecutorSlot(task.id)) this.options.semaphore?.release();
       return;
@@ -2740,10 +2772,7 @@ export class TriageProcessor {
       still carrying this status (until U9 adoption) simply re-plans through the
       normal path below; the graph re-runs Plan Review under a CAS lease.
       */
-      const isFast = task.executionMode === "fast";
-      // FN-6236: this is the only legacy executionMode="fast" bridge. Downstream
-      // triage policy reads resolved workflow flags instead of the raw string.
-      const leanPlanning = settings.leanPlanning === true || isFast;
+      const leanPlanning = settings.leanPlanning === true;
 
       const agentWork = async () => {
         // Set status only after the semaphore slot has been acquired, so
