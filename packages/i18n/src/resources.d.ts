@@ -8557,8 +8557,7 @@ export default interface Resources {
         "heading": "Summary"
       },
       "summaryTab": {
-        "agentWorkHeading": "Work done by agents",
-        "completedSteps": "Completed steps"
+        "agentWorkHeading": "Work done by agents"
       },
       "tabs": {
         "changes": "Changes",
@@ -8776,12 +8775,13 @@ export default interface Resources {
     "taskHistory": {
       "empty": {
         "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
-        "merge": "No merge reports recorded. Landed commit details are in the Changes tab.",
+        "merge": "No merge reports recorded. Merge details appear at the bottom of Summary.",
         "plan": "No planning reports recorded.",
         "review": "No review reports recorded."
       },
       "entry": {
         "completionSummary": "Completion summary",
+        "duration": "Took {{duration}}",
         "merged": "Merged",
         "noBody": "No report body was recorded.",
         "noOpMerge": "No-op merge",

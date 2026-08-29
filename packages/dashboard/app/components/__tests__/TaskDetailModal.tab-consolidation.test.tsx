@@ -142,7 +142,7 @@ describe("TaskDetailModal tab consolidation", () => {
 
     expect(screen.getAllByText(completion)).toHaveLength(1);
     expect(screen.queryByTestId("task-cost-row")).toBeNull();
-    expect(screen.queryByText("abcdef1")).toBeNull();
+    expect(screen.getByText("abcdef1")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Stats" }));
     expect(screen.getByTestId("task-cost-row")).toBeInTheDocument();
@@ -151,7 +151,8 @@ describe("TaskDetailModal tab consolidation", () => {
     expect(screen.queryByText("abcdef1")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Changes" }));
-    await waitFor(() => expect(screen.getByText("abcdef1")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No files modified.")).toBeInTheDocument());
+    expect(screen.queryByText("abcdef1")).toBeNull();
     expect(screen.queryByText(completion)).toBeNull();
     expect(screen.queryByTestId("task-cost-row")).toBeNull();
   });

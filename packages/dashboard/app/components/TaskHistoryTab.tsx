@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { TaskDetail, WorkflowStepResult } from "@fusion/core";
 import { linkifyFilePaths, linkifyReactChildren } from "../utils/filePathLinkify";
 import { buildTaskHistory, type TaskHistoryLabel } from "../utils/taskHistory";
+import { formatDurationMs } from "../utils/taskTiming";
 import "./TaskHistoryTab.css";
 
 const EMPTY_MARKDOWN_CHILD_SEPARATOR = "";
@@ -74,7 +75,7 @@ export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTa
             </div>
             <div className="task-history-panel">
               {stage.entries.length === 0 ? (
-                <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, stage.id === "merge" ? "No merge reports recorded. Landed commit details are in the Changes tab." : "No reports recorded.")}</p>
+                <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, stage.id === "merge" ? "No merge reports recorded. Merge details appear at the bottom of Summary." : "No reports recorded.")}</p>
               ) : (
                 <div className="task-history-entries">
                   {stage.entries.map((entry) => {
@@ -89,7 +90,16 @@ export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTa
                             </span>
                           )}
                         </header>
-                        {entry.timestamp && <time dateTime={entry.timestamp}>{formatTimestamp(entry.timestamp)}</time>}
+                        {(entry.timestamp || entry.durationMs != null) && (
+                          <div className="task-history-entry-timing">
+                            {entry.timestamp && <time dateTime={entry.timestamp}>{formatTimestamp(entry.timestamp)}</time>}
+                            {entry.durationMs != null && (
+                              <span className="task-history-entry-duration" data-testid="task-history-entry-duration">
+                                {t("taskHistory.entry.duration", "Took {{duration}}", { duration: formatDurationMs(entry.durationMs) })}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {entry.meta && entry.meta.length > 0 && (
                           <dl className="task-history-meta">
                             {entry.meta.map((item, index) => (

@@ -68,11 +68,20 @@
   font-size: var(--font-size-base);
 }
 
-.task-history-entry time {
-  display: block;
+.task-history-entry-timing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
   margin-top: var(--space-2xs);
   color: var(--text-muted);
   font-size: var(--font-size-xs);
+}
+
+.task-history-entry-timing time,
+.task-history-entry-duration {
+  color: inherit;
+  font-size: inherit;
 }
 
 .task-history-meta {
@@ -133,7 +142,8 @@
     grid-template-columns: 1fr;
   }
 
-  .task-history-entry-header {
+  .task-history-entry-header,
+  .task-history-entry-timing {
     align-items: flex-start;
   }
 }

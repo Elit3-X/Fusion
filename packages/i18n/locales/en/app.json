@@ -8321,8 +8321,7 @@
       "heading": "Summary"
     },
     "summaryTab": {
-      "agentWorkHeading": "Work done by agents",
-      "completedSteps": "Completed steps"
+      "agentWorkHeading": "Work done by agents"
     },
     "tabs": {
       "changes": "Changes",
@@ -8444,13 +8443,14 @@
       "plan": "No planning reports recorded.",
       "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
       "review": "No review reports recorded.",
-      "merge": "No merge reports recorded. Landed commit details are in the Changes tab."
+      "merge": "No merge reports recorded. Merge details appear at the bottom of Summary."
     },
     "entry": {
       "noBody": "No report body was recorded.",
       "verdictNoNotes": "The reviewer recorded no notes for this verdict.",
       "completionSummary": "Completion summary",
       "stepReport": "Step {{index}}: {{name}}",
+      "duration": "Took {{duration}}",
       "merged": "Merged",
       "noOpMerge": "No-op merge"
     },

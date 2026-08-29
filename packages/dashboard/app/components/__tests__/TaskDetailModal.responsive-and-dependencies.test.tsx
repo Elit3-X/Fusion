@@ -1877,7 +1877,7 @@ describe("TaskDetailModal", () => {
       expect(screen.getByRole("link", { name: "#42" })).toHaveAttribute("href", "https://github.com/owner/repo/pull/42");
     });
 
-    it("shows linked PR number in Changes merge details, not Definition, for done tasks", () => {
+    it("shows linked PR number in Summary merge details, not Definition, for done tasks", () => {
       const task = makeTask({
         column: "done" as Column,
         prInfo: {
@@ -1893,7 +1893,7 @@ describe("TaskDetailModal", () => {
       });
       const summary = render(
         <TaskDetailModal
-          initialTab="changes"
+          initialTab="summary"
           task={task}
           onClose={noop}
           onDeleteTask={noopDelete}
@@ -1903,7 +1903,7 @@ describe("TaskDetailModal", () => {
         />,
       );
 
-      expect(summary.baseElement.querySelector(".merge-details-card a")).toHaveAttribute("href", "https://github.com/owner/repo/pull/42");
+      expect(summary.baseElement.querySelector(".detail-section--summary .merge-details-card a")).toHaveAttribute("href", "https://github.com/owner/repo/pull/42");
       summary.unmount();
 
       render(

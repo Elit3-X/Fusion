@@ -1,4 +1,5 @@
 import type { Task, WorkflowStepResult } from "@fusion/core";
+import { buildStepDurations, parseTimestampToMs } from "./taskTiming";
 import { workflowResultBodyParts } from "./workflowResultText";
 
 export type TaskHistoryStageId = "plan" | "code" | "review" | "merge";
@@ -15,6 +16,8 @@ export interface TaskHistoryEntry {
   status?: string;
   body?: string;
   meta?: TaskHistoryMetaItem[];
+  durationMs?: number;
+  isCompletionSummary?: true;
 }
 export interface TaskHistoryStage { id: TaskHistoryStageId; entries: TaskHistoryEntry[] }
 
@@ -64,6 +67,7 @@ function classifyResult(result: WorkflowStepResult): TaskHistoryStageId {
   const id = result.workflowStepId.toLowerCase();
   const name = result.workflowStepName.toLowerCase();
   if (result.phase === "post-merge") return "merge";
+  if (id === TASK_HISTORY_WORKFLOW_IDS.completionSummary) return "review";
   if (
     result.reviewKind === "plan"
     || id === TASK_HISTORY_WORKFLOW_IDS.planReviewGroup
@@ -86,9 +90,18 @@ function timestampOf(result: WorkflowStepResult): string | undefined {
   return result.completedAt ?? result.startedAt;
 }
 
+function workflowDurationMs(result: WorkflowStepResult): number | undefined {
+  const startedAtMs = parseTimestampToMs(result.startedAt);
+  const completedAtMs = parseTimestampToMs(result.completedAt);
+  if (startedAtMs == null || completedAtMs == null || completedAtMs < startedAtMs) return undefined;
+  return completedAtMs - startedAtMs;
+}
+
 function workflowEntry(result: WorkflowStepResult, sourceIndex: number, attemptIndex: number): TaskHistoryEntry {
   const stage = classifyResult(result);
   const timestamp = timestampOf(result);
+  const durationMs = workflowDurationMs(result);
+  const isCompletionSummary = result.workflowStepId.toLowerCase() === TASK_HISTORY_WORKFLOW_IDS.completionSummary;
   return {
     id: `workflow:${result.workflowStepId}:${timestamp ?? sourceIndex}:${attemptIndex}`,
     stage,
@@ -97,6 +110,8 @@ function workflowEntry(result: WorkflowStepResult, sourceIndex: number, attemptI
     verdict: result.verdict,
     status: result.status,
     body: resultBody(result),
+    ...(durationMs != null ? { durationMs } : {}),
+    ...(isCompletionSummary ? { isCompletionSummary: true } : {}),
   };
 }
 
@@ -110,12 +125,14 @@ function compareEntries(left: TaskHistoryEntry, right: TaskHistoryEntry): number
 }
 
 /*
-FNXC:TaskDetailChanges 2026-08-28-23:05:
-Landed commit facts are rendered by MergeDetails in Changes. Keep this history limited to agent and
-workflow reports so a merge never appears once as a synthetic summary and again as a landed change.
+FNXC:TaskDetailSummary 2026-08-29-05:45:
+Summary owns the task story from agent reports through review and ends with its separate MergeDetails
+panel. This projection keeps landed facts out of synthetic history entries while pinning completion
+summaries beneath Code Review regardless of built-in workflow timestamp order.
 */
-export function buildTaskHistory(task: Pick<Task, "stepReports" | "summary">, results: WorkflowStepResult[]): TaskHistoryStage[] {
+export function buildTaskHistory(task: Pick<Task, "stepReports" | "summary" | "log">, results: WorkflowStepResult[]): TaskHistoryStage[] {
   const entries: TaskHistoryEntry[] = [];
+  const stepDurations = buildStepDurations(task.log);
   /*
   FNXC:TaskHistory 2026-08-29-00:05:
   A completion-summary node identity alone does not prove that it captured a report. Preserve the
@@ -135,6 +152,7 @@ export function buildTaskHistory(task: Pick<Task, "stepReports" | "summary">, re
   });
 
   for (const report of task.stepReports ?? []) {
+    const durationMs = stepDurations.get(report.stepIndex, report.stepName);
     entries.push({
       id: `step-report:${report.id}`,
       stage: "code",
@@ -145,20 +163,27 @@ export function buildTaskHistory(task: Pick<Task, "stepReports" | "summary">, re
       timestamp: report.recordedAt,
       status: "passed",
       body: report.summary,
+      ...(durationMs != null ? { durationMs } : {}),
     });
   }
 
   if (task.summary?.trim() && !hasRenderableCompletionSummaryResult) {
     entries.push({
       id: "task:completion-summary",
-      stage: "code",
+      stage: "review",
       title: i18n("taskHistory.entry.completionSummary", "Completion summary"),
       body: task.summary,
+      isCompletionSummary: true,
     });
   }
 
-  return STAGE_ORDER.map((id) => ({
-    id,
-    entries: entries.filter((entry) => entry.stage === id).sort(compareEntries),
-  }));
+  return STAGE_ORDER.map((id) => {
+    const stageEntries = entries.filter((entry) => entry.stage === id);
+    const completionSummaries = stageEntries.filter((entry) => entry.isCompletionSummary);
+    const otherEntries = stageEntries.filter((entry) => !entry.isCompletionSummary);
+    return {
+      id,
+      entries: [...otherEntries.sort(compareEntries), ...completionSummaries.sort(compareEntries)],
+    };
+  });
 }

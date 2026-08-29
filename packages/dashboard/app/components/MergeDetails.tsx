@@ -14,9 +14,10 @@ function shortSha(sha?: string, t?: (key: string, defaultValue: string) => strin
 }
 
 /*
-FNXC:TaskDetailChanges 2026-08-28-23:05:
-Changes is the sole task-detail home for landed commit facts. Keep every recorded target, resolution,
-and no-op field here rather than rebuilding a partial synthetic merge report in Summary or History.
+FNXC:TaskDetailSummary 2026-08-29-05:45:
+Summary is the sole task-detail home for landed commit facts and renders this panel last. Keep every
+recorded target, resolution, and no-op field here rather than rebuilding a partial synthetic merge
+report in History or duplicating it beside Changes diffs.
 */
 export function MergeDetails({ task, columnFlags }: MergeDetailsProps) {
   const { t } = useTranslation("app");

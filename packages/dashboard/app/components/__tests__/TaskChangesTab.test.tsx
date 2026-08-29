@@ -287,12 +287,11 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     expect(screen.getByText("d.ts")).toBeTruthy();
   });
 
-  it("shows commit metadata for done task", async () => {
+  it("keeps done-task commit metadata out of Changes while preserving the diff", async () => {
     mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     render(
       <TaskChangesTab
-        task={{ id: "FN-001", column: "done", mergeDetails: MERGE_DETAILS } as any}
         taskId="FN-001"
         worktree={undefined}
         column="done"
@@ -301,19 +300,18 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Merge Details")).toBeTruthy();
+      expect(screen.getByText("src/app.ts")).toBeTruthy();
     });
-    expect(screen.getByText("abc1234")).toBeTruthy(); // short SHA
-    expect(screen.getByText("Merge branch 'fusion/fn-001' into main")).toBeTruthy();
-    expect(screen.getByText("Merged successfully")).toBeTruthy();
+    expect(screen.queryByText("Merge Details")).toBeNull();
+    expect(screen.queryByText("abc1234")).toBeNull();
+    expect(screen.queryByText("Merge branch 'fusion/fn-001' into main")).toBeNull();
   });
 
-  it("renders the merge panel above the diff for completed work and omits it for live work", async () => {
+  it("omits the merge panel for completed and live Changes diffs", async () => {
     mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     const completed = render(
       <TaskChangesTab
-        task={{ id: "FN-001", column: "done", mergeDetails: MERGE_DETAILS } as any}
         taskId="FN-001"
         column="done"
         mergeDetails={MERGE_DETAILS}
@@ -321,14 +319,11 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     );
 
     await waitFor(() => expect(screen.getByText("src/app.ts")).toBeTruthy());
-    const panel = screen.getByText("Merge Details").closest(".detail-section");
-    const diff = screen.getByText("Files Changed (2)").closest(".changes-header");
-    expect(panel?.compareDocumentPosition(diff!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByText("Merge Details")).toBeNull();
     completed.unmount();
 
     render(
       <TaskChangesTab
-        task={{ id: "FN-001", column: "in-progress", mergeDetails: MERGE_DETAILS } as any}
         taskId="FN-001"
         worktree="/path/to/worktree"
         column="in-progress"
@@ -481,12 +476,11 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     });
   });
 
-  it("renders merge details when only commitSha is set", async () => {
+  it("keeps Changes free of merge details when only commitSha is set", async () => {
     mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     const { container } = render(
       <TaskChangesTab
-        task={{ id: "FN-001", column: "done", mergeDetails: { commitSha: "abc1234567890def" } } as any}
         taskId="FN-001"
         worktree={undefined}
         column="done"
@@ -498,10 +492,8 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
       expect(screen.getByText("src/app.ts")).toBeTruthy();
     });
 
-    expect(container.querySelector(".merge-details-card")).toBeTruthy();
-    expect(screen.getByText("abc1234")).toBeTruthy(); // short SHA
-    expect(screen.queryByText("Message")).toBeNull();
-    expect(screen.queryByText("Merged at")).toBeNull();
+    expect(container.querySelector(".merge-details-card")).toBeNull();
+    expect(screen.queryByText("abc1234")).toBeNull();
   });
 });
 
@@ -1459,11 +1451,10 @@ describe("TaskChangesTab — header toolbar structure", () => {
     expect(screen.getByLabelText("Expand diff view")).toBeTruthy();
   });
 
-  it("keeps merge details above the header while preserving the actions structure", async () => {
+  it("keeps the Changes header direct while omitting merge details", async () => {
     mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
     const { container } = render(
       <TaskChangesTab
-        task={{ id: "FN-001", column: "done", mergeDetails: MERGE_DETAILS } as any}
         taskId="FN-001"
         worktree={undefined}
         column="done"
@@ -1477,11 +1468,9 @@ describe("TaskChangesTab — header toolbar structure", () => {
 
     const taskTab = container.querySelector(".task-changes-tab");
     const header = taskTab?.querySelector(":scope > .changes-header");
-    const mergePanel = taskTab?.querySelector(":scope > .detail-section");
 
-    expect(mergePanel).toBeTruthy();
+    expect(taskTab?.querySelector(".merge-details-card")).toBeNull();
     expect(header).toBeTruthy();
-    expect(mergePanel?.nextElementSibling).toBe(header ?? null);
     expect(header?.querySelector(".changes-header-actions-wrapper .changes-header-actions-secondary")).toBeTruthy();
   });
 

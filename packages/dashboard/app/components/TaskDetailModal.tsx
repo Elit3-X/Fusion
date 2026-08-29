@@ -63,6 +63,7 @@ import { TaskReviewTab } from "./TaskReviewTab";
 import { TaskChangesTab } from "./TaskChangesTab";
 import { TaskSummaryTab } from "./TaskSummaryTab";
 import { TaskRecommendationsTab } from "./TaskRecommendationsTab";
+import { MergeDetails } from "./MergeDetails";
 import { TaskCostTab } from "./TaskCostTab";
 import { WorkspaceWorktreesSummary, isWorkspaceTask } from "./WorkspaceWorktreesSummary";
 import { TaskForm, type PendingImage } from "./TaskForm";
@@ -6139,6 +6140,7 @@ export function TaskDetailContent({
                   />
                 </section>
               )}
+              <MergeDetails task={workingTask} columnFlags={detailColumnFlags} />
             </div>
           ) : activeTab === "planner-chat" ? (
             /* FNXC:TaskDetailTabKeepAlive 2026-07-22-12:55: body renders from the kept-alive sibling below the ternary; null here prevents fall-through to Definition. */
@@ -6278,7 +6280,7 @@ export function TaskDetailContent({
               )}
             </div>
           ) : activeTab === "changes" ? (
-            <TaskChangesTab task={workingTask} taskId={task.id} worktree={task.worktree} projectId={projectId} column={task.column} columnFlags={detailColumnFlags} mergeDetails={task.mergeDetails} modifiedFiles={task.modifiedFiles} isWorkspace={isWorkspaceTask(workingTask)} />
+            <TaskChangesTab taskId={task.id} worktree={task.worktree} projectId={projectId} column={task.column} columnFlags={detailColumnFlags} mergeDetails={task.mergeDetails} modifiedFiles={task.modifiedFiles} isWorkspace={isWorkspaceTask(workingTask)} />
           ) : activeTab === "review" ? (
             <TaskReviewTab
               /*
@@ -6467,10 +6469,10 @@ export function TaskDetailContent({
           ) : activeTab === "stats" ? (
             <div className="detail-section">
               {/*
-              FNXC:TaskDetailStats 2026-08-28-23:05:
-              Stats owns every token and cost number. The panel supplies task-level totals and cache
-              ratios, while TaskCostTab supplies the per-model derived-USD breakdown without restating
-              those metrics in Summary or a separate Cost tab.
+              FNXC:TaskDetailStats 2026-08-29-05:45:
+              Summary owns landed-commit facts in its trailing MergeDetails panel, while Stats owns every
+              token and cost number. The panel supplies task-level totals and cache ratios, and TaskCostTab
+              supplies the per-model derived-USD breakdown without restating those metrics elsewhere.
               */}
               <TaskTokenStatsPanel
                 tokenUsage={workingTask.tokenUsage}

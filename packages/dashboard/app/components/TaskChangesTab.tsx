@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { isCompleteColumnRole, isReviewColumnRole, isWipColumnRole } from "../utils/columnRoles";
 import { useTranslation } from "react-i18next";
 import { FileCode, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, WrapText, Maximize2 } from "lucide-react";
-import type { MergeDetails, ColumnId, Task } from "@fusion/core";
+import type { MergeDetails, ColumnId } from "@fusion/core";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { getErrorMessage } from "@fusion/core";
 import {
@@ -11,7 +11,6 @@ import {
 } from "../api";
 import { highlightDiff } from "../utils/highlightDiff";
 import { ChangesDiffModal } from "./ChangesDiffModal";
-import { MergeDetails as MergeDetailsPanel } from "./MergeDetails";
 import "./TaskDiffShared.css";
 import "./TaskChangesTab.css";
 
@@ -23,8 +22,6 @@ interface TaskChangesTabProps {
   projectId?: string;
   column?: ColumnId;
   mergeDetails?: MergeDetails;
-  /** Full task snapshot for the complete-only merge facts panel. */
-  task?: Task;
   /**
    * FNXC:Workspace 2026-06-25-09:40:
    * True for a workspace (multi-repo) task. Such a task has no singular
@@ -49,10 +46,6 @@ interface TaskChangesTabProps {
   modifiedFiles?: string[];
 }
 
-function renderMergeDetails(task: Task | undefined, columnFlags: TaskChangesTabProps["columnFlags"]) {
-  return task ? <MergeDetailsPanel task={task} columnFlags={columnFlags} /> : null;
-}
-
 function getStatusLabel(status: "added" | "modified" | "deleted" | "unknown"): string {
   switch (status) {
     case "added":
@@ -71,14 +64,11 @@ function renderModifiedFilesFallback(
   isDone: boolean,
   source: "landed" | "execution" = "execution",
   t?: ReturnType<typeof useTranslation>["t"],
-  task?: Task,
-  columnFlags?: TaskChangesTabProps["columnFlags"],
 ) {
   const getT = (key: string, defaultValue: string, options?: Record<string, unknown>) =>
     t ? t(key, defaultValue, options) : defaultValue;
   return (
     <div className="detail-section task-changes-tab">
-      {renderMergeDetails(task, columnFlags)}
       <div className="task-changes-state task-changes-state--empty">
         <FileCode size={24} />
         <p>{getT(`taskChanges.fileCount`, "{{count}} file{{plural}} changed.", { count: fileList.length, plural: fileList.length === 1 ? "" : "s" })}</p>
@@ -133,7 +123,7 @@ interface NormalizedFile {
  * modifiedFiles view instead of showing a hard error. This preserves the prior
  * graceful behavior while allowing FN-4563/FN-4576 lineage-backed parity.
  */
-export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, column, mergeDetails, modifiedFiles, isWorkspace, task }: TaskChangesTabProps) {
+export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, column, mergeDetails, modifiedFiles, isWorkspace }: TaskChangesTabProps) {
   const { t } = useTranslation("app");
   const [files, setFiles] = useState<NormalizedFile[]>([]);
   const [stats, setStats] = useState<{ filesChanged: number; additions: number; deletions: number }>({ filesChanged: 0, additions: 0, deletions: 0 });
@@ -307,7 +297,6 @@ export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, colum
   if (loading) {
     return (
       <div className="detail-section">
-        {renderMergeDetails(task, columnFlags)}
         <div className="task-changes-state task-changes-state--loading">
           <LoadingSpinner label={t("taskChanges.loading", "Loading changes...")} />
         </div>
@@ -318,7 +307,6 @@ export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, colum
   if (error) {
     return (
       <div className="detail-section">
-        {renderMergeDetails(task, columnFlags)}
         <div className="task-changes-state task-changes-state--error">
           <AlertCircle size={16} />
           <span>{t("taskChanges.error", "Error loading changes: {{error}}", { error })}</span>
@@ -333,12 +321,11 @@ export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, colum
   // standard empty/populated rendering below.
   if (!isDone && !worktree && !isWorkspace && files.length === 0) {
     if (modifiedFiles && modifiedFiles.length > 0) {
-      return renderModifiedFilesFallback(modifiedFiles, false, "execution", t, task, columnFlags);
+      return renderModifiedFilesFallback(modifiedFiles, false, "execution", t);
     }
 
     return (
       <div className="detail-section">
-        {renderMergeDetails(task, columnFlags)}
         <div className="task-changes-state task-changes-state--empty">
           <FileCode size={24} />
           <p>{t("taskChanges.noWorktree", "No worktree available for this task.")}</p>
@@ -357,7 +344,7 @@ export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, colum
         ? mergeDetails.landedFiles
         : modifiedFiles;
       if (doneFallbackFiles && doneFallbackFiles.length > 0) {
-        return renderModifiedFilesFallback(doneFallbackFiles, true, mergeDetails?.landedFiles?.length ? "landed" : "execution", t, task, columnFlags);
+        return renderModifiedFilesFallback(doneFallbackFiles, true, mergeDetails?.landedFiles?.length ? "landed" : "execution", t);
       }
 
       const summaryFiles = mergeDetails?.filesChanged;
@@ -367,7 +354,6 @@ export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, colum
 
       return (
         <div className="detail-section">
-          {renderMergeDetails(task, columnFlags)}
           <div className="task-changes-state task-changes-state--empty">
             <FileCode size={24} />
             <p>{t("taskChanges.unavailable", "Detailed file changes unavailable.")}</p>
@@ -382,12 +368,11 @@ export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, colum
     }
 
     if (!isDone && modifiedFiles && modifiedFiles.length > 0) {
-      return renderModifiedFilesFallback(modifiedFiles, isDone, "execution", t, task, columnFlags);
+      return renderModifiedFilesFallback(modifiedFiles, isDone, "execution", t);
     }
 
     return (
       <div className="detail-section task-changes-tab">
-        {renderMergeDetails(task, columnFlags)}
         {renderChangesHeader()}
         <div className="task-changes-state task-changes-state--empty">
           <FileCode size={24} />
@@ -404,7 +389,6 @@ export function TaskChangesTab({ columnFlags, taskId, worktree, projectId, colum
 
   return (
     <div className="detail-section task-changes-tab">
-      {renderMergeDetails(task, columnFlags)}
       {isDone && mergeDetails?.noOpVerifiedShortCircuit && (
         <div className="text-muted">{t("taskChanges.noOpShortCircuit", "Verified short-circuit — work was already on main (rebase walked foreign commits).")}</div>
       )}

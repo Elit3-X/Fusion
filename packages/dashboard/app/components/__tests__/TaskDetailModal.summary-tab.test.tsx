@@ -44,7 +44,8 @@ describe("TaskDetailModal Summary tab", () => {
     expect(screen.getByRole("button", { name: "Summary" })).toHaveClass("detail-tab-active");
     expect(screen.getByRole("heading", { name: "Work done by agents", level: 3 })).toBeInTheDocument();
     expect(screen.getByText("Completed report for the Summary tab.")).toBeInTheDocument();
-    expect(screen.getByText("Implement")).toBeInTheDocument();
+    expect(screen.queryByText("Implement")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Completed steps" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "What changed" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Token usage & cost" })).toBeNull();
 
@@ -77,6 +78,45 @@ describe("TaskDetailModal Summary tab", () => {
 
     expect(screen.queryByRole("heading", { name: "Recommendations", level: 3 })).toBeNull();
     expect(screen.queryByRole("button", { name: "Recommendations" })).toBeNull();
+  });
+
+  it("renders Merge Details as the final Summary block after recommendations", () => {
+    render(modal(doneTask({
+      mergeDetails: { commitSha: "abcdef1234567890", mergedAt: "2026-08-29T03:00:00.000Z" },
+      recommendations: [{ id: "REC-256", title: "Optional follow-up", description: "Keep this non-blocking work visible.", category: "improvement" }],
+      stepReports: [{ id: "step-report-0", stepIndex: 0, stepName: "Implement", summary: "Implemented the requested behavior.", recordedAt: "2026-08-29T03:00:15.000Z", source: "agent", attempt: 1 }],
+      log: [
+        { timestamp: "2026-08-29T03:00:00.000Z", action: "Step 0 (Implement) → in-progress" },
+        { timestamp: "2026-08-29T03:00:15.000Z", action: "Step 0 (Implement) → done" },
+      ],
+    })));
+
+    const summarySection = screen.getByTestId("task-summary-tab").closest(".detail-section--summary");
+    const mergeCard = summarySection?.querySelector(".merge-details-card");
+    const mergePanel = mergeCard?.closest(".detail-section");
+    const reviewEntries = screen.getByTestId("task-history-stage-review").querySelectorAll(".task-history-entry");
+
+    expect(mergeCard).toBeInTheDocument();
+    expect(summarySection?.lastElementChild).toBe(mergePanel);
+    expect(screen.getByText("Optional follow-up")).toBeInTheDocument();
+    expect(reviewEntries[reviewEntries.length - 1]).toHaveTextContent("Completed report for the Summary tab.");
+    expect(screen.getAllByTestId("task-history-entry-duration")).toHaveLength(1);
+  });
+
+  it("does not leave a Summary merge wrapper for incomplete or unmerged tasks", () => {
+    const unmerged = render(modal(doneTask()));
+    const unmergedSummary = screen.getByTestId("task-summary-tab").closest(".detail-section--summary");
+    expect(unmergedSummary?.querySelector(".merge-details-card")).toBeNull();
+    expect(unmergedSummary?.querySelector(":scope > .detail-section")).toBeNull();
+    unmerged.unmount();
+
+    render(modal(makeTask({
+      column: "in-review",
+      mergeDetails: { commitSha: "abcdef1234567890" },
+    }), "summary"));
+    const reviewSummary = screen.getByTestId("task-summary-tab").closest(".detail-section--summary");
+    expect(reviewSummary?.querySelector(".merge-details-card")).toBeNull();
+    expect(reviewSummary?.querySelector(":scope > .detail-section")).toBeNull();
   });
 
   it("keeps Summary in the shared horizontally scrollable strip for embedded detail", () => {

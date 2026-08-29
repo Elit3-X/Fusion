@@ -2362,10 +2362,10 @@ FNXC:TaskDetail 2026-06-22-18:40:
 }
 
 /*
-FNXC:TaskDetailSummaryTab 2026-08-28-23:05:
-The always-available Summary tab is a report-first, scrollable overview. Reuse detail-section and
-tokenized spacing so agent reports and optional recommendations preserve modal hierarchy on desktop
-and mobile without duplicating Stats or Changes facts.
+FNXC:TaskDetailSummaryTab 2026-08-29-05:45:
+The always-available Summary tab is a report-first, scrollable overview that ends with MergeDetails.
+Reuse detail-section and tokenized spacing so agent reports, optional recommendations, and landed facts
+preserve modal hierarchy on desktop and mobile while Stats remains the spend-only surface.
 */
 .detail-section--summary {
   overflow-y: auto;
@@ -2472,72 +2472,6 @@ USD columns, while Summary no longer owns any spend data.
   color: var(--color-warning);
 }
 
-.task-summary-work-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.task-summary-work-list li {
-  min-width: 0;
-  padding: var(--space-sm);
-  background: var(--surface);
-  border: var(--btn-border-width) solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text);
-}
-
-.task-summary-subsection {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.task-summary-work-list li {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-xs);
-}
-
-.task-summary-work-list-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.task-summary-status {
-  flex-shrink: 0;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-full);
-  background: var(--surface-muted);
-  color: var(--text-muted);
-  font-size: calc(var(--space-sm) + var(--space-xs) * 0.5);
-  font-weight: 600;
-  text-transform: capitalize;
-}
-
-.task-summary-status--done,
-.task-summary-status--passed {
-  background: color-mix(in srgb, var(--color-success) 16%, transparent);
-  color: var(--color-success);
-}
-
-.task-summary-status--skipped,
-.task-summary-status--advisory_failure,
-.task-summary-status--pending {
-  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
-  color: var(--color-warning);
-}
-
-.task-summary-status--failed {
-  background: color-mix(in srgb, var(--color-error) 16%, transparent);
-  color: var(--color-error);
-}
-
 @media (max-width: 768px) {
   .detail-section--summary {
     padding-inline: var(--space-sm);
@@ -2550,11 +2484,6 @@ USD columns, while Summary no longer owns any spend data.
   .task-summary-section {
     padding: var(--space-md);
   }
-
-  .task-summary-work-list li {
-    align-items: flex-start;
-  }
-
 }
 
 /* Spec tab layout - allows SpecEditor to fill available vertical space */

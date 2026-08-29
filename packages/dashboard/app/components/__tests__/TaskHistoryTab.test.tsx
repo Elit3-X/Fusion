@@ -53,6 +53,45 @@ describe("TaskHistoryTab", () => {
     expect(screen.getAllByRole("time")).toHaveLength(2);
   });
 
+  it("renders a completed workflow duration beside its timestamp", async () => {
+    await renderHistory(task(), [result({
+      startedAt: "2026-08-28T03:00:00.000Z",
+      completedAt: "2026-08-28T03:00:02.500Z",
+    })]);
+
+    expect(screen.getByTestId("task-history-entry-duration")).toHaveTextContent("Took 2.5 s");
+    expect(screen.getByRole("time")).toBeInTheDocument();
+  });
+
+  it("omits the timing wrapper for an untimed report", async () => {
+    const rendered = await renderHistory(task(), [result({ output: "Untimed review" })]);
+
+    expect(screen.queryByTestId("task-history-entry-duration")).not.toBeInTheDocument();
+    expect(rendered.container.querySelector(".task-history-entry-timing")).toBeNull();
+  });
+
+  it("renders a step-report duration from matching task-log transitions", async () => {
+    await renderHistory(task({
+      stepReports: [{ id: "step-0", stepIndex: 0, stepName: "Preflight", summary: "Ready", recordedAt: "2026-08-28T03:00:15.000Z", source: "agent", attempt: 1 }],
+      log: [
+        { timestamp: "2026-08-28T03:00:00.000Z", action: "Step 0 (Preflight) → in-progress" },
+        { timestamp: "2026-08-28T03:00:15.000Z", action: "Step 0 (Preflight) → done" },
+      ],
+    }));
+
+    expect(screen.getByTestId("task-history-entry-duration")).toHaveTextContent("Took 15.0 s");
+  });
+
+  it("keeps durations visible at the narrow breakpoint", async () => {
+    window.innerWidth = 375;
+    await renderHistory(task(), [result({
+      startedAt: "2026-08-28T03:00:00.000Z",
+      completedAt: "2026-08-28T03:00:02.500Z",
+    })]);
+
+    expect(screen.getByTestId("task-history-entry-duration")).toHaveTextContent("Took 2.5 s");
+  });
+
   it("updates the Code count when step reports arrive", async () => {
     const rendered = await renderHistory(task());
     expect(screen.getByTestId("task-history-count-code")).toHaveTextContent("0");
@@ -160,13 +199,15 @@ describe("TaskHistoryTab", () => {
     resources.taskHistory.empty.merge = "MERGE_EMPTY_SENTINEL";
     resources.taskHistory.entry.noBody = "NO_BODY_SENTINEL";
     resources.taskHistory.entry.verdictNoNotes = "NO_NOTES_SENTINEL";
+    resources.taskHistory.entry.duration = "DURATION_SENTINEL {{duration}}";
     await renderHistory(task({
       stepReports: [{ id: "empty", stepIndex: 1, stepName: "Build", summary: "", recordedAt: "2026-08-28T02:00:00.000Z", source: "agent", attempt: 1 }],
       mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" },
-    }), [result({ verdict: "APPROVE", output: "", notes: "" })], resources);
+    }), [result({ verdict: "APPROVE", output: "", notes: "", startedAt: "2026-08-28T03:00:00.000Z", completedAt: "2026-08-28T03:00:01.000Z" })], resources);
     expect(screen.getByText("PLAN_SENTINEL")).toBeInTheDocument();
     expect(screen.getByText("MERGE_EMPTY_SENTINEL")).toBeInTheDocument();
     expect(screen.getAllByText("NO_BODY_SENTINEL")).toHaveLength(1);
     expect(screen.getByText("NO_NOTES_SENTINEL")).toBeInTheDocument();
+    expect(screen.getByText("DURATION_SENTINEL 1.0 s")).toBeInTheDocument();
   });
 });

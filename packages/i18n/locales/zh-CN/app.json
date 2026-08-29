@@ -8315,8 +8315,7 @@
     "workflowTimedSteps": "工作流计时步骤",
     "yes": "是",
     "summaryTab": {
-      "agentWorkHeading": "Work done by agents",
-      "completedSteps": "Completed steps"
+      "agentWorkHeading": "Work done by agents"
     },
     "gitlabTracking": {
       "collapse": "",
@@ -9769,7 +9768,8 @@
       "stepReport": "",
       "merged": "",
       "noOpMerge": "",
-      "verdictNoNotes": ""
+      "verdictNoNotes": "",
+      "duration": ""
     },
     "meta": {
       "commit": "",

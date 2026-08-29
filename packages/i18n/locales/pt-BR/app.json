@@ -8303,8 +8303,7 @@
       "heading": "Resumo"
     },
     "summaryTab": {
-      "agentWorkHeading": "Trabalho realizado pelos agentes",
-      "completedSteps": "Etapas concluídas"
+      "agentWorkHeading": "Trabalho realizado pelos agentes"
     },
     "tabs": {
       "changes": "Alterações",
@@ -9769,7 +9768,8 @@
       "stepReport": "",
       "merged": "",
       "noOpMerge": "",
-      "verdictNoNotes": ""
+      "verdictNoNotes": "",
+      "duration": ""
     },
     "meta": {
       "commit": "",

@@ -114,7 +114,7 @@ describe("buildTaskHistory", () => {
   });
 
   it("does not duplicate task summary when its workflow result exists", () => {
-    const entries = stageEntries(buildTaskHistory(task({ summary: "Summary" }), [result({ workflowStepId: "completion-summary", workflowStepName: "Completion summary", output: "Summary" })]), "code");
+    const entries = stageEntries(buildTaskHistory(task({ summary: "Summary" }), [result({ workflowStepId: "completion-summary", workflowStepName: "Completion summary", output: "Summary" })]), "review");
     expect(entries).toHaveLength(1);
   });
 
@@ -125,11 +125,90 @@ describe("buildTaskHistory", () => {
       output: " ",
       notes: " ",
       findings: [],
-    })]), "code");
+    })]), "review");
 
     expect(entries).toHaveLength(2);
     expect(entries.find((entry) => entry.id === "task:completion-summary")).toMatchObject({ body: "Persisted summary" });
     expect(entries.find((entry) => entry.id.startsWith("workflow:completion-summary:"))).toMatchObject({ body: undefined });
+  });
+
+  it("pins a completion workflow result below a later Code Review verdict", () => {
+    const history = buildTaskHistory(task(), [
+      result({
+        workflowStepId: "completion-summary",
+        workflowStepName: "Completion summary",
+        startedAt: "2026-08-28T01:00:00.000Z",
+        completedAt: "2026-08-28T01:01:00.000Z",
+      }),
+      result({
+        workflowStepId: "code-review-step",
+        workflowStepName: "Code Review",
+        reviewKind: "code",
+        verdict: "APPROVE",
+        startedAt: "2026-08-28T01:02:00.000Z",
+        completedAt: "2026-08-28T01:03:00.000Z",
+      }),
+    ]);
+
+    expect(stageEntries(history, "code")).toEqual([]);
+    expect(stageEntries(history, "review").map((entry) => entry.title)).toEqual([
+      { kind: "text", text: "Code Review" },
+      { kind: "text", text: "Completion summary" },
+    ]);
+  });
+
+  it("pins the synthetic completion summary last in Review", () => {
+    const history = buildTaskHistory(task({ summary: "Persisted completion" }), [
+      result({ workflowStepId: "code-review-step", workflowStepName: "Code Review", reviewKind: "code", verdict: "APPROVE" }),
+    ]);
+
+    expect(stageEntries(history, "review").map((entry) => entry.id)).toEqual([
+      expect.stringMatching(/^workflow:code-review-step:/),
+      "task:completion-summary",
+    ]);
+  });
+
+  it("projects durations only for completed workflow results", () => {
+    const entries = stageEntries(buildTaskHistory(task(), [
+      result({
+        workflowStepId: "code-review-step",
+        workflowStepName: "Code Review",
+        reviewKind: "code",
+        startedAt: "2026-08-28T01:00:00.000Z",
+        completedAt: "2026-08-28T01:00:03.500Z",
+      }),
+      result({
+        workflowStepId: "browser-verification-step",
+        workflowStepName: "Browser verification",
+        reviewKind: "code",
+        startedAt: "2026-08-28T01:05:00.000Z",
+        completedAt: undefined,
+      }),
+    ]), "review");
+
+    expect(entries.find((entry) => entry.title.kind === "text" && entry.title.text === "Code Review")?.durationMs).toBe(3_500);
+    expect(entries.find((entry) => entry.title.kind === "text" && entry.title.text === "Browser verification")?.durationMs).toBeUndefined();
+  });
+
+  it("projects a step report duration from its durable transition log", () => {
+    const history = buildTaskHistory(task({
+      stepReports: [{ id: "report-1", stepIndex: 0, stepName: "Preflight", summary: "Ready", recordedAt: "2026-08-28T02:00:15.000Z", source: "agent", attempt: 1 }],
+      log: [
+        { timestamp: "2026-08-28T02:00:00.000Z", action: "Step 0 (Preflight) → in-progress" },
+        { timestamp: "2026-08-28T02:00:15.000Z", action: "Step 0 (Preflight) → done" },
+      ],
+    }), []);
+
+    expect(stageEntries(history, "code")[0]?.durationMs).toBe(15_000);
+  });
+
+  it("keeps a post-merge completion result in the Merge stage", () => {
+    const history = buildTaskHistory(task(), [
+      result({ workflowStepId: "completion-summary", workflowStepName: "Completion summary", phase: "post-merge" }),
+    ]);
+
+    expect(stageEntries(history, "merge")).toHaveLength(1);
+    expect(stageEntries(history, "review")).toHaveLength(0);
   });
 
   it("does not synthesize a merge history entry from landed commit metadata", () => {

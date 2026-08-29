@@ -36,13 +36,24 @@ describe("TaskSummaryTab", () => {
     expect(screen.queryByRole("heading", { name: "Completed steps" })).not.toBeInTheDocument();
   });
 
-  it("renders a task completion summary exactly once in the Code stage when no workflow summary exists", () => {
+  it("renders a task completion summary exactly once in the Review stage when no workflow summary exists", () => {
     const completionSummary = "The task completed with the canonical report.";
     render(<TaskSummaryTab task={makeTask({ summary: completionSummary, workflowStepResults: [] })} results={[]} />);
 
-    const codeStage = screen.getByTestId("task-history-stage-code");
-    expect(within(codeStage).getByText(completionSummary)).toBeInTheDocument();
+    const reviewStage = screen.getByTestId("task-history-stage-review");
+    expect(within(reviewStage).getByText(completionSummary)).toBeInTheDocument();
     expect(screen.getAllByText(completionSummary)).toHaveLength(1);
+  });
+
+  it("does not repeat a completed step when no report was recorded", () => {
+    render(<TaskSummaryTab task={makeTask({
+      steps: [{ name: "Implement", status: "done" }],
+      stepReports: [],
+    })} results={[]} />);
+
+    expect(screen.queryByRole("heading", { name: "Completed steps" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Implement")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-history-stage-code").querySelector(".task-history-empty")).toBeInTheDocument();
   });
 
   it("preserves the task summary when completion workflow output is empty", () => {
@@ -58,9 +69,9 @@ describe("TaskSummaryTab", () => {
 
     render(<TaskSummaryTab task={makeTask({ summary: completionSummary, workflowStepResults: results })} results={results} />);
 
-    const codeStage = screen.getByTestId("task-history-stage-code");
-    expect(within(codeStage).getByText(completionSummary)).toBeInTheDocument();
-    expect(within(codeStage).getByTestId("task-history-entry-no-body")).toBeInTheDocument();
+    const reviewStage = screen.getByTestId("task-history-stage-review");
+    expect(within(reviewStage).getByText(completionSummary)).toBeInTheDocument();
+    expect(within(reviewStage).getByTestId("task-history-entry-no-body")).toBeInTheDocument();
     expect(screen.getAllByText(completionSummary)).toHaveLength(1);
   });
 });
