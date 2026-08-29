@@ -1042,25 +1042,22 @@ describe("TaskDetailModal", () => {
       expect(container.querySelector(".detail-timestamps")).toBeTruthy();
       expect(container.querySelectorAll(".detail-timestamp-item").length).toBe(2);
       const tabs = container.querySelectorAll(".detail-tab");
-      // FNXC:TaskDetailTabs 2026-07-15-23:23: Keep this responsive-order expectation aligned with peer tab tests: the always-available Terminal (FN-7826) and Cost (FN-7820) tabs belong between Comments and Artifacts.
+      // FN-244 keeps the responsive strip aligned with the consolidated desktop inventory.
       expect(Array.from(tabs).map((tab) => tab.textContent?.trim())).toEqual([
         "Activity",
         "Chat",
         "Plan",
-        "Dependencies",
-        "Attachments",
         "Changes",
+        "Summary",
+        "Stats",
         "Review",
         "Comments",
-        "Terminal",
-        "Cost",
+        "Dependencies",
         "Artifacts",
         "Model",
         "Workflow",
-        "Stats",
-        "Routing",
         "Details",
-        "Debug",
+        "Terminal",
       ]);
       expect(tabs[0].classList.contains("detail-tab-active")).toBe(true);
       expect(Array.from(tabs).slice(1).every((t) => !t.classList.contains("detail-tab-active"))).toBe(true);
@@ -1880,7 +1877,7 @@ describe("TaskDetailModal", () => {
       expect(screen.getByRole("link", { name: "#42" })).toHaveAttribute("href", "https://github.com/owner/repo/pull/42");
     });
 
-    it("shows linked PR number in Summary merge details, not Definition, for done tasks", () => {
+    it("shows linked PR number in Changes merge details, not Definition, for done tasks", () => {
       const task = makeTask({
         column: "done" as Column,
         prInfo: {
@@ -1896,7 +1893,7 @@ describe("TaskDetailModal", () => {
       });
       const summary = render(
         <TaskDetailModal
-          initialTab="summary"
+          initialTab="changes"
           task={task}
           onClose={noop}
           onDeleteTask={noopDelete}

@@ -12,7 +12,7 @@ query ambiguous once the trigger stopped being a mobile-only affordance.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor, cleanup, within } from "@testing-library/react";
 
 // FNXC:Markdown 2026-06-23-03:30: Mock the heavy `mermaid` library so the shared
 // markdown pipeline's MermaidDiagram resolves without loading the real renderer.
@@ -2934,10 +2934,11 @@ describe("TaskDetailModal", () => {
       expect(screen.getByText("Runtime status")).toBeInTheDocument();
       expect(screen.getAllByText("Fast").length).toBeGreaterThan(0);
       expectSingleStatsRuntimeStatus("executing");
-      expect(screen.getByText((1200).toLocaleString())).toBeInTheDocument();
-      expect(screen.getByText((450).toLocaleString())).toBeInTheDocument();
-      expect(screen.getByText((210).toLocaleString())).toBeInTheDocument();
-      expect(screen.getByText((1860).toLocaleString())).toBeInTheDocument();
+      const statsPanel = screen.getByRole("region", { name: "Task execution statistics" });
+      expect(within(statsPanel).getByText((1200).toLocaleString())).toBeInTheDocument();
+      expect(within(statsPanel).getByText((450).toLocaleString())).toBeInTheDocument();
+      expect(within(statsPanel).getByText((210).toLocaleString())).toBeInTheDocument();
+      expect(within(statsPanel).getByText((1860).toLocaleString())).toBeInTheDocument();
       const firstUsed = document.querySelector('time[datetime="2026-04-24T09:00:00.000Z"]');
       const lastUsed = document.querySelector('time[datetime="2026-04-24T10:15:00.000Z"]');
       expect(firstUsed).toBeTruthy();

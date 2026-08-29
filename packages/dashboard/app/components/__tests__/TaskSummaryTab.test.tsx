@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import type { WorkflowStepResult } from "@fusion/core";
+import { makeTask, setupTaskDetailModalHooks } from "./TaskDetailModal.test-helpers";
+import { TaskSummaryTab } from "../TaskSummaryTab";
+
+setupTaskDetailModalHooks();
+
+describe("TaskSummaryTab", () => {
+  it("renders report-first empty stage history without duplicate completion, change, or cost sections", () => {
+    render(<TaskSummaryTab task={makeTask({ column: "todo", steps: [], workflowStepResults: [] })} results={[]} />);
+
+    expect(screen.getByRole("heading", { name: "Work done by agents", level: 3 })).toBeInTheDocument();
+    expect(screen.getByTestId("task-history-tab")).toBeInTheDocument();
+    for (const stage of ["plan", "code", "review", "merge"]) {
+      const stageNode = screen.getByTestId(`task-history-stage-${stage}`);
+      expect(stageNode).toBeInTheDocument();
+      expect(stageNode.querySelector(".task-history-empty")?.textContent?.trim()).toBeTruthy();
+    }
+    expect(screen.queryByRole("heading", { name: "Completion summary" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "What changed" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Token usage & cost" })).not.toBeInTheDocument();
+  });
+
+  it("accepts undefined optional task detail fields without an orphaned completed-steps heading", () => {
+    const task = makeTask({
+      steps: undefined,
+      workflowStepResults: undefined,
+      mergeDetails: undefined,
+      tokenUsage: undefined,
+    });
+
+    render(<TaskSummaryTab task={task} results={[]} />);
+
+    expect(screen.getByTestId("task-summary-tab")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Completed steps" })).not.toBeInTheDocument();
+  });
+
+  it("renders a task completion summary exactly once in the Code stage when no workflow summary exists", () => {
+    const completionSummary = "The task completed with the canonical report.";
+    render(<TaskSummaryTab task={makeTask({ summary: completionSummary, workflowStepResults: [] })} results={[]} />);
+
+    const codeStage = screen.getByTestId("task-history-stage-code");
+    expect(within(codeStage).getByText(completionSummary)).toBeInTheDocument();
+    expect(screen.getAllByText(completionSummary)).toHaveLength(1);
+  });
+
+  it("preserves the task summary when completion workflow output is empty", () => {
+    const completionSummary = "The persisted completion report must remain visible.";
+    const results: WorkflowStepResult[] = [{
+      workflowStepId: "completion-summary",
+      workflowStepName: "Completion summary",
+      status: "passed",
+      output: " ",
+      notes: " ",
+      findings: [],
+    }];
+
+    render(<TaskSummaryTab task={makeTask({ summary: completionSummary, workflowStepResults: results })} results={results} />);
+
+    const codeStage = screen.getByTestId("task-history-stage-code");
+    expect(within(codeStage).getByText(completionSummary)).toBeInTheDocument();
+    expect(within(codeStage).getByTestId("task-history-entry-no-body")).toBeInTheDocument();
+    expect(screen.getAllByText(completionSummary)).toHaveLength(1);
+  });
+});

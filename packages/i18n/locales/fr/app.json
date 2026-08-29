@@ -3726,7 +3726,11 @@
     "shortstatTitle": "Statistiques courtes finales du commit ; pour voir le diff complet de tous les commits de tâches, consultez l'onglet Modifications.",
     "smartPull": "Pull intelligent",
     "status": "État",
-    "title": "Détails de la fusion"
+    "title": "Détails de la fusion",
+    "targetBranch": "",
+    "strategy": "",
+    "method": "",
+    "noOpReason": ""
   },
   "mesh": {
     "ariaLabel": "Visualisation de la topologie du maillage de nœuds",
@@ -8274,10 +8278,8 @@
       "worktreeTerminal": "Terminal",
       "workflow": "Workflow",
       "summary": "Summary",
-      "cost": "",
       "recommendations": "",
       "dependencies": "",
-      "attachments": "",
       "details": "",
       "debug": ""
     },
@@ -8313,29 +8315,7 @@
     "yes": "Oui",
     "summaryTab": {
       "agentWorkHeading": "Work done by agents",
-      "cachedTokens": "Cached",
-      "changedHeading": "What changed",
-      "commit": "Commit",
-      "completedSteps": "Completed steps",
-      "completionHeading": "Completion summary",
-      "cost": "Cost",
-      "costUnavailable": "No pricing for this model",
-      "deletions": "Removed",
-      "filesChanged": "Files",
-      "inputTokens": "Input",
-      "insertions": "Added",
-      "model": "Model",
-      "noAgentWork": "No completed steps or workflow results are available for this task.",
-      "noChangedFiles": "No changed-file list is available for this task.",
-      "noCompletionSummary": "No completion summary was recorded for this task.",
-      "noTokenUsage": "No token usage recorded for this task yet.",
-      "outputTokens": "Output",
-      "retries": "Agents retried this task {{count}} time{{plural}}.",
-      "tokenCostHeading": "Token usage & cost",
-      "totalCost": "Total cost",
-      "totalTokens": "Total",
-      "unknownModel": "(unknown)",
-      "workflowResults": "Workflow results"
+      "completedSteps": "Completed steps"
     },
     "gitlabTracking": {
       "collapse": "",
@@ -8417,8 +8397,11 @@
     "debug": {
       "none": ""
     },
-    "activity": {
-      "summaries": "Résumés"
+    "details": {
+      "expandRouting": "",
+      "collapseRouting": "",
+      "expandDebug": "",
+      "collapseDebug": ""
     }
   },
   "taskDocuments": {

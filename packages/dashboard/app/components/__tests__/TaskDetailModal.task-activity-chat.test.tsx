@@ -122,7 +122,7 @@ describe("TaskDetailModal Activity and planner Chat tab integration", () => {
     expect(screen.getAllByRole("button", { name: "Chat" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Activity" })).toHaveClass("detail-tab-active");
     expect(screen.queryByTestId("task-planner-chat-panel")).not.toBeInTheDocument();
-    expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw", "Summaries"]);
+    expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw"]);
     expectActivityView("current");
     expect(document.querySelector(".activity-view-select")).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Activity view" })).not.toBeInTheDocument();
@@ -286,7 +286,7 @@ describe("TaskDetailModal Activity and planner Chat tab integration", () => {
       expect(menu).toHaveStyle({ position: "fixed" });
       expect(menu.style.top).not.toBe("");
       expect(menu.style.left).not.toBe("");
-      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw", "Summaries"]);
+      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw"]);
       expect(topLevelTabLabels()).toEqual(expect.arrayContaining(["Activity", "Chat", "Plan", "Changes", "Review"]));
       expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Plan" })).toBeInTheDocument();
@@ -777,7 +777,7 @@ describe("TaskDetailModal Activity and planner Chat tab integration", () => {
     expect(screen.getByRole("heading", { name: "Feed" })).toBeInTheDocument();
   });
 
-  it("preserves Summary as the done-task mobile default while Activity and Chat remain first", async () => {
+  it("keeps Summary as the done-task mobile default after the Activity, Chat, Plan, and Changes tabs", async () => {
     const user = userEvent.setup();
     const originalInnerWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
@@ -797,12 +797,12 @@ describe("TaskDetailModal Activity and planner Chat tab integration", () => {
         />,
       );
 
-      expect(topLevelTabLabels().slice(0, 3)).toEqual(["Activity", "Chat", "Summary"]);
+      expect(topLevelTabLabels().slice(0, 5)).toEqual(["Activity", "Chat", "Plan", "Changes", "Summary"]);
       expect(screen.getByRole("button", { name: "Summary" })).toHaveClass("detail-tab-active");
       expect(screen.queryByRole("combobox", { name: "Activity view" })).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Activity" }));
-      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw", "Summaries"]);
+      expect(activityViewLabels()).toEqual(["Live", "Feed", "Raw"]);
       expect(screen.queryByRole("tablist", { name: "Activity views" })).not.toBeInTheDocument();
       expect(screen.getByText("No agent output yet. Live messages from Planner, Executor, Reviewer, and Merger agents will appear here.")).toBeInTheDocument();
       expect(screen.getAllByRole("form", { name: "Task refinement composer" })).toHaveLength(1);

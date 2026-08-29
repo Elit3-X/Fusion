@@ -3726,7 +3726,11 @@
     "shortstatTitle": "最终提交简统计；有关所有任务提交的完整着陆差异，请参见 Changes 标签。",
     "smartPull": "智能拉取",
     "status": "状态",
-    "title": "合并详情"
+    "title": "合并详情",
+    "targetBranch": "",
+    "strategy": "",
+    "method": "",
+    "noOpReason": ""
   },
   "mesh": {
     "ariaLabel": "节点网格拓扑可视化",
@@ -8274,10 +8278,8 @@
       "worktreeTerminal": "终端",
       "workflow": "工作流",
       "summary": "Summary",
-      "cost": "",
       "recommendations": "",
       "dependencies": "",
-      "attachments": "",
       "details": "",
       "debug": ""
     },
@@ -8313,29 +8315,7 @@
     "yes": "是",
     "summaryTab": {
       "agentWorkHeading": "Work done by agents",
-      "cachedTokens": "Cached",
-      "changedHeading": "What changed",
-      "commit": "Commit",
-      "completedSteps": "Completed steps",
-      "completionHeading": "Completion summary",
-      "cost": "Cost",
-      "costUnavailable": "No pricing for this model",
-      "deletions": "Removed",
-      "filesChanged": "Files",
-      "inputTokens": "Input",
-      "insertions": "Added",
-      "model": "Model",
-      "noAgentWork": "No completed steps or workflow results are available for this task.",
-      "noChangedFiles": "No changed-file list is available for this task.",
-      "noCompletionSummary": "No completion summary was recorded for this task.",
-      "noTokenUsage": "No token usage recorded for this task yet.",
-      "outputTokens": "Output",
-      "retries": "Agents retried this task {{count}} time{{plural}}.",
-      "tokenCostHeading": "Token usage & cost",
-      "totalCost": "Total cost",
-      "totalTokens": "Total",
-      "unknownModel": "(unknown)",
-      "workflowResults": "Workflow results"
+      "completedSteps": "Completed steps"
     },
     "gitlabTracking": {
       "collapse": "",
@@ -8417,8 +8397,11 @@
     "debug": {
       "none": ""
     },
-    "activity": {
-      "summaries": ""
+    "details": {
+      "expandRouting": "",
+      "collapseRouting": "",
+      "expandDebug": "",
+      "collapseDebug": ""
     }
   },
   "taskDocuments": {

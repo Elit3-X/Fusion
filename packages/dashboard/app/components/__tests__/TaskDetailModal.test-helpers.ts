@@ -134,6 +134,7 @@ vi.mock("lucide-react", () => ({
   X: () => null,
   Maximize2: () => null,
   Minimize2: () => null,
+  WrapText: () => null,
   Loader2: (props: any) => React.createElement("svg", { "data-testid": "loader2-icon", ...props }),
   /*
   FNXC:TaskDetailTabPersistence 2026-07-20-19:10:
@@ -155,6 +156,8 @@ vi.mock("lucide-react", () => ({
   GitBranch: () => null,
   Gitlab: () => null,
   AlertTriangle: () => null,
+  AlertCircle: () => null,
+  FileCode: () => null,
   Play: () => null,
   Flag: () => null,
   ArrowDown: () => null,

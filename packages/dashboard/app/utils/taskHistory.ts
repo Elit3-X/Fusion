@@ -100,11 +100,6 @@ function workflowEntry(result: WorkflowStepResult, sourceIndex: number, attemptI
   };
 }
 
-function addMeta(meta: TaskHistoryMetaItem[], key: string, defaultValue: string, value: unknown): void {
-  if (value === undefined || value === null || value === "") return;
-  meta.push({ label: i18n(key, defaultValue), value: String(value) });
-}
-
 function compareEntries(left: TaskHistoryEntry, right: TaskHistoryEntry): number {
   if (left.timestamp && right.timestamp) {
     const byTimestamp = left.timestamp.localeCompare(right.timestamp);
@@ -114,12 +109,26 @@ function compareEntries(left: TaskHistoryEntry, right: TaskHistoryEntry): number
   return left.id.localeCompare(right.id);
 }
 
-export function buildTaskHistory(task: Pick<Task, "stepReports" | "summary" | "mergeDetails">, results: WorkflowStepResult[]): TaskHistoryStage[] {
+/*
+FNXC:TaskDetailChanges 2026-08-28-23:05:
+Landed commit facts are rendered by MergeDetails in Changes. Keep this history limited to agent and
+workflow reports so a merge never appears once as a synthetic summary and again as a landed change.
+*/
+export function buildTaskHistory(task: Pick<Task, "stepReports" | "summary">, results: WorkflowStepResult[]): TaskHistoryStage[] {
   const entries: TaskHistoryEntry[] = [];
-  let hasCompletionSummaryResult = false;
+  /*
+  FNXC:TaskHistory 2026-08-29-00:05:
+  A completion-summary node identity alone does not prove that it captured a report. Preserve the
+  persisted task summary when its workflow result has no renderable output, notes, or findings, so
+  Summary never replaces an agent report with the generic empty-body fallback.
+  */
+  let hasRenderableCompletionSummaryResult = false;
 
   results.forEach((current, sourceIndex) => {
-    if (current.workflowStepId === TASK_HISTORY_WORKFLOW_IDS.completionSummary) hasCompletionSummaryResult = true;
+    if (
+      current.workflowStepId === TASK_HISTORY_WORKFLOW_IDS.completionSummary
+      && resultBody(current)?.trim()
+    ) hasRenderableCompletionSummaryResult = true;
     const snapshots = [...(current.priorAttempts ?? [])].reverse();
     snapshots.forEach((attempt, attemptIndex) => entries.push(workflowEntry(attempt, sourceIndex, attemptIndex)));
     if (!isStrippedArchivedCarrier(current)) entries.push(workflowEntry(current, sourceIndex, snapshots.length));
@@ -139,37 +148,12 @@ export function buildTaskHistory(task: Pick<Task, "stepReports" | "summary" | "m
     });
   }
 
-  if (task.summary?.trim() && !hasCompletionSummaryResult) {
+  if (task.summary?.trim() && !hasRenderableCompletionSummaryResult) {
     entries.push({
       id: "task:completion-summary",
       stage: "code",
       title: i18n("taskHistory.entry.completionSummary", "Completion summary"),
       body: task.summary,
-    });
-  }
-
-  const merge = task.mergeDetails;
-  if (merge && (merge.mergedAt || merge.commitSha)) {
-    const meta: TaskHistoryMetaItem[] = [];
-    addMeta(meta, "taskHistory.meta.commit", "Commit", merge.commitSha?.slice(0, 12));
-    addMeta(meta, "taskHistory.meta.targetBranch", "Target branch", merge.mergeTargetBranch);
-    addMeta(meta, "taskHistory.meta.strategy", "Strategy", merge.resolutionStrategy);
-    addMeta(meta, "taskHistory.meta.method", "Method", merge.resolutionMethod);
-    addMeta(meta, "taskHistory.meta.files", "Files", merge.filesChanged);
-    addMeta(meta, "taskHistory.meta.insertions", "Insertions", merge.insertions);
-    addMeta(meta, "taskHistory.meta.deletions", "Deletions", merge.deletions);
-    addMeta(meta, "taskHistory.meta.pr", "Pull request", merge.prNumber);
-    addMeta(meta, "taskHistory.meta.noOpReason", "No-op reason", merge.noOpReason);
-    entries.push({
-      id: `merge:${merge.commitSha ?? merge.mergedAt}`,
-      stage: "merge",
-      title: merge.noOpMerge
-        ? i18n("taskHistory.entry.noOpMerge", "No-op merge")
-        : i18n("taskHistory.entry.merged", "Merged"),
-      timestamp: merge.mergedAt,
-      status: merge.noOpMerge ? "skipped" : "passed",
-      body: merge.mergeCommitMessage,
-      meta,
     });
   }
 

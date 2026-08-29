@@ -3736,7 +3736,11 @@
     "shortstatTitle": "Final commit shortstat; for the full landed diff across all task commits, see the Changes tab.",
     "smartPull": "Smart Pull",
     "status": "Status",
-    "title": "Merge Details"
+    "title": "Merge Details",
+    "targetBranch": "Target branch",
+    "strategy": "Strategy",
+    "method": "Method",
+    "noOpReason": "No-op reason"
   },
   "mesh": {
     "ariaLabel": "Node mesh topology visualization",
@@ -8317,29 +8321,7 @@
     },
     "summaryTab": {
       "agentWorkHeading": "Work done by agents",
-      "cachedTokens": "Cached",
-      "changedHeading": "What changed",
-      "commit": "Commit",
-      "completedSteps": "Completed steps",
-      "completionHeading": "Completion summary",
-      "cost": "Cost",
-      "costUnavailable": "No pricing for this model",
-      "deletions": "Removed",
-      "filesChanged": "Files",
-      "inputTokens": "Input",
-      "insertions": "Added",
-      "model": "Model",
-      "noAgentWork": "No completed steps or workflow results are available for this task.",
-      "noChangedFiles": "No changed-file list is available for this task.",
-      "noCompletionSummary": "No completion summary was recorded for this task.",
-      "noTokenUsage": "No token usage recorded for this task yet.",
-      "outputTokens": "Output",
-      "retries": "Agents retried this task {{count}} time{{plural}}.",
-      "tokenCostHeading": "Token usage & cost",
-      "totalCost": "Total cost",
-      "totalTokens": "Total",
-      "unknownModel": "(unknown)",
-      "workflowResults": "Workflow results"
+      "completedSteps": "Completed steps"
     },
     "tabs": {
       "changes": "Changes",
@@ -8357,10 +8339,8 @@
       "terminal": "Session",
       "worktreeTerminal": "Terminal",
       "workflow": "Workflow",
-      "cost": "Cost",
       "recommendations": "Recommendations",
       "dependencies": "Dependencies",
-      "attachments": "Attachments",
       "details": "Details",
       "debug": "Debug"
     },
@@ -8445,8 +8425,11 @@
     "debug": {
       "none": "No debug details available."
     },
-    "activity": {
-      "summaries": "Summaries"
+    "details": {
+      "expandRouting": "Expand routing details",
+      "collapseRouting": "Collapse routing details",
+      "expandDebug": "Expand debug details",
+      "collapseDebug": "Collapse debug details"
     }
   },
   "taskHistory": {
@@ -8460,7 +8443,7 @@
       "plan": "No planning reports recorded.",
       "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
       "review": "No review reports recorded.",
-      "merge": "No merge reports recorded."
+      "merge": "No merge reports recorded. Landed commit details are in the Changes tab."
     },
     "entry": {
       "noBody": "No report body was recorded.",

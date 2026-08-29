@@ -292,6 +292,7 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
 
     render(
       <TaskChangesTab
+        task={{ id: "FN-001", column: "done", mergeDetails: MERGE_DETAILS } as any}
         taskId="FN-001"
         worktree={undefined}
         column="done"
@@ -300,10 +301,43 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("abc1234")).toBeTruthy(); // short SHA
+      expect(screen.getByText("Merge Details")).toBeTruthy();
     });
+    expect(screen.getByText("abc1234")).toBeTruthy(); // short SHA
     expect(screen.getByText("Merge branch 'fusion/fn-001' into main")).toBeTruthy();
-    expect(screen.getByText(/Merged .+/)).toBeTruthy();
+    expect(screen.getByText("Merged successfully")).toBeTruthy();
+  });
+
+  it("renders the merge panel above the diff for completed work and omits it for live work", async () => {
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
+
+    const completed = render(
+      <TaskChangesTab
+        task={{ id: "FN-001", column: "done", mergeDetails: MERGE_DETAILS } as any}
+        taskId="FN-001"
+        column="done"
+        mergeDetails={MERGE_DETAILS}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("src/app.ts")).toBeTruthy());
+    const panel = screen.getByText("Merge Details").closest(".detail-section");
+    const diff = screen.getByText("Files Changed (2)").closest(".changes-header");
+    expect(panel?.compareDocumentPosition(diff!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    completed.unmount();
+
+    render(
+      <TaskChangesTab
+        task={{ id: "FN-001", column: "in-progress", mergeDetails: MERGE_DETAILS } as any}
+        taskId="FN-001"
+        worktree="/path/to/worktree"
+        column="in-progress"
+        mergeDetails={MERGE_DETAILS}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("src/app.ts")).toBeTruthy());
+    expect(screen.queryByText("Merge Details")).toBeNull();
   });
 
   it("renders attribution notes for short-circuit and fallback merge details", async () => {
@@ -447,11 +481,12 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     });
   });
 
-  it("renders commit SHA metadata even when only commitSha is set", async () => {
+  it("renders merge details when only commitSha is set", async () => {
     mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     const { container } = render(
       <TaskChangesTab
+        task={{ id: "FN-001", column: "done", mergeDetails: { commitSha: "abc1234567890def" } } as any}
         taskId="FN-001"
         worktree={undefined}
         column="done"
@@ -463,12 +498,10 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
       expect(screen.getByText("src/app.ts")).toBeTruthy();
     });
 
-    // SHA metadata should render since commitSha is present
-    expect(container.querySelector(".commit-diff-meta")).toBeTruthy();
+    expect(container.querySelector(".merge-details-card")).toBeTruthy();
     expect(screen.getByText("abc1234")).toBeTruthy(); // short SHA
-    // But message and timestamp should NOT be present since they're not set
-    expect(container.querySelector(".commit-diff-message")).toBeNull();
-    expect(container.querySelector(".commit-diff-timestamp")).toBeNull();
+    expect(screen.queryByText("Message")).toBeNull();
+    expect(screen.queryByText("Merged at")).toBeNull();
   });
 });
 
@@ -1426,10 +1459,11 @@ describe("TaskChangesTab — header toolbar structure", () => {
     expect(screen.getByLabelText("Expand diff view")).toBeTruthy();
   });
 
-  it("keeps commit metadata above the header while preserving the actions structure", async () => {
+  it("keeps merge details above the header while preserving the actions structure", async () => {
     mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
     const { container } = render(
       <TaskChangesTab
+        task={{ id: "FN-001", column: "done", mergeDetails: MERGE_DETAILS } as any}
         taskId="FN-001"
         worktree={undefined}
         column="done"
@@ -1443,11 +1477,11 @@ describe("TaskChangesTab — header toolbar structure", () => {
 
     const taskTab = container.querySelector(".task-changes-tab");
     const header = taskTab?.querySelector(":scope > .changes-header");
-    const commitMeta = taskTab?.querySelector(":scope > .commit-diff-meta");
+    const mergePanel = taskTab?.querySelector(":scope > .detail-section");
 
-    expect(commitMeta).toBeTruthy();
+    expect(mergePanel).toBeTruthy();
     expect(header).toBeTruthy();
-    expect(commitMeta?.nextElementSibling).toBe(header ?? null);
+    expect(mergePanel?.nextElementSibling).toBe(header ?? null);
     expect(header?.querySelector(".changes-header-actions-wrapper .changes-header-actions-secondary")).toBeTruthy();
   });
 

@@ -239,10 +239,10 @@ describe("TaskDetailModal planner Chat tab", () => {
     expect(screen.getByTestId("task-planner-chat-panel")).toBeInTheDocument();
   });
 
-  it("preserves Summary as the default for done tasks while keeping Chat then Activity order", () => {
+  it("preserves Summary as the default for done tasks after Chat, Activity, Plan, and Changes", () => {
     renderTask("done");
 
-    expect(tabLabels().slice(0, 3)).toEqual(["Chat", "Activity", "Summary"]);
+    expect(tabLabels().slice(0, 5)).toEqual(["Chat", "Activity", "Plan", "Changes", "Summary"]);
     expect(screen.getByRole("button", { name: "Summary" })).toHaveClass("detail-tab-active");
   });
 

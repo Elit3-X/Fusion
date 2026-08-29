@@ -68,7 +68,6 @@ import { WorkspaceWorktreesSummary, isWorkspaceTask } from "./WorkspaceWorktrees
 import { TaskForm, type PendingImage } from "./TaskForm";
 import { useNodes } from "../hooks/useNodes";
 import { WorkflowResultsTab } from "./WorkflowResultsTab";
-import { TaskHistoryTab } from "./TaskHistoryTab";
 import { RoutingTab } from "./RoutingTab";
 import { TaskDocumentsTab } from "./TaskDocumentsTab";
 import { TaskTokenStatsPanel } from "./TaskTokenStatsPanel";
@@ -288,12 +287,12 @@ function formatDurationCompact(ageMs: number): string {
 }
 
 type TabId = "summary" | "recommendations" | "cost" | "definition" | "dependencies" | "attachments" | "details" | "debug" | "chat" | "planner-chat" | "logs" | "changes" | "review" | "history" | "pr" | "comments" | "model" | "workflow" | "documents" | "stats" | "routing" | "retries" | "terminal" | "worktree-terminal" | `plugin-${string}`;
-type ActivitySegment = "current" | "feed" | "raw-logs" | "interventions" | "summaries";
+type ActivitySegment = "current" | "feed" | "raw-logs" | "interventions";
 type WorkflowResultsLoadState = "idle" | "loading" | "succeeded" | "failed";
 
 /*
 FNXC:TaskDetailActivityTab 2026-06-30-00:00:
-The existing task activity/steering surface keeps the stable internal `chat` tab id for deep-link/plugin compatibility, but its top-level user-facing label is Activity. Done tasks keep Summary as their omitted-initial-tab landing surface so completed work still opens on the completion report.
+The existing task activity/steering surface keeps the stable internal `chat` tab id for deep-link/plugin compatibility, but its top-level user-facing label is Activity.
 
 FNXC:TaskDetailPlannerChat 2026-06-30-22:30:
 Task detail separates Activity from planner-model Chat. `chat` remains the legacy Activity id for old links and Activity → Live (internal `current`)/Feed/Raw Logs/steering, while `planner-chat` is the top-level Chat tab for task-aware planning conversation.
@@ -302,7 +301,7 @@ FNXC:TaskDetailActivityFirst 2026-06-30-23:59:
 Task details are Activity-first by default: render Activity before planner Chat and make omitted non-done opens land on Activity → Live. The project `taskDetailChatFirst` setting restores Chat-first ordering/default when true; explicit `initialTab` deep links always win.
 
 FNXC:TaskDetailActivity 2026-06-30-15:50:
-Only an omitted initial tab is the implicit default. Preserve explicit `initialTab="chat"` requests from plugins and task-detail entrypoints so existing links continue to open Activity → Live (internal `current`). Legacy `initialTab="logs"` now routes to Activity → Feed, and Raw Logs remains an Activity segment.
+Only an omitted initial tab is the implicit default. Preserve explicit `initialTab="chat"` requests from plugins and task-detail entrypoints so existing links continue to open Activity → Live (internal `current`). Legacy `initialTab="logs"` routes to Activity → Feed, and Raw Logs remains an Activity segment.
 
 FNXC:TaskDetailActivity 2026-06-30-21:55:
 The first Activity segment keeps the stable internal `current` id for legacy segment tests and links, but its embedded composer labels the operational steering-comment affordance explicitly. Do not reuse this segment as planner-model Chat conversation; that belongs to the `planner-chat` top-level tab.
@@ -310,18 +309,29 @@ The first Activity segment keeps the stable internal `current` id for legacy seg
 FNXC:TaskDetailActivity 2026-06-30-23:55:
 The first Activity segment is user-facing Live while legacy internals remain `current` and explicit `initialTab="chat"` continues landing there for compatibility.
 
-FNXC:TaskDetailActivity 2026-06-30-23:59:
-Activity view switching lives in the top-level Activity tab dropdown for Live, Feed, and Raw while retaining the internal `current`, `feed`, and `raw-logs` segment ids. Legacy `chat` and `logs` initial-tab routing remains compatible so older links still open Activity → Live or Activity → Feed.
+FNXC:TaskDetailActivity 2026-08-28-23:05:
+Activity exposes only Live, Feed, Raw, and an oversight-gated Interventions view. Legacy `logs` still routes to Activity → Feed, while detailed stage reports moved to the always-available Summary tab.
 
-FNXC:TaskHistory 2026-08-28-13:46:
-Task History is now the final Activity view, named Summaries, rather than a separate top-level tab. Keep the legacy `history` TabId as a routing-only compatibility value that opens Activity → Summaries, mirroring the existing `logs` → Activity → Feed mapping.
+FNXC:TaskHistory 2026-08-28-23:05:
+The compatibility router preserves every retired tab id without preserving duplicate content: `history` and `recommendations` route to Summary; `cost` routes to Stats; `attachments` routes to Artifacts; and `retries`, `routing`, and `debug` route to Details. `logs` remains Activity → Feed.
 */
 function resolveDefaultTab(initialTab: TabId | undefined, column: ColumnId, taskDetailChatFirst = false): TabId {
-  if (initialTab === "retries") {
-    return "details";
-  }
-  if (initialTab === "logs" || initialTab === "history") {
-    return "chat";
+  switch (initialTab) {
+    case "logs":
+      return "chat";
+    case "history":
+    case "recommendations":
+      return "summary";
+    case "retries":
+    case "routing":
+    case "debug":
+      return "details";
+    case "cost":
+      return "stats";
+    case "attachments":
+      return "documents";
+    default:
+      break;
   }
   if (initialTab) {
     return initialTab;
@@ -339,7 +349,6 @@ function resolveDefaultTab(initialTab: TabId | undefined, column: ColumnId, task
 }
 
 function resolveDefaultActivitySegment(initialTab: TabId | undefined): ActivitySegment {
-  if (initialTab === "history") return "summaries";
   return initialTab === "logs" ? "feed" : "current";
 }
 
@@ -968,12 +977,13 @@ export function TaskDetailContent({
   }, [task.id, projectId, active]);
 
   /*
-  FNXC:SpecLockTaskDetail 2026-08-09-07:36:
-  Both modal and right-dock hosts render this shared content, so the Debug tab requests the
-  persisted report once per visible task. Rendering must not re-evaluate prompt prose in-browser.
+  FNXC:SpecLockTaskDetail 2026-08-28-23:05:
+  Both modal and right-dock hosts render this shared content, so Details requests the persisted
+  report only when its consolidated diagnostics disclosure can be opened. Rendering must not
+  re-evaluate prompt prose in-browser.
   */
   useEffect(() => {
-    if (!active || activeTab !== "debug") return;
+    if (!active || activeTab !== "details") return;
     let cancelled = false;
     void fetchSpecLock(task.id, projectId)
       .then((value) => { if (!cancelled) setSpecLock(value); })
@@ -1248,9 +1258,9 @@ export function TaskDetailContent({
     previousInitialTabRef.current = initialTab;
     setActiveTab(resolveDefaultTab(initialTab, taskColumnRef.current, taskDetailChatFirstRef.current));
     setActivitySegment(resolveDefaultActivitySegment(initialTab));
-    if (initialTab === "retries") {
-      setRetriesExpanded(true);
-    }
+    setRetriesExpanded(initialTab === "retries");
+    setRoutingExpanded(initialTab === "routing");
+    setDebugExpanded(initialTab === "debug");
   }, [initialTab]);
 
   /*
@@ -1335,48 +1345,18 @@ export function TaskDetailContent({
     }
   }, [activeTab, task.column, isReviewColumn, detailFlagsAreForThisTask]);
 
-  useEffect(() => {
-    // Same pairing as the PR tab above: visibility resolves the complete role, so reconciliation must
-    // too, or the Summary tab appears on a custom terminal column and bounces straight back.
-    // Same unresolved-role guard as the PR tab above: a redirect is destructive, so it waits for the
-    // real answer rather than acting on the legacy fallback.
-    if (!detailFlagsAreForThisTask) return;
-    if (activeTab === "summary" && !isDoneColumn) {
-      setActiveTab("definition");
-    }
-  }, [activeTab, task.column, isDoneColumn, detailFlagsAreForThisTask]);
-
   /*
-  FNXC:TaskRecommendations 2026-08-12-23:01:
-  Empty Recommendations tabs on nearly every completed card are operator noise, so visibility now
-  requires captured content; TaskRecommendationsTab keeps its empty branch as a defensive fallback
-  if an open tab's snapshot empties. A task switch briefly merges the prior full-detail snapshot into
-  the next slim prop before effects clear it, so read recommendations only from a snapshot proven to
-  belong to this task. Reconciliation needs that same positive identity proof rather than
-  detailLoading: rejected fetches, stale switch state, and hidden kept-alive hosts can all report not
-  loading while this task's recommendation answer remains unknown. As with PR and Summary, waiting
-  preserves an operator or deep-link tab selection until the answer is safe to act on.
+  FNXC:TaskRecommendations 2026-08-28-23:05:
+  Summary shows Recommendations only when captured content belongs to this task. A task switch can
+  briefly merge the prior full-detail snapshot into a slim prop, so use positive snapshot identity
+  rather than detailLoading; rejected fetches and hidden kept-alive hosts cannot make stale advice
+  appear under a different task's report.
   */
   const detailSnapshotIsForThisTask = fullDetail?.id === task.id;
   const taskOwnedRecommendations = detailSnapshotIsForThisTask
     ? workingTask.recommendations
     : task.recommendations;
   const hasRecommendations = isDoneColumn && (taskOwnedRecommendations?.length ?? 0) > 0;
-  useEffect(() => {
-    if (!detailFlagsAreForThisTask) return;
-    if (!detailSnapshotIsForThisTask) return;
-    if (activeTab === "recommendations" && !hasRecommendations) {
-      setActiveTab("definition");
-    }
-  }, [
-    activeTab,
-    detailFlagsAreForThisTask,
-    detailSnapshotIsForThisTask,
-    fullDetail?.id,
-    hasRecommendations,
-    task.id,
-  ]);
-
   // Reset planner-chat focus when the operator opens a different task.
   useEffect(() => {
     setPlannerChatExpanded(false);
@@ -1808,6 +1788,14 @@ export function TaskDetailContent({
   const [activityViewMenuPosition, setActivityViewMenuPosition] = useState<ActivityViewMenuPosition | null>(null);
   const [sourceIssueExpanded, setSourceIssueExpanded] = useState(false);
   const [retriesExpanded, setRetriesExpanded] = useState(initialTab === "retries");
+  /*
+  FNXC:TaskDetailDetails 2026-08-28-23:05:
+  Routing and diagnostics are low-density Details disclosures, closed by default to preserve the
+  existing readable metadata flow. Their retired deep links expand the matching disclosure after
+  routing to Details, so compatibility retains the content destination without restoring tabs.
+  */
+  const [routingExpanded, setRoutingExpanded] = useState(initialTab === "routing");
+  const [debugExpanded, setDebugExpanded] = useState(initialTab === "debug");
   const [gitlabTrackingExpanded, setGitlabTrackingExpanded] = useState(false);
   // FNXC:TaskDetailPlan 2026-07-04-00:00: Original prompt is collapsed by default (see render site below); operator must click the chevron toggle to reveal the markdown-rendered text.
   const [originalPromptExpanded, setOriginalPromptExpanded] = useState(false);
@@ -1923,10 +1911,10 @@ export function TaskDetailContent({
   const [workflowResultsLoading, setWorkflowResultsLoading] = useState(false);
   const [workflowResultsLoadState, setWorkflowResultsLoadState] = useState<WorkflowResultsLoadState>("idle");
   const [workflowEnabledSteps, setWorkflowEnabledSteps] = useState<string[] | undefined>(task.enabledWorkflowSteps);
-  const needsWorkflowResults = activeTab === "workflow" || (activeTab === "chat" && activitySegment === "summaries");
+  const needsWorkflowResults = activeTab === "workflow" || activeTab === "summary";
   /*
-  FNXC:TaskHistory 2026-08-28-14:11:
-  A successful workflow-results response is authoritative even when it is empty, because the task snapshot can contain reports that were subsequently removed. Activity → Summaries uses the snapshot only after a request failure; loading, SSE, reconnect, and successful fetch states render the authoritative result list as-is.
+  FNXC:TaskHistory 2026-08-28-23:05:
+  A successful workflow-results response is authoritative even when it is empty, because the task snapshot can contain reports that were subsequently removed. Summary owns the stage-report request; the report projection uses the snapshot only after a request failure.
   */
   const historyWorkflowResults = workflowResultsLoadState === "failed"
     ? (workingTask.workflowStepResults ?? [])
@@ -2009,8 +1997,8 @@ export function TaskDetailContent({
   useEffect(() => {
     if (!needsWorkflowResults) return;
     /*
-    FNXC:TaskHistory 2026-08-28-02:23:
-    Activity → Summaries is a read-only projection over the modal's workflow result state and issues no request of its own. Admitting it to this shared load/SSE gate prevents Plan, Review, and Merge from showing zero until Workflow has been visited.
+    FNXC:TaskHistory 2026-08-28-23:05:
+    Summary is a read-only projection over the modal's workflow result state and issues no request of its own. Admitting it to this shared load/SSE gate prevents Plan, Review, and Merge from showing zero until Workflow has been visited.
     */
     let cancelled = false;
     /*
@@ -4517,7 +4505,6 @@ export function TaskDetailContent({
     { value: "feed", label: t("taskDetail.activity.feed", "Feed") },
     { value: "raw-logs", label: t("taskDetail.activity.raw", "Raw") },
     ...(oversightActive ? [{ value: "interventions" as const, label: t("taskDetail.activity.interventions", "Interventions") }] : []),
-    { value: "summaries", label: t("taskDetail.activity.summaries", "Summaries") },
   ], [t, oversightActive]);
   const selectedActivityViewLabel = activityViewOptions.find((option) => option.value === activitySegment)?.label ?? activityViewOptions[0]?.label ?? "Live";
 
@@ -4832,8 +4819,11 @@ export function TaskDetailContent({
         className={`detail-tab detail-tab--activity${activeTab === "chat" ? " detail-tab-active" : ""}`}
         onClick={() => {
           const shouldOpen = !showActivityViewMenu;
-          /* FNXC:TaskHistory 2026-08-28-13:46: Keep Workflow mounted until the operator chooses an Activity view so selecting Summaries preserves the shared workflow-results load/SSE gate without a refetch. */
-          if (activeTab !== "workflow") setActiveTab("chat");
+          /*
+          FNXC:TaskDetailActivity 2026-08-28-23:05:
+          The former Workflow-mount carve-out only protected the removed Activity → Summaries fetch gate. Summary now owns that gate, so Activity may always become active when its selector opens.
+          */
+          setActiveTab("chat");
           if (shouldOpen) {
             markActivityViewMenuOpening();
           } else {
@@ -4853,6 +4843,124 @@ export function TaskDetailContent({
       </button>
       {renderActivityViewMenu()}
     </div>
+  );
+
+  const renderAttachmentsSection = () => (
+    <div className="detail-section">
+      <h4>{t("taskDetail.attachments.heading", "Attachments")}</h4>
+      {attachments.length > 0 ? (
+        <div className="detail-attachments-grid">
+          {attachments.map((attachment) => {
+            const attachmentUrl = appendTokenQuery(`/api/tasks/${task.id}/attachments/${attachment.filename}`);
+            return (
+              <div key={attachment.filename} className="detail-attachment-card">
+                <a
+                  className="detail-attachment-link"
+                  href={attachmentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <img
+                    src={attachmentUrl}
+                    alt={attachment.originalName}
+                    className="detail-attachment-image"
+                  />
+                </a>
+                <div className="detail-attachment-meta">
+                  {attachment.originalName} ({formatBytes(attachment.size)})
+                </div>
+                <button
+                  className="detail-attachment-delete"
+                  onClick={() => handleDeleteAttachment(attachment.filename)}
+                  title={t("taskDetail.attachments.deleteTitle", "Delete attachment")}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="detail-empty-inline">{t("taskDetail.attachments.none", "(no attachments)")}</div>
+      )}
+      <button
+        className="btn btn-sm"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+      >
+        {uploading ? t("taskDetail.attachments.uploading", "Uploading…") : t("taskDetail.attachments.attachBtn", "Attach Screenshot")}
+      </button>
+    </div>
+  );
+
+  const renderDebugDetails = () => (
+    <>
+      {workingTask.ageStaleness && (() => {
+        const copy = getTaskAgeStalenessCopy(workingTask.ageStaleness);
+        if (!copy) return null;
+        return (
+          <div className="detail-section">
+            <div className="detail-sidebar-title">{t("taskDetail.ageStaleness.title", "Task age staleness")}</div>
+            <div>{copy.headline}</div>
+            <div className="detail-description">{copy.description}</div>
+            <div className="detail-in-review-stall-meta">
+              <span>{t("taskDetail.ageStaleness.column", "Column")} {workingTask.ageStaleness.column}</span>
+              <span>{t("taskDetail.ageStaleness.age", "Age")} {formatDurationCompact(workingTask.ageStaleness.ageMs)}</span>
+              <span>{t("taskDetail.ageStaleness.warning", "Warning")} {formatDurationCompact(workingTask.ageStaleness.warningThresholdMs)}</span>
+              <span>{t("taskDetail.ageStaleness.critical", "Critical")} {formatDurationCompact(workingTask.ageStaleness.criticalThresholdMs)}</span>
+              <span>{t("taskDetail.ageStaleness.observed", "Observed")} {formatTimestamp(workingTask.ageStaleness.observedAt)}</span>
+              <span>{workingTask.ageStaleness.paused ? t("taskDetail.ageStaleness.paused", "Paused") : t("taskDetail.ageStaleness.active", "Active")}</span>
+            </div>
+          </div>
+        );
+      })()}
+      {specLock && (
+        <section className="detail-section spec-lock-report" data-testid="spec-lock-report" aria-label={t("taskDetail.specLock.alignmentLabel", "Spec lock alignment")}>
+          <div className="detail-source-header">
+            <div className="detail-source-summary">
+              <span className="detail-source-label">{t("taskDetail.specLock.alignment", "Spec alignment")}</span>
+              <span className="badge">{specLock.report?.alignment ?? "unavailable"}</span>
+            </div>
+          </div>
+          <dl className="detail-source-grid">
+            <div><dt>{t("taskDetail.specLock.latestLock", "Latest lock")}</dt><dd>v{specLock.latestLock?.version ?? "—"}</dd></div>
+            <div><dt>{t("taskDetail.specLock.currentPlan", "Current plan")}</dt><dd>v{specLock.currentPlan?.version ?? "—"}</dd></div>
+            <div><dt>{t("taskDetail.specLock.lockState", "Lock state")}</dt><dd>{specLock.activeLock ? "active" : "inactive"}</dd></div>
+            <div><dt>{t("taskDetail.specLock.findings", "Findings")}</dt><dd>{specLock.report?.findings.length ?? 0}</dd></div>
+          </dl>
+          {specLock.latestLock && (
+            <p className="spec-lock-provenance">
+              {t("taskDetail.specLock.accepted", "Accepted {{acceptedAt}} · plan hash {{planHash}} · approval {{approval}}", { acceptedAt: specLock.latestLock.acceptedAt, planHash: specLock.latestLock.currentPlanHash, approval: specLock.latestLock.approvalFingerprint })}
+            </p>
+          )}
+          {specLock.currentPlan && (
+            <p className="spec-lock-provenance">
+              {t("taskDetail.specLock.captured", "Captured {{capturedAt}} · source revision {{sourceRevision}} · source hash {{sourceHash}}", { capturedAt: specLock.currentPlan.capturedAt, sourceRevision: specLock.currentPlan.sourceRevision, sourceHash: specLock.currentPlan.sourceHash })}
+            </p>
+          )}
+          {specLock.latestLock?.diff?.changedSections.length ? (
+            <p className="spec-lock-provenance">{t("taskDetail.specLock.relockChanged", "Re-lock changed: {{sections}}", { sections: specLock.latestLock.diff.changedSections.join(", ") })}</p>
+          ) : null}
+          {(specLock.history?.locks.length ?? 0) > 1 || (specLock.history?.currentPlans.length ?? 0) > 1 || (specLock.history?.reports.length ?? 0) > 1 ? (
+            <p className="spec-lock-provenance">
+              {t("taskDetail.specLock.retainedHistory", "Retained history: {{locks}}; {{plans}}; {{reports}} reports", { locks: specLock.history.locks.map((lock) => `lock v${lock.version}`).join(", ") || "no locks", plans: specLock.history.currentPlans.map((plan) => `plan v${plan.version}`).join(", ") || "no plan evidence", reports: specLock.history.reports.length })}
+            </p>
+          ) : null}
+          {specLock.report?.findings.length ? (
+            <ul className="spec-lock-findings">
+              {specLock.report.findings.map((finding, index) => (
+                <li key={`${finding.kind}:${finding.category}:${finding.path ?? index}`}>
+                  {finding.kind}: {finding.category}{finding.path ? ` (${finding.path})` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      )}
+      {!workingTask.ageStaleness && !specLock && (
+        <div className="detail-empty-inline">{t("taskDetail.debug.none", "No debug details available.")}</div>
+      )}
+    </>
   );
 
   return (
@@ -5859,33 +5967,11 @@ export function TaskDetailContent({
                 </button>
               </>
             )}
-            {isDoneColumn && (
-              <button
-                className={`detail-tab${activeTab === "summary" ? " detail-tab-active" : ""}`}
-                onClick={() => setActiveTab("summary")}
-              >
-                {t("taskDetail.tabs.summary", "Summary")}
-              </button>
-            )}
-            {hasRecommendations && (
-              <button
-                className={`detail-tab${activeTab === "recommendations" ? " detail-tab-active" : ""}`}
-                onClick={() => setActiveTab("recommendations")}
-              >
-                {t("taskDetail.tabs.recommendations", "Recommendations")}
-              </button>
-            )}
             <button
               className={`detail-tab${activeTab === "definition" ? " detail-tab-active" : ""}`}
               onClick={() => setActiveTab("definition")}
             >
               {t("taskDetail.tabs.definition", "Plan")}
-            </button>
-            <button className={`detail-tab${activeTab === "dependencies" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("dependencies")}>
-              {t("taskDetail.tabs.dependencies", "Dependencies")}
-            </button>
-            <button className={`detail-tab${activeTab === "attachments" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("attachments")}>
-              {t("taskDetail.tabs.attachments", "Attachments")}
             </button>
             {(isWipColumn || isReviewColumn || isDoneColumn) && (
               <button
@@ -5895,6 +5981,18 @@ export function TaskDetailContent({
                 {t("taskDetail.tabs.changes", "Changes")}
               </button>
             )}
+            <button
+              className={`detail-tab${activeTab === "summary" ? " detail-tab-active" : ""}`}
+              onClick={() => setActiveTab("summary")}
+            >
+              {t("taskDetail.tabs.summary", "Summary")}
+            </button>
+            <button
+              className={`detail-tab${activeTab === "stats" ? " detail-tab-active" : ""}`}
+              onClick={() => setActiveTab("stats")}
+            >
+              {t("taskDetail.tabs.stats", "Stats")}
+            </button>
             <button
               className={`detail-tab${activeTab === "review" ? " detail-tab-active" : ""}`}
               onClick={() => setActiveTab("review")}
@@ -5915,20 +6013,8 @@ export function TaskDetailContent({
             >
               {t("taskDetail.tabs.comments", "Comments")}
             </button>
-            {/* FNXC:TaskDetailCost 2026-07-11-00:00: Keep the tab strip's operator workflow as Comments → Terminal → Cost so discussion, shell context, and model spend sit together. Cost remains always reachable (unlike done-only Summary) and uses costFor via the shared taskTokenCost helper without persisting derived USD. */}
-            {showWorktreeTerminalTab && (
-              <button
-                className={`detail-tab${activeTab === "worktree-terminal" ? " detail-tab-active" : ""}`}
-                onClick={() => setActiveTab("worktree-terminal")}
-              >
-                {t("taskDetail.tabs.worktreeTerminal", "Terminal")}
-              </button>
-            )}
-            <button
-              className={`detail-tab${activeTab === "cost" ? " detail-tab-active" : ""}`}
-              onClick={() => setActiveTab("cost")}
-            >
-              {t("taskDetail.tabs.cost", "Cost")}
+            <button className={`detail-tab${activeTab === "dependencies" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("dependencies")}>
+              {t("taskDetail.tabs.dependencies", "Dependencies")}
             </button>
             <button
               className={`detail-tab${activeTab === "documents" ? " detail-tab-active" : ""}`}
@@ -5949,28 +6035,24 @@ export function TaskDetailContent({
             >
               {t("taskDetail.tabs.workflow", "Workflow")}
             </button>
-            <button
-              className={`detail-tab${activeTab === "stats" ? " detail-tab-active" : ""}`}
-              onClick={() => setActiveTab("stats")}
-            >
-              {t("taskDetail.tabs.stats", "Stats")}
-            </button>
-            <button
-              className={`detail-tab${activeTab === "routing" ? " detail-tab-active" : ""}`}
-              onClick={() => setActiveTab("routing")}
-            >
-              {t("taskDetail.tabs.routing", "Routing")}
-            </button>
             {/*
-            FNXC:TaskDetailTabs 2026-08-27-11:06:
-            Definition is plan-only: steps and PROMPT.md. Original prompt, retries, source and agent metadata, tracking, and no-commits live in Details; dependency/blocking and attachments have dedicated tabs; diagnostics live in Debug. The retries deep link resolves to Details so its disclosure remains useful. Details always has the original-prompt fallback, Agent, and no-commits controls, so no empty state is needed.
+            FNXC:TaskDetailTabs 2026-08-28-23:05:
+            Definition is plan-only. Details owns original prompt, retries, source and agent metadata,
+            tracking, no-commits, routing, and diagnostics; Artifacts owns registered artifacts and
+            attachments; Summary owns agent reports and recommendations. Retired deep links resolve
+            to those owners rather than restoring duplicate tab buttons.
             */}
             <button className={`detail-tab${activeTab === "details" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("details")}>
               {t("taskDetail.tabs.details", "Details")}
             </button>
-            <button className={`detail-tab${activeTab === "debug" ? " detail-tab-active" : ""}`} onClick={() => setActiveTab("debug")}>
-              {t("taskDetail.tabs.debug", "Debug")}
-            </button>
+            {showWorktreeTerminalTab && (
+              <button
+                className={`detail-tab${activeTab === "worktree-terminal" ? " detail-tab-active" : ""}`}
+                onClick={() => setActiveTab("worktree-terminal")}
+              >
+                {t("taskDetail.tabs.worktreeTerminal", "Terminal")}
+              </button>
+            )}
             {showCliTab && (
               <button
                 className={`detail-tab${activeTab === "terminal" ? " detail-tab-active" : ""}`}
@@ -6031,32 +6113,30 @@ export function TaskDetailContent({
                 projectId={projectId}
               />
             </div>
-          ) : activeTab === "summary" && isDoneColumn ? (
+          ) : activeTab === "summary" ? (
             <div className="detail-section detail-section--summary">
-              <TaskSummaryTab task={workingTask} columnFlags={detailColumnFlags} pricingOverrides={globalSettings?.modelPricingOverrides} />
-            </div>
-          ) : activeTab === "recommendations" && hasRecommendations ? (
-            <div className="detail-section">
-              <TaskRecommendationsTab
-                task={workingTask}
-                projectId={projectId}
-                onTaskReconciled={(updatedTask) => {
-                  /*
-                  FNXC:TaskRecommendations 2026-08-08-05:27:
-                  The create route returns the durable parent link update. Publish that exact snapshot
-                  to the board owner and retained detail snapshot so modal, main-panel, list, and
-                  floating hosts cannot retain a stale Create affordance while SSE catches up.
-                  */
-                  setFullDetail((previous) => previous?.id === updatedTask.id
-                    ? mergeTaskSnapshot(previous, updatedTask, { fullSnapshot: true })
-                    : previous);
-                  onTaskUpdated?.(updatedTask);
-                }}
-              />
-            </div>
-          ) : activeTab === "cost" ? (
-            <div className="detail-section detail-section--cost">
-              <TaskCostTab task={workingTask} pricingOverrides={globalSettings?.modelPricingOverrides} />
+              <TaskSummaryTab task={workingTask} results={historyWorkflowResults} loading={workflowResultsLoading} />
+              {hasRecommendations && (
+                <section className="task-summary-section task-summary-section--recommendations">
+                  <h3>{t("taskDetail.tabs.recommendations", "Recommendations")}</h3>
+                  <TaskRecommendationsTab
+                    task={workingTask}
+                    projectId={projectId}
+                    onTaskReconciled={(updatedTask) => {
+                      /*
+                      FNXC:TaskRecommendations 2026-08-08-05:27:
+                      The create route returns the durable parent link update. Publish that exact snapshot
+                      to the board owner and retained detail snapshot so modal, main-panel, list, and
+                      floating hosts cannot retain a stale Create affordance while SSE catches up.
+                      */
+                      setFullDetail((previous) => previous?.id === updatedTask.id
+                        ? mergeTaskSnapshot(previous, updatedTask, { fullSnapshot: true })
+                        : previous);
+                      onTaskUpdated?.(updatedTask);
+                    }}
+                  />
+                </section>
+              )}
             </div>
           ) : activeTab === "planner-chat" ? (
             /* FNXC:TaskDetailTabKeepAlive 2026-07-22-12:55: body renders from the kept-alive sibling below the ternary; null here prevents fall-through to Definition. */
@@ -6064,8 +6144,8 @@ export function TaskDetailContent({
           ) : activeTab === "chat" ? (
             <div className={`detail-section detail-section--activity${activitySegment === "feed" && !isActivityExpanded ? " detail-section--feed" : ""}${activitySegment === "current" || isActivityExpanded ? " detail-section--chat" : ""}${activitySegment === "raw-logs" ? " detail-section--agent-log" : ""}`}>
               {/*
-                FNXC:TaskDetailPlannerChat 2026-06-30-22:30:
-                Activity owns the existing steering/current view, Feed, raw agent logs, Interventions, and Summaries inside one compact selector. The stable Activity tab id remains `chat`, legacy `logs` callers land on Feed, legacy `history` callers land on Summaries, and Raw is the only selector option that enables raw agent-log fetching. Planner-model conversation belongs to the separate `planner-chat` tab and must not route into steering comments.
+                FNXC:TaskDetailPlannerChat 2026-08-28-23:05:
+                Activity owns steering/current view, Feed, raw agent logs, and Interventions inside one compact selector. The stable Activity tab id remains `chat`, legacy `logs` callers land on Feed, and Raw is the only selector option that enables raw agent-log fetching. Detailed stage reports belong only to Summary; planner-model conversation belongs to the separate `planner-chat` tab and must not route into steering comments.
 
                 FNXC:TaskDetailActivity 2026-06-30-23:55:
                 The first Activity segment is user-facing Live but keeps the legacy `current` segment id. Activity expansion is segment-wide, so the same reachable toggle must remain present on Live, Feed, and Raw without fetching Raw outside the Raw segment.
@@ -6114,14 +6194,6 @@ export function TaskDetailContent({
                 // on oversightActive, so no `hidden` prop is needed here.
                 <div className="detail-activity detail-activity--interventions" role="tabpanel">
                   <PlannerInterventionTimeline taskId={task.id} projectId={projectId} />
-                </div>
-              ) : activitySegment === "summaries" ? (
-                <div className="detail-activity detail-activity--summaries" role="tabpanel">
-                  <TaskHistoryTab
-                    task={workingTask}
-                    results={historyWorkflowResults}
-                    loading={workflowResultsLoading}
-                  />
                 </div>
               ) : (
                 <div className="detail-activity" role="tabpanel">
@@ -6203,7 +6275,7 @@ export function TaskDetailContent({
               )}
             </div>
           ) : activeTab === "changes" ? (
-            <TaskChangesTab taskId={task.id} worktree={task.worktree} projectId={projectId} column={task.column} columnFlags={detailColumnFlags} mergeDetails={task.mergeDetails} modifiedFiles={task.modifiedFiles} isWorkspace={isWorkspaceTask(workingTask)} />
+            <TaskChangesTab task={workingTask} taskId={task.id} worktree={task.worktree} projectId={projectId} column={task.column} columnFlags={detailColumnFlags} mergeDetails={task.mergeDetails} modifiedFiles={task.modifiedFiles} isWorkspace={isWorkspaceTask(workingTask)} />
           ) : activeTab === "review" ? (
             <TaskReviewTab
               /*
@@ -6357,13 +6429,16 @@ export function TaskDetailContent({
           ) : activeTab === "comments" ? (
             <TaskComments task={task} addToast={addToast} projectId={projectId} onTaskUpdated={onTaskUpdated} />
           ) : activeTab === "documents" ? (
-            <TaskDocumentsTab
-              taskId={task.id}
-              addToast={addToast}
-              projectId={projectId}
-              onTaskUpdated={onTaskUpdated}
-              canEdit={canEdit}
-            />
+            <>
+              <TaskDocumentsTab
+                taskId={task.id}
+                addToast={addToast}
+                projectId={projectId}
+                onTaskUpdated={onTaskUpdated}
+                canEdit={canEdit}
+              />
+              {renderAttachmentsSection()}
+            </>
           ) : activePluginTab ? (
             <div className="detail-section">
               {/*
@@ -6388,22 +6463,21 @@ export function TaskDetailContent({
             </div>
           ) : activeTab === "stats" ? (
             <div className="detail-section">
+              {/*
+              FNXC:TaskDetailStats 2026-08-28-23:05:
+              Stats owns every token and cost number. The panel supplies task-level totals and cache
+              ratios, while TaskCostTab supplies the per-model derived-USD breakdown without restating
+              those metrics in Summary or a separate Cost tab.
+              */}
               <TaskTokenStatsPanel
                 tokenUsage={workingTask.tokenUsage}
                 loading={detailLoading}
                 task={workingTask}
                 columnFlags={detailColumnFlags}
               />
-            </div>
-          ) : activeTab === "routing" ? (
-            <div className="detail-section">
-              <RoutingTab
-                task={task}
-                columnFlags={detailColumnFlags}
-                settings={settings}
-                addToast={addToast}
-                onTaskUpdated={onTaskUpdated}
-              />
+              <div className="detail-section--cost">
+                <TaskCostTab task={workingTask} pricingOverrides={globalSettings?.modelPricingOverrides} />
+              </div>
             </div>
           ) : activeTab === "terminal" ? (
             /* FNXC:TaskDetailTabKeepAlive 2026-07-22-12:55: body renders from the kept-alive sibling below the ternary. */
@@ -6585,54 +6659,6 @@ export function TaskDetailContent({
             ) : (
               <div className="detail-empty-inline">{t("taskDetail.blocking.none", "(no downstream tasks blocked)")}</div>
             )}
-          </div>
-            </>
-          ) : activeTab === "attachments" ? (
-            <>
-          <div className="detail-section">
-            <h4>{t("taskDetail.attachments.heading", "Attachments")}</h4>
-            {attachments.length > 0 ? (
-              <div className="detail-attachments-grid">
-                {attachments.map((a) => {
-                  const attachmentUrl = appendTokenQuery(`/api/tasks/${task.id}/attachments/${a.filename}`);
-                  return (
-                    <div key={a.filename} className="detail-attachment-card">
-                      <a
-                        className="detail-attachment-link"
-                        href={attachmentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <img
-                          src={attachmentUrl}
-                          alt={a.originalName}
-                          className="detail-attachment-image"
-                        />
-                      </a>
-                      <div className="detail-attachment-meta">
-                        {a.originalName} ({formatBytes(a.size)})
-                      </div>
-                      <button
-                        className="detail-attachment-delete"
-                        onClick={() => handleDeleteAttachment(a.filename)}
-                        title={t("taskDetail.attachments.deleteTitle", "Delete attachment")}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="detail-empty-inline">{t("taskDetail.attachments.none", "(no attachments)")}</div>
-            )}
-            <button
-              className="btn btn-sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? t("taskDetail.attachments.uploading", "Uploading…") : t("taskDetail.attachments.attachBtn", "Attach Screenshot")}
-            </button>
           </div>
             </>
           ) : activeTab === "details" ? (
@@ -7081,77 +7107,48 @@ export function TaskDetailContent({
               <small>{t("taskDetail.noCommits.hint", "Allows the task to complete without producing git commits. Use for evaluation, verification, or audit tasks where the deliverable is the recorded decision.")}</small>
             </div>
           </div>
-            </>
-          ) : activeTab === "debug" ? (
-            <>
-          {workingTask.ageStaleness && (() => {
-            const copy = getTaskAgeStalenessCopy(workingTask.ageStaleness);
-            if (!copy) return null;
-            return (
-              <div className="detail-section">
-                <div className="detail-sidebar-title">{t("taskDetail.ageStaleness.title", "Task age staleness")}</div>
-                <div>{copy.headline}</div>
-                <div className="detail-description">{copy.description}</div>
-                <div className="detail-in-review-stall-meta">
-                  <span>{t("taskDetail.ageStaleness.column", "Column")} {workingTask.ageStaleness.column}</span>
-                  <span>{t("taskDetail.ageStaleness.age", "Age")} {formatDurationCompact(workingTask.ageStaleness.ageMs)}</span>
-                  <span>{t("taskDetail.ageStaleness.warning", "Warning")} {formatDurationCompact(workingTask.ageStaleness.warningThresholdMs)}</span>
-                  <span>{t("taskDetail.ageStaleness.critical", "Critical")} {formatDurationCompact(workingTask.ageStaleness.criticalThresholdMs)}</span>
-                  <span>{t("taskDetail.ageStaleness.observed", "Observed")} {formatTimestamp(workingTask.ageStaleness.observedAt)}</span>
-                  <span>{workingTask.ageStaleness.paused ? t("taskDetail.ageStaleness.paused", "Paused") : t("taskDetail.ageStaleness.active", "Active")}</span>
-                </div>
-              </div>
-            );
-          })()}
-          {/*
-          FNXC:SpecLockTaskDetail 2026-08-27-11:06:
-          Spec alignment is low-frequency lock/hash provenance. It belongs in Debug so Definition remains reserved for steps and PROMPT.md, while the report is fetched only when this tab is visible.
-          */}
-          {specLock && (
-            <section className="detail-section spec-lock-report" data-testid="spec-lock-report" aria-label={t("taskDetail.specLock.alignmentLabel", "Spec lock alignment")}>
-              <div className="detail-source-header">
-                <div className="detail-source-summary">
-                  <span className="detail-source-label">{t("taskDetail.specLock.alignment", "Spec alignment")}</span>
-                  <span className="badge">{specLock.report?.alignment ?? "unavailable"}</span>
-                </div>
-              </div>
-              <dl className="detail-source-grid">
-                <div><dt>{t("taskDetail.specLock.latestLock", "Latest lock")}</dt><dd>v{specLock.latestLock?.version ?? "—"}</dd></div>
-                <div><dt>{t("taskDetail.specLock.currentPlan", "Current plan")}</dt><dd>v{specLock.currentPlan?.version ?? "—"}</dd></div>
-                <div><dt>{t("taskDetail.specLock.lockState", "Lock state")}</dt><dd>{specLock.activeLock ? "active" : "inactive"}</dd></div>
-                <div><dt>{t("taskDetail.specLock.findings", "Findings")}</dt><dd>{specLock.report?.findings.length ?? 0}</dd></div>
-              </dl>
-              {specLock.latestLock && (
-                <p className="spec-lock-provenance">
-                  {t("taskDetail.specLock.accepted", "Accepted {{acceptedAt}} · plan hash {{planHash}} · approval {{approval}}", { acceptedAt: specLock.latestLock.acceptedAt, planHash: specLock.latestLock.currentPlanHash, approval: specLock.latestLock.approvalFingerprint })}
-                </p>
-              )}
-              {specLock.currentPlan && (
-                <p className="spec-lock-provenance">
-                  {t("taskDetail.specLock.captured", "Captured {{capturedAt}} · source revision {{sourceRevision}} · source hash {{sourceHash}}", { capturedAt: specLock.currentPlan.capturedAt, sourceRevision: specLock.currentPlan.sourceRevision, sourceHash: specLock.currentPlan.sourceHash })}
-                </p>
-              )}
-              {specLock.latestLock?.diff?.changedSections.length ? (
-                <p className="spec-lock-provenance">{t("taskDetail.specLock.relockChanged", "Re-lock changed: {{sections}}", { sections: specLock.latestLock.diff.changedSections.join(", ") })}</p>
-              ) : null}
-              {(specLock.history?.locks.length ?? 0) > 1 || (specLock.history?.currentPlans.length ?? 0) > 1 || (specLock.history?.reports.length ?? 0) > 1 ? (
-                <p className="spec-lock-provenance">
-                  {t("taskDetail.specLock.retainedHistory", "Retained history: {{locks}}; {{plans}}; {{reports}} reports", { locks: specLock.history.locks.map((lock) => `lock v${lock.version}`).join(", ") || "no locks", plans: specLock.history.currentPlans.map((plan) => `plan v${plan.version}`).join(", ") || "no plan evidence", reports: specLock.history.reports.length })}
-                </p>
-              ) : null}
-              {specLock.report?.findings.length ? (
-                <ul className="spec-lock-findings">
-                  {specLock.report.findings.map((finding, index) => (
-                    <li key={`${finding.kind}:${finding.category}:${finding.path ?? index}`}>
-                      {finding.kind}: {finding.category}{finding.path ? ` (${finding.path})` : ""}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          )}              {!workingTask.ageStaleness && !specLock && (
-                <div className="detail-empty-inline">{t("taskDetail.debug.none", "No debug details available.")}</div>
-              )}
+          <div className="detail-section detail-routing-section">
+            <div className="detail-source-header">
+              <span className="detail-source-label">{t("taskDetail.tabs.routing", "Routing")}</span>
+              <button
+                type="button"
+                className="detail-source-toggle"
+                aria-expanded={routingExpanded}
+                aria-label={routingExpanded
+                  ? t("taskDetail.details.collapseRouting", "Collapse routing details")
+                  : t("taskDetail.details.expandRouting", "Expand routing details")}
+                onClick={() => setRoutingExpanded((expanded) => !expanded)}
+              >
+                <ChevronRight size={16} className={routingExpanded ? "detail-source-chevron--expanded" : undefined} />
+              </button>
+            </div>
+            {routingExpanded && (
+              <RoutingTab
+                task={task}
+                columnFlags={detailColumnFlags}
+                settings={settings}
+                addToast={addToast}
+                onTaskUpdated={onTaskUpdated}
+              />
+            )}
+          </div>
+          <div className="detail-section detail-debug-section">
+            <div className="detail-source-header">
+              <span className="detail-source-label">{t("taskDetail.tabs.debug", "Debug")}</span>
+              <button
+                type="button"
+                className="detail-source-toggle"
+                aria-expanded={debugExpanded}
+                aria-label={debugExpanded
+                  ? t("taskDetail.details.collapseDebug", "Collapse debug details")
+                  : t("taskDetail.details.expandDebug", "Expand debug details")}
+                onClick={() => setDebugExpanded((expanded) => !expanded)}
+              >
+                <ChevronRight size={16} className={debugExpanded ? "detail-source-chevron--expanded" : undefined} />
+              </button>
+            </div>
+            {debugExpanded && renderDebugDetails()}
+          </div>
             </>
           ) : (
           <>

@@ -3726,7 +3726,11 @@
     "shortstatTitle": "최종 커밋 요약; 모든 작업 커밋에 걸친 전체 랜딩 diff는 변경 탭을 참조하세요.",
     "smartPull": "스마트 풀",
     "status": "상태",
-    "title": "병합 세부 정보"
+    "title": "병합 세부 정보",
+    "targetBranch": "",
+    "strategy": "",
+    "method": "",
+    "noOpReason": ""
   },
   "mesh": {
     "ariaLabel": "노드 메시 토폴로지 시각화",
@@ -8274,10 +8278,8 @@
       "worktreeTerminal": "터미널",
       "workflow": "워크플로",
       "summary": "Summary",
-      "cost": "",
       "recommendations": "",
       "dependencies": "",
-      "attachments": "",
       "details": "",
       "debug": ""
     },
@@ -8313,29 +8315,7 @@
     "yes": "예",
     "summaryTab": {
       "agentWorkHeading": "Work done by agents",
-      "cachedTokens": "Cached",
-      "changedHeading": "What changed",
-      "commit": "Commit",
-      "completedSteps": "Completed steps",
-      "completionHeading": "Completion summary",
-      "cost": "Cost",
-      "costUnavailable": "No pricing for this model",
-      "deletions": "Removed",
-      "filesChanged": "Files",
-      "inputTokens": "Input",
-      "insertions": "Added",
-      "model": "Model",
-      "noAgentWork": "No completed steps or workflow results are available for this task.",
-      "noChangedFiles": "No changed-file list is available for this task.",
-      "noCompletionSummary": "No completion summary was recorded for this task.",
-      "noTokenUsage": "No token usage recorded for this task yet.",
-      "outputTokens": "Output",
-      "retries": "Agents retried this task {{count}} time{{plural}}.",
-      "tokenCostHeading": "Token usage & cost",
-      "totalCost": "Total cost",
-      "totalTokens": "Total",
-      "unknownModel": "(unknown)",
-      "workflowResults": "Workflow results"
+      "completedSteps": "Completed steps"
     },
     "gitlabTracking": {
       "collapse": "",
@@ -8417,8 +8397,11 @@
     "debug": {
       "none": ""
     },
-    "activity": {
-      "summaries": ""
+    "details": {
+      "expandRouting": "",
+      "collapseRouting": "",
+      "expandDebug": "",
+      "collapseDebug": ""
     }
   },
   "taskDocuments": {

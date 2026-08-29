@@ -32,7 +32,7 @@ describe("buildTaskHistory", () => {
       result({ workflowStepId: "plan-review-step", workflowStepName: "Plan Review", reviewKind: "plan", verdict: "APPROVE", completedAt: "2026-08-28T01:00:00.000Z" }),
       result({ workflowStepId: "code-review-step", workflowStepName: "Code Review", reviewKind: "code", verdict: "APPROVE", completedAt: "2026-08-28T03:00:00.000Z" }),
     ]);
-    expect(history.map((stage) => [stage.id, stage.entries.length])).toEqual([["plan", 1], ["code", 1], ["review", 1], ["merge", 1]]);
+    expect(history.map((stage) => [stage.id, stage.entries.length])).toEqual([["plan", 1], ["code", 1], ["review", 1], ["merge", 0]]);
   });
 
   it("restores chronological order for newest-first prior review attempts", () => {
@@ -116,6 +116,28 @@ describe("buildTaskHistory", () => {
   it("does not duplicate task summary when its workflow result exists", () => {
     const entries = stageEntries(buildTaskHistory(task({ summary: "Summary" }), [result({ workflowStepId: "completion-summary", workflowStepName: "Completion summary", output: "Summary" })]), "code");
     expect(entries).toHaveLength(1);
+  });
+
+  it("retains the task summary when its completion workflow result has no renderable body", () => {
+    const entries = stageEntries(buildTaskHistory(task({ summary: "Persisted summary" }), [result({
+      workflowStepId: "completion-summary",
+      workflowStepName: "Completion summary",
+      output: " ",
+      notes: " ",
+      findings: [],
+    })]), "code");
+
+    expect(entries).toHaveLength(2);
+    expect(entries.find((entry) => entry.id === "task:completion-summary")).toMatchObject({ body: "Persisted summary" });
+    expect(entries.find((entry) => entry.id.startsWith("workflow:completion-summary:"))).toMatchObject({ body: undefined });
+  });
+
+  it("does not synthesize a merge history entry from landed commit metadata", () => {
+    const history = buildTaskHistory(task({
+      mergeDetails: { commitSha: "1234567890abcdef", mergedAt: "2026-08-28T04:00:00.000Z", mergeTargetBranch: "main" },
+    }), []);
+
+    expect(stageEntries(history, "merge")).toEqual([]);
   });
 
   it("classifies post-merge workflow output as merge", () => {

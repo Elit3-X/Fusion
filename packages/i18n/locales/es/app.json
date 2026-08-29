@@ -3726,7 +3726,11 @@
     "shortstatTitle": "Estadísticas cortas finales del commit; para ver la diferencia completa de todos los commits de tareas, consulta la pestaña Cambios.",
     "smartPull": "Pull inteligente",
     "status": "Estado",
-    "title": "Detalles de la combinación"
+    "title": "Detalles de la combinación",
+    "targetBranch": "",
+    "strategy": "",
+    "method": "",
+    "noOpReason": ""
   },
   "mesh": {
     "ariaLabel": "Visualización de topología de malla de nodos",
@@ -8274,10 +8278,8 @@
       "worktreeTerminal": "Terminal",
       "workflow": "Flujo de trabajo",
       "summary": "Summary",
-      "cost": "",
       "recommendations": "",
       "dependencies": "",
-      "attachments": "",
       "details": "",
       "debug": ""
     },
@@ -8313,29 +8315,7 @@
     "yes": "Sí",
     "summaryTab": {
       "agentWorkHeading": "Work done by agents",
-      "cachedTokens": "Cached",
-      "changedHeading": "What changed",
-      "commit": "Commit",
-      "completedSteps": "Completed steps",
-      "completionHeading": "Completion summary",
-      "cost": "Cost",
-      "costUnavailable": "No pricing for this model",
-      "deletions": "Removed",
-      "filesChanged": "Files",
-      "inputTokens": "Input",
-      "insertions": "Added",
-      "model": "Model",
-      "noAgentWork": "No completed steps or workflow results are available for this task.",
-      "noChangedFiles": "No changed-file list is available for this task.",
-      "noCompletionSummary": "No completion summary was recorded for this task.",
-      "noTokenUsage": "No token usage recorded for this task yet.",
-      "outputTokens": "Output",
-      "retries": "Agents retried this task {{count}} time{{plural}}.",
-      "tokenCostHeading": "Token usage & cost",
-      "totalCost": "Total cost",
-      "totalTokens": "Total",
-      "unknownModel": "(unknown)",
-      "workflowResults": "Workflow results"
+      "completedSteps": "Completed steps"
     },
     "gitlabTracking": {
       "collapse": "",
@@ -8417,8 +8397,11 @@
     "debug": {
       "none": ""
     },
-    "activity": {
-      "summaries": ""
+    "details": {
+      "expandRouting": "",
+      "collapseRouting": "",
+      "expandDebug": "",
+      "collapseDebug": ""
     }
   },
   "taskDocuments": {

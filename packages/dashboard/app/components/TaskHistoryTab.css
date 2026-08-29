@@ -63,7 +63,7 @@
   gap: var(--space-sm);
 }
 
-.task-history-entry h3 {
+.task-history-entry h5 {
   margin: 0;
   font-size: var(--font-size-base);
 }

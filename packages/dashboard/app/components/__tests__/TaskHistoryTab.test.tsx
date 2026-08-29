@@ -49,6 +49,7 @@ describe("TaskHistoryTab", () => {
     expect(screen.getByTestId("task-history-count-review")).toHaveTextContent("2");
     expect(screen.getByText("Revise body")).toBeInTheDocument();
     expect(screen.getByText("Approved", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "Code Review", level: 5 })).toHaveLength(2);
     expect(screen.getAllByRole("time")).toHaveLength(2);
   });
 
@@ -68,7 +69,7 @@ describe("TaskHistoryTab", () => {
     window.innerWidth = 375;
     await renderHistory();
     const section = screen.getByTestId("task-history-stage-plan");
-    expect(within(section).getByRole("heading", { name: "Plan" })).toHaveClass("task-history-stage-title");
+    expect(within(section).getByRole("heading", { name: "Plan", level: 4 })).toHaveClass("task-history-stage-title");
     expect(within(section).getByTestId("task-history-count-plan")).toHaveTextContent("0");
   });
 
@@ -149,14 +150,14 @@ describe("TaskHistoryTab", () => {
       stepReports: [{ id: "empty", stepIndex: 1, stepName: "Build", summary: "", recordedAt: "2026-08-28T02:00:00.000Z", source: "agent", attempt: 1 }],
       mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" },
     }));
-    expect(screen.getAllByTestId("task-history-entry-no-body")).toHaveLength(2);
+    expect(screen.getAllByTestId("task-history-entry-no-body")).toHaveLength(1);
     expect(screen.queryByTestId("task-history-entry-no-notes")).not.toBeInTheDocument();
   });
 
   it("renders stage, merge, and body fallbacks through localization keys", async () => {
     const resources = structuredClone(realEnApp) as typeof realEnApp;
     resources.taskHistory.stage.plan = "PLAN_SENTINEL";
-    resources.taskHistory.entry.merged = "MERGED_SENTINEL";
+    resources.taskHistory.empty.merge = "MERGE_EMPTY_SENTINEL";
     resources.taskHistory.entry.noBody = "NO_BODY_SENTINEL";
     resources.taskHistory.entry.verdictNoNotes = "NO_NOTES_SENTINEL";
     await renderHistory(task({
@@ -164,8 +165,8 @@ describe("TaskHistoryTab", () => {
       mergeDetails: { commitSha: "abcdef", mergedAt: "2026-08-28T04:00:00.000Z" },
     }), [result({ verdict: "APPROVE", output: "", notes: "" })], resources);
     expect(screen.getByText("PLAN_SENTINEL")).toBeInTheDocument();
-    expect(screen.getByText("MERGED_SENTINEL")).toBeInTheDocument();
-    expect(screen.getAllByText("NO_BODY_SENTINEL")).toHaveLength(2);
+    expect(screen.getByText("MERGE_EMPTY_SENTINEL")).toBeInTheDocument();
+    expect(screen.getAllByText("NO_BODY_SENTINEL")).toHaveLength(1);
     expect(screen.getByText("NO_NOTES_SENTINEL")).toBeInTheDocument();
   });
 });

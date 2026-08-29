@@ -1,17 +1,34 @@
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import { useTranslation } from "react-i18next";
 import type { TaskDetail, WorkflowStepResult } from "@fusion/core";
-import { linkifyReactChildren } from "../utils/filePathLinkify";
+import { linkifyFilePaths, linkifyReactChildren } from "../utils/filePathLinkify";
 import { buildTaskHistory, type TaskHistoryLabel } from "../utils/taskHistory";
 import "./TaskHistoryTab.css";
+
+const EMPTY_MARKDOWN_CHILD_SEPARATOR = "";
+
+/*
+FNXC:TaskHistory 2026-08-28-23:05:
+Stage reports now render inside Summary, where a file-path link must remain one interactive control.
+Flatten code children to text before linking so ReactMarkdown does not receive an already-linked button
+and create an invalid nested-button tree.
+*/
+const markdownCode: NonNullable<Components["code"]> = ({ children, ...props }) => {
+  const text = React.Children.toArray(children).join(EMPTY_MARKDOWN_CHILD_SEPARATOR);
+  const linkedChildren = linkifyFilePaths(text);
+  if (linkedChildren.length === 1 && linkedChildren[0]?.constructor === String) {
+    return <code {...props}>{children}</code>;
+  }
+  return <code {...props}>{linkedChildren}</code>;
+};
 
 const markdownComponents: Components = {
   p: ({ children, ...props }) => <p {...props}>{linkifyReactChildren(children)}</p>,
   li: ({ children, ...props }) => <li {...props}>{linkifyReactChildren(children)}</li>,
-  code: ({ children, ...props }) => <code {...props}>{linkifyReactChildren(children)}</code>,
+  code: markdownCode,
   pre: ({ children, className, ...props }) => <pre {...props} className={["workflow-markdown-pre", className].filter(Boolean).join(" ")}>{linkifyReactChildren(children)}</pre>,
   table: ({ children, className, ...props }) => <table {...props} className={["workflow-markdown-table", className].filter(Boolean).join(" ")}>{children}</table>,
 };
@@ -52,12 +69,12 @@ export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTa
         return (
           <section className="task-history-stage" key={stage.id} data-testid={`task-history-stage-${stage.id}`}>
             <div className="task-history-stage-heading">
-              <h2 className="task-history-stage-title">{stageName}</h2>
+              <h4 className="task-history-stage-title">{stageName}</h4>
               <span className="task-history-count" data-testid={`task-history-count-${stage.id}`}>{stage.entries.length}</span>
             </div>
             <div className="task-history-panel">
               {stage.entries.length === 0 ? (
-                <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, "No reports recorded.")}</p>
+                <p className="task-history-empty">{t(`taskHistory.empty.${stage.id}`, stage.id === "merge" ? "No merge reports recorded. Landed commit details are in the Changes tab." : "No reports recorded.")}</p>
               ) : (
                 <div className="task-history-entries">
                   {stage.entries.map((entry) => {
@@ -65,7 +82,7 @@ export function TaskHistoryTab({ task, results, loading = false }: TaskHistoryTa
                     return (
                       <article className="task-history-entry" key={entry.id}>
                         <header className="task-history-entry-header">
-                          <h3>{renderLabel(entry.title)}</h3>
+                          <h5>{renderLabel(entry.title)}</h5>
                           {token && (
                             <span className={`workflow-result-badge workflow-result-badge--${normalizeToken(token)}`}>
                               {t(`taskHistory.verdict.${normalizeToken(token)}`, token)}

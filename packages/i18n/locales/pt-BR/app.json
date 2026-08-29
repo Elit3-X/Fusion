@@ -3736,7 +3736,11 @@
     "shortstatTitle": "Shortstat do commit final; para ver o diff completo de todos os commits da tarefa, consulte a aba Alterações.",
     "smartPull": "Pull inteligente",
     "status": "Status",
-    "title": "Detalhes do merge"
+    "title": "Detalhes do merge",
+    "targetBranch": "",
+    "strategy": "",
+    "method": "",
+    "noOpReason": ""
   },
   "mesh": {
     "ariaLabel": "Visualização de topologia de malha de nós",
@@ -8299,29 +8303,7 @@
     },
     "summaryTab": {
       "agentWorkHeading": "Trabalho realizado pelos agentes",
-      "cachedTokens": "Em cache",
-      "changedHeading": "O que mudou",
-      "commit": "Commit",
-      "completedSteps": "Etapas concluídas",
-      "completionHeading": "Resumo de conclusão",
-      "cost": "Custo",
-      "costUnavailable": "Sem dados de preço para este modelo",
-      "deletions": "Removidas",
-      "filesChanged": "Arquivos",
-      "inputTokens": "Entrada",
-      "insertions": "Adicionadas",
-      "model": "Modelo",
-      "noAgentWork": "Não há etapas concluídas ou resultados de fluxo de trabalho disponíveis para esta tarefa.",
-      "noChangedFiles": "Não há lista de arquivos alterados disponível para esta tarefa.",
-      "noCompletionSummary": "Nenhum resumo de conclusão foi registrado para esta tarefa.",
-      "noTokenUsage": "Nenhum uso de tokens registrado para esta tarefa ainda.",
-      "outputTokens": "Saída",
-      "retries": "Os agentes repetiram esta tarefa {{count}} vez{{plural}}.",
-      "tokenCostHeading": "Uso de tokens e custo",
-      "totalCost": "Custo total",
-      "totalTokens": "Total",
-      "unknownModel": "(desconhecido)",
-      "workflowResults": "Resultados do fluxo de trabalho"
+      "completedSteps": "Etapas concluídas"
     },
     "tabs": {
       "changes": "Alterações",
@@ -8339,10 +8321,8 @@
       "terminal": "Sessão",
       "worktreeTerminal": "Terminal",
       "workflow": "Fluxo de trabalho",
-      "cost": "Custo",
       "recommendations": "Recomendações",
       "dependencies": "",
-      "attachments": "",
       "details": "",
       "debug": ""
     },
@@ -8427,8 +8407,11 @@
     "debug": {
       "none": ""
     },
-    "activity": {
-      "summaries": ""
+    "details": {
+      "expandRouting": "",
+      "collapseRouting": "",
+      "expandDebug": "",
+      "collapseDebug": ""
     }
   },
   "taskDocuments": {

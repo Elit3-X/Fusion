@@ -3803,6 +3803,8 @@ export default interface Resources {
       "mergedAt": "Merged at",
       "mergedSuccess": "Merged successfully",
       "message": "Message",
+      "method": "Method",
+      "noOpReason": "No-op reason",
       "pr": "PR",
       "pulling": "Pulling…",
       "pushForceWithLease": "Push (force-with-lease)",
@@ -3815,6 +3817,8 @@ export default interface Resources {
       "shortstatTitle": "Final commit shortstat; for the full landed diff across all task commits, see the Changes tab.",
       "smartPull": "Smart Pull",
       "status": "Status",
+      "strategy": "Strategy",
+      "targetBranch": "Target branch",
       "title": "Merge Details"
     },
     "mermaid": {
@@ -8032,9 +8036,6 @@ export default interface Resources {
       "actions": {
         "menuBtn": "Actions"
       },
-      "activity": {
-        "summaries": "Summaries"
-      },
       "ageStaleness": {
         "active": "Active",
         "age": "Age",
@@ -8177,6 +8178,12 @@ export default interface Resources {
       "description": {
         "showLess": "Show less",
         "showMore": "Show more"
+      },
+      "details": {
+        "collapseDebug": "Collapse debug details",
+        "collapseRouting": "Collapse routing details",
+        "expandDebug": "Expand debug details",
+        "expandRouting": "Expand routing details"
       },
       "duplicate": {
         "btn": "Duplicate",
@@ -8549,36 +8556,12 @@ export default interface Resources {
       },
       "summaryTab": {
         "agentWorkHeading": "Work done by agents",
-        "cachedTokens": "Cached",
-        "changedHeading": "What changed",
-        "commit": "Commit",
-        "completedSteps": "Completed steps",
-        "completionHeading": "Completion summary",
-        "cost": "Cost",
-        "costUnavailable": "No pricing for this model",
-        "deletions": "Removed",
-        "filesChanged": "Files",
-        "inputTokens": "Input",
-        "insertions": "Added",
-        "model": "Model",
-        "noAgentWork": "No completed steps or workflow results are available for this task.",
-        "noChangedFiles": "No changed-file list is available for this task.",
-        "noCompletionSummary": "No completion summary was recorded for this task.",
-        "noTokenUsage": "No token usage recorded for this task yet.",
-        "outputTokens": "Output",
-        "retries": "Agents retried this task {{count}} time{{plural}}.",
-        "tokenCostHeading": "Token usage & cost",
-        "totalCost": "Total cost",
-        "totalTokens": "Total",
-        "unknownModel": "(unknown)",
-        "workflowResults": "Workflow results"
+        "completedSteps": "Completed steps"
       },
       "tabs": {
-        "attachments": "Attachments",
         "changes": "Changes",
         "chat": "Chat",
         "comments": "Comments",
-        "cost": "Cost",
         "debug": "Debug",
         "definition": "Definition",
         "dependencies": "Dependencies",
@@ -8791,7 +8774,7 @@ export default interface Resources {
     "taskHistory": {
       "empty": {
         "code": "No implementation summaries recorded. Summaries appear when implementation steps report what they delivered.",
-        "merge": "No merge reports recorded.",
+        "merge": "No merge reports recorded. Landed commit details are in the Changes tab.",
         "plan": "No planning reports recorded.",
         "review": "No review reports recorded."
       },
