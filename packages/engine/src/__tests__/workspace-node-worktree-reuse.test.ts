@@ -58,6 +58,27 @@ function deps(root: string, row: TaskDetail) {
       if (patch) Object.assign(row, patch);
       return row;
     }),
+    publishWorkspaceCodeReviewEvidence: vi.fn(async (_id: string, input: {
+      expectedScopeRevision: number;
+      reviewEvidence: NonNullable<NonNullable<TaskDetail["repositoryScope"]>["reviewEvidence"]>;
+      clearReviewRemediation: boolean;
+      modifiedFiles?: string[];
+    }) => {
+      const scope = row.repositoryScope;
+      if (!scope) return { task: row, published: false as const, reason: "scope-absent" as const };
+      if (scope.revision !== input.expectedScopeRevision) {
+        return { task: row, published: false as const, reason: "scope-superseded" as const };
+      }
+      row.repositoryScope = {
+        ...scope,
+        reviewEvidence: input.reviewEvidence,
+        ...(input.clearReviewRemediation && scope.reviewRemediation?.scopeRevision === input.expectedScopeRevision
+          ? { reviewRemediation: undefined }
+          : {}),
+      };
+      if (input.modifiedFiles !== undefined) row.modifiedFiles = input.modifiedFiles;
+      return { task: row, published: true as const };
+    }),
   };
   return {
     store,

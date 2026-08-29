@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Task, TaskStore } from "@fusion/core";
 
@@ -211,10 +211,29 @@ describe("workspace Code Review findings", () => {
     };
     const storeFor = (task: Task) => ({
       getTask: async () => task,
-      updateTaskAtomic: async (_taskId: string, updater: (current: Task) => Partial<Task> | null) => {
-        const patch = updater(task);
-        if (patch) Object.assign(task, patch);
-        return task;
+      updateTaskAtomic: async () => {
+        throw new Error("workspace review evidence must not use updateTaskAtomic");
+      },
+      publishWorkspaceCodeReviewEvidence: async (_taskId: string, input: {
+        expectedScopeRevision: number;
+        reviewEvidence: NonNullable<NonNullable<Task["repositoryScope"]>["reviewEvidence"]>;
+        clearReviewRemediation: boolean;
+        modifiedFiles?: string[];
+      }) => {
+        const scope = task.repositoryScope;
+        if (!scope) return { task, published: false as const, reason: "scope-absent" as const };
+        if (scope.revision !== input.expectedScopeRevision) {
+          return { task, published: false as const, reason: "scope-superseded" as const };
+        }
+        task.repositoryScope = {
+          ...scope,
+          reviewEvidence: input.reviewEvidence,
+          ...(input.clearReviewRemediation && scope.reviewRemediation?.scopeRevision === input.expectedScopeRevision
+            ? { reviewRemediation: undefined }
+            : {}),
+        };
+        if (input.modifiedFiles !== undefined) task.modifiedFiles = input.modifiedFiles;
+        return { task, published: true as const };
       },
     }) as unknown as TaskStore;
 
@@ -238,6 +257,31 @@ describe("workspace Code Review findings", () => {
       repositoryDiffFingerprints: { "repo-a": "fingerprint-a" },
     });
     expect(rejectedTask.repositoryScope?.reviewEvidence).toBeUndefined();
+  });
+
+  it("does not publish evidence for revised or fingerprint-free approval aggregates", async () => {
+    const task = workspaceTask();
+    const publishWorkspaceCodeReviewEvidence = vi.fn();
+    const store = {
+      getTask: async () => task,
+      publishWorkspaceCodeReviewEvidence,
+    } as unknown as TaskStore;
+
+    const revised = await persistWorkspaceCodeReviewApproval(store, task.id, {
+      verdict: "REVISE",
+      repositoryScopeRevision: 1,
+      repositoryDiffFingerprints: { "repo-a": "fingerprint-a" },
+    });
+    const emptyApproval = await persistWorkspaceCodeReviewApproval(store, task.id, {
+      verdict: "APPROVE",
+      repositoryScopeRevision: 1,
+      repositoryDiffFingerprints: {},
+    });
+
+    expect(revised).toMatchObject({ expected: false, published: false, superseded: false });
+    expect(emptyApproval).toMatchObject({ expected: false, published: false, emptyApprovalFingerprints: true });
+    expect(publishWorkspaceCodeReviewEvidence).not.toHaveBeenCalled();
+    expect(task.repositoryScope?.reviewEvidence).toBeUndefined();
   });
 
   it("carries qualified aggregate findings and narration into the workspace node outcome", () => {

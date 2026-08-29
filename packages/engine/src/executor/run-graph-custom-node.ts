@@ -38,6 +38,7 @@ import { parseAwaitInputSentinel } from "./await-input-parse.js";
 import { parseWorkflowStepRecommendations, resolveMaxRecommendationsPerTask } from "./workflow-step-recommendations.js";
 import { buildAgentPersona } from "./agent-binding-pure.js";
 import { isApprovalFamilyVerdict, reviewWorkspacePerRepo } from "./workspace-review-per-repo.js";
+import { persistWorkspaceCodeReviewApproval } from "./create-authoritative-workflow-seams.js";
 import type { ReviewResult } from "../execution/reviewer.js";
 import type { SessionBoundaryDescriptor } from "../agents/agent-runtime.js";
 import { runDeterministicVerificationGate } from "../workflow-node-runners/verification-gate.js";
@@ -542,6 +543,37 @@ export async function runGraphCustomNode(
     task directory under a workspace-task-dir boundary. The configured repository list determines
     the child roots; a legacy layout remains on its recorded checkout until it completes.
     */
+    /*
+    FNXC:WorkspaceReadOnlyGate 2026-08-29-12:51:
+    Read-only reporting gates must not fall through to a synthetic task-directory session when the
+    confirmed workspace context is incomplete. FN-259 verification exposed the dormant guard:
+    Documentation would claim success without any acquired repository to inspect. Plan Review keeps
+    its separate pre-scope contract; this check applies only after a non-plan reporting gate needs
+    the delivered repository set.
+    */
+    if (isWorkspaceTask && !writeCapable && !isPlanReviewNode) {
+      const repositoryContext = resolveWorkspaceReadOnlyGateRepositoryContext({
+        task: executionTarget,
+        workspaceTaskDir: workspaceTaskDir!,
+      });
+      if (!repositoryContext.resolved) {
+        await deps.store.logEntry(
+          live.id,
+          `Workflow node '${node.id}' did not run: workspace repository context is unresolved`,
+          repositoryContext.output,
+          deps.getRunContextFor(live.id),
+        );
+        return {
+          outcome: "success",
+          value: "repository-context-unresolved",
+          contextPatch: {
+            notRunReason: "repository-context-unresolved",
+            output: repositoryContext.output,
+          },
+        };
+      }
+    }
+
     const worktreePath = isWorkspaceTask
       ? legacyWorkspacePath ?? workspaceTaskDir!
       : executionTarget.worktree!;
@@ -875,33 +907,18 @@ export async function runGraphCustomNode(
           return toWorkspaceRepoReviewResult(repoOutcome);
         }, { workspaceRepos: workspaceConfig.repos, workspaceRootDir: deps.rootDir, settings });
         /*
-        FNXC:RepositoryScope 2026-08-21-02:35:
-        Custom review nodes use the same generation fence as step-review. A callback from an
-        older scope must be unavailable rather than contribute approval evidence or a graph edge.
+        FNXC:WorkspaceReviewEvidence 2026-08-29-12:17:
+        FN-259 removes this graph branch's duplicate repositoryScope patch. Both workspace review
+        routes use the one fenced TaskStore writer, so a failed durable publication becomes
+        UNAVAILABLE rather than a graph-persisted APPROVE that landing cannot prove.
         */
-        let reviewSuperseded = false;
+        const workspaceApprovalPublication = await persistWorkspaceCodeReviewApproval(
+          deps.store,
+          workspaceReviewTarget.id,
+          aggregate,
+        );
+        let reviewSuperseded = workspaceApprovalPublication.superseded;
         if (aggregate.repositoryScopeRevision !== undefined) {
-          const approvedAt = new Date().toISOString();
-          await deps.store.updateTaskAtomic(workspaceReviewTarget.id, (current) => {
-            const currentScope = current.repositoryScope;
-            if (!currentScope || currentScope.revision !== aggregate.repositoryScopeRevision) {
-              reviewSuperseded = true;
-              return null;
-            }
-            if (!isApprovalFamilyVerdict(aggregate.verdict) || !aggregate.repositoryDiffFingerprints || Object.keys(aggregate.repositoryDiffFingerprints).length === 0) {
-              return null;
-            }
-            return {
-              repositoryScope: {
-                ...currentScope,
-                reviewEvidence: Object.fromEntries(Object.entries(aggregate.repositoryDiffFingerprints).map(([repo, fingerprint]) => [repo, { fingerprint, approvedAt }])),
-                // FNXC:WorkspaceFinalization 2026-08-21-09:50: A current-scope APPROVE clears the durable REVISE coordinator before graph completion can schedule another run.
-                ...(currentScope.reviewRemediation?.scopeRevision === aggregate.repositoryScopeRevision ? { reviewRemediation: undefined } : {}),
-              },
-              // FNXC:WorkspaceReviewEvidence 2026-08-21-19:25: graph reviews publish the same qualified capture atomically with their fingerprints.
-              ...(aggregate.repositoryModifiedFiles ? { modifiedFiles: aggregate.repositoryModifiedFiles } : {}),
-            };
-          });
           /* FNXC:RepositoryScope 2026-08-21-02:48: Fence the return handed to graph-result persistence as well as the evidence write. */
           const afterEvidence = await deps.store.getTask(workspaceReviewTarget.id);
           if (afterEvidence.repositoryScope?.revision !== aggregate.repositoryScopeRevision) reviewSuperseded = true;
@@ -912,6 +929,32 @@ export async function runGraphCustomNode(
             retryable: false,
             review: "Workspace Code Review result superseded by a repository scope change.",
             summary: "Unavailable: repository scope changed during review",
+            repositoryReviewOutcomes: aggregate.repositoryReviewOutcomes,
+            repositoryScopeRevision: aggregate.repositoryScopeRevision,
+          };
+        } else if (workspaceApprovalPublication.expected && !workspaceApprovalPublication.published) {
+          const repositories = Object.keys(aggregate.repositoryDiffFingerprints ?? {}).sort();
+          const reason = workspaceApprovalPublication.reason ?? "not-published";
+          await deps.store.logEntry(
+            workspaceReviewTarget.id,
+            `Workspace Code Review approval unavailable for ${workspaceReviewTarget.id}: ${repositories.join(", ")}`,
+            `Durable workspace review evidence was not published: ${reason}`,
+            deps.getRunContextFor(workspaceReviewTarget.id),
+          );
+          aggregate = {
+            verdict: "UNAVAILABLE",
+            retryable: true,
+            review: `Workspace Code Review approval could not be persisted for ${repositories.join(", ")}: ${reason}.`,
+            summary: `Unavailable: workspace review approval could not be persisted (${reason})`,
+            repositoryReviewOutcomes: aggregate.repositoryReviewOutcomes,
+            repositoryScopeRevision: aggregate.repositoryScopeRevision,
+          };
+        } else if (workspaceApprovalPublication.emptyApprovalFingerprints) {
+          aggregate = {
+            verdict: "UNAVAILABLE",
+            retryable: false,
+            review: "Workspace Code Review returned approval without repository diff fingerprints.",
+            summary: "Unavailable: no workspace review fingerprints were published",
             repositoryReviewOutcomes: aggregate.repositoryReviewOutcomes,
             repositoryScopeRevision: aggregate.repositoryScopeRevision,
           };

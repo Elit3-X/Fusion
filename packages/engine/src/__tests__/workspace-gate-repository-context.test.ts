@@ -105,6 +105,27 @@ function createHarness(root: string, row: TaskDetail) {
       if (patch) Object.assign(row, patch);
       return row;
     }),
+    publishWorkspaceCodeReviewEvidence: vi.fn(async (_id: string, input: {
+      expectedScopeRevision: number;
+      reviewEvidence: NonNullable<NonNullable<TaskDetail["repositoryScope"]>["reviewEvidence"]>;
+      clearReviewRemediation: boolean;
+      modifiedFiles?: string[];
+    }) => {
+      const scope = row.repositoryScope;
+      if (!scope) return { task: row, published: false as const, reason: "scope-absent" as const };
+      if (scope.revision !== input.expectedScopeRevision) {
+        return { task: row, published: false as const, reason: "scope-superseded" as const };
+      }
+      row.repositoryScope = {
+        ...scope,
+        reviewEvidence: input.reviewEvidence,
+        ...(input.clearReviewRemediation && scope.reviewRemediation?.scopeRevision === input.expectedScopeRevision
+          ? { reviewRemediation: undefined }
+          : {}),
+      };
+      if (input.modifiedFiles !== undefined) row.modifiedFiles = input.modifiedFiles;
+      return { task: row, published: true as const };
+    }),
   };
   return {
     store,
@@ -182,6 +203,8 @@ describe("workspace gate repository context", () => {
         retryable: false,
         repositoryScopeRevision: 1,
         repositoryReviewOutcomes: [],
+        repositoryDiffFingerprints: { repo1: "fp-1", repo2: "fp-2" },
+        repositoryModifiedFiles: ["repo1/src/changed.ts", "repo2/src/changed.ts"],
       };
     });
 
@@ -214,6 +237,8 @@ describe("workspace gate repository context", () => {
         retryable: false,
         repositoryScopeRevision: task.repositoryScope!.revision,
         repositoryReviewOutcomes: [],
+        repositoryDiffFingerprints: Object.fromEntries(task.repositoryScope!.repositories.map((repository) => [repository, `fp-${repository}`])),
+        repositoryModifiedFiles: task.repositoryScope!.repositories.map((repository) => `${repository}/src/changed.ts`),
       };
     });
 
@@ -229,7 +254,7 @@ describe("workspace gate repository context", () => {
     expect(harness.executeWorkflowStep.mock.calls.map((call) => call[5]?.dispatchLabel)).toEqual(["repo2"]);
   });
 
-  it("keeps Plan Review at the shared root and deterministic verification on its existing path", async () => {
+  it("keeps Plan Review in the task directory and deterministic verification on its existing path", async () => {
     const root = await mkdtemp(join(tmpdir(), "fusion-fn255-workspace-gate-"));
     roots.push(root);
     const { taskDir, paths } = await createWorkspacePaths(root);
@@ -237,15 +262,22 @@ describe("workspace gate repository context", () => {
     const harness = createHarness(root, row);
 
     await runGraphCustomNode(harness as never, PLAN_REVIEW_NODE as never, row, {} as Settings);
-    expect(harness.executeWorkflowStep.mock.calls[0]?.[2]).toBe(root);
+    expect(harness.executeWorkflowStep.mock.calls[0]?.[2]).toBe(taskDir);
     expect(harness.executeWorkflowStep.mock.calls[0]?.[5]).toMatchObject({
-      sessionBoundary: { kind: "read-only-root", writableRoot: null, projectRoot: root },
+      sessionBoundary: {
+        kind: "workspace-task-dir",
+        writableRoot: taskDir,
+        projectRoot: root,
+        repoRoots: [
+          { repoRelPath: "repo1", repoRootDir: join(root, "repo1") },
+          { repoRelPath: "repo2", repoRootDir: join(root, "repo2") },
+        ],
+      },
     });
 
     const verification = await runGraphCustomNode(harness as never, DETERMINISTIC_GATE as never, row, {} as Settings);
     expect(verification).toMatchObject({ outcome: "success", value: "not-configured" });
     expect(harness.executeWorkflowStep).toHaveBeenCalledTimes(1);
-    expect(taskDir).toContain("fn-255");
   });
 
   it("keeps a legacy-layout reporting gate on its recorded child worktree", async () => {

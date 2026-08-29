@@ -820,6 +820,71 @@ export async function updateWorkspaceReviewStateImpl(
   });
 }
 
+export type PublishWorkspaceCodeReviewEvidenceInput = {
+  expectedScopeRevision: number;
+  reviewEvidence: NonNullable<TaskRepositoryScope["reviewEvidence"]>;
+  clearReviewRemediation: boolean;
+  modifiedFiles?: Task["modifiedFiles"];
+};
+
+export type PublishWorkspaceCodeReviewEvidenceResult = {
+  task: Task;
+  published: boolean;
+  reason?: "scope-superseded" | "scope-absent";
+};
+
+/*
+FNXC:WorkspaceReviewEvidence 2026-08-29-12:11:
+FN-259 requires workspace Code Review approval evidence to bypass updateTask. FN-258 deliberately
+removed repositoryScope from that generic path, so updateTaskAtomic silently discarded a valid
+approval while persisting only its modified-files companion. This writer commits both values through
+one project-scoped, revision-fenced transaction before publishing the normal task projection.
+*/
+export async function publishWorkspaceCodeReviewEvidenceImpl(
+  store: TaskStore,
+  id: string,
+  input: PublishWorkspaceCodeReviewEvidenceInput,
+): Promise<PublishWorkspaceCodeReviewEvidenceResult> {
+  return store.withTaskLock(id, async () => {
+    const layer = store.asyncLayer!;
+    const outcome = await layer.transactionImmediate(async (tx): Promise<PublishWorkspaceCodeReviewEvidenceResult> => {
+      await acquireTaskAdvisoryXactLock(tx, layer.projectId, id);
+      const row = await readTaskRowInTransaction(tx, id, { includeDeleted: true }, layer.projectId);
+      if (!row) throw new TaskNotFoundError(id);
+      if (row.deletedAt) throw new TaskDeletedError(id, row.deletedAt as string);
+
+      const current = store.rowToTask(store.pgRowToTaskRow(row));
+      const currentScope = current.repositoryScope;
+      if (!currentScope) return { task: current, published: false, reason: "scope-absent" };
+      if (currentScope.revision !== input.expectedScopeRevision) {
+        return { task: current, published: false, reason: "scope-superseded" };
+      }
+
+      const repositoryScope: TaskRepositoryScope = {
+        ...currentScope,
+        reviewEvidence: input.reviewEvidence,
+        ...(input.clearReviewRemediation && currentScope.reviewRemediation?.scopeRevision === input.expectedScopeRevision
+          ? { reviewRemediation: undefined }
+          : {}),
+      };
+      const [updatedRow] = await tx.update(schema.project.tasks).set({
+        repositoryScope,
+        ...(input.modifiedFiles !== undefined ? { modifiedFiles: input.modifiedFiles } : {}),
+        updatedAt: new Date().toISOString(),
+      }).where(and(eq(schema.project.tasks.id, id), taskProjectScope(layer))).returning();
+      if (!updatedRow) throw new TaskNotFoundError(id);
+      return { task: store.rowToTask(store.pgRowToTaskRow(updatedRow)), published: true };
+    });
+
+    if (outcome.published) {
+      await store.writeTaskJsonFile(store.taskDir(id), outcome.task);
+      if (store.isWatching) store.taskCache.set(id, { ...outcome.task });
+      store.emitTaskLifecycleEventSafely("task:updated", [outcome.task]);
+    }
+    return outcome;
+  });
+}
+
 export async function resolveTaskWedgeNotificationEpisodeImpl(
   store: TaskStore,
   id: string,

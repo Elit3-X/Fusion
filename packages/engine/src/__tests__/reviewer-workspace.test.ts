@@ -85,6 +85,27 @@ function makeStore(task: Task): TaskStore & EventEmitter {
       if (patch) Object.assign(task, patch);
       return task;
     }),
+    publishWorkspaceCodeReviewEvidence: vi.fn(async (_id: string, input: {
+      expectedScopeRevision: number;
+      reviewEvidence: NonNullable<NonNullable<Task["repositoryScope"]>["reviewEvidence"]>;
+      clearReviewRemediation: boolean;
+      modifiedFiles?: string[];
+    }) => {
+      const scope = task.repositoryScope;
+      if (!scope) return { task, published: false as const, reason: "scope-absent" as const };
+      if (scope.revision !== input.expectedScopeRevision) {
+        return { task, published: false as const, reason: "scope-superseded" as const };
+      }
+      task.repositoryScope = {
+        ...scope,
+        reviewEvidence: input.reviewEvidence,
+        ...(input.clearReviewRemediation && scope.reviewRemediation?.scopeRevision === input.expectedScopeRevision
+          ? { reviewRemediation: undefined }
+          : {}),
+      };
+      if (input.modifiedFiles !== undefined) task.modifiedFiles = input.modifiedFiles;
+      return { task, published: true as const };
+    }),
     logEntry: vi.fn().mockResolvedValue(undefined),
     getRunContextFor: vi.fn(),
     // mergeEffectiveSettings degrades to base on any resolver error; these reject → base used.
@@ -313,7 +334,7 @@ describe("U2 KTD3 — reviewWorkspacePerRepo conjunction + tagging (the shared l
 });
 
 describe("U2 KTD3 — step-inversion review seam (executor.ts:5668) loops per sub-repo", () => {
-  it("workspace task: stepReview spawns one reviewer per sub-repo cwd, not active.worktreePath/root", async () => {
+  it("does not record workspace approval without per-repository fingerprints", async () => {
     const task = makeTask({ workspaceWorktrees: TWO_REPO_WORKTREES, worktree: ROOT });
     const store = makeStore(task);
     const executor = workspaceExecutor(store);
@@ -329,7 +350,8 @@ describe("U2 KTD3 — step-inversion review seam (executor.ts:5668) loops per su
     const result = await seams.stepReview!(task as any, context, { type: "code", advisory: true } as any);
     expect(seen).toEqual([WT_A, WT_B]);
     expect(seen).not.toContain(ROOT);
-    expect(result.verdict).toBe("APPROVE");
+    expect(result.verdict).toBe("UNAVAILABLE");
+    expect(result.summary).toContain("no workspace review fingerprints");
   });
 
   it("characterizes provider failure as unavailable without publishing a partial workspace rejection", async () => {
@@ -361,7 +383,7 @@ describe("U2 KTD3 — step-inversion review seam (executor.ts:5668) loops per su
     expect(result.review).toContain("reviewer error:");
     expect(result.review).toContain("provider rate limited");
     expect(result.retryable).not.toBe(false);
-    expect(store.updateTaskAtomic).not.toHaveBeenCalled();
+    expect(store.publishWorkspaceCodeReviewEvidence).not.toHaveBeenCalled();
     expect(task.repositoryScope?.reviewEvidence).toBeUndefined();
   });
 
@@ -429,10 +451,12 @@ describe("U2 KTD3 — step-inversion review seam (executor.ts:5668) loops per su
   acquisition, one scoped coordinator produces exactly one review session before implementation.
   */
   it("discards a stale step-review callback after a repository scope revision", async () => {
+    const repoA = makeFingerprintableCheckout();
+    capturedFilesByCwd = { [repoA.path]: ["changed.ts"] };
     const task = makeTask({
-      workspaceWorktrees: { "repo-a": TWO_REPO_WORKTREES["repo-a"] },
+      workspaceWorktrees: { "repo-a": { worktreePath: repoA.path, branch: "fusion/fn-1", baseCommitSha: repoA.baseCommitSha } },
       repositoryScope: { repositories: ["repo-a"], state: "confirmed", revision: 2 },
-      modifiedFiles: ["repo-a/src/changed.ts"],
+      modifiedFiles: ["repo-a/changed.ts"],
     });
     const store = makeStore(task);
     const executor = workspaceExecutor(store);
@@ -441,11 +465,14 @@ describe("U2 KTD3 — step-inversion review seam (executor.ts:5668) loops per su
     Model the P0 race precisely: evidence commits at revision 2, then an operator
     scope mutation wins before the step-inversion graph can mark its APPROVE done.
     */
-    vi.mocked(store.updateTaskAtomic).mockImplementationOnce(async (_id, updater) => {
-      const patch = await updater(task);
-      if (patch) Object.assign(task, patch);
-      task.repositoryScope = { ...task.repositoryScope!, repositories: ["repo-a", "repo-b"], revision: 3, reviewEvidence: undefined };
-      return task;
+    vi.mocked(store.publishWorkspaceCodeReviewEvidence).mockImplementationOnce(async (_id, input) => {
+      task.repositoryScope = {
+        ...task.repositoryScope!,
+        reviewEvidence: undefined,
+        repositories: ["repo-a", "repo-b"],
+        revision: 3,
+      };
+      return { task, published: true };
     });
     mockedReviewStep.mockImplementation(async () =>
       ({ verdict: "APPROVE", review: "approved before scope mutation", summary: "approved" }));
@@ -473,11 +500,14 @@ describe("U2 KTD3 — step-inversion review seam (executor.ts:5668) loops per su
     const store = makeStore(task);
     const executor = workspaceExecutor(store);
     /* FNXC:RepositoryScope 2026-08-21-02:48: The custom-node route receives the same post-evidence/pre-completion scope mutation. */
-    vi.mocked(store.updateTaskAtomic).mockImplementationOnce(async (_id, updater) => {
-      const patch = await updater(task);
-      if (patch) Object.assign(task, patch);
-      task.repositoryScope = { ...task.repositoryScope!, repositories: ["repo-a", "repo-b"], revision: 3, reviewEvidence: undefined };
-      return task;
+    vi.mocked(store.publishWorkspaceCodeReviewEvidence).mockImplementationOnce(async (_id, input) => {
+      task.repositoryScope = {
+        ...task.repositoryScope!,
+        reviewEvidence: undefined,
+        repositories: ["repo-a", "repo-b"],
+        revision: 3,
+      };
+      return { task, published: true };
     });
     vi.spyOn(executor as any, "ensureGraphCustomNodeWorktree").mockResolvedValue(task);
     vi.spyOn(executor as any, "executeWorkflowStep").mockResolvedValue({ success: true, verdict: "APPROVE", output: "approved before scope mutation" });
