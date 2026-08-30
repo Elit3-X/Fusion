@@ -119,7 +119,7 @@ import { DEFAULT_COMMIT_AUTHOR_EMAIL, DEFAULT_COMMIT_AUTHOR_NAME } from "../work
 import { describeDependencySyncDecision, installWorktreeDependencies, LOCKFILE_CANDIDATES} from "./merge-dependency-sync.js";
 import { activeSessionRegistry } from "../agents/active-session-registry.js";
 import { MergeGateRevokedError } from "./merger-errors.js";
-import { cleanupLandedTaskWorktree } from "./post-landing-worktree-cleanup.js";
+import { cleanupLandedTaskWorktree, cleanupLandedWorkspaceTaskWorktrees } from "./post-landing-worktree-cleanup.js";
 import { resolveMcpServersForStore } from "../mcp/mcp-resolution.js";
 /*
 FNXC:Workspace 2026-06-22-14:10 (Phase D review G — cycle dissolved):
@@ -3182,7 +3182,7 @@ export async function landWorkspaceTask(
     callback: its already-pushed commits remain recoverable through landedSha/intent evidence, but
     this stale generation must not write the task outcome. Renewal only improves liveness.
     */
-    const finalize = () => finalizeWorkspaceTask(store, taskId, task, repos, fence);
+    const finalize = () => finalizeWorkspaceTask(store, taskId, task, repos, workspaceRootDir, fence);
     const withValidDispatchLease = (store as Partial<TaskStore>).withValidWorkspaceLease;
     if (options.workspaceDispatchFence && typeof withValidDispatchLease === "function") {
       try {
@@ -3305,6 +3305,7 @@ async function finalizeWorkspaceTask(
   taskId: string,
   task: Task,
   repos: WorkspaceRepoLandResult[],
+  workspaceRootDir: string,
   fence?: MergeWriteFence,
 ): Promise<boolean> {
   const landed = repos.filter((r) => r.status === "landed" && r.landedSha);
@@ -3338,6 +3339,40 @@ async function finalizeWorkspaceTask(
   await store.updateTask(taskId, { mergeDetails });
   task.mergeDetails = mergeDetails;
 
+  let worktreeRemoved = false;
+  try {
+    fence?.assertOwned("finalization");
+    const cleanup = await cleanupLandedWorkspaceTaskWorktrees({
+      store,
+      task: fresh ?? task,
+      workspaceRootDir,
+      landedShas: workspaceLandedShas,
+      source: "workspace-ai-merge-finalize",
+      fence,
+      log: async (message) => {
+        if (fence) {
+          await fence.write("log", () => store.logEntry(taskId, message, "AiMerge").catch(() => undefined));
+        } else {
+          await store.logEntry(taskId, message, "AiMerge").catch(() => undefined);
+        }
+      },
+    });
+    worktreeRemoved = cleanup.removed;
+  } catch (error) {
+    const message = `Workspace post-landing worktree cleanup failed non-fatally: ${error instanceof Error ? error.message : String(error)}`;
+    if (fence) {
+      await fence.write("log", () => store.logEntry(taskId, message, "AiMerge").catch(() => undefined));
+    } else {
+      await store.logEntry(taskId, message, "AiMerge").catch(() => undefined);
+    }
+  }
+
+  /*
+  FNXC:MergeExecutionExclusion 2026-08-30-15:06:
+  Workspace finalization now uses the singular lane's proof-gated cleanup before moving done.
+  A preserved or unexpectedly failed cleanup is recorded but never converts a proven landing into
+  a merge failure, because the durable landed refs remain authoritative for later convergence.
+  */
   const result: MergeResult = {
     task,
     branch: task.branch ?? "",
@@ -3347,10 +3382,14 @@ async function finalizeWorkspaceTask(
     reason: anyLanded ? undefined : "no-net-changes",
     commitSha: representative,
     mergeConfirmed: anyLanded,
-    worktreeRemoved: false,
+    worktreeRemoved,
     branchDeleted: false,
   };
-  await fence?.write("log", () => store.logEntry(taskId, formatWorkspaceLandingSummary(repos), "AiMerge").catch(() => undefined));
+  if (fence) {
+    await fence.write("log", () => store.logEntry(taskId, formatWorkspaceLandingSummary(repos), "AiMerge").catch(() => undefined));
+  } else {
+    await store.logEntry(taskId, formatWorkspaceLandingSummary(repos), "AiMerge").catch(() => undefined);
+  }
   fence?.assertOwned("finalization");
   await finalizeTask(store, taskId, result, undefined, undefined, undefined, fence);
   return true;
