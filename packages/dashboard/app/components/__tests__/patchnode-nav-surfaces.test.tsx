@@ -34,7 +34,7 @@ describe("Patchnode navigation surfaces", () => {
   it("navigates from the desktop sidebar", () => {
     const onChangeView = vi.fn();
     render(<LeftSidebarNav view="board" onChangeView={onChangeView} onOpenSettings={vi.fn()} />);
-    expect(screen.getByTestId("sidebar-nav-patchnode")).toHaveTextContent("Patchnote");
+    expect(screen.getByTestId("sidebar-nav-patchnode")).toHaveTextContent("History");
     fireEvent.click(screen.getByTestId("sidebar-nav-patchnode"));
     expect(onChangeView).toHaveBeenCalledWith("patchnode");
   });
@@ -52,14 +52,14 @@ describe("Patchnode navigation surfaces", () => {
     const defaults = mobileProps();
     const first = render(<MobileNavBar {...defaults} />);
     fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
-    expect(screen.getByTestId("mobile-more-item-patchnode")).toHaveTextContent("Patchnote");
+    expect(screen.getByTestId("mobile-more-item-patchnode")).toHaveTextContent("History");
     fireEvent.click(screen.getByTestId("mobile-more-item-patchnode"));
     expect(defaults.onChangeView).toHaveBeenCalledWith("patchnode");
     first.unmount();
 
     const promoted = mobileProps();
     render(<MobileNavBar {...promoted} mobileNavPrimaryItems={["patchnode"]} />);
-    expect(screen.getByTestId("mobile-nav-tab-patchnode")).toHaveTextContent("Patchnote");
+    expect(screen.getByTestId("mobile-nav-tab-patchnode")).toHaveTextContent("History");
     fireEvent.click(screen.getByTestId("mobile-nav-tab-patchnode"));
     expect(promoted.onChangeView).toHaveBeenCalledWith("patchnode");
   });
@@ -68,7 +68,7 @@ describe("Patchnode navigation surfaces", () => {
     const onChangeView = vi.fn();
     render(<Header onOpenSettings={vi.fn()} onOpenGitHubImport={vi.fn()} onChangeView={onChangeView} showSkillsTab />);
     fireEvent.click(screen.getByTestId("view-toggle-overflow-trigger"));
-    expect(screen.getByTestId("view-overflow-patchnode")).toHaveTextContent("Patchnote");
+    expect(screen.getByTestId("view-overflow-patchnode")).toHaveTextContent("History");
     fireEvent.click(screen.getByTestId("view-overflow-patchnode"));
     expect(onChangeView).toHaveBeenCalledWith("patchnode");
     expect(screen.queryByTestId("view-overflow-patchnode")).toBeNull();

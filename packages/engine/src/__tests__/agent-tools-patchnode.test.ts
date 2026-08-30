@@ -52,7 +52,7 @@ describe("fn_patchnode_read", () => {
 
   it("returns a friendly empty result", async () => {
     const result = await execute(storeWith([]));
-    expect(result.content[0]).toMatchObject({ text: "No Patchnode entries matched." });
+    expect(result.content[0]).toMatchObject({ text: "No History entries matched." });
     expect(result.details).toEqual({ dayCount: 0, entryCount: 0 });
   });
 

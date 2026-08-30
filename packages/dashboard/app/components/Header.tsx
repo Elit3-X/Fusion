@@ -969,7 +969,7 @@ export function Header({
                       data-testid="view-overflow-patchnode"
                     >
                       <History size={14} />
-                      <span>{t("nav.patchnode", "Patchnote")}</span>
+                      <span>{t("nav.patchnode", "History")}</span>
                     </button>
                     {experimentalFeatures?.devServerView && (
                       <button

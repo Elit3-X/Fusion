@@ -38,17 +38,18 @@ describe("PatchnodeView", () => {
     vi.useRealTimers();
   });
 
-  it("renders Patchnote copy in the title and loading state", () => {
+  it("renders History copy in the title, search, and loading state", () => {
     fetchPatchnode.mockImplementation(() => new Promise(() => undefined));
     render(<PatchnodeView />);
-    expect(screen.getByRole("heading", { name: "Patchnote" })).toBeInTheDocument();
-    expect(screen.getByText("Loading Patchnote…")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "History" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Search History")).toBeInTheDocument();
+    expect(screen.getByText("Loading History…")).toBeInTheDocument();
   });
 
-  it("renders Patchnote copy for a failed request", async () => {
+  it("renders History copy for a failed request", async () => {
     fetchPatchnode.mockRejectedValue(new Error("unavailable"));
     render(<PatchnodeView />);
-    expect(await screen.findByText("Patchnote could not be loaded.")).toBeInTheDocument();
+    expect(await screen.findByText("History could not be loaded.")).toBeInTheDocument();
   });
 
   it("renders a friendly empty state", async () => {

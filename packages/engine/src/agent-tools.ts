@@ -1857,11 +1857,18 @@ export function createTaskSearchTool(store: TaskStore): ToolDefinition {
   };
 }
 
-/* FNXC:PatchnodeChat 2026-08-28-12:16: Chat reads the same permanent, per-delivery ledger as the dashboard and never looks task rows up, so archived and deleted deliveries remain answerable. */
+/*
+FNXC:PatchnodeChat 2026-08-28-12:16:
+Chat reads the same permanent, per-delivery ledger as the dashboard and never looks task rows up, so archived and deleted deliveries remain answerable.
+
+FNXC:PatchnoteChat 2026-08-30-06:36:
+The former Patchnote display strings now call this delivery ledger History.
+The stable `fn_patchnode_read` tool name remains unchanged for existing agent prompts.
+*/
 export function createPatchnodeReadTool(store: TaskStore): ToolDefinition {
   return {
     name: "fn_patchnode_read",
-    label: "Read Patchnode",
+    label: "Read History",
     description: "Read the permanent daily history of completed and reverted task deliveries.",
     parameters: patchnodeReadParams,
     execute: async (_id: string, params: Static<typeof patchnodeReadParams>) => {
@@ -1875,7 +1882,7 @@ export function createPatchnodeReadTool(store: TaskStore): ToolDefinition {
       const days = fusionCore.groupPatchnodeEntriesByDay(result.entries);
       if (days.length === 0) {
         return {
-          content: [{ type: "text" as const, text: "No Patchnode entries matched." }],
+          content: [{ type: "text" as const, text: "No History entries matched." }],
           details: { dayCount: 0, entryCount: 0 },
         };
       }

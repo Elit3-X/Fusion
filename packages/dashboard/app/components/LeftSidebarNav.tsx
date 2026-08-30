@@ -283,7 +283,7 @@ export function LeftSidebarNav({
 
   /*
   FNXC:Navigation 2026-06-22-12:00:
-  Single explicit sidebar order (top to bottom): dashboard, board, list, Patchnote, graph, planning, missions, agents, chat, mailbox, goals, compound, automation, import, workflows, insight, research, ideation, documents (Artifacts), skills, memory, evals, then any remaining plugin views in their sorted order.
+  Single explicit sidebar order (top to bottom): dashboard, board, list, History, graph, planning, missions, agents, chat, mailbox, goals, compound, automation, import, workflows, insight, research, ideation, documents (Artifacts), skills, memory, evals, then any remaining plugin views in their sorted order.
 
   Dev Server is intentionally absent: it moved to the right dock. Secrets and Todos remain omitted (they live in the right dock / mobile More-sheet / Header overflow).
 

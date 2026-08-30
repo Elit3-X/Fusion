@@ -80,6 +80,7 @@ export function evaluateForbiddenLifecyclePath(
   if (from === "wip" && to === "hold" && reason !== "plan-review-revise-replan") {
     return { rule: "F5", detail: "A WIP card may return to planning only for Plan Review REVISE" };
   }
+  /* DELIBERATE-LITERAL: LifecycleRole values are policy roles, not column ids — same as F4 below. */
   if (from === "review" && to === "archived") {
     return { rule: "F3", detail: "A review-lane card may not skip completion and move directly to archive" };
   }

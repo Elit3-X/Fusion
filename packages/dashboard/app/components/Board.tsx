@@ -242,7 +242,13 @@ export function Board({ tasks, projectId, maxConcurrent, effectiveMaxConcurrent 
   hook can capture a drag. Keep the class name and pan wiring unchanged so the intentional pan remains
   the sole pointer-driven horizontal scroll path while editable descendants opt back in through Board.css.
   */
-  const { isPanning: isBoardMousePanning, ...boardMousePanBindings } = useBoardMousePan(boardElement, viewportMode !== "mobile");
+  /*
+  FNXC:BoardNavigation 2026-08-30-07:01:
+  Mouse panning remains active at every viewport mode because a narrow non-touch browser resolves
+  to mobile. The snap owner ignores mouse input, while this owner captures only proven horizontal
+  intent and excludes controls, preserving stationary clicks; FN-9219 covered Electron only.
+  */
+  const { isPanning: isBoardMousePanning, ...boardMousePanBindings } = useBoardMousePan(boardElement, true);
   const boardClassName = `board board-workflow-columns${isBoardMousePanning ? " is-mouse-panning" : ""}`;
   const [headerWorkflowSlot, setHeaderWorkflowSlot] = useState<HTMLElement | null>(() => {
     if (typeof document === "undefined") return null;

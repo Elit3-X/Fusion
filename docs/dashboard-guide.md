@@ -17,13 +17,13 @@ Discussion filing uses the same scrub-before-egress report pipeline as Issues. F
 
 The Fusion dashboard is the main control plane for tasks, agents, missions, settings, logs, and repository operations.
 
-## Patchnote View
+## History View
 
-Patchnote is the permanent daily delivery history available from the main navigation. It groups entries by UTC day and includes a search field that matches task IDs, titles, and captured completion summaries. Each delivery is a separate record, so reopening and completing the same task later adds another entry on that later day instead of replacing the first.
+History is the permanent daily delivery history available from the main navigation. It groups entries by UTC day and includes a search field that matches task IDs, titles, and captured completion summaries. Each delivery is a separate record, so reopening and completing the same task later adds another entry on that later day instead of replacing the first.
 
 Fusion writes a completion entry in the same database transaction that moves the task into its completion lane. The recorded title and summary are point-in-time snapshots that remain unchanged through later moves, re-summarisation, archive, or task deletion. A revert adds a distinct **Cancelled** entry paired to the specific delivery it cancels and marks that completion as **Reverted** without changing other deliveries of the same task.
 
-Chat reads this same history through the read-only `fn_patchnode_read` tool. Ask for a date range or search phrase to review shipped and cancelled work without opening the Patchnote view.
+Chat reads this same history through the read-only `fn_patchnode_read` tool. Ask for a date range or search phrase to review shipped and cancelled work without opening the History view.
 
 ## Dashboard Updates
 
