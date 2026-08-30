@@ -217,7 +217,7 @@ Quarantine was not available as an alternative. Core PostgreSQL files cannot be 
 
 - **Status:** Quarantined 2026-08-29 after a second sequence-only sighting.
 - **File:** `packages/engine/src/__tests__/reliability-interactions/merge-node-paused-abort-retryable.test.ts`
-- **Exact test:** `merge-node paused-abort retry classification (FN-6735) > re-enqueues benign paused merge graph failure at node merge without operator-action failure` (plus 12 sibling sequence failures).
+- **Exact test:** `merge-node paused-abort retry classification (FN-6735) > re-enqueues benign paused merge graph failure at node %s without operator-action failure` (parameterized `it.each`; the observed case was `%s` = `merge`, plus 12 sibling sequence failures).
 - **Observed tree/SHA:** first sighting `f3e1e7d1f`; second sighting during FN-249 verification after `2ab621ac6`.
 - **Observed frequency:** Two file-sequence failures; the selected exact subject passed in isolation after each.
 
