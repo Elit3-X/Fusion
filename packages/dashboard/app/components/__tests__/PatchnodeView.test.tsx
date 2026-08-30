@@ -38,6 +38,19 @@ describe("PatchnodeView", () => {
     vi.useRealTimers();
   });
 
+  it("renders Patchnote copy in the title and loading state", () => {
+    fetchPatchnode.mockImplementation(() => new Promise(() => undefined));
+    render(<PatchnodeView />);
+    expect(screen.getByRole("heading", { name: "Patchnote" })).toBeInTheDocument();
+    expect(screen.getByText("Loading Patchnote…")).toBeInTheDocument();
+  });
+
+  it("renders Patchnote copy for a failed request", async () => {
+    fetchPatchnode.mockRejectedValue(new Error("unavailable"));
+    render(<PatchnodeView />);
+    expect(await screen.findByText("Patchnote could not be loaded.")).toBeInTheDocument();
+  });
+
   it("renders a friendly empty state", async () => {
     fetchPatchnode.mockResolvedValue({ days: [], totalEntries: 0, hasMore: false });
     render(<PatchnodeView />);

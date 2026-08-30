@@ -10,6 +10,7 @@ import { buildBootstrapPrompt, isUnplannedSeedPrompt, registerTaskMoveDisposer, 
 import {
   activeSessionRegistry,
   deleteTaskResetBranches,
+  getRegisteredWorktreePaths,
   getRegisteredWorktreeBranches,
   planTaskResetBranchCleanup,
   registerPlanningLivenessProbe,
@@ -35,6 +36,7 @@ vi.mock("@fusion/engine", async () => {
       },
     })),
     pruneWorktreeAdminEntries: vi.fn().mockResolvedValue(undefined),
+    getRegisteredWorktreePaths: vi.fn().mockResolvedValue(new Set()),
     getRegisteredWorktreeBranches: vi.fn().mockResolvedValue([]),
     planTaskResetBranchCleanup: vi.fn().mockResolvedValue({ deleted: [], retained: [], blocked: [] }),
     deleteTaskResetBranches: vi.fn().mockResolvedValue({ deleted: [], retained: [], blocked: [] }),
@@ -117,6 +119,7 @@ function createStore(
 
 describe("POST /tasks/:id/reset", () => {
   beforeEach(() => {
+    vi.mocked(getRegisteredWorktreePaths).mockReset().mockResolvedValue(new Set());
     vi.mocked(planTaskResetBranchCleanup).mockReset().mockResolvedValue({ deleted: [], retained: [], blocked: [] });
     vi.mocked(deleteTaskResetBranches).mockReset().mockResolvedValue({ deleted: [], retained: [], blocked: [] });
   });

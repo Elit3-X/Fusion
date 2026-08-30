@@ -1203,10 +1203,10 @@
       "capacityExhausted": "",
       "guardRejected": "",
       "mergeBlocked": "",
-      "promoteRejected": "",
       "unknownColumn": "",
       "unplannedForExecution": "",
-      "workflowMismatch": ""
+      "workflowMismatch": "",
+      "staleMovePrecondition": ""
     },
     "todo": "待办",
     "triage": "分诊",
@@ -8754,9 +8754,6 @@
     "prNodeTitle": "",
     "prNodeWithNumber": "",
     "projectDefaultLocal": "项目默认 / 本地",
-    "promote": "",
-    "promoteTask": "",
-    "promoting": "",
     "queued": "排队中",
     "refine": "优化",
     "refineAddDetails": "添加细节",

@@ -687,6 +687,7 @@ export {
   scanIdleWorktrees,
   cleanupOrphanedWorktrees,
   reapOrphanWorktrees,
+  getRegisteredWorktreePaths,
   getRegisteredWorktreeBranches,
 } from "./worktree/worktree-pool.js";
 export { removeWorktree, RemovalReason, type RemovalReason as WorktreeRemovalReason, type WorktreeRemoveOutcome } from "./worktree/worktree-backend.js";

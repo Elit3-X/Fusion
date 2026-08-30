@@ -361,7 +361,7 @@ Board ordering behavior:
 
 ### Task placement on Board and List
 
-Tasks cannot be relocated manually from Board, List, or Task Detail. The workflow and its automated recovery paths decide placement. Use **Retry** to repeat the current stage in place, **Reset** to edit the original description and restart cleanly from the confirmed request, or **Delete** to remove a task. A manual-intake card can still show **Start**, which admits a new idea into its workflow rather than relocating active work.
+Tasks cannot be relocated manually from Board, List, or Task Detail. The workflow and its automated recovery paths decide placement. Use **Retry** to repeat the current stage in place, **Reset** to edit the original description and restart cleanly from the confirmed request, or **Delete** to remove a task. A manual-intake card can still show **Start**, which admits a new idea into its workflow rather than relocating active work. Start is accepted only while the card remains in the column the operator saw: if another Start or the scheduler has already advanced it, Fusion refuses the stale press without cancelling work and publishes the current card state. Task cards have no **Promote** control; workflow scheduling owns capacity-gated releases.
 
 ### Plan approval hold
 

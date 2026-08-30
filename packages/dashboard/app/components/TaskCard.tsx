@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { memo, useCallback, useState, useRef, useEffect, useLayoutEffect, useMemo, type CSSProperties, type ReactElement } from "react";
 import { createPortal } from "react-dom";
-import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch, GitPullRequest, AlertTriangle, ArrowUpRight, Eye, MoreHorizontal, Sparkles, X } from "lucide-react";
+import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch, GitPullRequest, AlertTriangle, Eye, MoreHorizontal, Sparkles, X } from "lucide-react";
 import { isTaskExternallyBlocked } from "@fusion/core";
 import type { Task, TaskDetail, Column, ColumnId, PrInfo, IssueInfo, TaskPriority, GithubIssueAction, MergeResult, PlannerOversightLevel } from "@fusion/core";
 import {
@@ -61,11 +61,8 @@ import { getPrBadgeModifierClass } from "../utils/prBadgeClass";
 import { getTotalAgentActiveMs, getEndToEndDurationMs, getTimedDurationMs, getWorkflowRuntimeMs, parseTimestampToMs } from "../utils/taskTiming";
 import { getTaskStatusBadgeLabel, getTaskWipLifecycleBadgeLabel, type TaskStatusBadgeContext, hasTaskStatusBadge, isTaskPlanningActive } from "../utils/taskStatusBadgeLabel";
 import {
-  isPlanReviewGateUnsatisfied,
   isReviewBudgetExhaustedApproval,
   isTaskAwaitingPlanApproval,
-  isTaskBlockedOnApprovalHold,
-  resolvePromoteSuppressed,
 } from "../utils/reviewBudgetApproval";
 import { canStartPrFeedbackAddressing, getTaskPrimaryPrInfo } from "../utils/prFeedback";
 import type { ToastType } from "../hooks/useToast";
@@ -786,15 +783,11 @@ interface TaskCardProps {
   /** Called when user clicks the mission badge on a task card. */
   onOpenMission?: (missionId: string) => void;
   /** Called when user moves a task to a different column from the card. */
-  onMoveTask?: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
+  onMoveTask?: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number) => Promise<Task>;
   /** Workflow-column flags for this task's current column, used for detail-equivalent card action availability. */
   taskColumnFlags?: TaskContextMenuColumnFlags;
   /** Ordered workflow columns that define card move targets in workflow-column mode. */
   taskMoveColumns?: readonly TaskContextMenuColumnMetadata[];
-  /** Called when user promotes a held task out of a hold column. */
-  onPromote?: (taskId: string) => Promise<void>;
-  /** True while this task's promote action is in flight. */
-  isPromoting?: boolean;
   /** Timestamp (ms) when task data was last confirmed fresh from the server. */
   lastFetchTimeMs?: number;
   /** Downstream fan-out entry for this task, computed at board-level. */
@@ -1008,8 +1001,6 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previous.onOpenRefine === next.onOpenRefine &&
     previous.onOpenMission === next.onOpenMission &&
     previous.onMoveTask === next.onMoveTask &&
-    previous.onPromote === next.onPromote &&
-    previous.isPromoting === next.isPromoting &&
     previous.fanout?.totalCount === next.fanout?.totalCount &&
     previous.fanout?.activeTodoCount === next.fanout?.activeTodoCount &&
     previous.fanout?.isHighFanout === next.fanout?.isHighFanout &&
@@ -1159,8 +1150,6 @@ function TaskCardComponent({
   onMoveTask,
   taskColumnFlags,
   taskMoveColumns,
-  onPromote,
-  isPromoting = false,
   lastFetchTimeMs,
   fanout,
   prAuthAvailable,
@@ -1268,6 +1257,7 @@ function TaskCardComponent({
   const [isPrCreateOpen, setIsPrCreateOpen] = useState(false);
   const [isAddressingPrFeedback, setIsAddressingPrFeedback] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [startPendingColumn, setStartPendingColumn] = useState<ColumnId | null>(null);
   const [lifecycleNowMs, setLifecycleNowMs] = useState(() => Date.now());
 
   /*
@@ -1289,6 +1279,12 @@ function TaskCardComponent({
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (startPendingColumn !== null && task.column !== startPendingColumn) {
+      setStartPendingColumn(null);
+    }
+  }, [startPendingColumn, task.column]);
 
   const descTextareaRef = useRef<HTMLTextAreaElement>(null);
   const touchOpenHandledRef = useRef(false);
@@ -1636,10 +1632,6 @@ function TaskCardComponent({
     () => isPlanReviewRunning(task),
     [task.steps, task.enabledWorkflowSteps, task.workflowStepResults],
   );
-  const planReviewGateUnsatisfied = useMemo(
-    () => isPlanReviewGateUnsatisfied(task),
-    [task.enabledWorkflowSteps, task.workflowStepResults],
-  );
   /*
   FNXC:WorkflowResolvedColumns 2026-07-30-00:40 (partial-supply seam, caught by the gate):
   `getRunningOptionalGateBadge` takes resolved flags and BOTH ListView call sites supply them; this
@@ -1679,7 +1671,6 @@ function TaskCardComponent({
   const isPlanReviewReplanCapApproval = isReviewBudgetExhaustedApproval(task);
   const isPlanningLane = isPreImplementationColumnRole(taskColumnFlags, task.column);
   const isAwaitingApproval = isTaskAwaitingPlanApproval(task, isPlanningLane);
-  const isBlockedOnApprovalHold = isTaskBlockedOnApprovalHold(task);
   const isAwaitingInput = task.status === "awaiting-user-input";
   /*
   FNXC:WorkflowResolvedColumns 2026-07-29-00:00 (PR #2566 review — greptile):
@@ -1715,26 +1706,6 @@ function TaskCardComponent({
   two independent conditions disjoint.
   */
   const awaitingPlanning = task.awaitingPlanning ?? ((task.steps?.length ?? 0) === 0);
-  /*
-  FNXC:TaskCardPromote 2026-08-09-19:00:
-  Post-U11, the hold column is also the planning lane, so Promote must not be offered while a card is unplanned, being planned, in Plan Review, or awaiting plan approval. That click is rejected as `unplanned-for-execution` and the force path would start implementation against an incomplete plan.
-
-  `awaitingPlanning` is absent from SSE payloads, so its step-count fallback deliberately matches the Ready / Queued to plan badge pair. `isAwaitingApproval` only applies on an intake-trait merged planning lane or for the `plan-review-replan-cap` reason.
-
-  FNXC:TaskCardPromote 2026-08-29-00:24:
-  FN-245 removes force promotion, so the card continues to suppress the shortcut for every
-  unplanned or approval-held state. This remains deliberately conservative rather than exact
-  parity: the card cannot resolve custom defaultOn values, plan-review's column/WIP position, or
-  capacity continuations, and also suppresses the planning-stage `specifying` and
-  `plan-review-unavailable` statuses. Hiding a shortcut is safer than offering a click the server
-  rejects; capacity release remains available for genuinely planned cards.
-  */
-  const isStillInPlanning = awaitingPlanning
-    || ["planning", "specifying", "needs-replan", "plan-review-unavailable"].includes(task.status ?? "")
-    || planReviewGateUnsatisfied
-    || isAwaitingApproval
-    || isBlockedOnApprovalHold;
-  const showPromoteAction = Boolean(onPromote) && !resolvePromoteSuppressed(task, isStillInPlanning);
   const showIdleTodoBadge = !isPaused
     && isHoldColumn
     && !visualStatus
@@ -2353,7 +2324,7 @@ function TaskCardComponent({
     );
     return (next?.id ?? "todo") as ColumnId;
   }, [taskMoveColumns, task.column]);
-  const shouldRenderActionRow = showPromoteAction || showCreatePrQuickAction || showAddressPrFeedbackAction || showStartAction;
+  const shouldRenderActionRow = showCreatePrQuickAction || showAddressPrFeedbackAction || showStartAction;
 
   const enterEditMode = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -3110,17 +3081,13 @@ function TaskCardComponent({
     }
   }, [task.missionId, onOpenMission]);
 
-  const handlePromoteClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    if (!onPromote || isPromoting) return;
-    void onPromote(task.id);
-  }, [isPromoting, onPromote, task.id]);
   const handleStartClick = useCallback(async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!onMoveTask || isStarting) return;
+    if (!onMoveTask || isStarting || startPendingColumn !== null) return;
     setIsStarting(true);
+    setStartPendingColumn(task.column);
     try {
-      await onMoveTask(task.id, startTargetColumn);
+      await onMoveTask(task.id, startTargetColumn, { expectedColumn: task.column });
       /*
       FNXC:CodingIdeasWorkflow 2026-07-25-12:05:
       Honest copy: Start performs a column move, not a plan dispatch. "Started planning" claimed an
@@ -3130,11 +3097,12 @@ function TaskCardComponent({
       */
       addToast(t("tasks.queuedForPlanning", "Queued {{taskId}} for planning", { taskId: task.id }), "success");
     } catch (err) {
+      setStartPendingColumn(null);
       addToast(getErrorMessage(err), "error");
     } finally {
       setIsStarting(false);
     }
-  }, [addToast, isStarting, startTargetColumn, t, task.id]);
+  }, [addToast, isStarting, onMoveTask, startPendingColumn, startTargetColumn, t, task.column, task.id]);
 
   const handleAddressPrFeedbackClick = useCallback(async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -3249,7 +3217,6 @@ function TaskCardComponent({
     && Boolean(githubTrackedIssue);
   const footerHasLeadingContent = Boolean(filesChangedButton)
     || (isGitHubImportedTask && !showLinkedIssueChipForImport);
-  const costBadgeBelowPromote = Boolean(showPromoteAction && cardCostLabel);
   const costBadgeChip = cardCostLabel ? (
     <span
       className="card-cost-indicator"
@@ -3263,7 +3230,7 @@ function TaskCardComponent({
       <span>{cardCostLabel}</span>
     </span>
   ) : null;
-  const footerRightHasContent = Boolean((!costBadgeBelowPromote && cardCostLabel)
+  const footerRightHasContent = Boolean(cardCostLabel
     || timeIndicator
     || showNearDuplicateChip
     || showUndoOfChip
@@ -3400,7 +3367,7 @@ function TaskCardComponent({
       FNXC:TaskCardTimingBadge 2026-06-13-17:20:
       The execution-time badge belongs in the bottom-right footer cluster and must match sibling footer badge sizing while preserving its existing label, title, aria text, and live-update data.
       */}
-      {!costBadgeBelowPromote && costBadgeChip}
+      {costBadgeChip}
       {timeIndicator && (
         <span
           className="card-time-indicator"
@@ -4405,37 +4372,14 @@ function TaskCardComponent({
               data-testid={`card-start-${task.id}`}
               title={t("tasks.startTask", "Start — plan this task")}
               aria-label={t("tasks.startTask", "Start — plan this task")}
-              disabled={isStarting}
+              disabled={isStarting || startPendingColumn !== null}
               onClick={handleStartClick}
             >
               <Zap size={12} />
               {isStarting ? t("tasks.starting", "Starting…") : t("tasks.start", "Start")}
             </button>
           )}
-          {showPromoteAction && (
-            <button
-              type="button"
-              className="card-promote-action card-send-back-btn"
-              data-testid={`card-promote-${task.id}`}
-              title={t("tasks.promoteTask", "Promote task")}
-              aria-label={t("tasks.promoteTask", "Promote task")}
-              disabled={isPromoting}
-              onClick={handlePromoteClick}
-            >
-              <ArrowUpRight size={12} />
-              {isPromoting ? t("tasks.promoting", "Promoting…") : t("tasks.promote", "Promote")}
-            </button>
-          )}
         </div>
-        {costBadgeBelowPromote && (
-          <div className="card-promote-cost-row">
-            {/*
-            FNXC:TaskCardCostBadge 2026-07-12-00:00:
-            Promote-bearing cards must place the enabled cost badge directly below Promote in the bottom-right corner. Cards without Promote retain the footer/meta placement so other footer chips and card layouts do not move.
-            */}
-            {costBadgeChip}
-          </div>
-        )}
         </>
       )}
       {shouldShowCreatedAgentBadge && (

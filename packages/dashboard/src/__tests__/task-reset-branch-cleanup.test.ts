@@ -169,6 +169,39 @@ describe("POST /api/tasks/:id/reset branch cleanup with real git", () => {
     expect(await branchExists(root, taskBranch)).toBe(false);
   });
 
+  it("removes a canonical registered worktree after a user reopen clears its row pointer", async () => {
+    const root = await createRepo();
+    const worktree = await addTaskWorktree(root);
+    const prompt = await writePrompt(root);
+    const task = taskFixture({ worktree: undefined });
+    const { store, publication } = createStore(root, task);
+
+    const response = await reset(store);
+
+    expect(response.status).toBe(200);
+    expect(existsSync(worktree)).toBe(false);
+    expect(await branchExists(root, taskBranch)).toBe(false);
+    expect(await collision(root, worktree)).toEqual({ kind: "missing" });
+    await expect(readFile(prompt, "utf8")).resolves.toBe(buildBootstrapPrompt(task.id, task.title, task.description));
+    expect(publication).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a registered canonical worktree when its recorded branch is absent", async () => {
+    const root = await createRepo();
+    const worktree = await addTaskWorktree(root);
+    await writePrompt(root);
+    const task = taskFixture({ worktree: undefined, branch: undefined });
+    const { store, publication } = createStore(root, task);
+
+    const response = await reset(store);
+
+    expect(response.status).toBe(200);
+    expect(existsSync(worktree)).toBe(false);
+    expect(await branchExists(root, taskBranch)).toBe(false);
+    expect(publication).toHaveBeenCalledOnce();
+    expect(store.logEntry).toHaveBeenCalledWith(taskId, `Reset recovered canonical worktree ownership at ${worktree}`);
+  });
+
   it("deletes foreach step-instance branches with the working branch", async () => {
     const root = await createRepo();
     const worktree = await addTaskWorktree(root);

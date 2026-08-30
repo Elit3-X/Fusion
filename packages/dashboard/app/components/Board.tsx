@@ -7,7 +7,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { createPortal } from "react-dom";
-import { promoteTask, type ModelInfo, type BoardWorkflowsPayload, type BoardWorkflowColumn, type RevertTaskOptions, type RevertTaskResult } from "../api";
+import { type ModelInfo, type BoardWorkflowsPayload, type BoardWorkflowColumn, type RevertTaskOptions, type RevertTaskResult } from "../api";
 import { useBlockerFanout, type BlockerFanoutColumnFlags } from "../hooks/useBlockerFanout";
 import { useColumnScrollSnap } from "../hooks/useColumnScrollSnap";
 import { useBoardMousePan } from "../hooks/useBoardMousePan";
@@ -34,7 +34,7 @@ interface BoardProps {
   /** Shared engine-enforced capacity for the board's Up Next preview. */
   effectiveMaxConcurrent?: number;
   showWorktreeGrouping: boolean;
-  onMoveTask: (id: string, column: ColumnId) => Promise<Task>;
+  onMoveTask: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number) => Promise<Task>;
   onPauseTask?: (id: string) => Promise<Task>;
   onUnpauseTask?: (id: string) => Promise<Task>;
   onResetTask?: (id: string, options?: { description?: string }) => Promise<Task>;
@@ -443,10 +443,6 @@ export function Board({ tasks, projectId, maxConcurrent, effectiveMaxConcurrent 
     staleHighFanoutAgeThresholdMs: staleHighFanoutBlockerAgeThresholdMs,
     columnFlagsByTaskId: blockerFanoutColumnFlagsByTaskId,
   });
-
-  const handlePromote = useCallback(async (taskId: string) => {
-    await promoteTask(taskId, projectId);
-  }, [projectId]);
 
   const handleToggleAutoMerge = useCallback(() => {
     onToggleAutoMerge();
@@ -1070,7 +1066,6 @@ export function Board({ tasks, projectId, maxConcurrent, effectiveMaxConcurrent 
                 effectiveMaxConcurrent={effectiveMaxConcurrent}
                 showWorktreeGrouping={showWorktreeGrouping}
                 onMoveTask={onMoveTask}
-                onPromote={handlePromote}
                 onPauseTask={onPauseTask}
                 onUnpauseTask={onUnpauseTask}
                   onResetTask={onResetTask}
@@ -1131,7 +1126,6 @@ export function Board({ tasks, projectId, maxConcurrent, effectiveMaxConcurrent 
               effectiveMaxConcurrent={effectiveMaxConcurrent}
               showWorktreeGrouping={showWorktreeGrouping}
               onMoveTask={onMoveTask}
-              onPromote={handlePromote}
               onPauseTask={onPauseTask}
               onUnpauseTask={onUnpauseTask}
                   onResetTask={onResetTask}

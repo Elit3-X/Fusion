@@ -104,7 +104,7 @@ export function PatchnodeView({ projectId, onOpenTaskDetail }: PatchnodeViewProp
     <section className="patchnode-view" data-testid="patchnode-view" aria-labelledby="patchnode-title">
       <ViewHeader
         icon={History}
-        title={t("patchnode.title", "Patchnode")}
+        title={t("patchnode.title", "Patchnote")}
         titleId="patchnode-title"
         actions={(
           <label className="patchnode-search" role="search">
@@ -114,17 +114,17 @@ export function PatchnodeView({ projectId, onOpenTaskDetail }: PatchnodeViewProp
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("patchnode.searchPlaceholder", "Search deliveries")}
-              aria-label={t("patchnode.searchAriaLabel", "Search Patchnode")}
+              aria-label={t("patchnode.searchAriaLabel", "Search Patchnote")}
               data-testid="patchnode-search"
             />
           </label>
         )}
       />
       <div className="patchnode-view__content">
-        {loading ? <p className="patchnode-state">{t("patchnode.loading", "Loading Patchnode…")}</p> : null}
+        {loading ? <p className="patchnode-state">{t("patchnode.loading", "Loading Patchnote…")}</p> : null}
         {!loading && error ? (
           <div className="card patchnode-state">
-            <p>{t("patchnode.error", "Patchnode could not be loaded.")}</p>
+            <p>{t("patchnode.error", "Patchnote could not be loaded.")}</p>
             <button className="btn" type="button" onClick={() => setRetryNonce((value) => value + 1)}>{t("patchnode.retry", "Retry")}</button>
           </div>
         ) : null}

@@ -1203,10 +1203,10 @@
       "capacityExhausted": "",
       "guardRejected": "",
       "mergeBlocked": "",
-      "promoteRejected": "",
       "unknownColumn": "",
       "unplannedForExecution": "",
-      "workflowMismatch": ""
+      "workflowMismatch": "",
+      "staleMovePrecondition": ""
     },
     "todo": "할 일",
     "triage": "트리아지",
@@ -8754,9 +8754,6 @@
     "prNodeTitle": "",
     "prNodeWithNumber": "",
     "projectDefaultLocal": "프로젝트 기본값 / 로컬",
-    "promote": "",
-    "promoteTask": "",
-    "promoting": "",
     "queued": "대기 중",
     "refine": "다듬기",
     "refineAddDetails": "세부 사항 추가",

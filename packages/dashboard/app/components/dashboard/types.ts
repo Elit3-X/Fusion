@@ -199,7 +199,7 @@ export interface MainContentProps {
   moveTask: (
     id: string,
     column: ColumnId,
-    optionsOrPosition?: { preserveProgress?: boolean } | number,
+    optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number,
   ) => Promise<Task>;
   pauseTask: (id: string) => Promise<Task>;
   openBoardTaskDetail: (task: Task | TaskDetail, initialTab?: DetailTaskTab) => void;

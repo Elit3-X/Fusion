@@ -263,7 +263,7 @@ function clampSidebarWidth(width: number, containerWidth: number): number {
 
 interface ListViewProps {
   tasks: Task[];
-  onMoveTask: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
+  onMoveTask: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number) => Promise<Task>;
   onRetryTask?: (id: string) => Promise<Task>;
   onOpenChatWithPrefill?: (prefillText: string) => void;
   onReviseTask?: (task: Task) => void;

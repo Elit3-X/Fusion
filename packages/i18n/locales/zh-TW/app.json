@@ -1203,10 +1203,10 @@
       "capacityExhausted": "",
       "guardRejected": "",
       "mergeBlocked": "",
-      "promoteRejected": "",
       "unknownColumn": "",
       "unplannedForExecution": "",
-      "workflowMismatch": ""
+      "workflowMismatch": "",
+      "staleMovePrecondition": ""
     },
     "todo": "待辦",
     "triage": "分診",
@@ -8754,9 +8754,6 @@
     "prNodeTitle": "",
     "prNodeWithNumber": "",
     "projectDefaultLocal": "專案預設 / 本機",
-    "promote": "",
-    "promoteTask": "",
-    "promoting": "",
     "queued": "佇列中",
     "refine": "優化",
     "refineAddDetails": "新增細節",

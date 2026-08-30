@@ -1203,10 +1203,10 @@
       "capacityExhausted": "",
       "guardRejected": "",
       "mergeBlocked": "",
-      "promoteRejected": "",
       "unknownColumn": "",
       "unplannedForExecution": "",
-      "workflowMismatch": ""
+      "workflowMismatch": "",
+      "staleMovePrecondition": ""
     },
     "todo": "Por hacer",
     "triage": "Triaje",
@@ -8754,9 +8754,6 @@
     "prNodeTitle": "",
     "prNodeWithNumber": "",
     "projectDefaultLocal": "Predeterminado del proyecto / local",
-    "promote": "",
-    "promoteTask": "",
-    "promoting": "",
     "queued": "En cola",
     "refine": "Refinar",
     "refineAddDetails": "Añadir detalles",

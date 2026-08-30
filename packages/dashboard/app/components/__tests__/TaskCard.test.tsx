@@ -6756,81 +6756,6 @@ describe("TaskCard", () => {
     expect(noUsage.container.querySelector(".card-cost-indicator")).toBeNull();
   });
 
-  it("places an enabled cost badge below Promote without leaving it in the footer cluster", () => {
-    const pricedTask = makeTask({
-      id: "FN-8324",
-      column: "todo",
-      awaitingPlanning: false,
-      enabledWorkflowSteps: [],
-      steps: [{ name: "Implement", status: "pending" }] as any,
-      tokenUsage: {
-        inputTokens: 1_000_000,
-        outputTokens: 0,
-        cachedTokens: 0,
-        cacheWriteTokens: 0,
-        totalTokens: 1_000_000,
-        firstUsedAt: "2026-01-01T00:00:00Z",
-        lastUsedAt: "2026-01-01T00:00:00Z",
-        modelProvider: "openai",
-        modelId: "gpt-5-mini",
-      },
-    } as Partial<Task>);
-
-    const { container } = render(
-      <CostBadgeProvider value={{ enabled: true }}>
-        <TaskCard
-          task={pricedTask}
-          onOpenDetail={noop}
-          addToast={noop}
-          onPromote={vi.fn().mockResolvedValue(undefined)}
-        />
-      </CostBadgeProvider>,
-    );
-
-    const promoteButton = screen.getByTestId("card-promote-FN-8324");
-    const costBadge = container.querySelector(".card-cost-indicator") as HTMLElement | null;
-    const costRow = container.querySelector(".card-promote-cost-row");
-    expect(costBadge).not.toBeNull();
-    expect(costBadge?.closest(".card-promote-cost-row")).toBe(costRow);
-    expect(costBadge?.closest(".card-footer-row-right")).toBeNull();
-    expect(promoteButton.compareDocumentPosition(costBadge!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    const css = loadAllAppCss();
-    expect(css).toMatch(/\.card-promote-cost-row\s*\{[^}]*justify-content:\s*flex-end;[^}]*margin-top:\s*var\(--space-xs\);[^}]*\}/);
-    expect(css).toMatch(/@media[^{}]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.card-promote-cost-row\s*\{[^}]*justify-content:\s*flex-end;[^}]*\}/);
-  });
-
-  it("keeps the cost badge absent below Promote when disabled or without token usage", () => {
-    const onPromote = vi.fn().mockResolvedValue(undefined);
-    const pricedTask = makeTask({
-      id: "FN-8324-disabled",
-      column: "todo",
-      tokenUsage: {
-        inputTokens: 1_000_000,
-        outputTokens: 0,
-        cachedTokens: 0,
-        cacheWriteTokens: 0,
-        totalTokens: 1_000_000,
-        firstUsedAt: "2026-01-01T00:00:00Z",
-        lastUsedAt: "2026-01-01T00:00:00Z",
-        modelProvider: "openai",
-        modelId: "gpt-5-mini",
-      },
-    } as Partial<Task>);
-    const disabled = render(<TaskCard task={pricedTask} onOpenDetail={noop} addToast={noop} onPromote={onPromote} />);
-    expect(disabled.container.querySelector(".card-cost-indicator")).toBeNull();
-    expect(disabled.container.querySelector(".card-promote-cost-row")).toBeNull();
-    disabled.unmount();
-
-    const noUsage = render(
-      <CostBadgeProvider value={{ enabled: true }}>
-        <TaskCard task={makeTask({ id: "FN-8324-no-usage", column: "todo" })} onOpenDetail={noop} addToast={noop} onPromote={onPromote} />
-      </CostBadgeProvider>,
-    );
-    expect(noUsage.container.querySelector(".card-cost-indicator")).toBeNull();
-    expect(noUsage.container.querySelector(".card-promote-cost-row")).toBeNull();
-  });
-
   it("places a todo cost badge inside the meta row when the footer has no leading content", () => {
     const { container } = render(
       <CostBadgeProvider value={{ enabled: true }}>
@@ -7916,293 +7841,6 @@ describe("TaskCard mission badge", () => {
     });
   });
 
-  it("renders a promote action when onPromote is provided", () => {
-    const onPromote = vi.fn().mockResolvedValue(undefined);
-    const style = document.createElement("style");
-    style.textContent = loadAllAppCss();
-    document.head.appendChild(style);
-
-    try {
-      render(
-        <TaskCard
-          task={makeTask({ id: "FN-777", column: "todo", awaitingPlanning: false, enabledWorkflowSteps: [], steps: [{ name: "Implement", status: "pending" }] as any })}
-          onOpenDetail={noop}
-          addToast={noop}
-          onPromote={onPromote}
-        />,
-      );
-
-      const promoteButton = screen.getByTestId("card-promote-FN-777");
-      expect(promoteButton).toBeDefined();
-      expect(promoteButton).toHaveClass("card-promote-action");
-      expect(promoteButton.textContent).toContain("Promote");
-
-      /*
-      Asserted against the DECLARED rule, not `getComputedStyle`. The computed reading of `padding`
-      here was "var(--space-xs) var(--space-sm)" under jsdom 27 and became "0" under jsdom 29 with
-      the CSS untouched — see the note on `declaredStyle`. The intent is that the promote action
-      uses the standard chip spacing tokens, which is what these now check.
-      */
-      expect(declaredStyle(".card-promote-action", "gap")).toBe("var(--space-xs)");
-      expect(declaredStyle(".card-promote-action", "padding")).toBe("var(--space-xs) var(--space-sm)");
-    } finally {
-      style.remove();
-    }
-  });
-
-  it("right-aligns the promote action inside the card action row", () => {
-    const onPromote = vi.fn().mockResolvedValue(undefined);
-    const css = loadAllAppCssBaseOnly();
-
-    render(
-      <TaskCard
-        task={makeTask({ id: "FN-781", column: "todo", awaitingPlanning: false, enabledWorkflowSteps: [], steps: [{ name: "Implement", status: "pending" }] as any })}
-        onOpenDetail={noop}
-        addToast={noop}
-        onPromote={onPromote}
-      />,
-    );
-
-    const promoteButton = screen.getByTestId("card-promote-FN-781");
-    const actionRow = promoteButton.closest(".card-action-row");
-
-    expect(actionRow).not.toBeNull();
-    expect(actionRow?.contains(promoteButton)).toBe(true);
-    expect(css).toMatch(/\.card-promote-action\s*\{[^}]*margin-left:\s*auto;[^}]*\}/);
-    expect(css).toMatch(/\.card-promote-action\.card-send-back-btn\s*\{[^}]*margin-left:\s*auto;[^}]*\}/);
-  });
-
-  it("keeps the promote action right-aligned in the mobile card action row", () => {
-    const css = loadAllAppCss();
-    const onPromote = vi.fn().mockResolvedValue(undefined);
-
-    const soloRender = render(
-      <TaskCard
-        task={makeTask({ id: "FN-782", column: "todo", awaitingPlanning: false, enabledWorkflowSteps: [], steps: [{ name: "Implement", status: "pending" }] as any })}
-        onOpenDetail={noop}
-        addToast={noop}
-        onPromote={onPromote}
-      />,
-    );
-
-    const soloPromoteButton = screen.getByTestId("card-promote-FN-782");
-    expect(soloPromoteButton.closest(".card-action-row")?.children).toHaveLength(1);
-    expect(soloPromoteButton).toHaveClass("card-promote-action", "card-send-back-btn");
-    soloRender.unmount();
-
-    render(
-      <TaskCard
-        task={makeTask({ id: "FN-783", column: "in-review", paused: false, userPaused: false, prInfo: undefined as any, awaitingPlanning: false, enabledWorkflowSteps: [], steps: [{ name: "Implement", status: "pending" }] as any })}
-        onOpenDetail={noop}
-        addToast={noop}
-        onPromote={onPromote}
-        prAuthAvailable={true}
-        autoMergeEnabled={false}
-      />,
-    );
-
-    const createPrButton = screen.getByRole("button", { name: "Create pull request" });
-    const promoteButton = screen.getByTestId("card-promote-FN-783");
-    const actionRow = promoteButton.closest(".card-action-row");
-
-    expect(actionRow).not.toBeNull();
-    expect(actionRow?.contains(createPrButton)).toBe(true);
-    expect(createPrButton.compareDocumentPosition(promoteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(css).toMatch(/@media[^{}]*\(max-width:\s*768px\)[^{]*\{[\s\S]*?\.card-promote-action\.card-send-back-btn\s*\{[^}]*margin-left:\s*auto;[^}]*\}/);
-  });
-
-  it("calls onPromote without opening the card when promote is clicked", () => {
-    const onPromote = vi.fn().mockResolvedValue(undefined);
-    const onOpenDetail = vi.fn();
-
-    render(
-      <TaskCard
-        task={makeTask({ id: "FN-778", column: "todo", awaitingPlanning: false, enabledWorkflowSteps: [], steps: [{ name: "Implement", status: "pending" }] as any })}
-        onOpenDetail={onOpenDetail}
-        addToast={noop}
-        onPromote={onPromote}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("card-promote-FN-778"));
-
-    expect(onPromote).toHaveBeenCalledWith("FN-778");
-    expect(onOpenDetail).not.toHaveBeenCalled();
-  });
-
-  it("disables the promote action and shows loading copy while promoting", () => {
-    const onPromote = vi.fn().mockResolvedValue(undefined);
-
-    render(
-      <TaskCard
-        task={makeTask({ id: "FN-779", column: "todo", awaitingPlanning: false, enabledWorkflowSteps: [], steps: [{ name: "Implement", status: "pending" }] as any })}
-        onOpenDetail={noop}
-        addToast={noop}
-        onPromote={onPromote}
-        isPromoting
-      />,
-    );
-
-    const promoteButton = screen.getByTestId("card-promote-FN-779") as HTMLButtonElement;
-    expect(promoteButton.disabled).toBe(true);
-    expect(promoteButton.textContent).toContain("Promoting…");
-
-    fireEvent.click(promoteButton);
-    expect(onPromote).not.toHaveBeenCalled();
-  });
-
-  it("suppresses Promote for every planning state while retaining the planned capacity-hold action", () => {
-    let sequence = 0;
-    const makePromoteFixture = (overrides: Partial<Task> = {}) => makeTask({
-      id: `FN-8950-${sequence++}`,
-      title: `Promote fixture ${sequence}`,
-      column: "todo",
-      awaitingPlanning: false,
-      status: null as any,
-      steps: [{ name: "Implement", status: "pending" }] as any,
-      // FNXC:TaskCardPromote 2026-08-11-09:13: An explicit empty list disables the built-in default-on plan-review group for promotable controls.
-      enabledWorkflowSteps: [],
-      ...overrides,
-    });
-    const renderPromoteFixture = (task: Task, taskColumnFlags: any, cost = false) => render(
-      <CostBadgeProvider value={{ enabled: cost }}>
-        <TaskCard task={task} taskColumnFlags={taskColumnFlags} onOpenDetail={noop} addToast={noop} onPromote={vi.fn().mockResolvedValue(undefined)} />
-      </CostBadgeProvider>,
-    );
-    const expectSuppressedWithControl = (name: string, planning: Partial<Task>, control: Partial<Task>, flags: any) => {
-      const planningTask = makePromoteFixture(planning);
-      const suppressed = renderPromoteFixture(planningTask, flags);
-      expect(screen.getByText(planningTask.title), `${name}: card must render`).toBeInTheDocument();
-      // FNXC:TaskCardPromote 2026-08-11-09:13: Soft assertion keeps the gate-only revert evidence comprehensive by reporting every named escape in one run.
-      expect.soft(screen.queryByTestId(`card-promote-${planningTask.id}`), `${name}: Promote must be suppressed`).toBeNull();
-      suppressed.unmount();
-
-      const controlTask = makePromoteFixture(control);
-      const positive = renderPromoteFixture(controlTask, flags);
-      expect(screen.getByText(controlTask.title), `${name}: control card must render`).toBeInTheDocument();
-      expect(screen.getByTestId(`card-promote-${controlTask.id}`), `${name}: control must keep Promote`).toBeInTheDocument();
-      positive.unmount();
-    };
-    const passedPlanReview = [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "passed" }] as any;
-    const auditedSkippedPlanReview = [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "skipped", bypassedFromStatus: "failed", bypassedFromVerdict: "REVISE", bypassedBy: "operator", bypassedAt: "2026-08-11T00:00:00Z", bypassReason: "review dispatch failed" }] as any;
-
-    // Harness self-check: planned capacity-held cards must reach the rendered Promote branch.
-    const readyTask = makePromoteFixture();
-    const ready = renderPromoteFixture(readyTask, { hold: true });
-    const readyPromote = screen.getByTestId(`card-promote-${readyTask.id}`);
-    expect(readyPromote).toHaveClass("card-promote-action");
-    expect(readyPromote).toHaveTextContent("Promote");
-    ready.unmount();
-
-    expectSuppressedWithControl("awaitingPlanning", { awaitingPlanning: true }, { awaitingPlanning: false }, { hold: true });
-    expectSuppressedWithControl("empty steps", { awaitingPlanning: undefined, steps: [] }, { awaitingPlanning: undefined, steps: [{ name: "Implement", status: "pending" }] as any }, { hold: true });
-    expectSuppressedWithControl("planning status", { status: "planning" as any }, { status: null as any }, { hold: true });
-    expectSuppressedWithControl("needs-replan status", { status: "needs-replan" as any }, { status: null as any }, { hold: true });
-
-    /*
-    FNXC:TaskCardPromote 2026-08-11-09:13:
-    FN-8950 corrects the former control, which used pending Plan Review and therefore asserted the
-    defect. An omitted selection is default-on, so every positive control explicitly clears or
-    satisfies the plan gate.
-    */
-    expectSuppressedWithControl("absent enabled-steps array (default-on)", { enabledWorkflowSteps: undefined, workflowStepResults: undefined }, { enabledWorkflowSteps: [] }, { hold: true });
-    expectSuppressedWithControl("enabled plan-review with no results", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: undefined }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("enabled plan-review with empty results", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [] }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("enabled-not-started plan-review", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "pending" }] as any }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("running pending plan-review", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "pending", startedAt: "2026-08-11T00:00:00Z" }] as any }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("failed plan-review", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "failed" }] as any }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("advisory_failure plan-review", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "advisory_failure" }] as any }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("superseded passed plan-review", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ ...passedPlanReview[0], supersededAt: "2026-08-11T00:00:00Z" }] }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("unaudited skipped plan-review", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "skipped", bypassedFromStatus: "failed", bypassedFromVerdict: "REVISE", bypassedBy: "operator" }] as any }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: auditedSkippedPlanReview }, { hold: true });
-    expectSuppressedWithControl("duplicate superseded plan-review", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ ...passedPlanReview[0], supersededAt: "2026-08-11T00:00:00Z" }, { workflowStepId: "code-review", workflowStepName: "Code Review", status: "passed" }] }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true });
-    expectSuppressedWithControl("plan-review disabled by another explicit group", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: undefined }, { enabledWorkflowSteps: ["code-review"] }, { hold: true });
-
-    // FNXC:TaskCardPromote 2026-08-11-09:13: The extra planning-stage statuses are conservative ledger arms; issueRelease does not literally reject them.
-    expectSuppressedWithControl("status specifying", { status: "specifying" as any }, { status: null as any }, { hold: true });
-    expectSuppressedWithControl("status plan-review-unavailable", { status: "plan-review-unavailable" as any }, { status: null as any }, { hold: true });
-    expectSuppressedWithControl("pause-shaped approval hold", { paused: true, pausedReason: "awaiting-approval" as any, status: null as any }, { paused: false, pausedReason: undefined, status: null as any }, { hold: true });
-
-    /* FNXC:TaskCardPromote 2026-08-11-09:13: Promote mirrors core's column-independent approval hold; intake remains only for approval badge and control rendering. */
-    expectSuppressedWithControl("status awaiting-approval on a hold-only lane", { status: "awaiting-approval" as any }, { status: null as any }, { hold: true });
-    expectSuppressedWithControl("awaiting-approval intake lane", { status: "awaiting-approval" as any }, { status: null as any }, { hold: true, intake: true });
-    expectSuppressedWithControl("plan-review-replan-cap", { status: "awaiting-approval" as any, awaitingApprovalReason: "plan-review-replan-cap" as any }, { status: null as any, awaitingApprovalReason: undefined }, { hold: true });
-
-    // Repeat the gate and approval shapes for legacy fallback and merged planning trait resolution.
-    expectSuppressedWithControl("enabled-not-started plan-review no-metadata fallback", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "pending" }] as any }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, undefined);
-    expectSuppressedWithControl("enabled-not-started plan-review merged planning lane", { enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "pending" }] as any }, { enabledWorkflowSteps: ["plan-review"], workflowStepResults: passedPlanReview }, { hold: true, intake: true });
-    expectSuppressedWithControl("status awaiting-approval no-metadata fallback", { status: "awaiting-approval" as any }, { status: null as any }, undefined);
-    expectSuppressedWithControl("status awaiting-approval merged planning lane", { status: "awaiting-approval" as any }, { status: null as any }, { hold: true, intake: true });
-
-    const pendingGate = makePromoteFixture({ enabledWorkflowSteps: ["plan-review"], workflowStepResults: undefined });
-    const pendingGateRender = renderPromoteFixture(pendingGate, { hold: true });
-    expect(screen.getByText("Ready")).toBeInTheDocument();
-    pendingGateRender.unmount();
-
-    // Promote/cost-row CSS is media-query-only, so DOM absence covers desktop and mobile alike.
-    const pricedPlanning = makePromoteFixture({ enabledWorkflowSteps: ["plan-review"], workflowStepResults: [{ workflowStepId: "plan-review", workflowStepName: "Plan Review", status: "pending" }] as any, tokenUsage: {
-      inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, totalTokens: 1_000_000,
-      firstUsedAt: "2026-08-09T00:00:00Z", lastUsedAt: "2026-08-09T00:00:00Z", modelProvider: "openai", modelId: "gpt-5-mini",
-    } });
-    const pricedSuppressed = renderPromoteFixture(pricedPlanning, { hold: true }, true);
-    expect(screen.getByText(pricedPlanning.title)).toBeInTheDocument();
-    expect(pricedSuppressed.container.querySelector(".card-action-row")).toBeNull();
-    expect(pricedSuppressed.container.querySelector(".card-promote-action")).toBeNull();
-    expect(pricedSuppressed.container.querySelector(".card-send-back-btn")).toBeNull();
-    expect(pricedSuppressed.container.querySelector(".card-promote-cost-row")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Promote task" })).toBeNull();
-    expect(pricedSuppressed.container.querySelectorAll(".card-cost-indicator")).toHaveLength(1);
-    expect(pricedSuppressed.container.querySelector(".card-cost-indicator")?.closest(".card-footer-row")).not.toBeNull();
-    pricedSuppressed.unmount();
-
-    const pricedControl = makePromoteFixture({ tokenUsage: pricedPlanning.tokenUsage });
-    const pricedPromotable = renderPromoteFixture(pricedControl, { hold: true }, true);
-    expect(screen.getByTestId(`card-promote-${pricedControl.id}`)).toBeInTheDocument();
-    expect(pricedPromotable.container.querySelector(".card-promote-cost-row .card-cost-indicator")).not.toBeNull();
-  });
-
-  it("uses a fresh server release verdict before the conservative Promote fallback", () => {
-    const base = {
-      column: "todo",
-      status: null as any,
-      enabledWorkflowSteps: undefined,
-      workflowStepResults: undefined,
-      steps: [{ name: "Implement", status: "pending" }] as any,
-    };
-    const verdict = {
-      promoteBlocked: false,
-      unplannedForExecution: false,
-      blockedOnApproval: false,
-      reason: null,
-      readyAtCapacityBoundary: true,
-      evaluatedAt: "2026-08-11T20:00:00.000Z",
-    } as const;
-    const allowed = render(<TaskCard task={makeTask({ id: "FN-8987-allowed", ...base, releaseGate: verdict })} taskColumnFlags={{ hold: true }} onOpenDetail={noop} addToast={noop} onPromote={vi.fn()} />);
-    expect(screen.getByTestId("card-promote-FN-8987-allowed")).toBeInTheDocument();
-    allowed.unmount();
-
-    const blocked = render(<TaskCard task={makeTask({ id: "FN-8987-blocked", ...base, releaseGate: { ...verdict, promoteBlocked: true, unplannedForExecution: true, reason: "plan-review-pending" } })} taskColumnFlags={{ hold: true }} onOpenDetail={noop} addToast={noop} onPromote={vi.fn()} />);
-    expect(screen.queryByTestId("card-promote-FN-8987-blocked")).toBeNull();
-    expect(blocked.container.querySelector(".card-action-row")).toBeNull();
-    expect(blocked.container.querySelector(".card-promote-action")).toBeNull();
-    blocked.unmount();
-
-    const fallback = render(<TaskCard task={makeTask({ id: "FN-8987-fallback", ...base })} taskColumnFlags={{ hold: true }} onOpenDetail={noop} addToast={noop} onPromote={vi.fn()} />);
-    expect(screen.queryByTestId("card-promote-FN-8987-fallback")).toBeNull();
-    fallback.unmount();
-  });
-
-  it("does not render a promote action when onPromote is omitted", () => {
-    render(
-      <TaskCard
-        task={makeTask({ id: "FN-780", column: "todo" })}
-        onOpenDetail={noop}
-        addToast={noop}
-      />,
-    );
-
-    expect(screen.queryByTestId("card-promote-FN-780")).toBeNull();
-  });
-
   it("shows mission title in title attribute", async () => {
     vi.mocked(fetchMission).mockResolvedValue({
       id: "M-TITLE",
@@ -8638,7 +8276,11 @@ describe("TaskCard Start affordance (FN-7596)", () => {
 
     fireEvent.click(screen.getByTestId("card-start-FN-001"));
 
-    await waitFor(() => expect(onMoveTask).toHaveBeenCalledWith("FN-001", "custom-working-stage"));
+    await waitFor(() => expect(onMoveTask).toHaveBeenCalledWith(
+      "FN-001",
+      "custom-working-stage",
+      { expectedColumn: "ideas" },
+    ));
   });
 
   it("falls back to 'todo' when taskMoveColumns metadata is unavailable", async () => {
@@ -8655,10 +8297,14 @@ describe("TaskCard Start affordance (FN-7596)", () => {
 
     fireEvent.click(screen.getByTestId("card-start-FN-001"));
 
-    await waitFor(() => expect(onMoveTask).toHaveBeenCalledWith("FN-001", "todo"));
+    await waitFor(() => expect(onMoveTask).toHaveBeenCalledWith(
+      "FN-001",
+      "todo",
+      { expectedColumn: "ideas" },
+    ));
   });
 
-  it("disables the button and shows the Starting label while the move is in flight, then shows a success toast", async () => {
+  it("disables the button and shows the Starting label while the move is in flight, then retains the latch after success", async () => {
     let resolveMove: (task: ReturnType<typeof makeTask>) => void = () => {};
     const onMoveTask = vi.fn().mockImplementation(
       () => new Promise((resolve) => { resolveMove = resolve; }),
@@ -8684,7 +8330,7 @@ describe("TaskCard Start affordance (FN-7596)", () => {
     resolveMove(makeTask({ column: "todo" }));
 
     await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.stringContaining("FN-001"), "success"));
-    await waitFor(() => expect(startButton).not.toBeDisabled());
+    expect(startButton).toBeDisabled();
   });
 
   /*
@@ -8758,7 +8404,6 @@ describe("TaskCard trailing-row layout (FN-8631)", () => {
     ".card-meta",
     ".card-agent-row",
     ".card-action-row",
-    ".card-promote-cost-row",
     ".card-agent-badge-row",
     ".card-workflow-badge-row",
   ];
@@ -8816,27 +8461,6 @@ describe("TaskCard trailing-row layout (FN-8631)", () => {
             expect(container.querySelector(".card-meta")).toBeNull();
             expect(container.querySelector(".card-action-row")).toBeNull();
           },
-        },
-        {
-          name: "promote cost",
-          renderCard: () => render(
-            <CostBadgeProvider value={{ enabled: true }}>
-              <TaskCard
-                task={makeTask({
-                  id: `FN-cost-${width}`,
-                  column: "todo",
-                  awaitingPlanning: false,
-                  enabledWorkflowSteps: [],
-                  steps: [{ name: "Implement", status: "pending" }] as any,
-                  tokenUsage: { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, totalTokens: 1_000_000, firstUsedAt: "2026-01-01T00:00:00Z", lastUsedAt: "2026-01-01T00:00:00Z", modelProvider: "openai", modelId: "gpt-5-mini" },
-                } as Partial<Task>)}
-                onOpenDetail={noop}
-                addToast={noop}
-                onPromote={vi.fn()}
-              />
-            </CostBadgeProvider>,
-          ),
-          assert: (container: HTMLElement) => expect(container.querySelector(".card-promote-cost-row .card-cost-indicator")).not.toBeNull(),
         },
         {
           name: "workflow and agent rows",

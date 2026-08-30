@@ -26,6 +26,7 @@ export interface TaskResetWorktreePlan {
   targets: TaskResetWorktreeTarget[];
   branchCleanupTargets: Array<{ repoRootDir: string; recordedBranches: string[] }>;
   workspaceTaskDir?: string;
+  canonicalSingularWorktreePath?: string;
   ignoredSingularWorktree?: string;
 }
 
@@ -46,30 +47,39 @@ export function buildTaskResetWorktreePlan(
   { rootDir, settings }: BuildTaskResetWorktreePlanOptions,
 ): TaskResetWorktreePlan {
   /*
-  FNXC:TaskReset 2026-08-28-14:45:
-  Reset owns disposal of the task's local branches as well as its worktrees. A singular task always
-  contributes the project repository, even without a recorded worktree, because a partial cleanup can
-  leave only its canonical branch behind for the next acquisition to reclaim.
+  FNXC:TaskReset 2026-08-30-01:40:
+  Since FN-258 the singular worktree directory name is the immutable lower-cased task ID. Reset must
+  always plan that exclusive canonical path because a user reopen clears `task.worktree` and must not
+  make a task-owned worktree unreachable to Reset.
   */
   const hasWorkspaceRecord = task.workspaceWorktrees !== undefined;
   if (!isWorkspaceTask(task) && !hasWorkspaceRecord) {
     const worktreesDir = resolveWorktreesDirLayout(rootDir, settings);
-    const targets = task.worktree ? [{
-      repoRel: SINGULAR_RESET_WORKTREE_REPO_REL,
-      worktreePath: task.worktree,
-      canonicalPath: resolve(task.worktree),
-      branch: task.branch,
-      repoRootDir: rootDir,
-      containmentRoot: worktreesDir,
-      reservationWorktreesDir: worktreesDir,
-      aliasRepoRels: [],
-    }] : [];
+    const canonicalSingularWorktreePath = join(worktreesDir, task.id.toLowerCase());
+    const targetsByCanonical = new Map<string, TaskResetWorktreeTarget>();
+    const addTarget = (worktreePath: string) => {
+      const canonicalPath = resolve(worktreePath);
+      if (targetsByCanonical.has(canonicalPath)) return;
+      targetsByCanonical.set(canonicalPath, {
+        repoRel: SINGULAR_RESET_WORKTREE_REPO_REL,
+        worktreePath,
+        canonicalPath,
+        branch: task.branch,
+        repoRootDir: rootDir,
+        containmentRoot: worktreesDir,
+        reservationWorktreesDir: worktreesDir,
+        aliasRepoRels: [],
+      });
+    };
+    addTarget(canonicalSingularWorktreePath);
+    if (task.worktree) addTarget(task.worktree);
     const recordedBranch = task.branch?.trim();
     return {
       kind: "singular",
       layout: "singular",
-      targets,
+      targets: [...targetsByCanonical.values()],
       branchCleanupTargets: [{ repoRootDir: rootDir, recordedBranches: recordedBranch ? [recordedBranch] : [] }],
+      canonicalSingularWorktreePath: resolve(canonicalSingularWorktreePath),
     };
   }
 

@@ -60,7 +60,7 @@ interface AppModalsProps {
   onPlanningMode?: (initialPlan: string, workflowId?: string | null, sourceIssue?: { provider: "github"; repository: string; issueNumber: number; url: string; title?: string }) => void;
   onOpenChatWithPrefill?: (prefillText: string) => void;
   taskOperations: {
-    moveTask: (taskId: string, column: Column, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
+    moveTask: (taskId: string, column: Column, optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number) => Promise<Task>;
     deleteTask: (taskId: string, options?: {
       removeDependencyReferences?: boolean;
       removeLineageReferences?: boolean;

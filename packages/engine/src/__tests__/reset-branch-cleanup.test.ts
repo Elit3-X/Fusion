@@ -131,13 +131,17 @@ describe("task reset branch cleanup", () => {
     });
   });
 
-  it("does not block on a holder Reset is about to remove", async () => {
+  it("classifies a registered Reset target as deletable instead of checked out", async () => {
     const owned = "/workspace/.worktrees/fn-232";
-    const state = harness({
-      registered: { [repoA]: [{ branch: "fusion/fn-232", worktreePath: owned }] },
-      ownedWorktreePaths: [owned],
-    });
-    expect((await deleteTaskResetBranches(state.input)).deleted).toHaveLength(1);
+    const registered = { [repoA]: [{ branch: "fusion/fn-232", worktreePath: owned }] };
+    const ownedState = harness({ registered, ownedWorktreePaths: [owned] });
+    expect((await planTaskResetBranchCleanup(ownedState.input)).blocked).toEqual([]);
+    expect((await deleteTaskResetBranches(ownedState.input)).deleted).toHaveLength(1);
+
+    const foreignState = harness({ registered });
+    expect((await planTaskResetBranchCleanup(foreignState.input)).blocked).toEqual([
+      { repoRootDir: repoA, branch: "fusion/fn-232", reason: "checked-out", holderWorktreePath: owned },
+    ]);
   });
 
   it("blocks when the primary checkout holds the branch", async () => {

@@ -512,7 +512,7 @@ export function moveTask(
   id: string,
   column: ColumnId,
   projectId?: string,
-  optionsOrPosition?: { preserveProgress?: boolean } | number,
+  optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number,
 ): Promise<Task> {
   return api<Task>(withProjectId(`/tasks/${id}/move`, projectId), {
     method: "POST",
@@ -521,6 +521,11 @@ export function moveTask(
       ...(
         typeof optionsOrPosition === "object" && optionsOrPosition?.preserveProgress
           ? { preserveProgress: true }
+          : {}
+      ),
+      ...(
+        typeof optionsOrPosition === "object" && optionsOrPosition?.expectedColumn !== undefined
+          ? { expectedColumn: optionsOrPosition.expectedColumn }
           : {}
       ),
     }),

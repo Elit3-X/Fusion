@@ -22,7 +22,7 @@ interface WorktreeGroupProps {
   onPlanningMode?: (initialPlan: string, workflowId?: string | null) => void;
   workflowId?: string | null;
   onOpenRefine?: (task: Task | TaskDetail) => void;
-  onMoveTask?: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
+  onMoveTask?: (id: string, column: ColumnId, optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number) => Promise<Task>;
   addToast: (message: string, type?: ToastType) => void;
   globalPaused?: boolean;
   onUpdateTask?: (

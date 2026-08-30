@@ -54,7 +54,11 @@ export interface DashboardViewMetadata {
 export const DASHBOARD_VIEWS: readonly DashboardViewMetadata[] = [
   { id: "board", label: "Board", labelKey: "nav.board" },
   { id: "list", label: "List", labelKey: "nav.list" },
-  { id: "patchnode", label: "Patchnode", labelKey: "nav.patchnode" },
+  /*
+  FNXC:PatchnoteNaming 2026-08-30-01:40:
+  Operators call the delivery history Patchnote. Keep the stable `patchnode` identifier and translation key unchanged because routes, storage, and integrations depend on them.
+  */
+  { id: "patchnode", label: "Patchnote", labelKey: "nav.patchnode" },
   { id: "graph", label: "Graph" },
   { id: "agents", label: "Agents", labelKey: "nav.agents" },
   { id: "missions", label: "Missions", labelKey: "nav.missions" },

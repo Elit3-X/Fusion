@@ -1213,10 +1213,10 @@
       "capacityExhausted": "Essa coluna está com capacidade esgotada. Tente novamente quando uma vaga se abrir.",
       "guardRejected": "Este movimento não é permitido pelo fluxo de trabalho.",
       "mergeBlocked": "Esta tarefa está bloqueada para conclusão até que sua etapa de merge termine.",
-      "promoteRejected": "Este cartão não pôde ser promovido.",
       "unknownColumn": "Essa coluna não existe no fluxo de trabalho desta tarefa.",
       "unplannedForExecution": "Esta tarefa ainda não está pronta para execução — o planejamento ou a revisão do plano ainda está pendente.",
-      "workflowMismatch": "Arrastar não pode mover um cartão entre fluxos de trabalho. Use o seletor de fluxo de trabalho."
+      "workflowMismatch": "Arrastar não pode mover um cartão entre fluxos de trabalho. Use o seletor de fluxo de trabalho.",
+      "staleMovePrecondition": ""
     },
     "todo": "A Fazer",
     "triage": "Planejamento",
@@ -8773,9 +8773,6 @@
     "prNodeTitle": "PR {{state}} — abrir a visão de PR",
     "prNodeWithNumber": "PR #{{number}} · {{state}}",
     "projectDefaultLocal": "Padrão do projeto / local",
-    "promote": "Promover",
-    "promoteTask": "Promover tarefa",
-    "promoting": "Promovendo…",
     "queued": "Na fila",
     "refine": "Refinar",
     "refineAddDetails": "Adicionar detalhes",

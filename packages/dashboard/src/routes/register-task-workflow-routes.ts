@@ -28,6 +28,7 @@ import type {
   TaskDetail,
   TaskSource,
   Column,
+  ColumnId,
   TaskReviewData,
   TaskReviewItem,
   TaskReviewSummary,
@@ -135,6 +136,7 @@ import {
   deleteTaskResetBranches,
   ResetWorktreeForeignSessionError,
   ActiveSessionWorktreeRemovalError,
+  getRegisteredWorktreePaths,
   getRegisteredWorktreeBranches,
   pruneWorktreeAdminEntries,
   isInsideConfiguredWorktreesDir,
@@ -2504,7 +2506,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
   router.post("/tasks/:id/move", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
-      const { column, preserveProgress } = req.body;
+      const { column, preserveProgress, expectedColumn } = req.body;
       /*
       FNXC:WorkflowColumns 2026-07-19-2b:15 (U12 / R2 / R11):
       Validate against the TASK'S WORKFLOW, not the legacy six-id enum. This endpoint rejected
@@ -2531,6 +2533,9 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       if (preserveProgress != null && typeof preserveProgress !== "boolean") {
         throw badRequest("preserveProgress must be a boolean");
       }
+      if (expectedColumn !== undefined && (typeof expectedColumn !== "string" || expectedColumn.trim().length === 0)) {
+        throw badRequest("expectedColumn must be a non-empty string");
+      }
 
       // R16: block moving a PR-await task "backward" (e.g. in-review → in-progress)
       // while it still has an open PR entity. The PR's lifecycle is workflow-owned;
@@ -2541,6 +2546,13 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
       const moveTarget = column as Column;
       const guardTask = await scopedStore.getTask(req.params.id);
       if (guardTask) {
+        if (expectedColumn !== undefined && guardTask.column !== expectedColumn) {
+          throw new ApiError(409, "This card already moved on. Refresh to see where it is now.", {
+            code: "stale-move-precondition",
+            messageKey: "board.rejection.staleMovePrecondition",
+            retryable: false,
+          });
+        }
         const activePrEntity =
           (await scopedStore.getActivePrEntityBySource?.("task", guardTask.id)) ??
           (guardTask.branchContext?.groupId
@@ -2589,12 +2601,38 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         }
       }
 
-      const task = await scopedStore.moveTask(req.params.id, column as Column, {
+      const moveOptions = {
         preserveProgress,
         allocateWorktree,
-        moveSource: "user",
-      });
-      res.json(task);
+        moveSource: "user" as const,
+      };
+      if (expectedColumn === undefined) {
+        const task = await scopedStore.moveTask(req.params.id, column as Column, moveOptions);
+        res.json(task);
+        return;
+      }
+
+      /*
+      FNXC:StartMovePrecondition 2026-08-30-01:40:
+      Start compares the column the operator saw under the same task lock that performs the move.
+      A handler-body check loses to a concurrent Start or scheduler hold release and can trigger a
+      destructive user reopen that hard-cancels work and sets `userPaused`, so this must use moveTaskIf.
+      The open-PR backward-move guard above deliberately keeps its existing advisory pre-lock placement.
+      */
+      let observedLiveColumn: ColumnId | undefined;
+      const result = await scopedStore.moveTaskIf(req.params.id, column as Column, (live) => {
+        observedLiveColumn = live.column;
+        return live.column === expectedColumn;
+      }, moveOptions);
+      const liveColumn = observedLiveColumn ?? result.task.column;
+      if (!result.moved && liveColumn !== moveTarget && liveColumn !== expectedColumn) {
+        throw new ApiError(409, "This card already moved on. Refresh to see where it is now.", {
+          code: "stale-move-precondition",
+          messageKey: "board.rejection.staleMovePrecondition",
+          retryable: false,
+        });
+      }
+      res.json(result.task);
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
@@ -3861,6 +3899,16 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         const targetPaths = (plan: ReturnType<typeof buildTaskResetWorktreePlan>) => plan.targets
           .map((target) => target.canonicalPath)
           .sort();
+        const registeredWorktreePathsByRepoRoot = new Map<string, Promise<Set<string>>>();
+        const getRegisteredPathsForRepo = (repoRootDir: string) => {
+          const key = resolve(repoRootDir);
+          let registered = registeredWorktreePathsByRepoRoot.get(key);
+          if (!registered) {
+            registered = getRegisteredWorktreePaths(repoRootDir);
+            registeredWorktreePathsByRepoRoot.set(key, registered);
+          }
+          return registered;
+        };
         const reconcileWorkspaceTaskDirectory = async (phase: "admission" | "point-of-use") => {
           if (!resetPlan.workspaceTaskDir) return;
           const rawPath = resetPlan.workspaceTaskDir;
@@ -3921,14 +3969,17 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
               }
             }
             /*
-            FNXC:TaskReset 2026-08-28-14:45:
-            Git registration proves ownership only when Reset is about to destroy an existing directory.
-            An absent target can only trigger the existing stale-admin-entry prune, while resetTaskPublication
-            is the sole writer that clears worktree/branch pointers. Requiring a registration after removal
-            permanently wedged retries following coordinator, PROMPT.md, or runtime-finalization refusals.
+            FNXC:TaskReset 2026-08-30-01:40:
+            A registered matching branch remains Reset's primary ownership proof. FN-258 also makes a
+            singular task's lower-cased ID path exclusive to that task, so a git-registered worktree at
+            that canonical path is sufficient when a user reopen has cleared or mismatched `task.branch`.
+            Unregistered directories and every non-canonical path still fail closed.
             */
             if (targetExists) {
-              const registeredBranches = await getRegisteredWorktreeBranches(target.repoRootDir);
+              const [registeredBranches, registeredPaths] = await Promise.all([
+                getRegisteredWorktreeBranches(target.repoRootDir),
+                getRegisteredPathsForRepo(target.repoRootDir),
+              ]);
               const targetBranch = typeof target.branch === "string" ? target.branch.trim() : "";
               let registeredOwner = false;
               if (targetBranch.length > 0) {
@@ -3939,8 +3990,14 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
                   }
                 }
               }
-              if (!registeredOwner) {
+              const recoveredCanonicalOwner = !registeredOwner
+                && target.canonicalPath === resetPlan.canonicalSingularWorktreePath
+                && registeredPaths.has(target.canonicalPath);
+              if (!registeredOwner && !recoveredCanonicalOwner) {
                 throw conflict(`Reset refuses a worktree whose managed task ownership cannot be proven${targetSuffix(target.repoRel)}`);
+              }
+              if (recoveredCanonicalOwner) {
+                await scopedStore.logEntry(req.params.id, `Reset recovered canonical worktree ownership at ${target.canonicalPath}`);
               }
             }
           }

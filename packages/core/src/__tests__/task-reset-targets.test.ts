@@ -27,7 +27,11 @@ describe("buildTaskResetWorktreePlan", () => {
     const worktreePath = join(rootDir, ".worktrees", "fn-203");
     const plan = buildTaskResetWorktreePlan(task({ worktree: worktreePath, branch: "fusion/fn-203" }), { rootDir, settings: {} });
 
-    expect(plan).toMatchObject({ kind: "singular", layout: "singular" });
+    expect(plan).toMatchObject({
+      kind: "singular",
+      layout: "singular",
+      canonicalSingularWorktreePath: resolve(worktreePath),
+    });
     expect(plan.targets).toEqual([expect.objectContaining({
       repoRel: SINGULAR_RESET_WORKTREE_REPO_REL,
       worktreePath,
@@ -41,23 +45,54 @@ describe("buildTaskResetWorktreePlan", () => {
     expect(plan.branchCleanupTargets).toEqual([{ repoRootDir: rootDir, recordedBranches: ["fusion/fn-203"] }]);
   });
 
-  it("plans project-root branch cleanup for a singular task without a worktree", () => {
+  it("plans the canonical singular target without a recorded worktree", () => {
+    const canonicalPath = join(rootDir, ".worktrees", "fn-203");
     const plan = buildTaskResetWorktreePlan(task({}), { rootDir, settings: {} });
-    expect(plan.targets).toEqual([]);
+    expect(plan.canonicalSingularWorktreePath).toBe(canonicalPath);
+    expect(plan.targets).toEqual([expect.objectContaining({
+      worktreePath: canonicalPath,
+      canonicalPath,
+      repoRel: SINGULAR_RESET_WORKTREE_REPO_REL,
+    })]);
     expect(plan.branchCleanupTargets).toEqual([{ repoRootDir: rootDir, recordedBranches: [] }]);
   });
 
-  it("plans project-root branch cleanup for a stale recorded singular worktree", () => {
+  it("deduplicates a recorded canonical singular worktree", () => {
+    const canonicalPath = join(rootDir, ".worktrees", "fn-203");
+    const plan = buildTaskResetWorktreePlan(task({ worktree: canonicalPath }), { rootDir, settings: {} });
+    expect(plan.targets).toHaveLength(1);
+    expect(plan.targets[0]?.canonicalPath).toBe(canonicalPath);
+  });
+
+  it("retains a legacy recorded singular worktree beside the canonical target", () => {
+    const legacyPath = join(rootDir, ".worktrees", "already-absent");
     const plan = buildTaskResetWorktreePlan(task({
-      worktree: join(rootDir, ".worktrees", "already-absent"),
+      worktree: legacyPath,
       branch: " fusion/fn-203 ",
     }), { rootDir, settings: {} });
+    expect(plan.targets.map((target) => target.canonicalPath)).toEqual([
+      join(rootDir, ".worktrees", "fn-203"),
+      legacyPath,
+    ]);
     expect(plan.branchCleanupTargets).toEqual([{ repoRootDir: rootDir, recordedBranches: ["fusion/fn-203"] }]);
   });
 
-  it("has no cleanup target for a workspace task without recorded repositories", () => {
+  it("uses the configured worktrees directory for the canonical singular target", () => {
+    const plan = buildTaskResetWorktreePlan(task({}), {
+      rootDir,
+      settings: { worktreesDir: "/managed-worktrees" },
+    });
+    expect(plan.canonicalSingularWorktreePath).toBe("/managed-worktrees/fn-203");
+    expect(plan.targets).toEqual([expect.objectContaining({
+      canonicalPath: "/managed-worktrees/fn-203",
+      containmentRoot: "/managed-worktrees",
+    })]);
+  });
+
+  it("has no canonical singular target for a workspace task without recorded repositories", () => {
     const plan = buildTaskResetWorktreePlan(task({ workspaceWorktrees: {} }), { rootDir, settings: {} });
     expect(plan).toMatchObject({ kind: "workspace", targets: [], branchCleanupTargets: [] });
+    expect(plan.canonicalSingularWorktreePath).toBeUndefined();
   });
 
   it("plans every new-layout repository under one workspace task directory", () => {

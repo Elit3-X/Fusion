@@ -1507,20 +1507,11 @@ export function useTasks(options?: UseTasksOptions) {
     return task;
   }, [projectId]);
 
-  const moveTask = useCallback(async (
-    id: string,
-    column: ColumnId,
-    optionsOrPosition?: { preserveProgress?: boolean } | number,
-  ): Promise<Task> => {
-    return normalizeNonBoardTask(await api.moveTask(id, column, projectId, optionsOrPosition));
-  }, [projectId]);
-
   /*
-  FNXC:DashboardPauseState 2026-08-05-07:18:
-  Every lifecycle surface must publish the server-confirmed pause row to shared state before
-  waiting on SSE or polling. One reconciliation seam advances the fetch version, replaces only
-  the matching task, and safely refreshes the project cache, so detail, board, list, and dock
-  hosts cannot diverge after pause or unpause.
+  FNXC:DashboardTaskReconciliation 2026-08-30-01:40:
+  Start and Reset must publish their server-confirmed rows before SSE or polling so every task host
+  immediately shows the new column. A stale card invited a second Start that could hard-cancel work,
+  so lifecycle mutations share one reconciliation seam rather than waiting for an eventual refresh.
   */
   const reconcileConfirmedTask = useCallback((confirmedTask: Task): Task => {
     const normalizedConfirmedRow = normalizeNonBoardTask(confirmedTask);
@@ -1571,6 +1562,14 @@ export function useTasks(options?: UseTasksOptions) {
     });
     return updatedTask;
   }, [projectId]);
+
+  const moveTask = useCallback(async (
+    id: string,
+    column: ColumnId,
+    optionsOrPosition?: { preserveProgress?: boolean; expectedColumn?: string } | number,
+  ): Promise<Task> => {
+    return reconcileConfirmedTask(await api.moveTask(id, column, projectId, optionsOrPosition));
+  }, [projectId, reconcileConfirmedTask]);
 
   const pauseTask = useCallback(async (id: string): Promise<Task> => {
     return reconcileConfirmedTask(await api.pauseTask(id, projectId));
@@ -1707,8 +1706,8 @@ export function useTasks(options?: UseTasksOptions) {
   }, [projectId]);
 
   const resetTask = useCallback(async (id: string, options?: TaskResetOptions): Promise<Task> => {
-    return normalizeNonBoardTask(await api.resetTask(id, options, projectId));
-  }, [projectId]);
+    return reconcileConfirmedTask(await api.resetTask(id, options, projectId));
+  }, [projectId, reconcileConfirmedTask]);
 
   const duplicateTask = useCallback(async (id: string, options?: { workflowId?: string }): Promise<Task> => {
     const task = normalizeNonBoardTask(await api.duplicateTask(id, options, projectId));
