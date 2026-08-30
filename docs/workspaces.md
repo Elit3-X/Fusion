@@ -91,6 +91,8 @@ Fusion captures changes per acquired sub-repository, not from the non-Git root. 
 
 Each repository uses the same `landOneRepo` / `landSquash` mechanic as a single-repository project, with that repository's main checkout as `projectRootDir`. When the integration branch is checked out with local edits, `merger.allowDirtyLocalCheckoutSync` applies identically: enabled stashes tracked and untracked edits, fast-forwards, then restores them; disabled refuses the land before the ref advances.
 
+`pushAfterMerge` also governs workspace publication. When it is off, every member lands only on its local integration ref: Fusion does not create fence refs, land intents, or remote branch writes. When it is on, each member resolves and publishes to its own selected remote under the normal workspace fence contract; `pushRemote` remains a direct-merge setting and does not select a workspace member remote.
+
 The CLI command `fn task merge` reports each repository as `landed`, `empty`, or `failed`, and exits non-zero for a partial land. Fusion finalizes the task to `done` only after every member has either landed or has no changes to land. A partial result remains recoverable and must be treated as an operator-visible state, not as one atomic merge.
 
 ## landedSha idempotency
@@ -138,6 +140,7 @@ Reset retains the task ID, title, confirmed description, dependencies, workflow 
 - Landing is non-atomic. A later failure does not undo earlier local integration-ref advances; use task logs, per-repository history, and `landedSha` proof before retrying or manually recovering.
 - A requested base can resolve in some members and not others. Inspect the per-repository Task Detail base/fallback marker and task log before manually coordinating a mixed workspace.
 - Acquisition exclusivity is per sub-repository and short-lived. The durable lease covers only the `git worktree add` critical section, then releases, so tasks may work concurrently in their own member worktrees after startup.
+- With `pushAfterMerge` off, cross-node land exclusivity rests on the durable per-repository lease and local ref compare-and-swap because no shared remote write occurs.
 - Detection is intentionally shallow. A Git repository nested below a non-repository direct child is not a workspace member until you restructure or configure a valid direct-child entry.
 
 ## Troubleshooting
