@@ -13,10 +13,21 @@ export type ReviewRemediationClaim = {
   owner: string;
 };
 
+/*
+FNXC:LifecycleContainment 2026-08-30-19:52:
+Every outcome here is REPORTED, because the caller's decision to stay silent is only safe when some
+other writer owns the narrative. `superseded`, `held`, and `refused` each have such an owner: the
+newer round, the live claimant, or the refusal already recorded once. `unavailable` has none — it
+means the claim could not be written at all — so collapsing it into those three made an unexplained
+bookkeeping failure mute the card, which is the exact stranding this claim protocol exists to remove.
+Measured on FN-270: a failed Code Review produced no fix steps, no claim marker, and zero remediation
+log entries; the card could not explain its own state.
+*/
 export type ClaimReviewRemediationAttemptResult =
   | { kind: "claimed"; claim: ReviewRemediationClaim; task: Task; result: WorkflowStepResult }
   | { kind: "unkeyable"; task: Task }
-  | { kind: "superseded" | "held" | "refused" | "missing" };
+  | { kind: "superseded" | "held" | "refused" | "missing" }
+  | { kind: "unavailable"; reason: string };
 
 type ClaimStore = TaskStore & {
   updateWorkflowStepResultsFenced?: TaskStore["updateWorkflowStepResultsFenced"];
@@ -34,11 +45,11 @@ async function fencedMutation(
   store: ClaimStore,
   taskId: string,
   compute: (current: Task) => { workflowStepResults: WorkflowStepResult[] } | null,
-): Promise<{ applied: boolean; task?: Task; unavailable?: boolean }> {
+): Promise<{ applied: boolean; task?: Task; unavailable?: boolean; reason?: string }> {
   if (typeof store.updateWorkflowStepResultsFenced === "function") {
     const outcome = await store.updateWorkflowStepResultsFenced(taskId, compute);
     if (outcome.applied) return { applied: true, task: outcome.task };
-    if (outcome.reason !== "unavailable") return { applied: false };
+    if (outcome.reason !== "unavailable") return { applied: false, reason: outcome.reason };
   }
   if (typeof store.updateTaskAtomic === "function") {
     let applied = false;
@@ -79,6 +90,8 @@ export async function claimRemediationAttempt(
     owner: `${source}:${randomUUID()}`,
   };
   let claimedResult: WorkflowStepResult | undefined;
+  /* Why admission was declined, so the caller can tell "someone else owns this" from "nobody does". */
+  let declined: "superseded" | "held" | "refused" | "missing" | undefined;
   const applied = await fencedMutation(store, taskId, (current) => {
     const live = current.workflowStepResults?.find((result) => result.workflowStepId === claim.workflowStepId);
     const liveSignature = live ? reviewInputSignature(live) : undefined;
@@ -91,7 +104,14 @@ export async function claimRemediationAttempt(
     admitted and the stale fields overwritten — otherwise a refusal would silence not just its own
     round but every future one, stranding the card exactly as this task's own defect did.
     */
-    if (!live || liveSignature !== claim.signature) return null;
+    if (!live) {
+      declined = "missing";
+      return null;
+    }
+    if (liveSignature !== claim.signature) {
+      declined = "superseded";
+      return null;
+    }
     const disposition = classifyRemediationAttemptClaim(current.workflowStepResults, {
       workflowStepId: claim.workflowStepId,
       signature: claim.signature,
@@ -102,7 +122,13 @@ export async function claimRemediationAttempt(
     const admissible = disposition.kind === "claimable"
       || disposition.kind === "reclaimable"
       || disposition.kind === "signature-moved";
-    if (!admissible) return null;
+    if (!admissible) {
+      declined = disposition.kind === "refused" ? "refused"
+        : disposition.kind === "held" ? "held"
+        : disposition.kind === "absent" ? "missing"
+        : "superseded";
+      return null;
+    }
     claimedResult = {
       ...live,
       remediationAttemptSignature: claim.signature,
@@ -112,8 +138,14 @@ export async function claimRemediationAttempt(
     };
     return { workflowStepResults: replaceResult(current.workflowStepResults, claim.workflowStepId, claimedResult) };
   });
-  if (!applied.applied || !applied.task || !claimedResult) return { kind: "held" };
-  return { kind: "claimed", claim, task: applied.task, result: claimedResult };
+  if (applied.applied && applied.task && claimedResult) {
+    return { kind: "claimed", claim, task: applied.task, result: claimedResult };
+  }
+  /* The compute ran and declined: an owner exists, so this runner is right to stay quiet. */
+  if (declined) return { kind: declined };
+  if (applied.reason === "task-missing" || applied.reason === "task-deleted") return { kind: "missing" };
+  /* The compute never ran, or its write was lost. Nobody owns the narrative — say so. */
+  return { kind: "unavailable", reason: applied.unavailable ? "store-unavailable" : applied.reason ?? "write-lost" };
 }
 
 export async function reassertRemediationAttempt(

@@ -1116,7 +1116,29 @@ export async function handleGraphFailure(
             be the duplicate operator noise this task exists to remove.
             */
             const admission = await claimRemediationAttempt(deps.store, task.id, failedPreMergeStep, "graph-failure", live);
-            if (admission.kind !== "claimed" && admission.kind !== "unkeyable") return;
+            /*
+            FNXC:LifecycleContainment 2026-08-30-19:52:
+            Staying silent is only correct when another writer owns this round's story: a newer
+            review (`superseded`), a live claimant (`held`), a refusal already explained once
+            (`refused`), or a step that no longer exists (`missing`). An `unavailable` claim has no
+            such owner — the marker could not be written at all — so returning quietly left the card
+            with a blocking review, no fix steps, and nothing on its timeline. Fail OPEN instead:
+            record why bookkeeping failed and produce the remediation unclaimed. A duplicated
+            remediation wave is bounded by the revision budget; a mute blocked card is not.
+            */
+            if (admission.kind === "unavailable") {
+              await deps.store.logEntry(
+                task.id,
+                "Remediation claim unavailable — producing remediation without it",
+                `Step: ${failedPreMergeStep.workflowStepName || failedPreMergeStep.workflowStepId}\nReason: ${admission.reason}\n`
+                + "The concurrency marker could not be written, so this attempt is not fenced against a"
+                + " second runner. Remediation still proceeds: a blocking review must never park a card silently.",
+                deps.getRunContextFor(task.id),
+              );
+            } else if (admission.kind !== "claimed" && admission.kind !== "unkeyable") {
+              return;
+            }
+            const claimedTask = admission.kind === "claimed" || admission.kind === "unkeyable" ? admission.task : live;
             const claimedStep = admission.kind === "claimed" ? admission.result : failedPreMergeStep;
             /*
             FNXC:LifecycleContainment 2026-08-30-13:36:
@@ -1126,7 +1148,7 @@ export async function handleGraphFailure(
             */
             let scheduled: boolean;
             try {
-              scheduled = await deps.requestPreMergeOptionalStepFix(task.id, admission.task, {
+              scheduled = await deps.requestPreMergeOptionalStepFix(task.id, claimedTask, {
                 nodeId: claimedStep.workflowStepId,
                 stepName: claimedStep.workflowStepName || claimedStep.workflowStepId,
                 feedback: claimedStep.output ?? "(no feedback captured)",

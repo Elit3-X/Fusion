@@ -9521,8 +9521,24 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         prior visible behavior rather than being silently stranded.
         */
         const admission = await claimRemediationAttempt(this.store, task.id, target, "self-healing", task);
-        if (admission.kind !== "claimed" && admission.kind !== "unkeyable") continue;
-        const admittedTask = admission.task;
+        /*
+        FNXC:LifecycleContainment 2026-08-30-19:52:
+        Skipping silently is correct only when another writer owns this round: a newer review, a live
+        claimant, or a refusal already explained once. `unavailable` means the marker could not be
+        written at all, so nobody will speak for the card — the sweep then fails OPEN, records why,
+        and revives unclaimed rather than leaving a blocking review with no timeline entry.
+        */
+        if (admission.kind === "unavailable") {
+          await this.store.logEntry(
+            task.id,
+            "Remediation claim unavailable — reviving without it",
+            `Step: ${target.workflowStepName || target.workflowStepId}\nReason: ${admission.reason}\n`
+            + "The concurrency marker could not be written, so this revival is not fenced against a second runner.",
+          ).catch(() => undefined);
+        } else if (admission.kind !== "claimed" && admission.kind !== "unkeyable") {
+          continue;
+        }
+        const admittedTask = admission.kind === "claimed" || admission.kind === "unkeyable" ? admission.task : task;
         const claim = admission.kind === "claimed" ? admission.claim : undefined;
         const budget = revisionBudgetFor(task.id);
         const nextCount = budget.attempts + 1;

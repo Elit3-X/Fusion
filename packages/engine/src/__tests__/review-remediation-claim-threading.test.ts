@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Task, WorkflowStepResult } from "@fusion/core";
 
 import { recoverFailedPreMergeWorkflowStepDetailed } from "../executor/recover-failed-pre-merge-step.js";
+import { claimRemediationAttempt } from "../executor/claim-review-remediation-attempt.js";
 import { SelfHealingManager } from "../self-healing.js";
 
 /*
@@ -460,6 +461,63 @@ describe("FN-267 the sweep's admission claim fences the recovery it authorized",
       // Its own admission artifacts stand: one attempt was genuinely started and is counted.
       expect(revivalEntries(store)).toHaveLength(1);
       expect(row.postReviewFixCount).toBe(1);
+    } finally {
+      manager.stop();
+    }
+  });
+});
+
+/*
+FNXC:LifecycleContainment 2026-08-30-19:52:
+FN-270 regression: a Code Review REVISE left the card blocked with no fix steps, no claim marker,
+and ZERO remediation entries on its timeline. Cause: every declined admission collapsed to `held`,
+and both callers treat `held` as "another writer owns the story, stay quiet". A claim that could not
+be written has no such writer, so the card went mute — the stranding this protocol exists to remove.
+*/
+describe("FN-270 an unwritable claim never mutes the card", () => {
+  it("reports an unwritable claim as unavailable instead of held", async () => {
+    const row = failedReviewRow();
+    const store = sweepStore(row);
+    /* The fenced writer accepts the call but loses the write: nobody ends up owning the round. */
+    store.updateWorkflowStepResultsFenced = vi.fn(async () => ({ applied: false as const, reason: "write-lost" as never }));
+
+    const admission = await claimRemediationAttempt(store as never, row.id, claimOf(row), "test", row);
+
+    expect(admission.kind).toBe("unavailable");
+  });
+
+  it("still distinguishes the three outcomes that DO have an owner", async () => {
+    const row = failedReviewRow();
+    const store = sweepStore(row);
+    const held = await claimRemediationAttempt(store as never, row.id, claimOf(row), "test", row);
+    expect(held.kind).toBe("claimed");
+
+    // A second runner over the same live claim: the first owner speaks, so this one is silent.
+    expect((await claimRemediationAttempt(store as never, row.id, claimOf(row), "test", row)).kind).toBe("held");
+
+    // A durable refusal already explained once.
+    row.workflowStepResults = [{ ...claimOf(row), remediationAttemptOwner: undefined, remediationRefusedReason: "no-actionable-findings" }] as WorkflowStepResult[];
+    expect((await claimRemediationAttempt(store as never, row.id, claimOf(row), "test", row)).kind).toBe("refused");
+  });
+
+  it("revives the card and explains itself when the claim cannot be written", async () => {
+    const row = failedReviewRow();
+    const store = sweepStore(row);
+    store.updateWorkflowStepResultsFenced = vi.fn(async () => ({ applied: false as const, reason: "write-lost" as never }));
+    delete (store as { updateTaskAtomic?: unknown }).updateTaskAtomic;
+    const recoverFailedPreMergeStepDetailed = vi.fn(async () => ({ kind: "scheduled" as const }));
+    const manager = new SelfHealingManager(store as never, {
+      rootDir: "/tmp/fn-270-claim",
+      recoverFailedPreMergeStep: vi.fn(async () => true),
+      recoverFailedPreMergeStepDetailed,
+    } as never);
+
+    try {
+      // The card is revived rather than skipped...
+      await expect(manager.recoverReviewTasksWithFailedPreMergeSteps()).resolves.toBe(1);
+      // ...and the timeline says why it ran unfenced, instead of showing nothing at all.
+      expect(store.entries.filter((entry) => entry.action.includes("Remediation claim unavailable"))).toHaveLength(1);
+      expect(revivalEntries(store)).toHaveLength(1);
     } finally {
       manager.stop();
     }
