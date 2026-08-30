@@ -184,7 +184,7 @@ export function buildHandleGraphFailureDeps(host: any): any {
       "isRequiredArtifactRecoveryProtected", "isRetryableBenignMergePauseAbort",
       "parkCompletedBlockedTask", "persistTokenUsage", "reenterPausedAbortedWorkflowNode",
       "resolveResumeLanes", "routeGraphFailureToExecutionResume", "routeGraphMergeFailureToRetry",
-      "routeImplementationIncompleteMergeGraphFailure", "routeResetParsePinMismatchToRetry",
+      "requestPreMergeOptionalStepFix", "routeImplementationIncompleteMergeGraphFailure", "routeResetParsePinMismatchToRetry",
       "routeRetryableRemediationGraphFailureToPreMergeFix", "routeUnusableWorktreeGraphFailureToRecovery",
       "safeLogEntry",
     ]),
@@ -1490,7 +1490,9 @@ export function buildStaleLockRecoveryDeps(host: any): any {
 export function buildRecoverFailedPreMergeWorkflowStepDeps(host: any): any {
   return {
     store: host.store,
-    ...facadeMethods(host, ["getRunContextFor", "resolveFailedPreMergeWorkflowStepBudget", "sendTaskBackForFix"]),
+    ...facadeMethods(host, [
+      "getRunContextFor", "resolveFailedPreMergeWorkflowStepBudget", "appendReviewRemediationSteps", "sendTaskBackForFix",
+    ]),
   };
 }
 

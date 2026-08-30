@@ -1067,6 +1067,7 @@ export {
   formatRemediationStepName,
   isRemediationStep,
   hasPendingRemediationWork,
+  hasPendingReviewRemediationWork,
   remediationWaveCount,
   hasOpenEquivalentRemediationStep,
   remediationDeclaredFiles,
@@ -3024,10 +3025,13 @@ export {
   WORKFLOW_REVIEW_FINDING_RESOLUTIONS,
   MAX_WORKFLOW_STEP_PRIOR_ATTEMPTS,
   PLAN_REVIEW_LEASE_STALENESS_MS,
+  REMEDIATION_ATTEMPT_CLAIM_STALENESS_MS,
+  classifyRemediationAttemptClaim,
   classifyReviewLease,
   makeReviewLeaseRecord,
   isTerminalStepResult,
   type ReviewLeaseDisposition,
+  type RemediationAttemptClaimDisposition,
   type ArbitrationFailureFence,
 } from "./workflows/workflow-step-results.js";
 export { PLAN_REVIEW_COMPLETENESS_POLICY } from "./agents/planning-review-policy.js";

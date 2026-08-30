@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSy
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, isWipColumnRole, isReviewColumnRole, isTerminalColumnRole, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr, type WorkflowIrV2,
+import { loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, isWipColumnRole, isReviewColumnRole, isTerminalColumnRole, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, classifyReviewLease, classifyRemediationAttemptClaim, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr, type WorkflowIrV2,
 
   resolveNearDuplicateCanonicalFlags,
   LEGACY_COLUMN_IDS_BY_ROLE,
@@ -221,6 +221,16 @@ import {
   countOptionalStepRevisionAttempts,
   optionalStepRevisionLogOutcome,
 } from "./healing/self-healing-optional-step-revision.js";
+import {
+  claimRemediationAttempt,
+  resolveRemediationAttempt,
+  retainRefusalWithNarration,
+} from "./executor/claim-review-remediation-attempt.js";
+import { reviewInputSignature } from "./executor/request-pre-merge-optional-step-fix.js";
+import type {
+  RecoverFailedPreMergeStepOutcome,
+  ReviewRemediationAttemptDescriptor,
+} from "./executor/recover-failed-pre-merge-step.js";
 
 export {
   extractTaskIdFromTempMergeDir,
@@ -466,6 +476,20 @@ export interface SelfHealingOptions {
    * Should return true if the task was successfully sent back, false otherwise.
    */
   recoverFailedPreMergeStep?: (task: Task) => Promise<boolean>;
+  /**
+   * FNXC:LifecycleContainment 2026-08-30-13:36:
+   * Claim-scoped variant of {@link SelfHealingOptions.recoverFailedPreMergeStep}. The sweep's
+   * admission claim only fences production when the recovery it authorizes runs INSIDE that claim:
+   * the descriptor lets the executor address the exact claimed review round, re-assert ownership
+   * immediately before the hand-off, and report `refused`/`superseded` distinctly from a transient
+   * skip. Without it a refusal releases its claim and is re-narrated every five minutes — the loop
+   * this task exists to close. Left optional so a runtime that has not wired it keeps the legacy
+   * boolean behavior instead of silently stranding cards.
+   */
+  recoverFailedPreMergeStepDetailed?: (
+    task: Task,
+    options: { claim: ReviewRemediationAttemptDescriptor },
+  ) => Promise<RecoverFailedPreMergeStepOutcome>;
   /**
    * Re-enqueue a task into the auto-merge queue. Used by
    * `recoverInterruptedMergingTasks` so that a stale `merging` status that was
@@ -9443,6 +9467,27 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         const failedStep = latestFailedPreMergeStep(task);
         if (!failedStep || !resolveRemediationCheckout(task, failedStep)) return false;
 
+        /*
+        FNXC:LifecycleContainment 2026-08-30-13:36:
+        Advisory refusal filter. A retained refusal is already honored by the claim CAS at admission,
+        but only AFTER the sweep has selected the card and walked its logging path; the durable
+        refusal exists precisely so an unproducible review is not re-attempted at all. Filtering here
+        keeps "explained once" literal. It is signature-aware by construction: `classify` reports
+        `signature-moved` — not `refused` — as soon as the review input changes, so a genuinely new
+        round is re-admitted while the unchanged one stays skipped. An unkeyable result cannot carry
+        a refusal, so it is admitted unchanged.
+        */
+        const advisorySignature = reviewInputSignature(failedStep);
+        if (advisorySignature) {
+          const disposition = classifyRemediationAttemptClaim(task.workflowStepResults, {
+            workflowStepId: failedStep.workflowStepId,
+            signature: advisorySignature,
+            liveSignature: advisorySignature,
+            now: Date.now(),
+          });
+          if (disposition.kind === "refused") return false;
+        }
+
         // Merge must be blocked *specifically* by the failed pre-merge step —
         // not by an unrelated condition (incomplete steps, etc.) that is
         // already handled by a dedicated scan.
@@ -9462,27 +9507,89 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
 
       let recovered = 0;
       for (const task of candidates) {
+        const target = latestFailedPreMergeStep(task);
+        if (!target) continue;
+        /*
+        FNXC:LifecycleContainment 2026-08-30-12:57:
+        Claim admission is deliberately before the durable counter, attempt narration, and recovery
+        delegation. The PostgreSQL fenced tier serializes two engine sweeps, so only its winner can
+        consume budget or tell the operator an attempt began; unkeyable legacy results retain the
+        prior visible behavior rather than being silently stranded.
+        */
+        const admission = await claimRemediationAttempt(this.store, task.id, target, "self-healing", task);
+        if (admission.kind !== "claimed" && admission.kind !== "unkeyable") continue;
+        const admittedTask = admission.task;
+        const claim = admission.kind === "claimed" ? admission.claim : undefined;
         const budget = revisionBudgetFor(task.id);
         const nextCount = budget.attempts + 1;
-        const totalFixCount = (task.postReviewFixCount ?? 0) + 1;
+        const totalFixCount = (admittedTask.postReviewFixCount ?? 0) + 1;
         try {
-          // Increment the counter BEFORE delegating so that even if the
-          // executor path crashes or races, the budget is still consumed and
-          // we can't enter an infinite revival loop.
           await this.store.updateTask(task.id, { postReviewFixCount: totalFixCount });
           await this.store.logEntry(
             task.id,
             `Auto-reviving in-review task with failed pre-merge workflow step (attempt ${nextCount}/${budget.label})`,
             optionalStepRevisionLogOutcome(`Step: ${budget.stepName ?? budget.key}`, budget.key),
           );
-          const sentBack = await recoverFn(task);
-          if (sentBack) {
+          /*
+          FNXC:LifecycleContainment 2026-08-30-13:36:
+          The claim must travel WITH the work it admitted. The claim-scoped recovery addresses the
+          claimed step id (never a re-derived "latest failed"), re-asserts ownership immediately
+          before its hand-off, and reports four distinct outcomes:
+            scheduled  → release, so a genuinely new review round is admitted later;
+            refused    → RETAIN with the reason — this is what makes the refusal explained once
+                         instead of re-narrated every sweep, and it is the loop this task closes;
+            superseded → silence from here on: a newer round owns the row, so the overtaken runner
+                         clears nothing, condemns nothing, and adds nothing to the task's story;
+            skipped    → release, because a transient decline must stay retryable.
+          */
+          const detailedRecoverFn = this.options.recoverFailedPreMergeStepDetailed;
+          const outcome: RecoverFailedPreMergeStepOutcome = claim && detailedRecoverFn
+            ? await detailedRecoverFn(admittedTask, { claim })
+            : (await recoverFn(admittedTask)) ? { kind: "scheduled" } : { kind: "skipped" };
+
+          if (outcome.kind === "superseded") {
+            log.log(`Revival of ${task.id} was superseded by a newer review result — leaving the newer round untouched`);
+            continue;
+          }
+          if (outcome.kind === "refused") {
+            /*
+            FNXC:LifecycleContainment 2026-08-30-13:36:
+            The explanation is written through the FENCED store and BEFORE the retain, which is the
+            only ordering that is both safe and possible. Fenced-and-before: ownership is validated
+            atomically with the write, so an overtaken runner cannot narrate an obsolete round.
+            Fenced-and-after is not available: `retain` stamps the refusal reason, and the classifier
+            reports a refused round as `refused` rather than `owned`, so the fence would reject the
+            very narration the refusal exists to produce and the card would go dark. If supersession
+            lands between the two, the entry stands as a true record of the round it names while the
+            newer round is re-admitted on its own signature.
+            */
+            log.warn(`Revival of ${task.id} refused — no remediation could be produced for gate "${outcome.gate}" (${outcome.reason})`);
+            const refusalEntry = {
+              action: "Failed pre-merge step remediation not produced — card left in review",
+              outcome: `Step: ${budget.stepName ?? budget.key}\nGate: ${outcome.gate}\nReason: ${outcome.reason}\n`
+                + "This review is not retried until its findings change. Re-run the review after addressing it manually, "
+                + "or use the privileged review bypass when the failed review is known to be non-blocking.",
+            };
+            if (claim) {
+              /* Marker and explanation land together or not at all: no interval exists to lose the claim in. */
+              await retainRefusalWithNarration(this.store, task.id, claim, outcome.reason, refusalEntry);
+            } else {
+              await this.store.logEntry(task.id, refusalEntry.action, refusalEntry.outcome);
+            }
+            continue;
+          }
+          if (claim) {
+            const resolution = await resolveRemediationAttempt(this.store, task.id, claim, "release");
+            if (!resolution.applied) continue;
+          }
+          if (outcome.kind === "scheduled") {
             log.log(`Revived ${task.id}: sent back for fix (${nextCount}/${budget.label})`);
             recovered++;
           } else {
             log.warn(`Revival of ${task.id} was skipped by executor — budget already consumed`);
           }
         } catch (err: unknown) {
+          if (claim) await resolveRemediationAttempt(this.store, task.id, claim, "release").catch(() => undefined);
           const errorMessage = err instanceof Error ? err.message : String(err);
           log.error(`Failed to revive ${task.id}: ${errorMessage}`);
         }
