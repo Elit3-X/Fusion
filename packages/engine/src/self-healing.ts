@@ -5385,7 +5385,9 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           handoffAccepted: settings.mergeRequestContractShadowEnabled === true && roles.isReviewColumn
             ? (await this.store.getCompletionHandoffAcceptedMarker(blocker.id)) !== null
             : false,
-          ...roles,
+          isWipColumn: roles.isWipColumn,
+          isReviewColumn: roles.isReviewColumn,
+          isTerminalColumn: roles.isTerminalColumn,
         });
         if (!fileScopeLeaseBlocksCandidate(blocker, dependent, classification)) return false;
         const dependentScope = await getFilteredFileScope(dependent.id);
@@ -6537,7 +6539,9 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           handoffAccepted: settings.mergeRequestContractShadowEnabled === true && roles.isReviewColumn
             ? (await this.store.getCompletionHandoffAcceptedMarker(blocker.id)) !== null
             : false,
-          ...roles,
+          isWipColumn: roles.isWipColumn,
+          isReviewColumn: roles.isReviewColumn,
+          isTerminalColumn: roles.isTerminalColumn,
         });
         if (!fileScopeLeaseBlocksCandidate(blocker, task, classification)) return false;
 

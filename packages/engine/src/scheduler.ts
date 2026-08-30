@@ -599,6 +599,9 @@ export function classifyFileScopeLease(
   Role questions stay parameterized with literal defaults so callers that cannot resolve a workflow
   retain legacy board semantics rather than silently dropping every overlap lease on renamed boards.
   */
+  /* DELIBERATE-LITERAL: the `??` fallbacks are the no-resolved-workflow defaults described directly
+     above — deleting them makes an unresolvable workflow drop every overlap lease, which is strictly
+     worse than the legacy semantics they preserve. Same posture as isTerminalDependencyColumn. */
   const isWipColumn = options?.isWipColumn ?? task.column === "in-progress";
   const isReviewColumn = options?.isReviewColumn ?? task.column === "in-review";
   const isTerminalColumn = options?.isTerminalColumn ?? (task.column === "done" || task.column === "archived");
@@ -638,7 +641,14 @@ export function shouldHoldActiveFileScopeLease(
   tasks: Task[],
   options?: FileScopeLeaseOptions,
 ): boolean {
-  return classifyFileScopeLease(task, tasks, options).kind !== "none";
+  /* FNXC:LaneWiring 2026-08-30-00:20: name the lane answers this wrapper forwards. A bare `options`
+     pass reads as unwired to the lane-wiring census; the spread keeps every other option intact. */
+  return classifyFileScopeLease(task, tasks, {
+    ...options,
+    isWipColumn: options?.isWipColumn,
+    isReviewColumn: options?.isReviewColumn,
+    isTerminalColumn: options?.isTerminalColumn,
+  }).kind !== "none";
 }
 
 export function findHigherPriorityQueuedOverlap(

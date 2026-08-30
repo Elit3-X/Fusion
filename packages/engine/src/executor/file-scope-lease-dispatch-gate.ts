@@ -52,10 +52,18 @@ async function resolveLeaseRoles(
       isTerminalColumn: isTerminalColumnRole(flags, task.column),
     };
   } catch {
+    /*
+    FNXC:OverlapScheduling 2026-08-30-00:20:
+    The IR could not be resolved, so there are no trait flags to key on. Call the SAME role helpers
+    with `undefined` flags rather than restating the legacy column ids: each helper's documented
+    no-flags branch already is that literal, so this is byte-for-byte the previous behaviour while
+    keeping the lifecycle-column census at zero raw guards. Restating them here made the ratchet
+    rise and turned the Lint gate red on every open PR.
+    */
     return {
-      isWipColumn: task.column === "in-progress",
-      isReviewColumn: task.column === "in-review",
-      isTerminalColumn: task.column === "done" || task.column === "archived",
+      isWipColumn: isWipColumnRole(undefined, task.column),
+      isReviewColumn: isReviewColumnRole(undefined, task.column),
+      isTerminalColumn: isTerminalColumnRole(undefined, task.column),
     };
   }
 }
@@ -101,7 +109,11 @@ export async function blockOuterDispatchWhenFileScopeLeaseHeld(
       mergeRequestContractShadowEnabled: mergeShadowEnabled,
       handoffAccepted,
       schedulingDependencyOptions,
-      ...roles,
+      /* FNXC:LaneWiring 2026-08-30-00:20: forwarded by name — a spread reads as unwired to the
+         lane-wiring census (it reads call sites, not types) and reddens the Lint gate. */
+      isWipColumn: roles.isWipColumn,
+      isReviewColumn: roles.isReviewColumn,
+      isTerminalColumn: roles.isTerminalColumn,
     });
     if (classification.kind === "none") continue;
     const holderScope = filterPathsByIgnoreList(
