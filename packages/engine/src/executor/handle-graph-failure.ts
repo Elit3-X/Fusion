@@ -529,7 +529,40 @@ export async function handleGraphFailure(
       Keep the existing breadcrumb, then stop before every recovery classifier so a canceled run
       cannot retry a merge or manufacture a failed park; engine aborts have no user-cancel marker
       and retain their existing recoveries.
+
+      FNXC:WorkflowLifecycle 2026-08-31-03:32:
+      "its in-flight graph run" is the load-bearing half of that contract, and it was not enforced.
+      `userCanceledTaskIds` is an in-memory TASK-scoped marker whose only clear sites are the
+      implementation loop (`run-implementation.ts`) and the move-INTO-WIP listener
+      (`wire-executor-lifecycle.ts`, `if (to === wipLane)`). A card canceled in the REVIEW lane
+      reaches neither, so the marker outlived the run it canceled and every LATER run for that task
+      exited here. Measured on FN-270/FN-273: a Code Review REVISE was swallowed 76ms after it was
+      recorded, before it could reach the FN-267 remediation claim, so no fix steps were ever
+      produced and the card could not move to WIP -- which is the very move that clears the marker.
+      The marker was cleared by the transition it prevented. Because the dashboard Retry hard-cancels
+      to restart the step, each Retry RE-ARMED the trap, and only an engine restart escaped it.
+
+      Fix: honor the marker only for a run that actually carries abort evidence. A run torn down with
+      no abort trace at all has outlived the cancellation, so the marker is stale by construction --
+      drop it and fall through to normal recovery. This is deliberately conservative: ANY trace
+      (pause-abort marker, abort provenance, a paused row, or an interrupted node) keeps the FN-249
+      terminal exit, so a genuinely canceled run is unaffected even when its teardown races a
+      successor run.
       */
+      const runCarriesAbortEvidence = Boolean(
+        pausedAborted
+          || abortProvenance
+          || live.paused
+          || live.userPaused
+          || result.interruptedNodeId
+          || result.interruptedAbortKind,
+      );
+      if (deps.userCanceledTaskIds.has(task.id) && !runCarriesAbortEvidence) {
+        deps.userCanceledTaskIds.delete(task.id);
+        const staleCancellation = `Stale operator-cancellation marker cleared at node '${failedNodeForLog}' — this run carries no abort evidence; continuing normal recovery`;
+        executorLog.log(`${task.id}: ${staleCancellation}`);
+        await deps.store.logEntry(task.id, staleCancellation, undefined, deps.getRunContextFor(task.id));
+      }
       if (deps.userCanceledTaskIds.has(task.id)) {
         deps.clearPausedAborted(task.id);
         deps.activeWorktrees.delete(task.id);

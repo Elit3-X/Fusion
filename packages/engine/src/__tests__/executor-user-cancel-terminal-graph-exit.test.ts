@@ -217,3 +217,113 @@ describe("FN-249 operator cancellation graph exit", () => {
     expect(log).not.toContain("routed to bounded auto-merge retry");
   });
 });
+
+/*
+FNXC:WorkflowLifecycle 2026-08-31-03:32:
+The FN-249 marker is task-scoped and in-memory, but its exit claims to be terminal only for "its
+in-flight graph run". Its sole clear sites are the implementation loop and the move-INTO-WIP
+listener, so a card canceled in the REVIEW lane kept the marker forever and every LATER run exited
+quietly. Measured on FN-270/FN-273: a Code Review REVISE was swallowed 76ms after being recorded,
+no remediation was produced, and the card could not reach WIP -- the very move that clears the
+marker. Dashboard Retry hard-cancels to restart the step, so each Retry re-armed the trap.
+
+These cases pin the INVARIANT, not the repro: a run with NO abort evidence must never be treated as
+canceled (and must disarm the stale marker), while EVERY individual evidence shape must still take
+the FN-249 terminal exit.
+*/
+describe("stale operator-cancellation marker never swallows a later run", () => {
+  // A review REVISE failure: a real graph failure with no interruption and no abort kind.
+  const reviewReviseFailure = {
+    disposition: "failed",
+    outcome: "failure",
+    visitedNodeIds: ["code-review-step"],
+    context: { "node:code-review-step:value": "revise" },
+  } as const;
+
+  function makeHarness(overrides: Partial<TaskDetail> = {}) {
+    resetExecutorMocks();
+    const store = createMockStore();
+    const task = makeTask(overrides);
+    store.getTask.mockResolvedValue(task);
+    store.getSettings.mockResolvedValue({
+      maxConcurrent: 2,
+      maxWorktrees: 4,
+      pollIntervalMs: 15_000,
+      autoMerge: true,
+      maxAutoMergeRetries: 3,
+    });
+    const executor = new TaskExecutor(store as never, "/tmp/test");
+    return { executor, store, task };
+  }
+
+  function logOf(store: ReturnType<typeof createMockStore>) {
+    return store.logEntry.mock.calls.map((call: unknown[]) => call[1]).join("\n");
+  }
+
+  it("routes a REVISE to recovery and drops the stale marker when the run was never aborted", async () => {
+    const { executor, store, task } = makeHarness();
+    const resume = vi.spyOn(executor as any, "routeGraphFailureToExecutionResume").mockResolvedValue(true);
+    // The marker survives from an EARLIER canceled run; this run carries no abort trace at all.
+    (executor as any).userCanceledTaskIds.add(task.id);
+
+    await (executor as any).handleGraphFailure(task, reviewReviseFailure);
+
+    const log = logOf(store);
+    expect(log).not.toContain("Workflow graph run ended after operator cancellation");
+    expect(log).toContain("Stale operator-cancellation marker cleared");
+    expect(resume).toHaveBeenCalled();
+    // Disarmed, so a Retry cannot re-strand the card on the next pass.
+    expect((executor as any).userCanceledTaskIds.has(task.id)).toBe(false);
+  });
+
+  it("stays disarmed across a second failure on the same task", async () => {
+    const { executor, store, task } = makeHarness();
+    const resume = vi.spyOn(executor as any, "routeGraphFailureToExecutionResume").mockResolvedValue(true);
+    (executor as any).userCanceledTaskIds.add(task.id);
+
+    await (executor as any).handleGraphFailure(task, reviewReviseFailure);
+    await (executor as any).handleGraphFailure(task, reviewReviseFailure);
+
+    expect(logOf(store)).not.toContain("Workflow graph run ended after operator cancellation");
+    expect(resume).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+  Every evidence shape the guard accepts, so narrowing it later is a visible break. `pausedAborted`
+  is set through markPausedAborted because that is how the real cancel path records it.
+  */
+  it.each([
+    ["pause-abort marker", { markPausedAborted: "engine-abort" as const }, {}, reviewReviseFailure],
+    ["paused row", {}, { paused: true }, reviewReviseFailure],
+    ["userPaused row", {}, { userPaused: true }, reviewReviseFailure],
+    ["interrupted node", {}, {}, mergePauseAbort],
+  ])("keeps the FN-249 terminal exit when the run carries %s", async (_shape, marker, taskOverrides, result) => {
+    const { executor, store, task } = makeHarness(taskOverrides as Partial<TaskDetail>);
+    const resume = vi.spyOn(executor as any, "routeGraphFailureToExecutionResume").mockResolvedValue(true);
+    if ((marker as { markPausedAborted?: string }).markPausedAborted) {
+      (executor as any).markPausedAborted(task.id, (marker as { markPausedAborted: string }).markPausedAborted);
+    }
+    (executor as any).userCanceledTaskIds.add(task.id);
+
+    await (executor as any).handleGraphFailure(task, result);
+
+    const log = logOf(store);
+    expect(log).toContain("Workflow graph run ended after operator cancellation");
+    expect(log).not.toContain("Stale operator-cancellation marker cleared");
+    expect(resume).not.toHaveBeenCalled();
+    // A genuine cancellation is still terminal for its own run, so the marker is left as FN-249 set it.
+    expect((executor as any).userCanceledTaskIds.has(task.id)).toBe(true);
+  });
+
+  it("leaves an uncanceled task completely untouched", async () => {
+    const { executor, store, task } = makeHarness();
+    const resume = vi.spyOn(executor as any, "routeGraphFailureToExecutionResume").mockResolvedValue(true);
+
+    await (executor as any).handleGraphFailure(task, reviewReviseFailure);
+
+    const log = logOf(store);
+    expect(log).not.toContain("Workflow graph run ended after operator cancellation");
+    expect(log).not.toContain("Stale operator-cancellation marker cleared");
+    expect(resume).toHaveBeenCalled();
+  });
+});
