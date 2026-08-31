@@ -530,39 +530,21 @@ export async function handleGraphFailure(
       cannot retry a merge or manufacture a failed park; engine aborts have no user-cancel marker
       and retain their existing recoveries.
 
-      FNXC:WorkflowLifecycle 2026-08-31-03:32:
-      "its in-flight graph run" is the load-bearing half of that contract, and it was not enforced.
-      `userCanceledTaskIds` is an in-memory TASK-scoped marker whose only clear sites are the
-      implementation loop (`run-implementation.ts`) and the move-INTO-WIP listener
-      (`wire-executor-lifecycle.ts`, `if (to === wipLane)`). A card canceled in the REVIEW lane
-      reaches neither, so the marker outlived the run it canceled and every LATER run for that task
-      exited here. Measured on FN-270/FN-273: a Code Review REVISE was swallowed 76ms after it was
-      recorded, before it could reach the FN-267 remediation claim, so no fix steps were ever
-      produced and the card could not move to WIP -- which is the very move that clears the marker.
-      The marker was cleared by the transition it prevented. Because the dashboard Retry hard-cancels
-      to restart the step, each Retry RE-ARMED the trap, and only an engine restart escaped it.
+      FNXC:WorkflowLifecycle 2026-08-31-06:41:
+      "its in-flight graph run" is enforced at the RUN BOUNDARY, not here. Every abort marker this
+      function reads (`userCanceledTaskIds`, `pausedAborted`, `pausedAbortProvenance`) is a plain
+      task-keyed in-memory collection with no run identity, and `executeWorkflowGraph` now clears
+      them as each run is born -- see the reset there. That is what makes this check honest: a marker
+      present at teardown can only have been set DURING this run.
 
-      Fix: honor the marker only for a run that actually carries abort evidence. A run torn down with
-      no abort trace at all has outlived the cancellation, so the marker is stale by construction --
-      drop it and fall through to normal recovery. This is deliberately conservative: ANY trace
-      (pause-abort marker, abort provenance, a paused row, or an interrupted node) keeps the FN-249
-      terminal exit, so a genuinely canceled run is unaffected even when its teardown races a
-      successor run.
+      An earlier attempt guarded HERE instead, by asking whether the run "carried abort evidence",
+      and it failed in exactly the way it was meant to prevent. It counted `pausedAborted` as
+      evidence, but `awaitAbortInFlightTaskWork` stamps that marker UNCONDITIONALLY -- even when the
+      cancel finds no live surface -- so a dashboard Retry on an idle card left it set and the NEXT
+      run read it as its own. Worse, the same stale marker also turns `genuinePauseAbort` true below,
+      so a REVISE was classified as a pause abort even once it got past this branch. Both traps have
+      one cause, and it is the missing per-run reset, not the reading of it.
       */
-      const runCarriesAbortEvidence = Boolean(
-        pausedAborted
-          || abortProvenance
-          || live.paused
-          || live.userPaused
-          || result.interruptedNodeId
-          || result.interruptedAbortKind,
-      );
-      if (deps.userCanceledTaskIds.has(task.id) && !runCarriesAbortEvidence) {
-        deps.userCanceledTaskIds.delete(task.id);
-        const staleCancellation = `Stale operator-cancellation marker cleared at node '${failedNodeForLog}' — this run carries no abort evidence; continuing normal recovery`;
-        executorLog.log(`${task.id}: ${staleCancellation}`);
-        await deps.store.logEntry(task.id, staleCancellation, undefined, deps.getRunContextFor(task.id));
-      }
       if (deps.userCanceledTaskIds.has(task.id)) {
         deps.clearPausedAborted(task.id);
         deps.activeWorktrees.delete(task.id);

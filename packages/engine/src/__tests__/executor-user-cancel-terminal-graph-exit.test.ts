@@ -260,59 +260,43 @@ describe("stale operator-cancellation marker never swallows a later run", () => 
     return store.logEntry.mock.calls.map((call: unknown[]) => call[1]).join("\n");
   }
 
-  it("routes a REVISE to recovery and drops the stale marker when the run was never aborted", async () => {
-    const { executor, store, task } = makeHarness();
-    const resume = vi.spyOn(executor as any, "routeGraphFailureToExecutionResume").mockResolvedValue(true);
-    // The marker survives from an EARLIER canceled run; this run carries no abort trace at all.
+  /*
+  THE production sequence. A dashboard Retry on an IDLE in-review card runs pause -> hard-cancel ->
+  unpause, and `awaitAbortInFlightTaskWork` stamps `markPausedAborted` unconditionally even though
+  nothing was live to abort. The reset at run birth is the only thing that stops the next run from
+  inheriting both leftovers.
+
+  This asserts the reset ITSELF rather than a downstream branch, because the two leftovers strand the
+  card through two different readers: the operator-cancellation exit AND `genuinePauseAbort`. An
+  earlier fixture set only `userCanceledTaskIds` and passed while FN-273 stranded in production at
+  06:19:48 -- reproducing the real precondition is the whole point.
+  */
+  it("clears both abort leftovers of a dashboard Retry when the next run is born", async () => {
+    const { executor, task } = makeHarness();
+    (executor as any).markPausedAborted(task.id, "hard-cancel");
     (executor as any).userCanceledTaskIds.add(task.id);
+    expect((executor as any).pausedAborted.has(task.id)).toBe(true);
 
-    await (executor as any).handleGraphFailure(task, reviewReviseFailure);
+    await (executor as any).executeWorkflowGraph(task).catch(() => undefined);
 
-    const log = logOf(store);
-    expect(log).not.toContain("Workflow graph run ended after operator cancellation");
-    expect(log).toContain("Stale operator-cancellation marker cleared");
-    expect(resume).toHaveBeenCalled();
-    // Disarmed, so a Retry cannot re-strand the card on the next pass.
     expect((executor as any).userCanceledTaskIds.has(task.id)).toBe(false);
-  });
-
-  it("stays disarmed across a second failure on the same task", async () => {
-    const { executor, store, task } = makeHarness();
-    const resume = vi.spyOn(executor as any, "routeGraphFailureToExecutionResume").mockResolvedValue(true);
-    (executor as any).userCanceledTaskIds.add(task.id);
-
-    await (executor as any).handleGraphFailure(task, reviewReviseFailure);
-    await (executor as any).handleGraphFailure(task, reviewReviseFailure);
-
-    expect(logOf(store)).not.toContain("Workflow graph run ended after operator cancellation");
-    expect(resume).toHaveBeenCalledTimes(2);
+    expect((executor as any).pausedAborted.has(task.id)).toBe(false);
+    expect((executor as any).pausedAbortProvenance.has(task.id)).toBe(false);
   });
 
   /*
-  Every evidence shape the guard accepts, so narrowing it later is a visible break. `pausedAborted`
-  is set through markPausedAborted because that is how the real cancel path records it.
+  With the reset in place a marker seen at teardown can only have been set during this run, so the
+  FN-249 terminal exit is honored verbatim. Kept as a control: it must not start ignoring a real one.
   */
-  it.each([
-    ["pause-abort marker", { markPausedAborted: "engine-abort" as const }, {}, reviewReviseFailure],
-    ["paused row", {}, { paused: true }, reviewReviseFailure],
-    ["userPaused row", {}, { userPaused: true }, reviewReviseFailure],
-    ["interrupted node", {}, {}, mergePauseAbort],
-  ])("keeps the FN-249 terminal exit when the run carries %s", async (_shape, marker, taskOverrides, result) => {
-    const { executor, store, task } = makeHarness(taskOverrides as Partial<TaskDetail>);
+  it("still exits terminally for a cancellation marked during the run", async () => {
+    const { executor, store, task } = makeHarness();
     const resume = vi.spyOn(executor as any, "routeGraphFailureToExecutionResume").mockResolvedValue(true);
-    if ((marker as { markPausedAborted?: string }).markPausedAborted) {
-      (executor as any).markPausedAborted(task.id, (marker as { markPausedAborted: string }).markPausedAborted);
-    }
     (executor as any).userCanceledTaskIds.add(task.id);
 
-    await (executor as any).handleGraphFailure(task, result);
+    await (executor as any).handleGraphFailure(task, mergePauseAbort);
 
-    const log = logOf(store);
-    expect(log).toContain("Workflow graph run ended after operator cancellation");
-    expect(log).not.toContain("Stale operator-cancellation marker cleared");
+    expect(logOf(store)).toContain("Workflow graph run ended after operator cancellation");
     expect(resume).not.toHaveBeenCalled();
-    // A genuine cancellation is still terminal for its own run, so the marker is left as FN-249 set it.
-    expect((executor as any).userCanceledTaskIds.has(task.id)).toBe(true);
   });
 
   it("leaves an uncanceled task completely untouched", async () => {
@@ -323,7 +307,6 @@ describe("stale operator-cancellation marker never swallows a later run", () => 
 
     const log = logOf(store);
     expect(log).not.toContain("Workflow graph run ended after operator cancellation");
-    expect(log).not.toContain("Stale operator-cancellation marker cleared");
     expect(resume).toHaveBeenCalled();
   });
 });
