@@ -205,14 +205,60 @@ export async function requestPreMergeOptionalStepFix(
   info: RequestPreMergeOptionalStepFixInfo,
   options: { claim?: ReviewRemediationAttemptDescriptor } = {},
 ): Promise<boolean> {
-  const scopedDeps = options.claim
-    ? { ...deps, store: fenceStoreForClaim(deps.store, taskId, options.claim) }
-    : deps;
+  /*
+  FNXC:ReviewRemediation 2026-08-31-07:58:
+  A `false` from this function means BOTH "declined, correctly" and "could not, unexpectedly", and
+  the caller sees only the boolean. Of the 34 refusal exits below, roughly half narrate on the task
+  and the rest return in silence -- so a card can stop dead with a blocking review and NOTHING
+  written anywhere explaining why. Measured: FN-270 and FN-273 sat blocked for a full night, and
+  three separate diagnostic passes were spent deducing which exit had fired, because none of them
+  said so.
+
+  Rather than touch 34 sites (the churn that keeps missing the next one -- see the fence above for
+  the same lesson), observe whether the call narrated at all. Every honest refusal already writes to
+  the task; a `false` with no write is by definition the silent class, and only that class gets this
+  line. The message is diagnostic, not a verdict: it reports that remediation was declined without
+  explanation, which is the fact an operator needs to know a card is not merely slow.
+
+  Behaviour is unchanged -- this only observes and reports.
+  */
+  const baseStore = options.claim ? fenceStoreForClaim(deps.store, taskId, options.claim) : deps.store;
+  let narrated = false;
+  const narrationWitnesses = new Set(["logEntry", "addTaskComment"]);
+  const watchedStore = new Proxy(baseStore, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      if (typeof value !== "function") return value;
+      const method = value as (...args: unknown[]) => unknown;
+      if (typeof property !== "string" || !narrationWitnesses.has(property)) return method.bind(target);
+      return (...args: unknown[]) => {
+        narrated = true;
+        return method.apply(target, args);
+      };
+    },
+  }) as typeof baseStore;
+  const scopedDeps = { ...deps, store: watchedStore };
+  let scheduled = false;
   try {
-    return await requestPreMergeOptionalStepFixInner(scopedDeps, taskId, fallbackTask, info, options);
+    scheduled = await requestPreMergeOptionalStepFixInner(scopedDeps, taskId, fallbackTask, info, options);
+    return scheduled;
   } catch (err: unknown) {
     if (err instanceof ClaimSupersededError) return false;
     throw err;
+  } finally {
+    if (!scheduled && !narrated) {
+      const gate = info.nodeId ?? info.stepName;
+      const silentDecline = `Pre-merge remediation declined without explanation — no fix steps were produced for '${gate}'`;
+      executorLog.warn(`${taskId}: ${silentDecline} (status=${info.status}, verdict=${info.verdict ?? "none"}, findings=${info.findings?.length ?? 0}, claimed=${Boolean(options.claim)})`);
+      await deps.store.logEntry(
+        taskId,
+        silentDecline,
+        `Gate: ${gate}\nReported status: ${info.status}\nReviewer verdict: ${info.verdict ?? "(none)"}\nFindings: ${info.findings?.length ?? 0}\n`
+        + "The remediation producer refused this round without recording a reason. That is a defect in the "
+        + "producer, not an operator action: a blocking review must never stop a card silently.",
+        deps.getRunContextFor(taskId),
+      ).catch(() => undefined);
+    }
   }
 }
 

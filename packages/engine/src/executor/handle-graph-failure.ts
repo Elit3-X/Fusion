@@ -1151,6 +1151,25 @@ export async function handleGraphFailure(
                 deps.getRunContextFor(task.id),
               );
             } else if (admission.kind !== "claimed" && admission.kind !== "unkeyable") {
+              /*
+              FNXC:ReviewRemediation 2026-08-31-07:58:
+              Silence here is CORRECT -- another writer owns this round's story -- but it is also
+              indistinguishable from a defect when the card then sits blocked forever, and the
+              caller's own "remediation was not scheduled" message is below this return so it never
+              fires. Measured on FN-270/FN-273: a real REVISE with critical findings produced no fix
+              steps and NOTHING on the timeline, and narrowing it to this branch took three passes.
+              Record which owner was deferred to; the deferral is not a refusal, so the wording must
+              not read as one.
+              */
+              const deferral = `Remediation deferred to another writer (${admission.kind}) — no fix steps produced by this run`;
+              executorLog.warn(`${task.id}: ${deferral}`);
+              await deps.store.logEntry(
+                task.id,
+                deferral,
+                `Step: ${failedPreMergeStep.workflowStepName || failedPreMergeStep.workflowStepId}\nAdmission: ${admission.kind}\n`
+                + "Another owner is expected to narrate this review round. If nothing follows, that owner never ran.",
+                deps.getRunContextFor(task.id),
+              ).catch(() => undefined);
               return;
             }
             const claimedTask = admission.kind === "claimed" || admission.kind === "unkeyable" ? admission.task : live;
@@ -1184,7 +1203,25 @@ export async function handleGraphFailure(
                 ? await resolveRemediationAttempt(deps.store, task.id, admission.claim, "release")
                 : await resolveRemediationAttempt(deps.store, task.id, admission.claim, "retain", "appender-declined");
               /* Refused resolution means a newer round replaced the claimed one: say nothing about it. */
-              if (!resolution.applied) return;
+              if (!resolution.applied) {
+                /*
+                FNXC:ReviewRemediation 2026-08-31-07:58:
+                "A newer round replaced this one" is the intended reading, and staying quiet about the
+                OLD round is right. But an unresolvable claim also lands here, and then no round is
+                narrated at all. One line, naming the round, so the two are distinguishable after the
+                fact instead of both presenting as a dead card.
+                */
+                const supersededNote = `Remediation claim no longer held (${scheduled ? "after scheduling" : "after decline"}) — this run yields to a newer review round`;
+                executorLog.warn(`${task.id}: ${supersededNote}`);
+                await deps.store.logEntry(
+                  task.id,
+                  supersededNote,
+                  `Step: ${claimedStep.workflowStepName || claimedStep.workflowStepId}\n`
+                  + "If no newer round appears, the claim was lost rather than superseded.",
+                  deps.getRunContextFor(task.id),
+                ).catch(() => undefined);
+                return;
+              }
             }
             if (scheduled) return;
           }
