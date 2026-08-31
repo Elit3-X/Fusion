@@ -5,6 +5,7 @@ import {
   type SharedPgTaskStoreHarness,
 } from "../../../core/src/__test-utils__/pg-test-harness.js";
 import { claimRemediationAttempt } from "../executor/claim-review-remediation-attempt.js";
+import { TaskExecutor } from "../executor.js";
 
 /*
 FNXC:ReviewRemediation 2026-08-31-08:20:
@@ -144,5 +145,37 @@ pgTest("review remediation claim against the real fenced tier (PostgreSQL)", () 
     expect(first.kind).toBe("claimed");
     /* Real serialization across owners is what only this tier provides; a mock cannot prove it. */
     expect(second.kind).toBe("held");
+  });
+
+  /*
+  FNXC:ReviewRemediation 2026-08-31-08:24:
+  The operator-visible contract, end to end, against a real database: a blocking Code Review REVISE
+  must leave named Fix steps on the card. The claim assertions above prove the repaired tier in
+  isolation; this proves the WHOLE chain a card actually travels -- backstop, claim, producer,
+  appender -- because that is the thing FN-270 and FN-273 could not do for fifteen hours while every
+  isolated part looked correct.
+
+  This is also the safety net for reducing the three remediation writers to one: any change that
+  breaks the delivered outcome fails here, against real storage, instead of in production.
+  */
+  it("turns a blocking REVISE into named Fix steps on the card", async () => {
+    const store = h.store();
+    const task = await seedReviewedTask("FN-275");
+    const executor = new TaskExecutor(store as never, "/tmp/test");
+
+    await (executor as never as { handleGraphFailure(t: unknown, r: unknown): Promise<void> })
+      .handleGraphFailure(task, {
+        disposition: "failed",
+        outcome: "failure",
+        visitedNodeIds: ["code-review-step"],
+        context: { "node:code-review-step:value": "revise" },
+      });
+
+    const after = await store.getTask(task!.id);
+    const fixSteps = (after!.steps ?? []).filter((s) => /^Fix:/i.test(String(s.name ?? "")));
+    expect(fixSteps.length).toBeGreaterThan(0);
+    expect(fixSteps.every((s) => s.status === "pending")).toBe(true);
+    // The finished implementation steps are preserved, not rewritten.
+    expect((after!.steps ?? []).slice(0, 3).every((s) => s.status === "done")).toBe(true);
   });
 });
