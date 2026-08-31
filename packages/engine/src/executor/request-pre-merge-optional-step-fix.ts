@@ -84,6 +84,26 @@ function normalizeConvergenceText(value: string | undefined): string {
 }
 
 /*
+FNXC:ReviewRemediation 2026-08-31-08:24:
+The field separator MUST NOT be NUL. This signature was in-memory-only when it was written, so
+`\u0000` was a sound "cannot occur in the content" choice. FN-267 then PERSISTED it as
+`remediationAttemptSignature` on the step result -- and PostgreSQL rejects NUL in text/jsonb with
+SQLSTATE 22P05 (`unsupported Unicode escape sequence`). Every remediation claim write therefore
+THREW against a real database while passing every mock-store test, because a JS string carries
+`\u0000` happily.
+
+Measured on FN-270/FN-273: from the moment the claim protocol landed, a Code Review REVISE could
+never be claimed, so no fix steps were ever produced and the cards sat blocked overnight with an
+empty timeline. Reproduced against real PostgreSQL in
+`review-remediation-claim.pg.test.ts`; no mock-store test can observe this.
+
+UNIT SEPARATOR (U+001F) keeps the original property -- it cannot appear in a file path, a verdict,
+a fingerprint, or normalized reviewer prose -- and is storable. No migration is needed precisely
+because the broken write never persisted a single signature.
+*/
+const SIGNATURE_FIELD_SEPARATOR = "\u001F";
+
+/*
 FNXC:RepositoryScope 2026-08-21-02:17:
 R10 convergence is keyed by the actual review input: review node, repository, confirmed scope generation, exact diff fingerprint, blocking verdict, and normalized findings. Reviewer prose is presentation only; it may change without a new defect or remain unchanged after the underlying diff changes.
 */
@@ -92,8 +112,9 @@ export function reviewInputSignature(result: CoreWorkflowStepResult): string | u
     .map((finding) => `${normalizeConvergenceText(finding.filePath)}:${finding.line ?? ""}:${normalizeConvergenceText(finding.body)}`)
     .sort()
     .join("|");
+  const sep = SIGNATURE_FIELD_SEPARATOR;
   if (result.reviewInputFingerprint && result.verdict === "REVISE") {
-    return `${result.workflowStepId}\u0000${result.reviewInputFingerprint}\u0000${result.verdict}\u0000${singularFindings}`;
+    return `${result.workflowStepId}${sep}${result.reviewInputFingerprint}${sep}${result.verdict}${sep}${singularFindings}`;
   }
   const blocking = (result.repositoryReviewOutcomes ?? [])
     .filter((outcome) => outcome.status === "REVIEWED" && (outcome.verdict === "REVISE" || outcome.verdict === "RETHINK"))
@@ -107,14 +128,14 @@ export function reviewInputSignature(result: CoreWorkflowStepResult): string | u
         .map((finding) => `${normalizeConvergenceText(finding.filePath)}:${finding.line ?? ""}:${normalizeConvergenceText(finding.body)}`)
         .sort()
         .join("|");
-      return `${outcome.repository}\u0000${outcome.fingerprint ?? ""}\u0000${outcome.verdict}\u0000${findings}`;
+      return `${outcome.repository}${sep}${outcome.fingerprint ?? ""}${sep}${outcome.verdict}${sep}${findings}`;
     })
     .sort();
   if (blocking.length === 0) return undefined;
   const scopeRevision = result.repositoryScopeRevision === undefined
     ? ""
-    : `\u0000${result.repositoryScopeRevision}`;
-  return `${result.workflowStepId}${scopeRevision}\u0000${blocking.join("\u0001")}`;
+    : `${sep}${result.repositoryScopeRevision}`;
+  return `${result.workflowStepId}${scopeRevision}${sep}${blocking.join("\u001E")}`;
 }
 
 export function hasRepeatedUnchangedReview(task: Task, info: RequestPreMergeOptionalStepFixInfo): boolean {
