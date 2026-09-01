@@ -360,6 +360,17 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
   const { task, rootDir, store, settings, logger, audit, runContext, createWorktree, runConfiguredCommand, runInitCommand, taskEnv, secretsStore, workspaceContext } = opts;
   const ensureDependencyReadiness = opts.ensureDependencyReadiness ?? ensureWorktreeDependencies;
   /*
+   * FNXC:BranchWriteOrigin 2026-08-28-10:12:
+   * #3523 review (Greptile P1): hardcoded `branchWriteOrigin: "engine"` stamps on branch-value
+   * writes bypassed the classifier below, so operator-provided branches reaching fresh-create,
+   * warm-reuse, pool-acquire, or merge-reuse persisted as Fusion-owned and became eligible for
+   * engine cleanup of branches the operator supplied. Every branch-value write must derive its
+   * origin through `classifyTaskBranchOrigin`; null clears keep explicit stamps because they
+   * attribute the actor and cannot claim branch ownership.
+   */
+  const branchWriteOriginFor = (branch: string | null | undefined): "operator" | "engine" =>
+    classifyTaskBranchOrigin(task, branch ?? undefined) === "operator-supplied" ? "operator" : "engine";
+  /*
    * FNXC:BranchNaming 2026-08-21-09:09:
    * Singular assignment persistence is a real task-branch write. Derive its durable provenance
    * from the recorded operator override, never from a branch prefix; workspace writes strip both
@@ -370,7 +381,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
       ? patch
       : {
           ...patch,
-          branchWriteOrigin: patch.branchWriteOrigin ?? (classifyTaskBranchOrigin(task, patch.branch ?? undefined) === "operator-supplied" ? "operator" : "engine") as "operator" | "engine",
+          branchWriteOrigin: patch.branchWriteOrigin ?? branchWriteOriginFor(patch.branch),
         };
     if (!opts.suppressSingularWorktreePersist) {
       await store.updateTask(task.id, provenancePatch);
@@ -745,8 +756,13 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
 
     worktreePath = created.path;
     branch = created.branch;
+    /*
+     * FNXC:BranchWriteOrigin 2026-08-20-14:40: FN-9161's store validation requires an explicit write origin on every branch write.
+     * FNXC:BranchWriteOrigin 2026-08-28-10:12: the stamp derives from the classifier — an operator override branch reaching
+     * fresh-create finalize must persist "operator" provenance, not engine ownership.
+     */
     try {
-      await persistWorktreeAssignment({ worktree: created.path, branch: created.branch });
+      await persistWorktreeAssignment({ worktree: created.path, branch: created.branch, branchWriteOrigin: branchWriteOriginFor(created.branch) });
     } catch (error) {
       /*
        * FNXC:WorktreeAcquisition 2026-08-21-09:09:
@@ -980,7 +996,8 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
          * was already correct.
          */
         if (task.worktree !== pinnedPath || task.branch !== resumedBranch) {
-          await persistWorktreeAssignment({ worktree: pinnedPath, branch: resumedBranch });
+          // FNXC:BranchWriteOrigin 2026-08-28-10:12: warm reuse can adopt an operator-override branch; derive origin (#3523 Greptile P1).
+          await persistWorktreeAssignment({ worktree: pinnedPath, branch: resumedBranch, branchWriteOrigin: branchWriteOriginFor(resumedBranch) });
         }
         return reuseWarmWorktree(pinnedPath, resumedBranch, "existing");
       }
