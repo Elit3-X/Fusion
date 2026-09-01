@@ -2,6 +2,18 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
+## 0.77.0-beta.14
+
+### Highlights
+
+- Auto-generated chat titles stay in your configured output language
+- Mixed-language chats no longer get mislabeled titles from ambiguous text
+
+### Fixed
+
+- Chat title summarization now honors the resolved output language target, so English chats keep English titles
+- Language detection is stricter on medium-confidence Latin-script text, cutting mislabeled titles
+
 ## 0.77.0-beta.13
 
 ### Highlights

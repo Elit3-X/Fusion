@@ -1,5 +1,13 @@
 # @runfusion/fusion
 
+## 0.77.0-beta.14
+
+### Patch Changes
+
+- f790ca9: summary: Keep auto-generated English chat titles in English.
+  category: fix
+  dev: Pass the resolved summarizeTitle language target and strengthen scoreLatinLocale medium-confidence detection.
+
 ## 0.77.0-beta.13
 
 ### Minor Changes
