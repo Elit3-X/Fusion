@@ -9,7 +9,7 @@ until a fresh executor session, a pending reset, or an explicit operator edit su
 A bounded tail deliberately fails open rather than wedging old completed cards.
 */
 
-/** Prefix recorded before a pending reset or operator edit resumes implementation after completion. */
+/** Prefix recorded before any admitted implementation re-entry after completion. */
 export const STEP_LEDGER_REOPEN_MARKER_PREFIX = "Step ledger reopened";
 
 /*
@@ -80,4 +80,22 @@ export function evaluateStepLedgerSeal(
     }
   }
   return { sealed: false };
+}
+
+/**
+ * Build the atomic log patch that acknowledges genuine implementation re-entry after completion.
+ * Live sessions return `undefined` so callers omit the log field instead of manufacturing a marker.
+ */
+export function buildStepLedgerReopenLog(
+  log: readonly TaskLogEntry[] | undefined | null,
+  reason: string,
+): TaskLogEntry[] | undefined {
+  if (!evaluateStepLedgerSeal(log).sealed) return undefined;
+  return [
+    ...(log ?? []),
+    {
+      timestamp: new Date().toISOString(),
+      action: `${STEP_LEDGER_REOPEN_MARKER_PREFIX} — ${reason}`,
+    },
+  ];
 }

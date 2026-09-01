@@ -1346,16 +1346,20 @@ Task steps use statuses: `pending`, `in-progress`, `done`, `skipped`.
 
 The task log is a ledger of real step **transitions**, not of every status write: repeating a
 step's existing status does not add a second `Step N (...) → status` entry. A clean completion
-marker seals new non-`pending` step transitions until implementation is explicitly re-entered.
-The seal is derived from durable clean-completion and re-entry markers by scanning the bounded log
-tail from newest to oldest, so the most recent lifecycle marker wins and an old marker outside the
-scan window fails open rather than wedging a task.
+marker seals stale progress rewrites until implementation is explicitly re-entered. The seal is
+derived from durable clean-completion and re-entry markers by scanning the bounded log tail from
+newest to oldest, so the most recent lifecycle marker wins and an old marker outside the scan window
+fails open rather than wedging a task.
 
-Inside that completion window, a non-`pending` engine transition is refused without changing step
-state or recording a transition. A `pending` reset records a reopen marker before its unchanged
-pending transition line, and a dashboard or CLI operator step edit records an operator reopen marker
-before its transition. Fresh executor and resumed-session markers also reopen the window; lifecycle
-moves and pre-merge gate starts do not.
+Inside that completion window, stale transitions are refused without changing step state or
+recording a transition, but starting a step still recorded `pending` is genuine re-entry rather than
+a rewrite of completed progress. That admitted start records the shared reopen marker before its
+`in-progress` transition, allowing the same pass to finish the step. Pending resets, operator edits,
+and every appender that creates post-completion remediation or trailing-replay work use the same
+marker; fresh executor and resumed-session markers also reopen the window, while lifecycle moves and
+pre-merge gate starts do not. Before FN-277, refusing an appended Fix step aborted
+`steps#N:step-execute` before its body ran, failed the entire foreach region, and prevented the graph
+from taking its success edge back into the review lane.
 
 ### Workflow steps
 - Defined in project config as `WorkflowStep`
@@ -2389,6 +2393,7 @@ This section preserves the detailed lifecycle/self-healing contracts that were f
 
 Reliability-layer changes are in scope. Interaction regression backstops live in `packages/engine/src/__tests__/reliability-interactions/` — any task that adds or changes a reliability layer must add/update interaction tests there covering each plausible pair with existing layers (merge path, workflow/pre-merge, self-healing, scheduler/watchdog/restart recovery, governance gates).
 
+- FN-277 backstops: `packages/engine/src/__tests__/review-revise-resumes-fix-step.test.ts` drives the real step runner over the core ledger projections, while `packages/engine/src/__tests__/review-revise-continues-to-review.test.ts` drives the real foreach, graph executor, and column boundary through remediation completion and the return to review.
 - FN-4935 backstop: `packages/engine/src/__tests__/reliability-interactions/executor-liveness-gate.test.ts` guards fresh-acquisition skip behavior, structured liveness classifications, and executor-gate audit/requeue outcomes.
 - FN-4887 backstop: `packages/engine/src/__tests__/reliability-interactions/foreign-only-contamination-recovery.real-git.test.ts` covers composition between bootstrap-misbinding, contamination dispatcher retry, misbound-in-review ordering, and FN-4811 active-session safeguards.
 - FN-5039 backstop: `packages/engine/src/__tests__/reliability-interactions/worktree-contamination-attribution.real-git.test.ts` guards `captureModifiedFiles` trailer attribution filtering and `task:worktree-contamination-detected` audit fan-out across rebase contamination, clean, untrailered, and fallback paths.

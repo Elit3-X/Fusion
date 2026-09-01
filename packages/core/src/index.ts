@@ -1079,7 +1079,9 @@ export type { NoCommitsNoOpFinalizeEvaluation } from "./merge/no-commits-finaliz
 export { evaluateCompletedPromotionFailureProvenance, CLEAN_COMPLETION_MARKERS, MAX_LOG_SCAN } from "./merge/completed-promotion-failure-provenance.js";
 export type { CompletedPromotionFailureProvenanceEvaluation } from "./merge/completed-promotion-failure-provenance.js";
 export {
+  buildStepLedgerReopenLog,
   evaluateStepLedgerSeal,
+  STEP_LEDGER_REFUSAL_MARKER_PREFIX,
   STEP_LEDGER_REENTRY_MARKERS,
   STEP_LEDGER_REOPEN_MARKER_PREFIX,
 } from "./task-store/step-ledger-seal.js";

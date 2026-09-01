@@ -1,11 +1,10 @@
 import {
-  evaluateStepLedgerSeal,
+  buildStepLedgerReopenLog,
   formatRemediationStepName,
   hasOpenEquivalentRemediationStep,
   remediationDeclaredFiles,
   remediationWaveCount,
   planRemediationPlacement,
-  STEP_LEDGER_REOPEN_MARKER_PREFIX,
   type RunMutationContext,
   type Task,
   type TaskStep,
@@ -253,18 +252,16 @@ export async function appendReviewRemediationSteps(
       present while the ledger still claims completion. Only a real seal is answered, so an append
       during a live session still writes nothing.
       */
-      const reopenEntry = evaluateStepLedgerSeal(current.log).sealed
-        ? {
-            timestamp: new Date().toISOString(),
-            action: `${STEP_LEDGER_REOPEN_MARKER_PREFIX} \u2014 ${appended.length} remediation step(s) appended after completion (wave ${transactionWave})`,
-          }
-        : undefined;
-      const appendedLog = [...(current.log ?? []), ...(attemptEntry ? [attemptEntry] : []), ...(reopenEntry ? [reopenEntry] : [])];
+      const logWithAttempt = [...(current.log ?? []), ...(attemptEntry ? [attemptEntry] : [])];
+      const reopenedLog = buildStepLedgerReopenLog(
+        logWithAttempt,
+        `${appended.length} remediation step(s) appended after completion (wave ${transactionWave})`,
+      );
       return {
         steps: placement.steps,
         currentStep: placement.insertionIndex,
         ...(nextPrompt !== current.prompt ? { prompt: nextPrompt } : {}),
-        ...(attemptEntry || reopenEntry ? { log: appendedLog } : {}),
+        ...(attemptEntry || reopenedLog ? { log: reopenedLog ?? logWithAttempt } : {}),
       };
     }, options.attemptClaim?.runContext);
     if (scopeSuperseded) {
