@@ -2244,6 +2244,8 @@ The `index.html` shell is templated server-side: the server injects a per-user `
 
 `styles.css` is the source of truth for tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--duration-*`, `--transition-*`, `--font-*`, `--header-height`, `--mobile-nav-height`, `--standalone-bottom-gap`, `--overlay-padding-top`) and color variables (`--bg`, `--surface`, `--card`, `--text`, `--text-muted`, status colors `--triage`/`--todo`/`--in-progress`/`--in-review`/`--done`, semantic `--color-success`/`--color-error`/`--color-warning`/`--color-info`, status backgrounds `--status-*-bg`).
 
+Typography uses the shared `--font-weight-regular` (400), `--font-weight-medium` (500), `--font-weight-semibold` (600), and `--font-weight-bold` (700) scale. `--border` is a colour token, never a width: the only border-width token is `--btn-border-width`, so border shorthands must begin with `var(--btn-border-width)` unless an intentional thick accent uses a `--space-*` rung.
+
 **Always reference tokens. Never hardcode pixels, hex, or `rgba()` in component CSS** — global/theme token CSS is also covered by `global-theme-css-no-raw-rgba.test.ts`, so raw `rgba()` belongs only in explicit `var(--token, rgba(...))` fallbacks. For translucent backgrounds use `color-mix(in srgb, var(--color) X%, transparent)`, not `rgba()`.
 
 Command Center chart surfaces are a stricter token-only zone: `CommandCenter.css`, `areas/areas.css`, and `charts/charts.css` should avoid raw color fallbacks and hardcoded dimensions in component rules, keep secondary copy on `--text-muted`, use canonical `--accent` / `--text` for generic accent and primary text styling, use `--duration-*` for animation durations, and encode mobile chart invariants with shared classes rather than one-off area styles. Hand-rolled chart primitives cycle through the existing semantic palette (`--accent`, workflow status tokens, and success/warning/error tokens) rather than adding one-off chart color aliases. The undefined `--color-accent` / `--text-primary` aliases are forbidden under `components/command-center/**` and guarded by `command-center-css-token-canonicalization.test.ts`.
@@ -2270,6 +2272,10 @@ The following curated tokens are the supported dashboard theming contract for in
 | `--radius-pill` | Pill-shaped corner radius |
 | `--font-primary` | Dashboard UI font stack |
 | `--font-mono` | Dashboard monospace font stack |
+| `--font-weight-regular` | Regular text weight (400) |
+| `--font-weight-medium` | Medium emphasis weight (500) |
+| `--font-weight-semibold` | Semibold emphasis weight (600) |
+| `--font-weight-bold` | Bold text weight (700) |
 | `--font-size-xs` | Caption and help text size |
 | `--font-size-base` | Default body text size |
 | `--shadow-sm` | Subtle elevation shadow |
@@ -2293,6 +2299,7 @@ The following curated tokens are the supported dashboard theming contract for in
 | `--bg-secondary` | Secondary application background |
 | `--bg-tertiary` | Tertiary application background |
 | `--border` | Default border color |
+| `--btn-border-width` | Theme-aware standard border width |
 | `--border-subtle` | Low-contrast border color |
 | `--border-strong` | High-contrast border color |
 | `--text` | Primary text color |
