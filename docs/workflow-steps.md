@@ -65,6 +65,14 @@ Decision-only or investigation tasks can also declare `noCommitsExpected` / `**N
 
 Every selectable built-in workflow uses a capacity-released hold column (`todo` or a workflow-specific backlog) for queued work and a WIP execution column for active work, so the hold/release sweep performs the normal `todo`/backlog → in-progress dispatch across the catalog.
 
+#### Content-binding review proof
+
+A pre-merge review binds source content when its step id is `code-review` **or** its result declares `reviewKind: "code"`. This is the same identity-or-kind rule used by merge admission. A workflow author who reuses the `code-review` node id inherits this contract even when the node does not declare `reviewKind`.
+
+Every singular content-binding approval must record a `reviewInputFingerprint`. Fusion refuses to dispatch the review when it cannot prove that input, records a recoverable failed step instead, and prevents any proofless approval from being persisted or honored. An audited human bypass—identified by a non-empty operator actor plus a recorded timestamp and reason—waives content binding for the specific skipped step. The automated `fast-mode` bypass never does; it retains the existing fail-closed merge refusal.
+
+Workspace Code Review is excluded from both the singular pre-dispatch proof requirement and the human-waiver shortcut. Workspace approval is bound through confirmed per-repository review evidence instead of one scalar fingerprint, and merge admission continues to validate that evidence repository by repository.
+
 ### Current workflow behavior inventory
 
 <!--

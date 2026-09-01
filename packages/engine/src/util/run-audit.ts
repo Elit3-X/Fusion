@@ -698,6 +698,12 @@ export type DatabaseMutationType =
   { taskId, column, orphanedCount, resultCount }.
   */
   | "task:reconcile-orphaned-pending-step-results"
+  /**
+   * Rewrites already-persisted singular content approvals that lack review-input proof to failed.
+   * Metadata is ids/counts/outcomes-only:
+   * { taskId, column, workflowStepId, repairedCount, resultCount, needsOperatorBypass }.
+   */
+  | "task:reconcile-unproven-review-approval"
   /* FNXC:StalledCardWatchdog 2026-07-26-19:40: detect-only backstop — a non-terminal card with no
      live session and no queued continuation that has not moved past the stall floor. */
   | "task:stall-watchdog-detected"

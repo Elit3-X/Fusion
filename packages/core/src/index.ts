@@ -358,6 +358,7 @@ export type { ResolvedWorkflowOptionalStep } from "./workflows/workflow-optional
 export {
   FAST_LANE_STEP_NAME,
   FAST_LANE_SKIP_VALUE,
+  FAST_MODE_BYPASS_ACTOR,
   FAST_LANE_STEP_REVIEW_ROUTE_VALUE,
   isFastExecutionMode,
   isFastLaneSkippableCustomNode,
@@ -1403,7 +1404,13 @@ export {
 } from "./merge/task-merge.js";
 export { describeMergeContentShape } from "./merge/merge-content-descriptor.js";
 export type { MergeContentDescriptor } from "./merge/merge-content-descriptor.js";
-export { evaluatePreMergeApprovals } from "./merge/pre-merge-approval.js";
+export {
+  AUTOMATED_BYPASS_ACTORS,
+  evaluatePreMergeApprovals,
+  isAuditedOperatorBypass,
+  requiresContentReviewProof,
+  resolveUnprovenReviewApproval,
+} from "./merge/pre-merge-approval.js";
 export { getPostMergeFinalizeBlocker, planConfirmedMergeChecklistReconciliation } from "./merge/confirmed-merge-reconciliation.js";
 export type { ConfirmedMergeChecklistReconciliation } from "./merge/confirmed-merge-reconciliation.js";
 export type { PreMergeApproval, PreMergeApprovalState } from "./merge/pre-merge-approval.js";
