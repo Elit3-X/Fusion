@@ -219,6 +219,45 @@ export class RemoteTunnelService {
     }
 
     const lifecycle = remoteAccess.lifecycle;
+
+    /*
+    FNXC:RemoteAccess 2026-09-01-03:52:
+    ADOPTION IS NOT GATED ON THE RUNNING MARKER. A funnel that tailscaled can prove is serving our
+    port IS running, whatever this process remembers — and this process remembers nothing after a
+    supervised restart. Gating adoption behind `wasRunningOnShutdown` made that state permanent:
+    one restart that lost track left `state:"stopped"` reported forever while both public ingress IPs
+    served 200, and every later restart re-skipped with `no_prior_running_marker` because a service
+    that believes it is stopped never writes a marker to recover from. Measured on the live container.
+
+    Adopting first also protects the funnel: spawning a second `tailscale funnel` against one node
+    exits 1 AND clears the first one's config, so a blind respawn is itself a way to kill remote
+    access. A funnel serving a DIFFERENT port belongs to somebody else — refuse rather than clobber.
+    */
+    const adoptProvider = lifecycle.lastRunningProvider ?? remoteAccess.activeProvider;
+    if (adoptProvider === "tailscale") {
+      const active = await this.manager.detectActiveFunnel().catch(() => null);
+      if (active) {
+        const targetPort = Math.floor(remoteAccess.providers.tailscale.targetPort);
+        if (active.proxyPort !== null && active.proxyPort !== targetPort) {
+          this.setRestoreDiagnostics(
+            "skipped",
+            "external_funnel_conflict",
+            adoptProvider,
+            `A Tailscale funnel is already serving port ${active.proxyPort}, not ${targetPort}`,
+          );
+          return;
+        }
+        this.manager.adoptRunningTunnel(adoptProvider, active.url);
+        this.setRestoreDiagnostics("applied", "adopted_running_tunnel", adoptProvider);
+        await this.writeRemoteLifecycleState(store, remoteAccess, {
+          ...lifecycle,
+          wasRunningOnShutdown: true,
+          lastRunningProvider: adoptProvider,
+        }, adoptProvider);
+        return;
+      }
+    }
+
     if (!lifecycle.rememberLastRunning) {
       this.setRestoreDiagnostics("skipped", "remember_last_running_disabled", null);
       if (lifecycle.wasRunningOnShutdown || lifecycle.lastRunningProvider) {
@@ -259,30 +298,6 @@ export class RemoteTunnelService {
     A funnel serving a DIFFERENT port belongs to somebody else; restore refuses rather than clobbering
     it, and keeps the running marker so the next start can try again.
     */
-    if (provider === "tailscale") {
-      const active = await this.manager.detectActiveFunnel().catch(() => null);
-      if (active) {
-        const targetPort = Math.floor(remoteAccess.providers.tailscale.targetPort);
-        if (active.proxyPort !== null && active.proxyPort !== targetPort) {
-          this.setRestoreDiagnostics(
-            "skipped",
-            "external_funnel_conflict",
-            provider,
-            `A Tailscale funnel is already serving port ${active.proxyPort}, not ${targetPort}`,
-          );
-          return;
-        }
-        this.manager.adoptRunningTunnel(provider, active.url);
-        this.setRestoreDiagnostics("applied", "adopted_running_tunnel", provider);
-        await this.writeRemoteLifecycleState(store, remoteAccess, {
-          ...lifecycle,
-          wasRunningOnShutdown: true,
-          lastRunningProvider: provider,
-        }, provider);
-        return;
-      }
-    }
-
     const evaluation = await this.evaluateRemoteLifecycle(settings, provider);
     if (!evaluation.config) {
       /*

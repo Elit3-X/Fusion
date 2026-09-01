@@ -338,6 +338,41 @@ describe("supervised restart is not a shutdown", () => {
     expect(markerWrites(store).at(-1)).toMatchObject({ wasRunningOnShutdown: true });
   });
 
+  /*
+  FNXC:RemoteAccess 2026-09-01-03:52:
+  The stuck state, reproduced: once a restart loses track of the tunnel, the service believes it is
+  stopped, so it writes no running marker — and a marker-gated adoption then skips forever with
+  `no_prior_running_marker` while the public URL keeps serving 200. Adoption must depend on what
+  tailscaled can PROVE, not on what this process remembers.
+  */
+  it("adopts a live funnel even with no running marker, which is the state a lost restart leaves behind", async () => {
+    const service = getRemoteTunnelService(remoteTunnelScopeKey({ projectId: "proj-1" }));
+    const manager = service.getManager();
+    vi.spyOn(manager, "getStatus").mockReturnValue(STOPPED_STATUS);
+    const startSpy = vi.spyOn(manager, "start").mockResolvedValue(undefined);
+    const adoptSpy = vi.spyOn(manager, "adoptRunningTunnel").mockImplementation(() => undefined);
+    vi.spyOn(manager, "detectActiveFunnel").mockResolvedValue({
+      provider: "tailscale",
+      url: "https://box.tail1234.ts.net/",
+      proxyPort: 4040,
+    });
+    const settings = createTailscaleSettings();
+    settings.remoteAccess.lifecycle.wasRunningOnShutdown = false;
+    settings.remoteAccess.lifecycle.lastRunningProvider = null;
+    const store = createStore(settings);
+
+    await service.restoreIfNeeded(store);
+
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(adoptSpy).toHaveBeenCalledWith("tailscale", "https://box.tail1234.ts.net/");
+    expect(service.getRestoreDiagnostics()).toMatchObject({
+      outcome: "applied",
+      reason: "adopted_running_tunnel",
+    });
+    // The marker is re-established, so the service can recover itself from the lost state.
+    expect(markerWrites(store).at(-1)).toMatchObject({ wasRunningOnShutdown: true });
+  });
+
   it("refuses to clobber a funnel that is serving a different port", async () => {
     const service = getRemoteTunnelService(remoteTunnelScopeKey({ projectId: "proj-1" }));
     const manager = service.getManager();
