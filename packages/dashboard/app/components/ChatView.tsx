@@ -419,8 +419,11 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   const selectedChatCommands = useMemo(() => selectChatCommands({ chatFocusEnabled }), [chatFocusEnabled]);
   const chatDefaultTarget = useMemo(() => {
     /*
-    FNXC:ChatModels 2026-07-12-20:45:
-    New Chat has one project-scoped default target resolver shared by every affordance. A complete agent default wins only when kind=agent; a complete model pair wins only when kind=model; incomplete always-default settings fall back to the picker instead of creating an unroutable session.
+    FNXC:ChatModels 2026-09-01-05:14:
+    Every New Chat affordance shares one project-scoped default target resolver. A complete agent
+    default wins only for kind=agent, and a complete model pair wins only for kind=model; an
+    incomplete target falls through to the project/global default model rather than creating an
+    unroutable session. The retired create-time picker is not a fallback path.
     */
     if (chatSettings?.chatDefaultKind === "agent" && chatSettings.chatDefaultAgentId) {
       return {
