@@ -794,6 +794,9 @@ The full **New Task** dialog includes a compact **GitHub issue or PR** picker ne
 
 Chat view provides project-scoped conversations with agents. Every host—embedded Chat, Quick Chat, and the dock—starts at the conversation list. Select a conversation to open its thread. When the software keyboard is open, the composer remains visible on phones in portrait and landscape, tablets/iPad, compact right-dock Chat, and narrow floating Quick Chat; desktop Chat is unaffected.
 
+<!-- FNXC:ChatComposerFocusDocs 2026-09-01-01:04: Opening or creating a conversation on a pointer host must focus its composer, while touch hosts and retained hidden Quick Chat instances must not claim the caret. -->
+On pointer hosts, opening a conversation from the conversation list or thread title switcher, creating one with **New Chat**, `/new`, or `/clear`, or opening one in its own window puts the caret in the message composer so you can type immediately. Phones and touch tablets deliberately leave the composer unfocused so an unsolicited software keyboard never covers a freshly opened thread. A hidden Quick Chat window never takes focus; reopening it onto an already open conversation focuses its composer. While the composer holds focus, global keyboard shortcuts remain suppressed exactly as they do for every chat composer; see [Keyboard shortcuts](#keyboard-shortcuts).
+
 ### Docked conversation sidebar
 
 In the full, non-floating Chat view on tablet and desktop, the Chat header can show or hide a docked conversation sidebar. When shown, it keeps the conversation list next to the open thread; drag its separator or use its arrow keys to resize it between 220px and 480px. Its width and open state are remembered in the browser across reloads. Conversation rows show the saved name, provider icon, model, and last-message snippet. Mobile, compact right-dock Chat, Quick Chat, and popped-out chat windows retain one-pane list/detail navigation with **< BACK**.
