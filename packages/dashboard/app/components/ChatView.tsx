@@ -114,6 +114,12 @@ export interface ChatViewProps {
    * A retained-but-hidden Quick Chat must release document Find ownership; visible hosts retain the default.
    */
   findActive?: boolean;
+  /*
+  FNXC:MainViewKeepAlive 2026-08-30-19:05:
+  A kept-alive ChatView retains its selected session, transcript, and composer while hidden.
+  Inactive hosts must not acknowledge arriving messages; explicit user session selection remains active.
+  */
+  active?: boolean;
   /** Enables the "/" command registry (e.g. `/steer`) for this composer instance. See {@link ChatCommandContext}. */
   chatCommandContext?: ChatCommandContext;
   /*
@@ -360,7 +366,7 @@ function ChatDialogBackdrop({ children, onClose }: { children: React.ReactNode; 
 
 type CopyFeedbackState = "success" | "error" | null;
 
-export function ChatView({ projectId, addToast, floating = false, compactLayout = false, findActive = true, onPopOut, onMaximize, onClose, onOpenSessionInNewWindow, initialDirectSession, initialDirectSessionNonce, persistChatPreferences = true, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
+export function ChatView({ projectId, addToast, floating = false, compactLayout = false, findActive = true, active = true, onPopOut, onMaximize, onClose, onOpenSessionInNewWindow, initialDirectSession, initialDirectSessionNonce, persistChatPreferences = true, chatCommandContext, initialComposerDraft, initialComposerDraftNonce, onSendAsReport }: ChatViewProps) {
   const { t } = useTranslation("app");
   const chatMessageLayout = useChatMessageLayout();
   useEffect(() => {
@@ -744,22 +750,22 @@ export function ChatView({ projectId, addToast, floating = false, compactLayout 
   const dockedSidebarVisible = dockedSidebarEligible && dockedSidebarOpen;
 
   useEffect(() => {
-    if (!activeSession?.id) {
+    if (!active || !activeSession?.id) {
       return;
     }
 
     markRead("direct", activeSession.id, activeSession.lastMessageAt ?? activeSession.updatedAt);
-  }, [activeSession?.id, activeSession?.lastMessageAt, activeSession?.updatedAt, markRead]);
+  }, [active, activeSession?.id, activeSession?.lastMessageAt, activeSession?.updatedAt, markRead]);
 
 
   useEffect(() => {
-    if (!activeSession?.id || messages.length === 0) {
+    if (!active || !activeSession?.id || messages.length === 0) {
       return;
     }
 
     const latestMessage = messages[messages.length - 1];
     markRead("direct", activeSession.id, latestMessage?.createdAt ?? activeSession.lastMessageAt ?? activeSession.updatedAt);
-  }, [activeSession?.id, activeSession?.lastMessageAt, activeSession?.updatedAt, markRead, messages]);
+  }, [active, activeSession?.id, activeSession?.lastMessageAt, activeSession?.updatedAt, markRead, messages]);
 
 
 

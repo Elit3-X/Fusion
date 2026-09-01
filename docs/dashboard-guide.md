@@ -199,6 +199,8 @@ On mobile, an open navigation-bar **More** sheet, mailbox message detail, or art
 When task detail is open from a board card, task popup, mobile list row, right-dock/activity/onboarding link, deep link, or another task detail link, one browser, iOS edge-swipe, or Android Back action closes the current detail first and restores the prior dashboard context (for example, nested task detail → previous task detail, or task detail → board/list).
 <!-- FNXC:TaskDetailSwipeBackDocs 2026-07-15-10:36: Mobile task popups now register the same navigation entry as modal and full-panel task detail, so every Back delivery mechanism dismisses the popup before it can leave the originating Board or List. -->
 On mobile board-card detail, **Back to board** also restores the prior board/card scroll position so the same lane context remains visible.
+<!-- FNXC:MainViewKeepAliveDocs 2026-08-30-19:05: Board, List, and Chat remain mounted only within their current project. Hidden views must preserve in-view state without retaining shared header controls or acknowledging unread chat messages. -->
+After you have visited **Board**, **List**, or **Chat**, switching to another dashboard destination and returning restores it exactly as you left it, including board scroll, selected conversation, and an unsent chat message. The dashboard reconciles task data when you return. Retained views belong only to the current project, so changing projects starts a fresh view. While a retained view is hidden — including on the All Projects overview or the backend-connection error page — it neither shows workflow controls in the Header nor marks chat messages read.
 
 ### Board panning and mobile Kanban column snapping
 
