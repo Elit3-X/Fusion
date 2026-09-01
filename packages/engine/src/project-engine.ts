@@ -150,6 +150,7 @@ import { classifyTransientMergeError, MAX_AUTO_MERGE_TRANSIENT_RETRIES } from ".
 import { TunnelProcessManager } from "./remote-access/tunnel-process-manager.js";
 import {
   getRemoteTunnelService,
+  preserveRemoteTunnelForSupervisedRestart,
   remoteTunnelScopeKey,
   shutdownRemoteTunnelService,
   type RemoteTunnelService,
@@ -2467,13 +2468,27 @@ export class ProjectEngine {
    * Process-exit only — call from ProjectEngineManager.stopAll() BEFORE engine.stop(), while the
    * TaskStore is still open, so the "was running" marker lands and restore-on-start can revive the
    * tunnel. Never call this from stop()/pause: those must leave remote access up.
+   *
+   * FNXC:RemoteAccess 2026-09-01-02:54: `supervisedRestart` distinguishes the operator's Restart /
+   * "Update from source" relaunch from a genuine container shutdown; only the latter stops the tunnel.
    */
-  async shutdownRemoteTunnelForProcessExit(): Promise<void> {
+  async shutdownRemoteTunnelForProcessExit(
+    options: { supervisedRestart?: boolean } = {},
+  ): Promise<void> {
     let store: TaskStore | null = null;
     try {
       store = this.runtime.getTaskStore();
     } catch {
       store = null;
+    }
+    /*
+    FNXC:RemoteAccess 2026-09-01-02:54:
+    A supervised restart exits this process but NOT the machine, so remote access is handed over rather
+    than torn down. See RemoteTunnelService.preserveForSupervisedRestart for the incident.
+    */
+    if (options.supervisedRestart) {
+      await preserveRemoteTunnelForSupervisedRestart(this.remoteTunnelScopeKey(), store);
+      return;
     }
     await shutdownRemoteTunnelService(this.remoteTunnelScopeKey(), store);
   }

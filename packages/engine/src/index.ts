@@ -1081,6 +1081,8 @@ export {
   remoteTunnelScopeKey,
   shutdownRemoteTunnelService,
   shutdownAllRemoteTunnels,
+  preserveRemoteTunnelForSupervisedRestart,
+  preserveAllRemoteTunnelsForSupervisedRestart,
   __resetRemoteTunnelServicesForTests,
   getTunnelProviderAdapter,
   redactTunnelText,

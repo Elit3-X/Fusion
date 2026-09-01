@@ -181,6 +181,21 @@ Only one such job runs at a time; a second request while one is in flight is rej
 disabled with the reason when the process is not running from a git checkout, or when nothing is
 supervising it. Authentication is the normal dashboard bearer token.
 
+### Remote access survives a restart
+
+A supervised restart is not a shutdown: the same machine, the same `tailscaled`, and the same operator
+are all still there seconds later. Restart (and the source update, which ends in one) therefore **hands
+the Tailscale funnel over instead of stopping it** — the funnel process is released from parent-death
+supervision and the relaunched dashboard adopts it, so the public URL never goes dark and no second
+`tailscale funnel` is spawned (two against one node conflict, and the loser clears the winner's
+config). Only a genuine container stop tears the tunnel down, recording the "was running" marker so the
+next boot restores it.
+
+If the released process does not survive the swap, the relaunch finds no funnel to adopt and simply
+restores one from that marker — a few seconds of downtime rather than a dead URL. The System panel's
+remote-access card reports which happened: `restore.reason` is `adopted_running_tunnel` for a clean
+handover and `restore_started` for a respawn.
+
 ## Pass additional CLI flags
 
 You can append normal CLI arguments after the image name:

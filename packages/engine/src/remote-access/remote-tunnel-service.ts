@@ -171,6 +171,34 @@ export class RemoteTunnelService {
   }
 
   /**
+   * FNXC:RemoteAccess 2026-09-01-02:54:
+   * SUPERVISED RESTART — the operator's "Restart" button and "Update from source", both of which end
+   * in `process.exit(FUSION_RESTART_EXIT_CODE)` with the entrypoint supervisor relaunching us.
+   *
+   * Incident this exists for (observed twice on the operator's container): the restart came back
+   * healthy on localhost while the Tailscale funnel was gone and the public URL was dead, because
+   * `shutdown()` — correctly scoped to "process exit" when the tunnel moved out of ProjectEngine — now
+   * also ran on every routine restart. A restart is not a shutdown: the same machine, the same
+   * tailscaled, and the same operator are still there seconds later.
+   *
+   * So: persist the running marker FIRST (a released child that dies anyway must still be restorable),
+   * then release the child from parent-death supervision instead of stopping it. The relaunched process
+   * adopts it in `restoreIfNeeded`.
+   */
+  async preserveForSupervisedRestart(store: TaskStore | null): Promise<boolean> {
+    const status = this.manager.getStatus();
+    if (store) {
+      try {
+        await this.persistShutdownLifecycle(store, status);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        runtimeLog.warn(`Failed to persist remote lifecycle markers before supervised restart: ${message}`);
+      }
+    }
+    return this.manager.releaseForSupervisedRestart();
+  }
+
+  /**
    * FNXC:RemoteAccess 2026-08-31-07:08:
    * Called from every ProjectEngine start, so it must be idempotent across engine restarts: a tunnel
    * already running is left exactly as it is (`already_running`) rather than restarted, which is what
@@ -219,14 +247,62 @@ export class RemoteTunnelService {
       return;
     }
 
+    /*
+    FNXC:RemoteAccess 2026-09-01-02:54:
+    ADOPT BEFORE SPAWNING. After a supervised restart the funnel released by the previous process may
+    still be serving, and this process's registry has no memory of it. Spawning a second
+    `tailscale funnel` against the same node does not merely fail — the second exits 1 AND the first
+    one's config is cleared, so a blind respawn is itself a way to kill remote access. Adoption is
+    therefore attempted before any start, and it requires proof from tailscaled's serve config rather
+    than the weaker "node is logged in" probe.
+
+    A funnel serving a DIFFERENT port belongs to somebody else; restore refuses rather than clobbering
+    it, and keeps the running marker so the next start can try again.
+    */
+    if (provider === "tailscale") {
+      const active = await this.manager.detectActiveFunnel().catch(() => null);
+      if (active) {
+        const targetPort = Math.floor(remoteAccess.providers.tailscale.targetPort);
+        if (active.proxyPort !== null && active.proxyPort !== targetPort) {
+          this.setRestoreDiagnostics(
+            "skipped",
+            "external_funnel_conflict",
+            provider,
+            `A Tailscale funnel is already serving port ${active.proxyPort}, not ${targetPort}`,
+          );
+          return;
+        }
+        this.manager.adoptRunningTunnel(provider, active.url);
+        this.setRestoreDiagnostics("applied", "adopted_running_tunnel", provider);
+        await this.writeRemoteLifecycleState(store, remoteAccess, {
+          ...lifecycle,
+          wasRunningOnShutdown: true,
+          lastRunningProvider: provider,
+        }, provider);
+        return;
+      }
+    }
+
     const evaluation = await this.evaluateRemoteLifecycle(settings, provider);
     if (!evaluation.config) {
-      this.setRestoreDiagnostics("skipped", evaluation.reason ?? "provider_not_configured", provider, evaluation.message);
-      await this.writeRemoteLifecycleState(store, remoteAccess, {
-        ...lifecycle,
-        wasRunningOnShutdown: false,
-        lastRunningProvider: null,
-      });
+      /*
+      FNXC:RemoteAccess 2026-09-01-02:54:
+      A TRANSIENT prerequisite failure must not erase the operator's intent. `runtime_prerequisite_missing`
+      is what a boot that outruns `tailscaled` looks like — the daemon comes up beside us and is not
+      answering yet — and clearing the marker there turned one unlucky restart into a permanent
+      no_prior_running_marker on every later boot, which is exactly the state the operator's container
+      was found in. Only a configuration answer that will not change by itself (provider disabled or not
+      configured) clears the marker.
+      */
+      const reason = evaluation.reason ?? "provider_not_configured";
+      this.setRestoreDiagnostics("skipped", reason, provider, evaluation.message);
+      if (reason !== "runtime_prerequisite_missing") {
+        await this.writeRemoteLifecycleState(store, remoteAccess, {
+          ...lifecycle,
+          wasRunningOnShutdown: false,
+          lastRunningProvider: null,
+        });
+      }
       return;
     }
 
@@ -242,11 +318,11 @@ export class RemoteTunnelService {
       const message = error instanceof Error ? error.message : String(error);
       this.setRestoreDiagnostics("failed", "restore_start_failed", provider, message);
       runtimeLog.warn(`Remote tunnel restore failed for ${provider}: ${message}`);
-      await this.writeRemoteLifecycleState(store, remoteAccess, {
-        ...lifecycle,
-        wasRunningOnShutdown: false,
-        lastRunningProvider: null,
-      });
+      /*
+      FNXC:RemoteAccess 2026-09-01-02:54:
+      A failed spawn is transient too (the manager auto-restarts, and the next engine start retries), so
+      the marker stays set. Clearing it here made a single failed restore permanent.
+      */
     }
   }
 
@@ -523,6 +599,29 @@ export async function shutdownRemoteTunnelService(key: string, store: TaskStore 
   if (!service) return;
   remoteTunnelServices.delete(key);
   await service.shutdown(store);
+}
+
+/**
+ * FNXC:RemoteAccess 2026-09-01-02:54:
+ * Supervised-restart counterpart of shutdownRemoteTunnelService: persist markers, hand the child to the
+ * machine, and leave the public URL up for the process that replaces us.
+ */
+export async function preserveRemoteTunnelForSupervisedRestart(key: string, store: TaskStore | null): Promise<boolean> {
+  const service = remoteTunnelServices.get(key);
+  if (!service) return false;
+  remoteTunnelServices.delete(key);
+  return service.preserveForSupervisedRestart(store);
+}
+
+/**
+ * FNXC:RemoteAccess 2026-09-01-02:54:
+ * Sweep counterpart for tunnels whose project engine is already gone. These have no TaskStore to write
+ * markers through, but releasing still beats killing: the relaunch adopts what is still serving.
+ */
+export async function preserveAllRemoteTunnelsForSupervisedRestart(): Promise<void> {
+  const services = Array.from(remoteTunnelServices.values());
+  remoteTunnelServices.clear();
+  await Promise.all(services.map((service) => service.preserveForSupervisedRestart(null)));
 }
 
 /**
