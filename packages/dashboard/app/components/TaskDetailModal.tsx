@@ -30,6 +30,7 @@ import { resolveEffectivePlannerOversightLevel } from "../../../core/src/workflo
 import { resolveTaskSessionAdvisorEnabled } from "../../../core/src/agents/session-advisor";
 import { isNearDuplicateCanonicalInactive } from "../../../core/src/duplicates/near-duplicate-canonical";
 import { getRevertOfId, findOpenUndoTaskForSource, isTaskReverted } from "../utils/taskRevert";
+import { isForeignTaskEvent, readTaskEventProjectId } from "../utils/taskEventProjectScope";
 import {
   isArchivedColumnRole,
   isCompleteColumnRole,
@@ -2037,7 +2038,7 @@ export function TaskDetailContent({
       try {
         const updatedTask = JSON.parse(e.data);
         // Only update if this is for our task and has workflow step results
-        if (updatedTask.id === task.id && Array.isArray(updatedTask.workflowStepResults)) {
+        if (!isForeignTaskEvent(readTaskEventProjectId(updatedTask), projectId) && updatedTask.id === task.id && Array.isArray(updatedTask.workflowStepResults)) {
           setWorkflowResults(updatedTask.workflowStepResults);
           setWorkflowResultsLoadState("succeeded");
         }
@@ -4581,7 +4582,7 @@ export function TaskDetailContent({
     const handleTaskUpdated = (event: MessageEvent) => {
       try {
         const updatedTask = JSON.parse(event.data) as { id?: unknown };
-        if (updatedTask.id === task.id) scheduleResync();
+        if (!isForeignTaskEvent(readTaskEventProjectId(updatedTask), projectId) && updatedTask.id === task.id) scheduleResync();
       } catch {
         // FNXC:TaskActivityFeedFreshness 2026-08-28-00:13: Ignore malformed stream payloads; the next authoritative resync remains available.
       }
