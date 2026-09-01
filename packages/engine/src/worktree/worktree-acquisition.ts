@@ -23,6 +23,8 @@ import { pinnedWorktreePathForTask } from "./worktree-pinning.js";
 import {
   NativeWorktreeBackend,
   WorktrunkOperationError,
+  persistWorktreeBackendKind,
+  readPersistedWorktreeBackendKind,
   resolveWorktreeBackend,
   type WorktreeBackend,
 } from "./worktree-backend.js";
@@ -48,6 +50,7 @@ import { resolveIntegrationBranch } from "../merge/integration-branch.js";
 import { recordWorkspaceBaseBranchDecision, resolveWorkspaceRepoBaseBranch } from "./workspace-base-branch.js";
 import { acquireActiveSessionPath, activeSessionRegistry, executingTaskLock, type ActiveSessionRegistry } from "../agents/active-session-registry.js";
 import { refreshReusedWorktreeBase, type WorktreeBaseRefreshResult } from "../worktree-base-refresh.js";
+import { refreshWorkspaceRepoWorktreeBases } from "./workspace-base-refresh.js";
 import { normalizeWorkspaceTaskRouting } from "../executor/workspace-config-resolver.js";
 import {
   ensureWorktreeDependencies,
@@ -56,31 +59,8 @@ import {
 } from "./worktree-dependency-install.js";
 
 const execAsync = promisify(exec);
-const WORKTREE_BACKEND_MARKER = "fusion-worktree-backend-kind";
 const PRESERVED_ORPHAN_RETENTION_COUNT = 10;
 const PRESERVED_ORPHAN_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-async function resolveWorktreeBackendMarkerPath(worktreePath: string): Promise<string> {
-  const { stdout } = await execAsync(`git rev-parse --git-path ${JSON.stringify(WORKTREE_BACKEND_MARKER)}`, {
-    cwd: worktreePath,
-    encoding: "utf-8",
-  });
-  const markerPath = stdout.trim();
-  return isAbsolute(markerPath) ? markerPath : resolve(worktreePath, markerPath);
-}
-
-async function persistWorktreeBackendKind(worktreePath: string, backendKind: WorktreeBackend["kind"]): Promise<void> {
-  await writeFile(await resolveWorktreeBackendMarkerPath(worktreePath), `${backendKind}\n`, "utf-8");
-}
-
-async function readPersistedWorktreeBackendKind(worktreePath: string): Promise<WorktreeBackend["kind"] | undefined> {
-  try {
-    const backendKind = (await readFile(await resolveWorktreeBackendMarkerPath(worktreePath), "utf-8")).trim();
-    return backendKind === "native" || backendKind === "worktrunk" ? backendKind : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Worktree acquisition contract:
@@ -1287,6 +1267,8 @@ export interface AcquireWorkspaceTaskWorktreesOptions {
   taskEnv?: NodeJS.ProcessEnv;
   addActiveWorktree?: (taskId: string, path: string) => void;
   holderLiveProbe?: AcquireWorkspaceRepoWorktreeOptions["holderLiveProbe"];
+  /** Execution callers opt in after repository acquisition; planning, review, and merge remain unchanged. */
+  refreshStaleBase?: boolean;
 }
 
 export interface AcquireWorkspaceRepoWorktreeOptions {
@@ -2009,6 +1991,20 @@ export async function acquireWorkspaceTaskWorktrees(
     });
     opts.addActiveWorktree?.(opts.task.id, acquired.worktreePath);
     current = await opts.store.getTask(opts.task.id);
+  }
+
+  if (opts.refreshStaleBase) {
+    const refreshed = await refreshWorkspaceRepoWorktreeBases({
+      task: current,
+      workspaceRootDir: opts.workspaceRootDir,
+      repoRelPaths,
+      store: opts.store,
+      settings: opts.settings,
+      logger: opts.logger,
+      audit: opts.audit,
+      runContext: opts.runContext,
+    });
+    current = refreshed.task;
   }
 
   if (legacyLayout) {
