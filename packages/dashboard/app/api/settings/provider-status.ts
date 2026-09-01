@@ -55,6 +55,8 @@ export interface AuthProvider {
   keyHint?: string;
   /** Credential instance described by the top-level status fields. */
   instanceId?: string;
+  /** A bare legacy Anthropic OAuth row exists outside this account list and is suppressed while listed subscription accounts exist. */
+  legacyAnthropicOAuthPresent?: boolean;
   instances?: ProviderCredentialInstance[];
 }
 

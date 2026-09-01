@@ -6047,6 +6047,7 @@ export default interface Resources {
         "groupAuthenticated": "Authenticated",
         "groupAvailable": "Available",
         "hint": "Authentication changes take effect immediately — no need to save.",
+        "legacyAnthropicOAuthNotice": "A legacy Anthropic sign-in from an earlier version is still stored outside this account list. It is no longer used while an account is listed here — sign in again or re-select an account if authentication fails.",
         "loadingStatus": "Loading authentication status…",
         "loggedOut": "Logged out",
         "loggingOut": "Logging out…",

@@ -950,6 +950,8 @@ function createMockAuthStorage(overrides: Partial<AuthStorageLike> = {}): AuthSt
     hasApiKey: vi.fn().mockReturnValue(false),
     setApiKey: vi.fn(),
     clearApiKey: vi.fn(),
+    listInstances: vi.fn().mockReturnValue([]),
+    getInstance: vi.fn().mockReturnValue(undefined),
     ...overrides,
   } as unknown as AuthStorageLike;
 }
@@ -1023,6 +1025,8 @@ describe("GET /auth/status", () => {
     vi.mocked(authStorage.hasApiKey).mockReset();
     vi.mocked(authStorage.setApiKey).mockReset();
     vi.mocked(authStorage.clearApiKey).mockReset();
+    vi.mocked(authStorage.listInstances).mockReset();
+    vi.mocked(authStorage.getInstance).mockReset();
 
     vi.mocked(authStorage.reload).mockResolvedValue(undefined);
     vi.mocked(authStorage.getOAuthProviders).mockReturnValue([{ id: "github-copilot", name: "GitHub Copilot" }]);
@@ -1038,6 +1042,8 @@ describe("GET /auth/status", () => {
       { id: "kimi-coding", name: "Kimi" },
     ]);
     vi.mocked(authStorage.hasApiKey).mockReturnValue(false);
+    vi.mocked(authStorage.listInstances).mockReturnValue([]);
+    vi.mocked(authStorage.getInstance).mockReturnValue(undefined);
     const globalSettingsStore = store.getGlobalSettingsStore();
     vi.mocked(globalSettingsStore.getSettings).mockReset().mockResolvedValue({});
   });
@@ -1056,6 +1062,30 @@ describe("GET /auth/status", () => {
     expect(res.status).toBe(200);
     expect(res.body.customProvidersConfigured).toBe(expected);
     expect(res.body.providers).not.toContainEqual(expect.objectContaining({ id: "custom-one" }));
+  });
+
+  it("reports a legacy Anthropic OAuth shadow row only alongside subscription instances", async () => {
+    (authStorage.listInstances as ReturnType<typeof vi.fn>).mockImplementation((provider: string) => provider === "anthropic-subscription"
+      ? [{ providerId: provider, instanceId: "work" }] : []);
+    (authStorage.getInstance as ReturnType<typeof vi.fn>).mockImplementation(({ providerId, instanceId }: { providerId: string; instanceId: string }) => {
+      if (providerId === "anthropic" && instanceId === "default") return { type: "oauth" };
+      if (providerId === "anthropic-subscription") return { type: "oauth" };
+      return undefined;
+    });
+
+    const res = await GET(app, "/api/auth/status");
+
+    expect(res.body.providers.find((provider: { id: string }) => provider.id === "anthropic-subscription")).toMatchObject({
+      legacyAnthropicOAuthPresent: true,
+    });
+  });
+
+  it("does not report a legacy API key or a legacy-only OAuth credential as a shadow row", async () => {
+    (authStorage.getInstance as ReturnType<typeof vi.fn>).mockReturnValue({ type: "api_key", key: "raw" });
+
+    const res = await GET(app, "/api/auth/status");
+
+    expect(res.body.providers.find((provider: { id: string }) => provider.id === "anthropic-subscription")).not.toHaveProperty("legacyAnthropicOAuthPresent");
   });
 
   it("returns provider list with auth status", async () => {

@@ -930,6 +930,13 @@ export const registerAuthRoutes: ApiRouteRegistrar = (ctx) => {
           return { ...provider, instanceId, authenticated: false, expired: false, keyHint: undefined, instances: [] };
         }
         const refs = storage.listInstances?.(provider.id) ?? [];
+        /*
+        FNXC:ProviderAuth 2026-09-01-06:38:
+        FN-9229 suppresses a bare legacy Anthropic OAuth row whenever subscription accounts exist. The row remains stored for migration compatibility, so status must disclose its presence without exposing credential material; an invisible credential must never be a silent participant in resolution.
+        */
+        const legacyAnthropicOAuthPresent = provider.id === "anthropic-subscription"
+          && refs.length > 0
+          && storage.getInstance?.({ providerId: "anthropic", instanceId: "default" })?.type === "oauth";
         const targetedCredential = target ? credential : undefined;
         const targetedKey = targetedCredential?.type === "api_key" && typeof targetedCredential.key === "string"
           ? targetedCredential.key : undefined;
@@ -949,6 +956,7 @@ export const registerAuthRoutes: ApiRouteRegistrar = (ctx) => {
             ...(targetedKey ? { keyHint: maskApiKey(targetedKey) } : { keyHint: undefined }),
           } : {}),
           instanceId,
+          ...(legacyAnthropicOAuthPresent ? { legacyAnthropicOAuthPresent: true } : {}),
           instances: (target ? refs.filter((item) => item.instanceId === instanceId) : refs)
             .map((item) => {
               const instanceCredential = storage.getInstance?.({ providerId: provider.id, instanceId: item.instanceId });

@@ -400,6 +400,15 @@ export function AuthenticationSection({ auth, form, setForm }: AuthenticationSec
                       </span>
                       {renderAnthropicPrecedenceBadge(provider)}
                       {provider.authenticated && provider.keyHint && (<span className="auth-key-hint">{t("settings.authentication.key", "Key: ")}{provider.keyHint}</span>)}
+                      {/*
+                      FNXC:ProviderAuth 2026-09-01-06:38:
+                      FN-9229 suppresses the hidden legacy Anthropic OAuth row when a Claude subscription account is stored. Show its continued presence only on that account card so operators can understand an authentication failure without exposing token material or rendering an empty shell.
+                      */}
+                      {provider.id === "anthropic-subscription" && provider.legacyAnthropicOAuthPresent && (
+                        <span className="auth-key-hint" data-testid="auth-legacy-anthropic-oauth-notice">
+                          {t("settings.auth.legacyAnthropicOAuthNotice", "A legacy Anthropic sign-in from an earlier version is still stored outside this account list. It is no longer used while an account is listed here — sign in again or re-select an account if authentication fails.")}
+                        </span>
+                      )}
                     </div>
                     {provider.type !== "api_key" && !hasMultipleInstances(provider) && <div className="auth-provider-actions">{renderAuthenticatedOAuthActions(provider)}</div>}
                     {providerSupportsApiKey(provider) && !hasMultipleInstances(provider) && renderApiKeySection(provider)}

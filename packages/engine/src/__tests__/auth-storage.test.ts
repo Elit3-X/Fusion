@@ -450,6 +450,27 @@ describe("createFusionAuthStorage", () => {
       expect(authStorage.list()).toEqual(expect.arrayContaining(["anthropic", "anthropic-subscription"]));
     });
 
+    it("uses stored Anthropic subscription OAuth before a legacy OAuth shadow row", async () => {
+      writeFusionAuth(homeDir, {
+        anthropic: {
+          type: "oauth",
+          access: "legacy-shadow-access-token",
+          refresh: "legacy-shadow-refresh-token",
+          expires: Date.now() + 24 * 60 * 60_000,
+        },
+        "anthropic-subscription": {
+          type: "oauth",
+          access: "selected-subscription-access-token",
+          refresh: "selected-subscription-refresh-token",
+          expires: Date.now() + 3_600_000,
+        },
+      });
+
+      const authStorage = createFusionAuthStorage();
+
+      expect(await authStorage.getApiKey("anthropic")).toBe("selected-subscription-access-token");
+    });
+
     it("exposes legacy Anthropic OAuth through the subscription provider without raw direct auth", async () => {
       writeFusionAuth(homeDir, {
         anthropic: {
