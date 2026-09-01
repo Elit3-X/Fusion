@@ -758,6 +758,9 @@ export async function runGraphCustomNode(
     const stepThinkingLevel = typeof cfg.thinkingLevel === "string" && WORKFLOW_THINKING_LEVEL_SET.has(cfg.thinkingLevel)
       ? cfg.thinkingLevel as ThinkingLevel
       : undefined;
+    const readonlyMcpServers = Array.isArray(cfg.readonlyMcpServers)
+      ? [...new Set(cfg.readonlyMcpServers.filter((name): name is string => typeof name === "string").map((name) => name.trim()).filter(Boolean))]
+      : [];
     const step: WorkflowStep = {
       id: `graph:${node.id}`,
       name: typeof cfg.name === "string" && cfg.name.trim() ? cfg.name : node.id,
@@ -775,6 +778,7 @@ export async function runGraphCustomNode(
       ...(cfg.requiresBrowser === true ? { requiresBrowser: true } : {}),
       ...(modelProvider && modelId ? { modelProvider, modelId } : {}),
       ...(stepThinkingLevel ? { thinkingLevel: stepThinkingLevel } : {}),
+      ...(readonlyMcpServers.length > 0 ? { readonlyMcpServers } : {}),
     };
     if (cfg.summaryTarget === "task") {
       (step as WorkflowStep & { summaryTarget?: "task" }).summaryTarget = "task";

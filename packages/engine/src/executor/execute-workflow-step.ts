@@ -278,6 +278,16 @@ export async function executeWorkflowStep(
     }
     const requireExternalIntegrationEvidence =
       workflowStepMetadata.requireExternalIntegrationEvidence === true;
+    const readonlyMcpServerAllowlist = toolMode === "readonly"
+      ? [...new Set((workflowStepMetadata.readonlyMcpServers ?? []).map((name) => name.trim()).filter(Boolean))]
+      : [];
+    /*
+     * FNXC:McpConfig 2026-09-01-06:06:
+     * A read-only step may use MCP from explicitly named servers without coding-mode promotion,
+     * which would expose the adjacent accepted write-capability gap. Coding steps pass no readonly
+     * MCP policy because their ordinary MCP behavior is deliberately unchanged.
+     */
+    const allowReadonlyMcpTools = toolMode === "readonly" && readonlyMcpServerAllowlist.length > 0;
 
     /*
      * FNXC:WorkflowReviewSpecInjection 2026-07-18-18:15:
@@ -978,6 +988,12 @@ CRITICAL SCOPING RULES — read before doing anything else:
       const workflowStepFallbackThinkingLevel = isReviewTypeWorkflowStep
         ? resolveValidatorFallbackThinkingLevel(workflowStepThinkingSource, settings)
         : resolveExecutorFallbackThinkingLevel(workflowStepThinkingSource, settings);
+      if (allowReadonlyMcpTools) {
+        await deps.store.logEntry(
+          task.id,
+          `Workflow step '${workflowStep.name}' enabled read-only MCP servers: ${readonlyMcpServerAllowlist.join(", ")}`,
+        );
+      }
       const { session } = await createResolvedAgentSession({
         sessionPurpose: "executor",
         taskExecutionSession: true,
@@ -1000,6 +1016,12 @@ CRITICAL SCOPING RULES — read before doing anything else:
         settings,
         taskEnv: stepEnv,
         mcpServers: await deps.resolveMcpServers(undefined),
+        ...(allowReadonlyMcpTools
+          ? {
+              allowMcpToolsInReadonly: true,
+              readonlyMcpServerAllowlist,
+            }
+          : {}),
         // FNXC:SessionRouting 2026-06-24-11:20:
         // #1675: propagate task id so workflow-step requests carry the same
         // X-Session-Id/X-Session-Affinity as the primary session.

@@ -529,6 +529,8 @@ Prompt-mode workflow-step agents receive user-authored task comments plus legacy
 
 Readonly steps cannot hold `edit`, `write`, `bash`, or task/agent mutation tools. Attempts to use denied tools fail closed with `READONLY_VIOLATION` and are surfaced as a `[readonly-violation]` workflow-step failure outcome.
 
+A graph prompt node may declare `config.readonlyMcpServers` as an array of non-blank configured MCP server names. For example, a Plan Review inner prompt can use `{ "toolMode": "readonly", "readonlyMcpServers": ["nav"] }` to use semantic navigation without receiving coding tools. Only listed servers are connected and exposed; unlisted servers never start, and tool origin is re-checked before exposure. The key is validated recursively in optional-group templates, is graph-node configuration rather than a legacy persisted configured-step field, and an absent key preserves the normal no-MCP readonly behavior. If reviewer inline fixes promote a review step to coding mode, this readonly-only opt-in is omitted and normal coding-mode MCP policy applies.
+
 Use `toolMode: "coding"` for any prompt step that must modify files, run shell commands, or perform mutation actions.
 
 ## Gate Modes
