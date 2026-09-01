@@ -622,7 +622,6 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   public taskIdIntegrityReport: TaskIdIntegrityReport = { status: "ok", checkedAt: new Date().toISOString(), anomalies: [] };
   public lastTaskIdIntegrityLogSignature: string | null = null;
   public workflowStepsCache: import("./types.js").WorkflowStep[] | null = null;
-  public workflowDefinitionsCache: WorkflowDefinition[] | null = null;
   public _pluginWorkflowStepTemplates: Array<{ pluginId: string; template: WorkflowStepTemplate }> = [];
   public globalSettingsStore: GlobalSettingsStore;
   public donePauseBackfillDone = false;
