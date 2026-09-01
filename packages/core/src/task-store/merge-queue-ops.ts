@@ -19,7 +19,7 @@ import {assertSafeGitBranchName, assertSafeAbsolutePath} from "../task-store/she
 import {isFusionDeletableBranch} from "../branch/branch-assignment.js";
 import {acquireMergeQueueLease as acquireMergeQueueLeaseAsync} from "../task-store/async/async-merge-coordination.js";
 import {appendTaskStepReport} from "../workflows/task-step-reports.js";
-import {evaluateStepLedgerSeal, STEP_LEDGER_REOPEN_MARKER_PREFIX} from "./step-ledger-seal.js";
+import {evaluateStepLedgerSeal, STEP_LEDGER_REFUSAL_MARKER_PREFIX, STEP_LEDGER_REOPEN_MARKER_PREFIX} from "./step-ledger-seal.js";
 
 export type StepStartDisposition = "started" | "resumed" | "blocked" | "terminal";
 
@@ -263,7 +263,7 @@ async function mutateStepImpl(store: TaskStore, id: string, stepIndex: number, s
         task.log.push({
           timestamp: ts,
           action:
-            `Ignored post-completion ${status} for step ${stepIndex} (${stepName}) — ` +
+            `${STEP_LEDGER_REFUSAL_MARKER_PREFIX} ${status} for step ${stepIndex} (${stepName}) — ` +
             `implementation ended at "${ledgerSeal.markerAction}" and no new implementation session has started`,
         });
         if (graphSource) {
