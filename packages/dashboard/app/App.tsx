@@ -51,7 +51,7 @@ import { useFavorites } from "./hooks/useFavorites";
 import { useAuthOnboarding } from "./hooks/useAuthOnboarding";
 import { useMobileKeyboard } from "./hooks/useMobileKeyboard";
 import { useKeyboardFocusPending } from "./hooks/useKeyboardFocusPending";
-import { isIOS, useMobileKeyboardViewportLock, useMobileViewportRestoreReset } from "./hooks/useMobileScrollLock";
+import { useMobileKeyboardViewportLock, useMobileViewportRestoreReset } from "./hooks/useMobileScrollLock";
 import { computeMobileBarKeyboardFlags } from "./utils/mobileBarKeyboardFlags";
 import { recordActivity } from "./utils/activity-trace";
 import { closeViewShortcut, retainViewNavRevert } from "./utils/dashboardShortcutToggles";
@@ -224,7 +224,6 @@ export function useMobileBarKeyboardState({
       keyboardFocusPending,
       anyModalOpen,
       overlayOpen,
-      isIOS: isIOS(),
     }),
   };
 }
@@ -815,9 +814,9 @@ function AppInner() {
   // keyboard with no empty gap. This supersedes the earlier Android gate
   // (FN-5707), which kept the footer visible and left a ~80px dead band
   // where the off-screen nav bar's padding remained reserved.
-  // `footerKeyboardOpen` (the footer `bottom: 0` collapse class) stays
-  // iOS-only: it only matters when the footer is still rendered (e.g. over
-  // a modal), where Android's resizes-content already stacks it correctly.
+  // `footerKeyboardOpen` uses the same immediate focus/keyboard trigger as
+  // the nav bar. A footer that remains rendered over a modal must also drop
+  // its bottom reservation on both platforms to avoid a dead band.
   const mobileKeyboardOpen = footerHidden;
   const mobileNavKeyboardOpen = navKeyboardOpen;
   // App-level scroll lock for inline editing (TaskCard inline edit, etc.):
