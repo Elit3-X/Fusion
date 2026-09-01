@@ -4100,7 +4100,9 @@ export class ProjectEngine {
               }
               const checklist = planConfirmedMergeChecklistReconciliation(task as Task);
               if (checklist.skippedStepIndexes.length > 0 || checklist.reconciledWorkflowStepIds.length > 0) {
-                const steps = task.steps.map((step, index) => checklist.skippedStepIndexes.includes(index)
+                // FNXC:ConfirmedMergeFinalization 2026-09-01-05:49: same absent-`steps` tolerance as the
+                // reconciliation planner above — a landed merge must not be abandoned by a TypeError.
+                const steps = (task.steps ?? []).map((step, index) => checklist.skippedStepIndexes.includes(index)
                   ? { ...step, status: "skipped" as const }
                   : step);
                 const workflowStepResults = (task.workflowStepResults ?? []).map((result) =>
