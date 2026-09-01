@@ -1,9 +1,11 @@
 import {
+  evaluateStepLedgerSeal,
   formatRemediationStepName,
   hasOpenEquivalentRemediationStep,
   remediationDeclaredFiles,
   remediationWaveCount,
   planRemediationPlacement,
+  STEP_LEDGER_REOPEN_MARKER_PREFIX,
   type RunMutationContext,
   type Task,
   type TaskStep,
@@ -236,11 +238,33 @@ export async function appendReviewRemediationSteps(
             ...(claim.runContext ? { runContext: claim.runContext } : {}),
           }
         : undefined;
+      /*
+      FNXC:StepLedgerIntegrity 2026-09-01-00:45:
+      Reopen the step ledger HERE too. This is the branch Code Review actually takes.
+
+      The completion seal refuses any step transition after "Task marked done by agent" until a
+      re-entry marker supersedes it, and the stamp was added to `appendRemediationStepsImpl` -- the
+      `else` branch below. Code Review always supplies `attemptClaim`, so it takes THIS inline
+      transaction instead and never reached that stamp: the fix shipped into a path the failing case
+      does not traverse. Measured on FN-270 after the fix was live -- "Ignored post-completion
+      in-progress for step 12 (Fix: ...)" with no reopen entry anywhere before it.
+
+      Stamped inside the same atomic mutation as the steps, so no window exists in which the work is
+      present while the ledger still claims completion. Only a real seal is answered, so an append
+      during a live session still writes nothing.
+      */
+      const reopenEntry = evaluateStepLedgerSeal(current.log).sealed
+        ? {
+            timestamp: new Date().toISOString(),
+            action: `${STEP_LEDGER_REOPEN_MARKER_PREFIX} \u2014 ${appended.length} remediation step(s) appended after completion (wave ${transactionWave})`,
+          }
+        : undefined;
+      const appendedLog = [...(current.log ?? []), ...(attemptEntry ? [attemptEntry] : []), ...(reopenEntry ? [reopenEntry] : [])];
       return {
         steps: placement.steps,
         currentStep: placement.insertionIndex,
         ...(nextPrompt !== current.prompt ? { prompt: nextPrompt } : {}),
-        ...(attemptEntry ? { log: [...(current.log ?? []), attemptEntry] } : {}),
+        ...(attemptEntry || reopenEntry ? { log: appendedLog } : {}),
       };
     }, options.attemptClaim?.runContext);
     if (scopeSuperseded) {
