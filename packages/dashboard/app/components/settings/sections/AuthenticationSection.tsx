@@ -337,12 +337,17 @@ export function AuthenticationSection({ auth, form, setForm }: AuthenticationSec
         {isAuthActionActive(stateKey) ? <div className="auth-provider-actions-row"><button className="btn btn-sm" disabled>{t("settings.auth.waitingForLogin", "Waiting for login…")}</button><button className="btn btn-sm" onClick={() => instanceId ? handleCancelLogin(provider.id, instanceId) : handleCancelLogin(provider.id)}>{t("settings.actions.cancel", "Cancel")}</button></div>
           : provider.loginInProgress ? <div className="auth-provider-actions-row"><button className="btn btn-sm" disabled>{t("settings.auth.waitingForLogin", "Waiting for login…")}</button><button className="btn btn-sm" onClick={() => instanceId ? handleCancelLogin(provider.id, instanceId) : handleCancelLogin(provider.id)}>{t("settings.actions.cancel", "Cancel")}</button></div>
             : <button className="btn btn-primary btn-sm" onClick={() => instanceId ? handleLogin(provider.id, instanceId, pendingLabel) : handleLogin(provider.id)}>{t("settings.auth.login", "Login")}</button>}
-        {provider.id === "github-copilot" && deviceCodes[stateKey] && isActive && <div className="auth-device-code-panel" data-testid={`auth-device-code-${stateKey}`}>
-          <strong>{t("settings.auth.enterCodeOnGitHub", "Enter this code on GitHub")}</strong>
+        {/*
+        FNXC:ProviderAuth 2026-09-01-08:30:
+        Any OAuth provider may notify a device code. Render the code and verification link instead
+        of a paste form, and leave opening the link to the operator after they have read the code.
+        */}
+        {deviceCodes[stateKey] && isActive && <div className="auth-device-code-panel" data-testid={`auth-device-code-${stateKey}`}>
+          <strong>{provider.id === "github-copilot" ? t("settings.auth.enterCodeOnGitHub", "Enter this code on GitHub") : t("settings.auth.enterCodeToContinue", "Enter this code to continue")}</strong>
           <div className="auth-device-code-pill">{deviceCodes[stateKey].userCode}</div>
           <div className="auth-provider-actions-row">
             <button className="btn btn-sm" onClick={() => void copyTextToClipboard(deviceCodes[stateKey].userCode).then((copied) => addToast(copied ? t("settings.auth.copiedCodeToClipboard", "Copied code to clipboard") : t("settings.auth.failedToCopyCode", "Failed to copy code — copy it manually from the box above"), copied ? "success" : "error"))}>{t("settings.auth.copyCode", "Copy code")}</button>
-            <button className="btn btn-sm" onClick={() => openExternalUrl(appendTokenQuery(deviceCodes[stateKey].verificationUri))}>{t("settings.auth.openGitHub", "Open GitHub")}</button>
+            <button className="btn btn-sm" onClick={() => openExternalUrl(appendTokenQuery(deviceCodes[stateKey].verificationUri))}>{provider.id === "github-copilot" ? t("settings.auth.openGitHub", "Open GitHub") : t("settings.auth.openVerificationPage", "Open verification page")}</button>
           </div>
         </div>}
         {loginInstructions[stateKey] && isActive && activeLoginDialogKey !== stateKey && <LoginInstructions instructions={loginInstructions[stateKey]} data-testid={`auth-login-instructions-${stateKey}`}/>}

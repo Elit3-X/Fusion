@@ -39,7 +39,8 @@ import { resetRuntimeLogSink, setRuntimeLogSink } from "../runtime-logger.js";
 import { resetDiagnosticsSink, setDiagnosticsSink, type LogEntry } from "../ai-session-diagnostics.js";
 import * as updateCheckModule from "../update-check.js";
 import { __setAgentReflectionServiceForTests } from "../routes/register-agent-reflection-rating-routes.js";
-import { parseGitHubCopilotDeviceCode } from "../routes/register-auth-routes.js";
+import { __setLoginInitiationTimeoutMsForTests, parseGitHubCopilotDeviceCode } from "../routes/register-auth-routes.js";
+import { createFusionAuthStorage } from "../../../engine/src/auth/auth-storage.js";
 import { createAuthMiddleware } from "../auth-middleware.js";
 import { __resetModelRegistryRefreshCacheForTests } from "../model-registry-refresh-cache.js";
 
@@ -1282,7 +1283,7 @@ describe("GET /auth/status", () => {
       ]);
 
       const res = origin
-        ? await REQUEST(app, "GET", "/api/auth/status", undefined, { Origin: origin })
+        ? await REQUEST(app, "GET", `/api/auth/status?origin=${encodeURIComponent(origin)}`)
         : await REQUEST(app, "GET", "/api/auth/status");
 
       expect(res.status).toBe(200);
@@ -1292,7 +1293,7 @@ describe("GET /auth/status", () => {
       const openrouter = res.body.providers.find((p: any) => p.id === "openrouter");
       const claudeCli = res.body.providers.find((p: any) => p.id === "claude-cli");
 
-      expect(openAiCodex.requiresManualCode).toBe(true);
+      expect(openAiCodex.requiresManualCode).toBe(origin ? undefined : true);
       expect(anthropic.requiresManualCode).toBe(true);
       expect(githubCopilot).not.toHaveProperty("requiresManualCode");
       expect(openrouter).not.toHaveProperty("requiresManualCode");
@@ -2940,11 +2941,7 @@ describe("POST /auth/login", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.url).toBe(unchangedUrl);
-    expect(res.body.manualCode).toEqual({
-      prompt: "Paste the final redirect URL or authorization code",
-      placeholder: "http://localhost:1455/auth/callback?code=...&state=... or just the code",
-      helpText: "After sign-in, OpenAI may redirect to a localhost callback that cannot open from this dashboard host. Copy the full browser URL from the address bar and paste it here.",
-    });
+    expect(res.body.manualCode).toBeUndefined();
   });
 
   it("maps Anthropic subscription login to upstream anthropic OAuth and skips callback rewrite", async () => {
@@ -3061,6 +3058,42 @@ describe("POST /auth/login", () => {
     );
   });
 
+  it("selects Codex device code on a remote origin without a manual-code form", async () => {
+    let selectedOption: string | undefined;
+    (authStorage.getOAuthProviders as ReturnType<typeof vi.fn>).mockReturnValue([{ id: "openai-codex", name: "OpenAI Codex" }]);
+    (authStorage.login as ReturnType<typeof vi.fn>).mockImplementation(async (_provider: string, callbacks: any) => {
+      selectedOption = await callbacks.onSelect({ options: [{ id: "browser" }, { id: "device_code" }] });
+      callbacks.onDeviceCode({ userCode: "ABCD-1234", verificationUri: "https://auth.openai.com/codex/device" });
+    });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/auth/login", JSON.stringify({ provider: "openai-codex", origin: "https://remote.example.com" }), { "Content-Type": "application/json" });
+
+    expect(selectedOption).toBe("device_code");
+    expect(res.status).toBe(200);
+    expect(res.body.url).toBe("https://auth.openai.com/codex/device");
+    expect(res.body.deviceCode).toEqual({ userCode: "ABCD-1234", verificationUri: "https://auth.openai.com/codex/device" });
+    expect(res.body.manualCode).toBeUndefined();
+  });
+
+  it("honors an explicit Codex browser override on a remote origin", async () => {
+    let selectedOption: string | undefined;
+    (authStorage.getOAuthProviders as ReturnType<typeof vi.fn>).mockReturnValue([{ id: "openai-codex", name: "OpenAI Codex" }]);
+    (authStorage.login as ReturnType<typeof vi.fn>).mockImplementation(async (_provider: string, callbacks: any) => {
+      selectedOption = await callbacks.onSelect({ options: [{ id: "browser" }, { id: "device_code" }] });
+      callbacks.onAuth({ url: "https://auth.openai.com/oauth/authorize?state=browser" });
+    });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/auth/login", JSON.stringify({ provider: "openai-codex", origin: "https://remote.example.com", method: "browser" }), { "Content-Type": "application/json" });
+
+    expect(selectedOption).toBe("browser");
+    expect(res.body.manualCode).toBeDefined();
+  });
+
+  it("rejects an unsupported OAuth method", async () => {
+    const res = await REQUEST(buildApp(), "POST", "/api/auth/login", JSON.stringify({ provider: "openai-codex", method: "nonsense" }), { "Content-Type": "application/json" });
+    expect(res.status).toBe(400);
+  });
+
   it("keeps returning the only option id for single-option prompts", async () => {
     let selectedOption: string | undefined;
     (authStorage.getOAuthProviders as ReturnType<typeof vi.fn>).mockReturnValue([{ id: "openai-codex", name: "OpenAI Codex" }]);
@@ -3101,6 +3134,137 @@ describe("POST /auth/login", () => {
 
     expect(selectedOption).toBe("browser");
     expect(res.status).toBe(200);
+  });
+
+  describe("OpenAI Codex login through the real pi AuthInteraction shim", () => {
+    const originalHome = process.env.HOME;
+    let homeDir: string;
+
+    beforeEach(() => {
+      homeDir = mkdtempSync(join(tmpdir(), "fusion-codex-route-auth-"));
+      process.env.HOME = homeDir;
+      __setLoginInitiationTimeoutMsForTests(25);
+    });
+
+    afterEach(() => {
+      __setLoginInitiationTimeoutMsForTests();
+      rmSync(homeDir, { recursive: true, force: true });
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+    });
+
+    it("returns browser authorization while the real manual-code interaction remains unsettled", async () => {
+      const storage = createFusionAuthStorage();
+      const promptLog: string[] = [];
+      let selectedOption: string | undefined;
+      let manualCodeSettled = false;
+      storage.setModelRuntime({
+        login: async (_provider: string, _kind: string, interaction: {
+          prompt: (prompt: { type: string; options?: Array<{ id: string }> }) => Promise<string>;
+          notify: (event: { type: string; url?: string }) => void;
+        }) => {
+          promptLog.push("select");
+          selectedOption = await interaction.prompt({
+            type: "select",
+            options: [{ id: "browser" }, { id: "device_code" }],
+          });
+          promptLog.push("notify:auth_url");
+          interaction.notify({ type: "auth_url", url: "https://auth.openai.com/oauth/authorize?state=s" });
+          promptLog.push("manual_code");
+          const manualCode = interaction.prompt({ type: "manual_code" });
+          void manualCode.then(
+            () => { manualCodeSettled = true; },
+            () => { manualCodeSettled = true; },
+          );
+          await manualCode;
+        },
+      } as never);
+      authStorage = storage;
+
+      const res = await REQUEST(buildApp(), "POST", "/api/auth/login", JSON.stringify({ provider: "openai-codex" }), { "Content-Type": "application/json" });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(res.status).toBe(200);
+      expect(res.body.url).toContain("state=s");
+      expect(promptLog).toEqual(["select", "notify:auth_url", "manual_code"]);
+      expect(selectedOption).toBe("browser");
+      expect(manualCodeSettled).toBe(false);
+      expect(res.body.error).not.toBe("Login initiation timed out");
+    });
+
+    it("returns a device code through the real interaction shim", async () => {
+      const storage = createFusionAuthStorage();
+      const promptLog: string[] = [];
+      let selectedOption: string | undefined;
+      storage.setModelRuntime({
+        login: async (_provider: string, _kind: string, interaction: {
+          prompt: (prompt: { type: string; options?: Array<{ id: string }> }) => Promise<string>;
+          notify: (event: { type: string; userCode?: string; verificationUri?: string }) => void;
+        }) => {
+          promptLog.push("select");
+          selectedOption = await interaction.prompt({
+            type: "select",
+            options: [{ id: "browser" }, { id: "device_code" }],
+          });
+          promptLog.push("notify:device_code");
+          interaction.notify({
+            type: "device_code",
+            userCode: "ABCD-1234",
+            verificationUri: "https://auth.openai.com/codex/device",
+          });
+        },
+      } as never);
+      authStorage = storage;
+
+      const res = await REQUEST(buildApp(), "POST", "/api/auth/login", JSON.stringify({ provider: "openai-codex", origin: "https://remote.example.com" }), { "Content-Type": "application/json" });
+
+      expect(res.status).toBe(200);
+      expect(selectedOption).toBe("device_code");
+      expect(promptLog).toEqual(["select", "notify:device_code"]);
+      expect(res.body.url).toBe("https://auth.openai.com/codex/device");
+      expect(res.body.deviceCode).toEqual({ userCode: "ABCD-1234", verificationUri: "https://auth.openai.com/codex/device" });
+    });
+  });
+
+  describe("initiation timeout cleanup", () => {
+    beforeEach(() => __setLoginInitiationTimeoutMsForTests(20));
+    afterEach(() => __setLoginInitiationTimeoutMsForTests());
+
+    it("aborts a silent login without letting its late settlement clear a successor", async () => {
+      let firstSignal: AbortSignal | undefined;
+      let settleFirst: (() => void) | undefined;
+      let calls = 0;
+      (authStorage.getOAuthProviders as ReturnType<typeof vi.fn>).mockReturnValue([{ id: "openai-codex", name: "OpenAI Codex" }]);
+      (authStorage.login as ReturnType<typeof vi.fn>).mockImplementation((_provider: string, callbacks: { signal: AbortSignal; onAuth: (info: { url: string }) => void }) => {
+        calls += 1;
+        if (calls === 1) {
+          firstSignal = callbacks.signal;
+          return new Promise<void>((resolve) => { settleFirst = resolve; });
+        }
+        callbacks.onAuth({ url: "https://auth.openai.com/oauth/authorize?state=retry" });
+        return new Promise<void>(() => {});
+      });
+      const app = buildApp();
+
+      const timedOut = await REQUEST(app, "POST", "/api/auth/login", JSON.stringify({ provider: "openai-codex" }), { "Content-Type": "application/json" });
+      expect(timedOut.status).toBe(500);
+      expect(timedOut.body.error).toBe("Login initiation timed out");
+      expect(firstSignal?.aborted).toBe(true);
+
+      const status = await GET(app, "/api/auth/status?provider=openai-codex");
+      expect(status.body.providers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "openai-codex", loginInProgress: false, loginError: "Login initiation timed out" }),
+      ]));
+
+      const retry = await REQUEST(app, "POST", "/api/auth/login", JSON.stringify({ provider: "openai-codex" }), { "Content-Type": "application/json" });
+      expect(retry.status).toBe(200);
+
+      settleFirst?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const cancelled = await REQUEST(app, "POST", "/api/auth/cancel", JSON.stringify({ provider: "openai-codex" }), { "Content-Type": "application/json" });
+      expect(cancelled.body).toMatchObject({ cancelled: true });
+    });
   });
 
   it("returns 400 when provider is missing", async () => {

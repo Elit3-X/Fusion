@@ -54,13 +54,13 @@ for the full flow.
 
 ## Provider OAuth logins (Anthropic, OpenAI Codex)
 
-Subscription logins finish on a **loopback callback server that the container runs itself**, on fixed
-ports: `53692` for Anthropic and `1455` for OpenAI Codex. Two things make that unreachable by
-default — the port is not published, and the listener binds `127.0.0.1` *inside* the container, so
-publishing alone still would not deliver traffic arriving on the container's external interface.
-The symptom is a browser that lands on a connection-error page after you approve the login.
+Anthropic subscription login uses a loopback callback server on port `53692`. OpenAI Codex uses
+that browser callback on port `1455` only when the dashboard is reached at a localhost origin. For
+a remote dashboard origin, Codex instead displays a device code and a verification-page link; enter
+the code on that page, with no localhost callback or paste-back required.
 
-Publish both ports and bind the listener to all interfaces:
+Publish the Anthropic port (and Codex `1455` only when you intentionally use Codex browser login)
+and bind the listener to all interfaces:
 
 ```bash
 docker run -p 4040:4040 -p 53692:53692 -p 1455:1455 \
@@ -70,15 +70,11 @@ docker run -p 4040:4040 -p 53692:53692 -p 1455:1455 \
   fusion
 ```
 
-The browser callback then completes on its own, with nothing to paste. Both ports are fixed by the
-provider's registered redirect URI, so they cannot be remapped to different host ports — `-p
-53692:53693` will not work.
-
-Without this, the fallback is manual: copy the full URL from the browser's address bar after
-approving and paste it into the login card. Note the callback listener accepts connections from
-outside the container while a login is in flight; it is short-lived and validates the OAuth `state`,
-but prefer publishing these ports only on a trusted network (`-p 127.0.0.1:53692:53692` restricts
-them to the host).
+These callback ports are fixed by their providers' registered redirect URIs and cannot be remapped
+to different host ports. If an environment needs the Codex browser flow despite a remote dashboard,
+call `POST /api/auth/login` with `{"provider":"openai-codex","method":"browser"}`; this restores
+the paste-back/callback behavior. The temporary callback listener validates OAuth `state`, but
+prefer publishing it only on a trusted network.
 
 ## Helper script
 

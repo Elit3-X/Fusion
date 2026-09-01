@@ -6960,6 +6960,7 @@
       "copiedCodeToClipboard": "Código copiado para a área de transferência",
       "copyCode": "Copiar código",
       "enterCodeOnGitHub": "Digite este código no GitHub",
+      "enterCodeToContinue": "",
       "failedToCopyCode": "Falha ao copiar o código — copie-o manualmente da caixa acima",
       "groupAuthenticated": "Autenticado",
       "groupAvailable": "Disponível",
@@ -6977,6 +6978,7 @@
       "manualPasteTitle": "Atenção — é necessário colar manualmente",
       "noProviders": "Nenhum provedor disponível",
       "openGitHub": "Abrir GitHub",
+      "openVerificationPage": "",
       "pasteRedirectUrlFirst": "Cole primeiro a URL de redirecionamento completa ou o código de autorização.",
       "reopenOnboarding": "Reabrir guia de onboarding",
       "refreshModels": "Atualizar modelos",
@@ -6997,7 +6999,8 @@
       "anthropicPreferenceApiKey": "Chave de API",
       "anthropicPreferenceSubscription": "Assinatura do Claude",
       "credentialInUse": "Em uso",
-      "credentialOverridden": "Substituída abaixo"
+      "credentialOverridden": "Substituída abaixo",
+      "legacyAnthropicOAuthNotice": ""
     },
     "researchGlobal": {
       "advancedExternalSearchProviders": "Avançado — provedores de busca externos",
