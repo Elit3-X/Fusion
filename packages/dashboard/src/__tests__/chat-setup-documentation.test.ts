@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -55,5 +55,45 @@ describe("Direct chat setup documentation", () => {
 
     const modeRow = settingsReference.split("\n").find((line) => line.startsWith("| `chatNewSessionMode`"));
     expect(modeRow).toMatch(/retired|inert|no effect/i);
+  });
+
+  it("keeps shipped Settings catalogs and copy free of retired create-time prompt modes", () => {
+    const localeDirectory = path.join(repoRoot, "packages/i18n/locales");
+    const localeCatalogs = readdirSync(localeDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    const retiredModeKeys = [
+      "chatNewSessionMode",
+      "chatNewSessionModePrompt",
+      "chatNewSessionModeAlwaysDefault",
+      "chatNewSessionModeHelp",
+    ];
+    const retiredCopy = ["should prompt", "fall back to prompting", "New Chat behavior", ...bannedRetiredPhrases];
+
+    for (const locale of localeCatalogs) {
+      const catalog = JSON.parse(readRepoFile(`packages/i18n/locales/${locale}/app.json`)) as {
+        settings?: { projectModels?: Record<string, unknown> };
+      };
+      const projectModels = catalog.settings?.projectModels ?? {};
+
+      for (const key of retiredModeKeys) {
+        expect(projectModels).not.toHaveProperty(key);
+      }
+    }
+
+    const englishCatalog = JSON.parse(readRepoFile("packages/i18n/locales/en/app.json")) as {
+      settings: { projectModels: Record<string, string> };
+    };
+    const englishProjectModels = englishCatalog.settings.projectModels;
+    const projectModelsSource = readRepoFile("packages/dashboard/app/components/settings/sections/ProjectModelsSection.tsx");
+
+    for (const phrase of retiredCopy) {
+      expect(englishProjectModels.chatDescription).not.toContain(phrase);
+      expect(englishProjectModels.chatDefaultModelHelp).not.toContain(phrase);
+      expect(projectModelsSource).not.toContain(phrase);
+    }
+
+    expect(englishProjectModels.chatDescription).toContain("New Chat");
+    expect(readRepoFile("packages/i18n/src/resources.d.ts")).not.toContain("chatNewSessionMode");
   });
 });
