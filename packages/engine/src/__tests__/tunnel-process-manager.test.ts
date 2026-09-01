@@ -657,6 +657,60 @@ describe("TunnelProcessManager", () => {
       });
     });
 
+    /*
+    FNXC:RemoteAccess 2026-09-01-03:30:
+    Payload captured verbatim from the operator's live container while its public URL was serving 200.
+    `tailscale funnel <port>` — the exact command this manager spawns — registers a FOREGROUND session,
+    so its config lands under `Foreground.<session-id>` and the top level is empty. Reading only the top
+    level made a healthy, traffic-serving funnel undetectable, so a tunnel that survived a supervised
+    restart was never adopted and the status route reported `stopped` while the URL worked.
+    */
+    it("proves a FOREGROUND funnel, which is the shape `tailscale funnel <port>` actually registers", async () => {
+      mockExecFile.mockImplementation((_command: string, args: string[], optionsOrCallback: unknown, maybeCallback?: (error: Error | null, stdout?: string) => void) => {
+        const callback = typeof optionsOrCallback === "function"
+          ? optionsOrCallback as (error: Error | null, stdout?: string) => void
+          : maybeCallback;
+        const payload = JSON.stringify({
+          Foreground: {
+            bab18534080dc536: {
+              TCP: { "443": { HTTPS: true } },
+              Web: { "fusion-lab-1.barking-vibe.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:4040" } } } },
+              AllowFunnel: { "fusion-lab-1.barking-vibe.ts.net:443": true },
+            },
+          },
+        });
+        callback?.(null, args.join(" ") === "serve status --json" ? payload : "");
+        return {} as never;
+      });
+
+      await expect(new TunnelProcessManager().detectActiveFunnel()).resolves.toEqual({
+        provider: "tailscale",
+        url: "https://fusion-lab-1.barking-vibe.ts.net/",
+        proxyPort: 4040,
+      });
+    });
+
+    it("still proves a persistent (backgrounded) funnel when both scopes are present", async () => {
+      mockExecFile.mockImplementation((_command: string, args: string[], optionsOrCallback: unknown, maybeCallback?: (error: Error | null, stdout?: string) => void) => {
+        const callback = typeof optionsOrCallback === "function"
+          ? optionsOrCallback as (error: Error | null, stdout?: string) => void
+          : maybeCallback;
+        const payload = JSON.stringify({
+          Web: { "box.tail1234.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:4040" } } } },
+          AllowFunnel: { "box.tail1234.ts.net:443": true },
+          Foreground: { session: { AllowFunnel: { "other.tail1234.ts.net:443": true } } },
+        });
+        callback?.(null, args.join(" ") === "serve status --json" ? payload : "");
+        return {} as never;
+      });
+
+      await expect(new TunnelProcessManager().detectActiveFunnel()).resolves.toEqual({
+        provider: "tailscale",
+        url: "https://box.tail1234.ts.net/",
+        proxyPort: 4040,
+      });
+    });
+
     it("reports no active funnel when tailscaled is serving nothing or is unreachable", async () => {
       mockExecFile.mockImplementation((_command: string, _args: string[], optionsOrCallback: unknown, maybeCallback?: (error: Error | null, stdout?: string) => void) => {
         const callback = typeof optionsOrCallback === "function"

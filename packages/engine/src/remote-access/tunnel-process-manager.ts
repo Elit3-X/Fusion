@@ -42,10 +42,34 @@ const execAsync = promisify(exec);
 
 /** Shape of `tailscale serve status --json` that adoption depends on. Everything is optional: the
  * command prints an empty object when nothing is served. */
-interface ServeConfigJson {
+interface ServeConfigScope {
   AllowFunnel?: Record<string, boolean>;
   Web?: Record<string, { Handlers?: Record<string, { Proxy?: string } | undefined> }>;
   TCP?: Record<string, { TCPForward?: string } | undefined>;
+}
+
+/*
+FNXC:RemoteAccess 2026-09-01-03:49:
+`tailscale funnel <port>` runs a FOREGROUND session, and tailscaled files that session's config under
+`Foreground.<session-id>` — NOT at the top level. Reading only the top level found nothing for the
+tunnel Fusion actually spawns, so a funnel surviving a supervised restart was never adopted: the
+status route reported `stopped` with `no_prior_running_marker` while traffic was demonstrably flowing
+and the public URL served 200. Measured on the live container; the same reason `tailscale funnel
+status` prints "No serve config" for a working funnel (it reports only the persistent config).
+
+Top-level scopes are still read first so a backgrounded `tailscale funnel --bg` (persistent config)
+keeps working; foreground sessions are then scanned in turn.
+*/
+interface ServeConfigJson extends ServeConfigScope {
+  Foreground?: Record<string, ServeConfigScope | undefined>;
+}
+
+/** Every scope a funnel may be declared in, most-authoritative first. */
+function serveConfigScopes(config: ServeConfigJson): ServeConfigScope[] {
+  const foreground = Object.values(config.Foreground ?? {}).filter(
+    (scope): scope is ServeConfigScope => Boolean(scope),
+  );
+  return [config, ...foreground];
 }
 
 class LineBuffer {
@@ -380,31 +404,41 @@ export class TunnelProcessManager extends EventEmitter implements TunnelManager 
       return null;
     }
 
-    const funnelHost = Object.entries(config.AllowFunnel ?? {}).find(([, allowed]) => allowed === true)?.[0];
-    if (!funnelHost) {
-      return null;
-    }
-
-    const host = funnelHost.split(":")[0];
-    if (!host) {
-      return null;
-    }
-
+    let funnelHost: string | undefined;
+    let host: string | undefined;
     let proxyPort: number | null = null;
-    const handlers = config.Web?.[funnelHost]?.Handlers ?? {};
-    for (const handler of Object.values(handlers)) {
-      const match = handler?.Proxy?.match(/:(\d+)(?:\/|$)/);
-      if (match?.[1]) {
-        proxyPort = Number(match[1]);
-        break;
+
+    for (const scope of serveConfigScopes(config)) {
+      const candidateHost = Object.entries(scope.AllowFunnel ?? {}).find(([, allowed]) => allowed === true)?.[0];
+      if (!candidateHost) continue;
+      const candidateName = candidateHost.split(":")[0];
+      if (!candidateName) continue;
+
+      let candidatePort: number | null = null;
+      const handlers = scope.Web?.[candidateHost]?.Handlers ?? {};
+      for (const handler of Object.values(handlers)) {
+        const match = handler?.Proxy?.match(/:(\d+)(?:\/|$)/);
+        if (match?.[1]) {
+          candidatePort = Number(match[1]);
+          break;
+        }
       }
+      if (candidatePort === null) {
+        const tcpPort = Object.values(scope.TCP ?? {}).find((entry) => typeof entry?.TCPForward === "string")?.TCPForward;
+        const tcpMatch = tcpPort?.match(/:(\d+)$/);
+        if (tcpMatch?.[1]) {
+          candidatePort = Number(tcpMatch[1]);
+        }
+      }
+
+      funnelHost = candidateHost;
+      host = candidateName;
+      proxyPort = candidatePort;
+      if (proxyPort !== null) break;
     }
-    if (proxyPort === null) {
-      const tcpPort = Object.values(config.TCP ?? {}).find((entry) => typeof entry?.TCPForward === "string")?.TCPForward;
-      const tcpMatch = tcpPort?.match(/:(\d+)$/);
-      if (tcpMatch?.[1]) {
-        proxyPort = Number(tcpMatch[1]);
-      }
+
+    if (!funnelHost || !host) {
+      return null;
     }
 
     return { provider: "tailscale", url: `https://${host}/`, proxyPort };
