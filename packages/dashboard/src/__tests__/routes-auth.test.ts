@@ -1064,6 +1064,26 @@ describe("GET /auth/status", () => {
     expect(res.body.providers).not.toContainEqual(expect.objectContaining({ id: "custom-one" }));
   });
 
+  it("never serializes OAuth material or its derived fingerprint in instance APIs", async () => {
+    (authStorage.listInstances as ReturnType<typeof vi.fn>).mockImplementation((provider: string) => provider === "github-copilot"
+      ? [{ providerId: provider, instanceId: "work" }]
+      : []);
+    (authStorage.getInstance as ReturnType<typeof vi.fn>).mockReturnValue({
+      type: "oauth",
+      access: "access-secret",
+      refresh: "refresh-secret",
+      key: "key-secret",
+      accountFingerprint: "0123456789abcdef",
+      label: "Work account",
+      expires: Date.now() + 60_000,
+    });
+
+    const status = await GET(app, "/api/auth/status");
+    const instances = await GET(app, "/api/auth/providers/github-copilot/instances");
+    expect(JSON.stringify(status.body)).not.toMatch(/access-secret|refresh-secret|key-secret|accountFingerprint|0123456789abcdef/);
+    expect(JSON.stringify(instances.body)).not.toMatch(/access-secret|refresh-secret|key-secret|accountFingerprint|0123456789abcdef/);
+  });
+
   it("reports a legacy Anthropic OAuth shadow row only alongside subscription instances", async () => {
     (authStorage.listInstances as ReturnType<typeof vi.fn>).mockImplementation((provider: string) => provider === "anthropic-subscription"
       ? [{ providerId: provider, instanceId: "work" }] : []);

@@ -2747,12 +2747,14 @@ export { CliSessionStore } from "./cli/cli-session-store.js";
 export type { CliSessionStoreEvents } from "./cli/cli-session-store.js";
 export {
   choosePreferredStoredCredential,
+  computeStoredCredentialAccountFingerprint,
   extractClaudeCliStoredCredential,
   extractCodexCliStoredCredential,
   getClaudeCodeCredentialPaths,
   getCodexCliAuthPath,
   readStoredCredentialsFromAuthFile,
   shouldHydrateStoredCredential,
+  isSameStoredCredentialMaterial,
   isStoredAuthCredential,
 } from "./secrets/oauth-credential-interop.js";
 export type { StoredAuthCredential } from "./secrets/oauth-credential-interop.js";

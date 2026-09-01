@@ -45,6 +45,8 @@ export interface FusionAuthStorage {
   getApiKey(provider: string, instance?: ProviderInstanceRef): Promise<string | undefined>;
   getOAuthProviders(): Array<{ id: string; name: string }>;
   login(provider: string, callbacks: unknown): Promise<void>;
+  /** Holds a cross-process provider lifecycle lock when this storage has a file-backed auth path. */
+  withProviderInstanceLoginLock?<T>(providerId: string, operation: () => Promise<T>): Promise<T>;
   modify(provider: string, fn: (current: StoredCredential | undefined) => Promise<StoredCredential | undefined>): Promise<StoredCredential | undefined>;
   setModelRuntime(modelRuntime: ModelRuntime): void;
 }
@@ -102,6 +104,26 @@ async function withOAuthRefreshLock<T>(
   }
 }
 
+/*
+FNXC:ProviderAuth 2026-09-01-08:10:
+Instance OAuth login keeps a mutable default slot as a transport for the login product. Hold an
+independent auth-path/provider lock across its snapshot, browser login, capture, and restore so
+separate Fusion processes cannot cross-copy concurrent login products between named accounts.
+*/
+async function withOAuthInstanceLoginLock<T>(
+  authPath: string,
+  providerId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const safeProviderId = providerId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const release = await lockfile.lock(`${authPath}.${safeProviderId}.instance-login`, AUTH_LOCK_OPTIONS);
+  try {
+    return await operation();
+  } finally {
+    await release();
+  }
+}
+
 type AuthFileData = Record<string, unknown>;
 type DefaultInstanceMap = Record<string, string>;
 
@@ -123,6 +145,11 @@ class FusionFileAuthStorage implements FusionAuthStorage {
   private modelRuntime: ModelRuntime | undefined;
 
   constructor(private readonly authPath: string) { this.reload(); }
+
+  async withProviderInstanceLoginLock<T>(providerId: string, operation: () => Promise<T>): Promise<T> {
+    return withOAuthInstanceLoginLock(this.authPath, providerId, operation);
+  }
+
   private ensureFile(): void {
     const parent = dirname(this.authPath);
     if (!existsSync(parent)) mkdirSync(parent, { recursive: true, mode: 0o700 });
