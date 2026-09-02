@@ -1,5 +1,12 @@
 # @fusion-plugin-examples/todos
 
+## 0.1.4
+
+### Patch Changes
+
+- @fusion/core@0.77.0
+- @fusion/plugin-sdk@0.77.0
+
 ## 0.1.4-beta.14
 
 ### Patch Changes
