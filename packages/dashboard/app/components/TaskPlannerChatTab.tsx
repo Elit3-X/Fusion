@@ -289,6 +289,11 @@ function isQuestionAnswerFor(message: ChatMessage, parsed: ParsedQuestionToolCal
 }
 
 function toStandardChatMessage(message: ChatMessage): ChatMessageInfo {
+  /*
+  FNXC:AITransparency 2026-09-04-04:44:
+  Planner Chat reuses the shared persisted-message renderer, so per-turn provider/model metadata
+  must survive this mapping. Dropping it would make historic planner output inherit displayedModel.
+  */
   return {
     id: message.id,
     sessionId: message.sessionId,
@@ -296,6 +301,7 @@ function toStandardChatMessage(message: ChatMessage): ChatMessageInfo {
     content: message.content,
     thinkingOutput: message.thinkingOutput,
     toolCalls: extractToolCalls(message),
+    ...(message.metadata ? { metadata: message.metadata } : {}),
     createdAt: message.createdAt,
   };
 }
