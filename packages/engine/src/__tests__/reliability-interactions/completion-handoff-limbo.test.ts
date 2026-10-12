@@ -162,16 +162,13 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
     const store = createStore(limboTask(task));
     const requeueForAutoMerge = vi.fn(() => true);
     const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
-
     await manager.recoverCompletionHandoffLimbo();
-
     expect(store.listWorkflowWorkItemsForTask).not.toHaveBeenCalled();
     expect(store.enqueueMergeQueue).not.toHaveBeenCalled();
     expect(store.logEntry).not.toHaveBeenCalled();
     expect(store.updateTask).not.toHaveBeenCalled();
     expect(requeueForAutoMerge).not.toHaveBeenCalled();
   });
-
   it("skips active tasks", async () => {
     const requeueForAutoMerge = vi.fn(() => true);
     const store = createStore(limboTask());
