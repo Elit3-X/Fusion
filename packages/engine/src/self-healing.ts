@@ -14105,7 +14105,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     this.completionHandoffGateWaitKeys.add(key);
     await this.store.logEntry(task.id, action);
   }
-
   async recoverCompletionHandoffLimbo(): Promise<void> {
     const settings = await this.store.getSettings();
     if (settings.globalPause || settings.enginePaused) return;
@@ -14114,7 +14113,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     `listTasks({ column: "in-review" })` returned EMPTY on a renamed board, so a task stranded in
     completion-handoff limbo — falsely marked exhausted while the merge queue already owns it — was never
     cleared and stayed wedged.
-
     Activation check first: this is one of the three remaining sweeps holding both a literal query and an
     unwired `getTaskMergeBlocker`, so the guard is wired in the same change. This loop is already async,
     so the per-card resolution happens inline rather than needing a precomputed map.
@@ -14138,7 +14136,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       return own.length > 0 ? new Set(own) : new Set(["in-review"]);
     };
     const now = Date.now();
-
     for (const task of tasks) {
       // A user hold must be as side-effect-free as a scheduler pause: do not even
       // resolve workflow lanes or inspect queue ownership for either pause form.
@@ -14161,7 +14158,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       if (task.status != null || task.mergeDetails != null || task.review != null || task.reviewState != null) continue;
       if (this.options.isTaskActive?.(task.id)) continue;
       if (await this.isMergeLaneOwned(task.id)) continue;
-
       /*
       FNXC:PreMergeGateRecovery 2026-10-12:
       Recovery is a merge admission path. Resolve the exact selected workflow and
@@ -14194,7 +14190,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
         await this.recordCompletionHandoffGateWait(task, mergeBlocker, mergeGate, mergeContent);
         continue;
       }
-
       const doneMarker = [...(task.log ?? [])].reverse().find((entry) => entry.action === "Task marked done by agent");
       if (!doneMarker?.timestamp) continue;
       const markerTs = Date.parse(doneMarker.timestamp);
