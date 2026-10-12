@@ -997,7 +997,6 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
   private readonly staleContentParkRecoveryAttempts = new Map<string, number>();
   private readonly staleContentParkRecoveryBudgetLogged = new Set<string>();
   private readonly unrunPreMergeGateRerouteAuditKeys = new Set<string>();
-  private readonly completionHandoffGateWaitKeys = new Set<string>();
   private readonly githubCheckStateRetentionLastPrunedAt = new Map<string, number>();
   private readonly processBootStartedAt = Date.now();
   private lastDbCorruptionNotifiedAt: number | null = null;
@@ -10126,7 +10125,16 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       */
       const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
 
-      const mergeAdmission = await Promise.all(tasks.map(async (task) => [
+      /*
+      FNXC:PreMergeGateRecovery 2026-10-12:
+      A user pause is an operator-owned hard stop, not merely a merge-queue
+      preference. Exclude it before merge admission so the normal recovery
+      sweep cannot inspect, reseed, log, enqueue, or mutate counters for a
+      held card. Scheduler pauses retain their established failed-gate repair
+      route below and remain excluded from ordinary merge admission.
+      */
+      const nonUserPausedTasks = tasks.filter((task) => task.userPaused !== true);
+      const mergeAdmission = await Promise.all(nonUserPausedTasks.map(async (task) => [
         task.id,
         await this.canRecoverMergeRequest(task, settings),
       ] as const));
@@ -10135,7 +10143,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       // Re-prove their real blocker before releasing only that stale failure. A
       // crash after the clear is safe: ordinary recovery will seed the idle gate.
       const recoveredUnrunGateIds = new Set<string>();
-      for (const task of tasks) {
+      for (const task of nonUserPausedTasks) {
         if (!isRecoverableUnrunGatePark(task) || !mergeAdmissionByTaskId.get(task.id)
           || executingIds.has(task.id)) continue;
         try {
@@ -10205,7 +10213,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
           log.warn(`Unrun pre-merge gate recovery deferred for ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      const mergeable = tasks.filter((t) =>
+      const mergeable = nonUserPausedTasks.filter((t) =>
         !recoveredUnrunGateIds.has(t.id) &&
         mergeAdmissionByTaskId.get(t.id) === true &&
         !t.paused &&
@@ -10290,7 +10298,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       clearing a failed card, so ordinary failures remain excluded from merge recovery.
       */
       const hiddenStaleContentCandidateIds = new Set<string>();
-      for (const task of tasks) {
+      for (const task of nonUserPausedTasks) {
         if (mergeable.includes(task)) continue;
         const parkShape = classifyStaleContentPark(task);
         if (!parkShape || mergeAdmissionByTaskId.get(task.id) !== true || executingIds.has(task.id)
@@ -10341,9 +10349,14 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       const unownedMergeable = laneQualifiedMergeable.filter((_, i) => !ownershipFlags[i]);
 
       const inReviewIds = new Set(tasks.map((task) => task.id));
+      const userPausedReviewIds = new Set(tasks
+        .filter((task) => task.userPaused === true)
+        .map((task) => task.id));
       const mergeableIds = new Set(unownedMergeable.map((task) => task.id));
       for (const taskId of [...this.mergeStarvationDrops.keys()]) {
-        if (!inReviewIds.has(taskId) || !mergeableIds.has(taskId)) {
+        // Preserve a user-held card's counter exactly: a user pause must not
+        // cause this normal-recovery sweep to mutate task-specific state.
+        if (!inReviewIds.has(taskId) || (!userPausedReviewIds.has(taskId) && !mergeableIds.has(taskId))) {
           this.mergeStarvationDrops.delete(taskId);
         }
       }
@@ -14098,12 +14111,18 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       approvals,
       mergeContent,
     })).digest("hex");
-    const key = `${task.id}:${signature}`;
     const action = `[pre-merge] completion-handoff gate wait:${signature}; ${blocker}`;
-    if (this.completionHandoffGateWaitKeys.has(key)
-      || task.log?.some((entry) => entry.action === action)) return;
-    this.completionHandoffGateWaitKeys.add(key);
-    await this.store.logEntry(task.id, action);
+    /*
+    The production TaskStore claims this dedupe key while holding the task's
+    PostgreSQL advisory lock. Do not pre-read task.log or rely on this engine
+    instance: distinct recovery workers can otherwise append the same wait
+    reason concurrently.
+    */
+    await this.store.logEntryOnce(task.id, {
+      action,
+      dedupeKey: `completion-handoff-gate-wait:${signature}`,
+      windowMs: Number.MAX_SAFE_INTEGER,
+    });
   }
   async recoverCompletionHandoffLimbo(): Promise<void> {
     const settings = await this.store.getSettings();

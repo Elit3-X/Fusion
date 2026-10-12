@@ -22,8 +22,20 @@ function doneMarker(minutesAgo = 6) {
   return { action: "Task marked done by agent", timestamp: new Date(Date.now() - minutesAgo * 60_000).toISOString() } as any;
 }
 
-function createStore(task: Task, mergeQueuedTaskIds: string[] = []) {
+function createStore(
+  task: Task,
+  mergeQueuedTaskIds: string[] = [],
+  logEntryOnce?: (taskId: string, input: { action: string; outcome?: string; dedupeKey: string; windowMs: number }) => Promise<boolean>,
+) {
   let current = { ...task } as Task;
+  const logEntry = vi.fn(async () => undefined);
+  const recordedKeys = new Set<string>();
+  const atomicLogEntryOnce = vi.fn(async (taskId: string, input: { action: string; outcome?: string; dedupeKey: string; windowMs: number }) => {
+    if (recordedKeys.has(input.dedupeKey)) return false;
+    recordedKeys.add(input.dedupeKey);
+    await logEntry(taskId, input.action, input.outcome);
+    return true;
+  });
   return {
     getSettings: vi.fn(async () => ({ globalPause: false, enginePaused: false })),
     listTasks: vi.fn(async () => [current]),
@@ -45,7 +57,8 @@ function createStore(task: Task, mergeQueuedTaskIds: string[] = []) {
       attemptCount: 0,
       lastError: null,
     }))),
-    logEntry: vi.fn(async () => undefined),
+    logEntry,
+    logEntryOnce: logEntryOnce ?? atomicLogEntryOnce,
     recordRunAuditEvent: vi.fn(async () => undefined),
     _get: () => current,
   } as any;
@@ -134,6 +147,39 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
     expect(requeueForAutoMerge).not.toHaveBeenCalled();
     expect(store.logEntry.mock.calls.filter((call: any[]) => String(call[1]).startsWith("[pre-merge] completion-handoff gate wait:")).length).toBe(1);
   });
+  it("persists one gate wait when concurrent recovery workers observe the same signature", async () => {
+    const persistedWaitActions: string[] = [];
+    const persistedWaitKeys = new Set<string>();
+    const logEntryOnce = vi.fn(async (_taskId: string, input: { action: string; dedupeKey: string }) => {
+      // Yield once so both independent managers observe the same initial task
+      // snapshot before the shared durable claim decides the append.
+      await Promise.resolve();
+      if (persistedWaitKeys.has(input.dedupeKey)) return false;
+      persistedWaitKeys.add(input.dedupeKey);
+      persistedWaitActions.push(input.action);
+      return true;
+    });
+    const task = limboTask({
+      enabledWorkflowSteps: ["code-review"],
+      workflowStepResults: [{ workflowStepId: "code-review", status: "pending" }],
+    });
+    const firstStore = createStore(task, [], logEntryOnce);
+    const secondStore = createStore(task, [], logEntryOnce);
+    firstStore.getTaskWorkflowSelectionAsync = vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] }));
+    secondStore.getTaskWorkflowSelectionAsync = vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] }));
+
+    await Promise.all([
+      new SelfHealingManager(firstStore, { rootDir: "/repo", requeueForAutoMerge: vi.fn(() => true) }).recoverCompletionHandoffLimbo(),
+      new SelfHealingManager(secondStore, { rootDir: "/repo", requeueForAutoMerge: vi.fn(() => true) }).recoverCompletionHandoffLimbo(),
+    ]);
+
+    expect(logEntryOnce).toHaveBeenCalledTimes(2);
+    expect(persistedWaitActions).toHaveLength(1);
+    expect(persistedWaitActions[0]).toMatch(/^\[pre-merge\] completion-handoff gate wait:/);
+    expect(firstStore.enqueueMergeQueue).not.toHaveBeenCalled();
+    expect(secondStore.enqueueMergeQueue).not.toHaveBeenCalled();
+  });
+
   it("re-evaluates a changed gate signature without replaying the prior wait", async () => {
     const store = createStore(limboTask({ enabledWorkflowSteps: ["code-review"] }));
     store.getTaskWorkflowSelectionAsync = vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] }));
