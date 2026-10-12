@@ -24,12 +24,13 @@ import { isPostMergeGateRecoveryDue, resumeMissingPostMergeGate } from "./merge/
  */
 
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { setImmediate as setImmediateCb } from "node:timers";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { PRE_MERGE_STEPS_NOT_RUN_BLOCKER, loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, hasUserAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getMergeConfirmedFinalizationBlocker, getPostMergeFinalizeBlocker, getRequiredPostMergeEvidenceBlocker, getRequiredPostMergeEvidenceDecision, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isStaleContentApprovalBlocker, resolvePreMergeGateForTask, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, isWipColumnRole, isReviewColumnRole, isTerminalColumnRole, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, resolveUnprovenReviewApproval, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr, type WorkflowIrV2,
+import { PRE_MERGE_STEPS_NOT_RUN_BLOCKER, loadWorkspaceConfig, type TaskMoveLanes, resolveColumnFlags, IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, IN_REVIEW_STALL_TERMINAL_LOG_PREFIX, allowsAutoMergeProcessing, hasSharedBranchMemberAutoMergeHold, hasUserAutoMergeHold, resolveEffectiveAutoMerge, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, evaluateNoCommitsNoOpFinalize, evaluateCompletedPromotionFailureProvenance, evaluatePreMergeApprovals, evaluateSkipBypassTaint, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getMergeConfirmedFinalizationBlocker, getPostMergeFinalizeBlocker, getRequiredPostMergeEvidenceBlocker, getRequiredPostMergeEvidenceDecision, planConfirmedMergeChecklistReconciliation, getTaskMergeBlocker, isStaleContentApprovalBlocker, resolvePreMergeGateForTask, isEphemeralAgent, isMergeRequestContractShadowEnabled, isWorkspaceTask, isSharedBranchGroupMemberIntegration, isLiveSharedBranchGroupMemberIntegration, isNearDuplicateCanonicalInactive, resolveExplicitDuplicateMarker, flagTriageDuplicate, isTriageDuplicateKeepAcknowledged, resolveMaxAutoMergeRetries, resolveOptionalStepRevisionBudget, resolveOptionalReviewRevisionBudget, getBuiltinWorkflow, isBuiltinWorkflowId, resolveWorkflowIrForTask, resolveWorkflowIrForTaskWithProvenance, resolveRequiredPreMergeStepIds, resolveReboundTarget, columnsWithFlag, resolveLifecycleColumns, resolveTaskLifecycleColumns, isWipColumnRole, isReviewColumnRole, isTerminalColumnRole, workflowHasColumn, planLegacyAdoption, resolveOrphanedPendingStepResults, resolveUnprovenReviewApproval, classifyReviewLease, PLAN_REVIEW_LEASE_STALENESS_MS, DEFAULT_MAX_POST_REVIEW_FIXES, ACTIVE_WORKFLOW_WORK_ITEM_STATES, AWAITING_APPROVAL_PAUSE_REASON, type Agent, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type MoveTaskOptions, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult, type WorkflowStepResult, type WorkflowIr, type WorkflowIrV2,
 
   resolveNearDuplicateCanonicalFlags,
   LEGACY_COLUMN_IDS_BY_ROLE,
@@ -996,6 +997,7 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
   private readonly staleContentParkRecoveryAttempts = new Map<string, number>();
   private readonly staleContentParkRecoveryBudgetLogged = new Set<string>();
   private readonly unrunPreMergeGateRerouteAuditKeys = new Set<string>();
+  private readonly completionHandoffGateWaitKeys = new Set<string>();
   private readonly githubCheckStateRetentionLastPrunedAt = new Map<string, number>();
   private readonly processBootStartedAt = Date.now();
   private lastDbCorruptionNotifiedAt: number | null = null;
@@ -14077,6 +14079,33 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
    * off without an explicit per-task `autoMerge: true` override) — PR-based
    * review flow owns lifecycle until human merge.
    */
+  private async recordCompletionHandoffGateWait(
+    task: Task,
+    blocker: string,
+    mergeGate?: ResolvedMergeRecoveryGate,
+    mergeContent?: CapturedMergeRecoveryContent,
+  ): Promise<void> {
+    const approvals = mergeGate && mergeContent
+      ? evaluatePreMergeApprovals(task, {
+        requiredPreMergeStepIds: mergeGate.requiredPreMergeStepIds,
+        mergeContent,
+      }).map(({ workflowStepId, state }) => [workflowStepId, state] as const).sort(([left], [right]) => left.localeCompare(right))
+      : [];
+    const signature = createHash("sha256").update(JSON.stringify({
+      taskId: task.id,
+      blocker,
+      requiredPreMergeStepIds: mergeGate ? [...mergeGate.requiredPreMergeStepIds].sort() : [],
+      approvals,
+      mergeContent,
+    })).digest("hex");
+    const key = `${task.id}:${signature}`;
+    const action = `[pre-merge] completion-handoff gate wait:${signature}; ${blocker}`;
+    if (this.completionHandoffGateWaitKeys.has(key)
+      || task.log?.some((entry) => entry.action === action)) return;
+    this.completionHandoffGateWaitKeys.add(key);
+    await this.store.logEntry(task.id, action);
+  }
+
   async recoverCompletionHandoffLimbo(): Promise<void> {
     const settings = await this.store.getSettings();
     if (settings.globalPause || settings.enginePaused) return;
@@ -14111,7 +14140,9 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
     const now = Date.now();
 
     for (const task of tasks) {
-      if (task.paused) continue;
+      // A user hold must be as side-effect-free as a scheduler pause: do not even
+      // resolve workflow lanes or inspect queue ownership for either pause form.
+      if (task.paused === true || task.userPaused === true) continue;
       const limboReviewLanes = await ownLimboReviewLanes(task);
       if (!limboReviewLanes.has(task.column)) continue;
       if (await this.isFalseCompletionHandoffExhaustionWhileMergeOwned(task)) {
@@ -14130,8 +14161,39 @@ export class SelfHealingManager extends SelfHealingGitEvidence {
       if (task.status != null || task.mergeDetails != null || task.review != null || task.reviewState != null) continue;
       if (this.options.isTaskActive?.(task.id)) continue;
       if (await this.isMergeLaneOwned(task.id)) continue;
-      /* Wired: unwired, this would skip every card the widened read now finds. */
-      if (getTaskMergeBlocker(task, { reviewColumns: limboReviewLanes }) !== undefined) continue;
+
+      /*
+      FNXC:PreMergeGateRecovery 2026-10-12:
+      Recovery is a merge admission path. Resolve the exact selected workflow and
+      content discriminator before it can mutate the merge queue, matching the
+      ordinary merge-recovery path. A result-less required gate is workflow work,
+      not a merge retry.
+      */
+      let mergeGate: ResolvedMergeRecoveryGate;
+      let mergeContent: CapturedMergeRecoveryContent;
+      try {
+        mergeGate = await resolvePreMergeGateForTask(this.store, task.id, task.enabledWorkflowSteps, task);
+        if (mergeGate.provenance === "default" && !mergeGate.selectionAbsent) {
+          await this.recordCompletionHandoffGateWait(task, "merge gate could not resolve the task workflow", mergeGate);
+          continue;
+        }
+        mergeContent = await captureMergeContentDescriptor(task, { workspaceRootDir: this.options.rootDir, settings });
+      } catch {
+        await this.recordCompletionHandoffGateWait(task, "merge gate could not resolve the task workflow");
+        continue;
+      }
+      const mergeBlocker = getTaskMergeBlocker(task, {
+        reviewColumns: limboReviewLanes,
+        requiredPreMergeStepIds: mergeGate.requiredPreMergeStepIds,
+        mergeContent,
+      });
+      if (mergeBlocker !== undefined) {
+        if (mergeBlocker === PRE_MERGE_STEPS_NOT_RUN_BLOCKER) {
+          await this.routeUnrunPreMergeGateBackToReview(task, limboReviewLanes, mergeGate, mergeContent, mergeGate.expectedWorkflowSelection);
+        }
+        await this.recordCompletionHandoffGateWait(task, mergeBlocker, mergeGate, mergeContent);
+        continue;
+      }
 
       const doneMarker = [...(task.log ?? [])].reverse().find((entry) => entry.action === "Task marked done by agent");
       if (!doneMarker?.timestamp) continue;

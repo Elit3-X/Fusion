@@ -28,6 +28,7 @@ function createStore(task: Task, mergeQueuedTaskIds: string[] = []) {
     getSettings: vi.fn(async () => ({ globalPause: false, enginePaused: false })),
     listTasks: vi.fn(async () => [current]),
     getBranchGroup: vi.fn(async () => null),
+    listWorkflowWorkItemsForTask: vi.fn(async () => []),
     updateTask: vi.fn(async (_id: string, updates: Partial<Task>) => {
       current = { ...current, ...updates } as Task;
       return current;
@@ -88,6 +89,71 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
     expect(event.metadata.ageMs).toBeGreaterThanOrEqual(COMPLETION_HANDOFF_LIMBO_GRACE_MS);
   });
 
+  it("re-seeds an enabled missing gate once and never re-emits merge", async () => {
+    const store = createStore(limboTask({ enabledWorkflowSteps: ["code-review"] }));
+    store.getTaskWorkflowSelectionAsync = vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] }));
+    let seeded = false;
+    store.seedWorkspaceCodeReviewContinuationIfIdle = vi.fn(async () => {
+      if (seeded) return { seeded: false, reason: "active-continuation" };
+      seeded = true;
+      return { seeded: true, reason: "seeded" };
+    });
+    const requeueForAutoMerge = vi.fn(() => true);
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
+
+    await manager.recoverCompletionHandoffLimbo();
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(store.seedWorkspaceCodeReviewContinuationIfIdle).toHaveBeenCalledTimes(2);
+    expect(seeded).toBe(true);
+    expect(store.seedWorkspaceCodeReviewContinuationIfIdle).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: "FN-4999-T",
+      nodeId: "code-review",
+      kind: "task",
+      state: "runnable",
+      expectedWorkflowSelection: { workflowId: "builtin:coding", stepIds: [] },
+    }));
+    expect(store.enqueueMergeQueue).not.toHaveBeenCalled();
+    expect(requeueForAutoMerge).not.toHaveBeenCalled();
+    expect(store.logEntry.mock.calls.filter((call: any[]) => String(call[1]).startsWith("[pre-merge] completion-handoff gate wait:")).length).toBe(1);
+  });
+
+  it.each([
+    { label: "pending", result: { workflowStepId: "code-review", status: "pending" } },
+    { label: "failed", result: { workflowStepId: "code-review", status: "failed" } },
+    { label: "stale", result: { workflowStepId: "code-review", status: "passed", verdict: "APPROVE", reviewInputFingerprint: "older-content" } },
+  ])("waits once and never merges when an enabled gate is $label", async ({ result }) => {
+    const store = createStore(limboTask({
+      enabledWorkflowSteps: ["code-review"],
+      workflowStepResults: [result as any],
+    }));
+    store.getTaskWorkflowSelectionAsync = vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] }));
+    const requeueForAutoMerge = vi.fn(() => true);
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
+
+    await manager.recoverCompletionHandoffLimbo();
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(store.seedWorkspaceCodeReviewContinuationIfIdle).toBeUndefined();
+    expect(store.enqueueMergeQueue).not.toHaveBeenCalled();
+    expect(requeueForAutoMerge).not.toHaveBeenCalled();
+    expect(store.logEntry.mock.calls.filter((call: any[]) => String(call[1]).startsWith("[pre-merge] completion-handoff gate wait:")).length).toBe(1);
+  });
+
+  it("re-evaluates a changed gate signature without replaying the prior wait", async () => {
+    const store = createStore(limboTask({ enabledWorkflowSteps: ["code-review"] }));
+    store.getTaskWorkflowSelectionAsync = vi.fn(async () => ({ workflowId: "builtin:coding", stepIds: [] }));
+    store.seedWorkspaceCodeReviewContinuationIfIdle = vi.fn(async () => ({ seeded: false, reason: "active-continuation" }));
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge: vi.fn(() => true) });
+
+    await manager.recoverCompletionHandoffLimbo();
+    store._get().workflowStepResults = [{ workflowStepId: "code-review", status: "pending" }];
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(store.logEntry.mock.calls.filter((call: any[]) => String(call[1]).startsWith("[pre-merge] completion-handoff gate wait:")).length).toBe(2);
+    expect(store.enqueueMergeQueue).not.toHaveBeenCalled();
+  });
+
   it("is no-op before grace period elapses", async () => {
     const store = createStore(limboTask({ log: [doneMarker(0.5)] }));
     const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge: vi.fn(() => true) });
@@ -95,6 +161,24 @@ describe("FN-4999 reliability interactions: completion-handoff-limbo", () => {
     expect(store.updateTask).not.toHaveBeenCalled();
     expect(store.logEntry).not.toHaveBeenCalled();
     expect(store.recordRunAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "scheduler pause", task: { paused: true } },
+    { label: "user pause", task: { userPaused: true } },
+    { label: "KB-2751-shaped user pause", task: { id: "KB-2751", userPaused: true } },
+  ])("does not perform task-specific recovery side effects for $label", async ({ task }) => {
+    const store = createStore(limboTask(task));
+    const requeueForAutoMerge = vi.fn(() => true);
+    const manager = new SelfHealingManager(store, { rootDir: "/repo", requeueForAutoMerge });
+
+    await manager.recoverCompletionHandoffLimbo();
+
+    expect(store.listWorkflowWorkItemsForTask).not.toHaveBeenCalled();
+    expect(store.enqueueMergeQueue).not.toHaveBeenCalled();
+    expect(store.logEntry).not.toHaveBeenCalled();
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(requeueForAutoMerge).not.toHaveBeenCalled();
   });
 
   it("skips active tasks", async () => {
